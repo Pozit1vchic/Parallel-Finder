@@ -1,0 +1,48 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "ucrt64-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "ucrt64-debug",
+      "inherits": "ucrt64-base",
+      "displayName": "UCRT64 Debug (MSYS2 GCC)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "ucrt64-release",
+      "inherits": "ucrt64-base",
+      "displayName": "UCRT64 Release (MSYS2 GCC)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "ucrt64-debug", "configurePreset": "ucrt64-debug" },
+    { "name": "ucrt64-release", "configurePreset": "ucrt64-release" }
+  ],
+  "testPresets": [
+    {
+      "name": "ucrt64-debug",
+      "configurePreset": "ucrt64-debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "ucrt64-release",
+      "configurePreset": "ucrt64-release",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

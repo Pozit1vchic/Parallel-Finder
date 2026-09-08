@@ -1,0 +1,12 @@
+* text=auto
+*.cpp text
+*.hpp text
+*.h text
+*.cmake text
+CMakeLists.txt text
+*.json text
+*.qml text
+*.yml text
+*.md text
+*.png binary
+*.ico binary

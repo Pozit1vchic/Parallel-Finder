@@ -1,0 +1,24 @@
+# Build directories
+build/
+out/
+cmake-build-*/
+
+# Models are never committed (AGPL-3.0 weights, fetched at first run / release)
+models/*.onnx
+models/*.pt
+models/*.engine
+models/*.trt
+
+# Cache
+cache/
+
+# IDE / tooling
+.vs/
+.vscode/
+.idea/
+compile_commands.json
+.clangd/
+
+# OS noise
+Thumbs.db
+desktop.ini
