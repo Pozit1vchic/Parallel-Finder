@@ -25,7 +25,9 @@ qt_add_qml_module(pfui
 # (AppInfo::registerQmlTypes) by the app/tests. See AppInfo.h.
 target_sources(pfui PRIVATE
     src/AppInfo.cpp
+    src/AnalysisController.cpp
 )
+target_link_libraries(pfui PUBLIC pf::core)
 
 # Static import of the module plugin: qt_add_qml_module writes "optional
 # plugin pfuiplugin" into qmldir, but shared-Qt builds do not link static

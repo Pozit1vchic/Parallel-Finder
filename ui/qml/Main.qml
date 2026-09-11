@@ -19,8 +19,6 @@ ApplicationWindow {
     color: Theme.background
 
     property var sourceFiles: []
-    property bool analysisRunning: false
-    property int analysisProgress: 0
 
     FileDialog {
         id: fileDialog
@@ -33,6 +31,7 @@ ApplicationWindow {
                 if (root.sourceFiles.indexOf(path) < 0) root.sourceFiles.push(path)
             }
             root.sourceFilesChanged()
+            Analysis.inspectFiles(root.sourceFiles)
         }
     }
 
@@ -150,7 +149,7 @@ ApplicationWindow {
                     Slider { id: candidate; width: parent.width; from: 0.1; to: 0.95; value: 0.55; ToolTip.visible: hovered; ToolTip.text: "Порог кандидата: " + value.toFixed(2) }
                     Text { text: "Порог схожести  " + Math.round(similarity.value * 100) + "%"; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall }
                     Text { text: "Порог кандидата  " + Math.round(candidate.value * 100) + "%"; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall }
-                    Button { text: "Запустить анализ"; width: parent.width; enabled: false; ToolTip.visible: hovered; ToolTip.text: "Подключение pose-модели выполняется на следующем этапе" }
+                    Button { text: Analysis.busy ? "Открываем файлы…" : "Проверить файлы"; width: parent.width; enabled: root.sourceFiles.length > 0 && !Analysis.busy; onClicked: Analysis.inspectFiles(root.sourceFiles) }
                 }
             }
 
@@ -171,7 +170,8 @@ ApplicationWindow {
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeTitle
                     }
-                    Text { text: root.sourceFiles.length === 0 ? "Добавьте видео слева, чтобы начать" : root.analysisRunning ? "Подготовка кадров…" : root.sourceFiles.length + " файлов готовы к анализу"; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeBody }
+                    Text { text: Analysis.status.length > 0 ? Analysis.status : "Добавьте видео слева, чтобы начать"; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeBody; wrapMode: Text.WordWrap; width: parent.width }
+                    Text { text: Analysis.fileCount > 0 ? Analysis.fileCount + " файлов · " + Math.round(Analysis.durationSeconds) + " с · " + Analysis.frameCount + " кадров" : ""; color: Theme.sage; font.pixelSize: Theme.fontSizeSmall }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: L10n.t("center.empty")

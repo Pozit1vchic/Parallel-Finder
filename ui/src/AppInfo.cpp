@@ -1,4 +1,5 @@
 #include "AppInfo.h"
+#include "AnalysisController.h"
 
 #include <QCoreApplication>
 #include <QQmlEngine>
@@ -21,6 +22,7 @@ void AppInfo::registerQmlTypes()
     // C++-registered URI also avoids the one-engine limitation of
     // qmlRegisterSingletonInstance on module URIs backed by a plugin.
     qmlRegisterSingletonInstance("PfUiBridge", 1, 0, "AppInfo", instance());
+    AnalysisController::registerQmlTypes();
 }
 
 AppInfo::AppInfo(QObject* parent)
