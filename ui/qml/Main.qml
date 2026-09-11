@@ -161,7 +161,7 @@ ApplicationWindow {
                             color: Theme.canvas
                             radius: 10
                             border.color: Theme.hairline
-                            Column { anchors.centerIn: parent; spacing: 12
+                            Column { anchors.centerIn: parent; spacing: 12; visible: root.selectedResultIndex < 0
                                 Rectangle { anchors.horizontalCenter: parent.horizontalCenter; width: 190; height: 190; radius: 95; color: "transparent"; border.color: Theme.accent; border.width: 1
                                     Rectangle { anchors.centerIn: parent; width: 128; height: 128; radius: 64; color: "transparent"; border.color: Theme.sage; border.width: 1
                                         Rectangle { anchors.centerIn: parent; width: 48; height: 48; radius: 24; color: Theme.panel; border.color: Theme.textPrimary; border.width: 1 }
@@ -169,6 +169,30 @@ ApplicationWindow {
                                 }
                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.selectedResultIndex >= 0 ? "Пара " + (root.selectedResultIndex + 1) + " выбрана" : (Analysis.fileCount > 0 ? "Движение готово к сравнению" : "Добавьте видео, чтобы начать"); color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 17 }
                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.selectedResultIndex >= 0 ? Analysis.resultItems[root.selectedResultIndex] : (Analysis.fileCount > 0 ? Analysis.poseDetectionCount + " поз  ·  " + Analysis.matchCount + " пар" : "В центре появится превью пары"); color: Theme.textSecondary; font.pixelSize: 11 }
+                            }
+                            Row { anchors.centerIn: parent; width: parent.width - 36; height: parent.height - 36; spacing: 10; visible: root.selectedResultIndex >= 0
+                                Rectangle { width: (parent.width - 10) / 2; height: parent.height; color: Theme.panel; radius: 8; border.color: Theme.hairline
+                                    Column { anchors.fill: parent; anchors.margins: 12; spacing: 8
+                                        Text { text: "A  ·  " + (Analysis.resultItems[root.selectedResultIndex] || ""); color: Theme.textPrimary; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
+                                        Rectangle { width: parent.width; height: parent.height - 42; color: Theme.canvas; radius: 5
+                                            Column { anchors.centerIn: parent; spacing: 6
+                                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "A"; color: Theme.accent; font.family: "Georgia"; font.pixelSize: 30 }
+                                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "левый фрагмент"; color: Theme.textDisabled; font.pixelSize: 10 }
+                                            }
+                                        }
+                                    }
+                                }
+                                Rectangle { width: (parent.width - 10) / 2; height: parent.height; color: Theme.panel; radius: 8; border.color: Theme.hairline
+                                    Column { anchors.fill: parent; anchors.margins: 12; spacing: 8
+                                        Text { text: "B  ·  " + (Analysis.resultItems[root.selectedResultIndex] || ""); color: Theme.textPrimary; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
+                                        Rectangle { width: parent.width; height: parent.height - 42; color: Theme.canvas; radius: 5
+                                            Column { anchors.centerIn: parent; spacing: 6
+                                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "B"; color: Theme.sage; font.family: "Georgia"; font.pixelSize: 30 }
+                                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "правый фрагмент"; color: Theme.textDisabled; font.pixelSize: 10 }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         Row { width: parent.width
@@ -178,7 +202,8 @@ ApplicationWindow {
                         }
                         Rectangle { width: parent.width; height: 30; color: Theme.panelAlt; radius: 5
                             Rectangle { x: 8; y: 7; width: parent.width * 0.2; height: 16; color: Theme.sageMuted; radius: 3 }
-                            Rectangle { x: parent.width * 0.52; y: 5; width: 2; height: 20; color: Theme.accent }
+                            Rectangle { x: root.selectedResultIndex >= 0 ? parent.width * 0.32 : parent.width * 0.52; y: 5; width: 2; height: 20; color: Theme.accent }
+                            Rectangle { visible: root.selectedResultIndex >= 0; x: parent.width * 0.68; y: 5; width: 2; height: 20; color: Theme.sage }
                         }
                     }
                 }
