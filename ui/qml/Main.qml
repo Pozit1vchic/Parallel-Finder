@@ -149,7 +149,7 @@ ApplicationWindow {
                     Slider { id: candidate; width: parent.width; from: 0.1; to: 0.95; value: 0.55; ToolTip.visible: hovered; ToolTip.text: "Порог кандидата: " + value.toFixed(2) }
                     Text { text: "Порог схожести  " + Math.round(similarity.value * 100) + "%"; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall }
                     Text { text: "Порог кандидата  " + Math.round(candidate.value * 100) + "%"; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall }
-                    Button { text: Analysis.busy ? "Открываем файлы…" : "Проверить файлы"; width: parent.width; enabled: root.sourceFiles.length > 0 && !Analysis.busy; onClicked: Analysis.inspectFiles(root.sourceFiles) }
+                    Button { text: Analysis.busy ? "Анализ выполняется…" : "Запустить анализ сцен"; width: parent.width; enabled: root.sourceFiles.length > 0 && !Analysis.busy; onClicked: Analysis.analyzeFiles(root.sourceFiles) }
                 }
             }
 
@@ -171,7 +171,7 @@ ApplicationWindow {
                         font.pixelSize: Theme.fontSizeTitle
                     }
                     Text { text: Analysis.status.length > 0 ? Analysis.status : "Добавьте видео слева, чтобы начать"; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeBody; wrapMode: Text.WordWrap; width: parent.width }
-                    Text { text: Analysis.fileCount > 0 ? Analysis.fileCount + " файлов · " + Math.round(Analysis.durationSeconds) + " с · " + Analysis.frameCount + " кадров" : ""; color: Theme.sage; font.pixelSize: Theme.fontSizeSmall }
+                    Text { text: Analysis.fileCount > 0 ? Analysis.fileCount + " файлов · " + Math.round(Analysis.durationSeconds) + " с · " + Analysis.frameCount + " кадров · " + Analysis.sceneCount + " сцен" : ""; color: Theme.sage; font.pixelSize: Theme.fontSizeSmall }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: L10n.t("center.empty")
