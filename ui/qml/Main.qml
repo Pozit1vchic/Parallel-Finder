@@ -15,6 +15,7 @@ ApplicationWindow {
     title: L10n.t("app.title")
     color: Theme.canvas
     property var sourceFiles: []
+    property int selectedResultIndex: -1
 
     FileDialog {
         id: fileDialog
@@ -42,7 +43,7 @@ ApplicationWindow {
             height: 60
             color: Theme.canvas
             Row { anchors.left: parent.left; anchors.leftMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 12
-                Image { width: 25; height: 25; source: "qrc:/qt/qml/PfUi/qml/pf_logo.png"; fillMode: Image.PreserveAspectFit; smooth: true }
+                Text { text: "PF"; color: Theme.accent; font.family: "Georgia"; font.pixelSize: 18; font.weight: Font.DemiBold; font.letterSpacing: -1.2 }
                 Text { text: "Parallel Finder"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 20 }
             }
             Row { anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 12
@@ -59,8 +60,8 @@ ApplicationWindow {
             anchors.right: parent.right
             height: parent.height - 61
             spacing: 12
-            anchors.leftMargin: 14
-            anchors.rightMargin: 14
+            anchors.leftMargin: 22
+            anchors.rightMargin: 22
             clip: true
 
             Rectangle {
@@ -166,8 +167,8 @@ ApplicationWindow {
                                         Rectangle { anchors.centerIn: parent; width: 48; height: 48; radius: 24; color: Theme.panel; border.color: Theme.textPrimary; border.width: 1 }
                                     }
                                 }
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: Analysis.fileCount > 0 ? "Движение готово к сравнению" : "Добавьте видео, чтобы начать"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 17 }
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: Analysis.fileCount > 0 ? Analysis.poseDetectionCount + " поз  ·  " + Analysis.matchCount + " пар" : "В центре появится превью пары"; color: Theme.textSecondary; font.pixelSize: 11 }
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.selectedResultIndex >= 0 ? "Пара " + (root.selectedResultIndex + 1) + " выбрана" : (Analysis.fileCount > 0 ? "Движение готово к сравнению" : "Добавьте видео, чтобы начать"); color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 17 }
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.selectedResultIndex >= 0 ? Analysis.resultItems[root.selectedResultIndex] : (Analysis.fileCount > 0 ? Analysis.poseDetectionCount + " поз  ·  " + Analysis.matchCount + " пар" : "В центре появится превью пары"); color: Theme.textSecondary; font.pixelSize: 11 }
                             }
                         }
                         Row { width: parent.width
@@ -199,8 +200,9 @@ ApplicationWindow {
                     Rectangle { width: parent.width; height: 1; color: Theme.border }
                     Text { text: Analysis.matchCount > 0 ? "Найденные параллели" : "Результаты появятся здесь"; color: Theme.textSecondary; font.pixelSize: 12 }
                     ListView { width: parent.width; height: parent.height - 100; clip: true; model: Analysis.resultItems
-                        delegate: Rectangle { width: ListView.view.width; height: 54; color: Theme.panelAlt; radius: 7; anchors.margins: 2
+                        delegate: Rectangle { width: ListView.view.width; height: 54; color: index === root.selectedResultIndex ? Theme.accentMuted : Theme.panelAlt; radius: 7; anchors.margins: 2
                             Text { anchors.left: parent.left; anchors.leftMargin: 10; anchors.verticalCenter: parent.verticalCenter; text: modelData; color: Theme.textPrimary; font.pixelSize: 11 }
+                            MouseArea { anchors.fill: parent; onClicked: root.selectedResultIndex = index }
                         }
                     }
                 }
