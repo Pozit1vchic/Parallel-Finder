@@ -41,17 +41,14 @@ ApplicationWindow {
             width: parent.width
             height: 60
             color: Theme.canvas
-            Row {
-                anchors.fill: parent
-                anchors.leftMargin: 24
-                anchors.rightMargin: 24
-                spacing: 12
-                Text { anchors.verticalCenter: parent.verticalCenter; text: "✳"; color: Theme.accent; font.pixelSize: 20 }
-                Text { anchors.verticalCenter: parent.verticalCenter; text: "Parallel Finder"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 20 }
-                Text { anchors.verticalCenter: parent.verticalCenter; text: "·  motion study"; color: Theme.textDisabled; font.pixelSize: 11 }
-                Item { width: Math.max(20, parent.width - 500); height: 1 }
-                Text { anchors.verticalCenter: parent.verticalCenter; text: Analysis.busy ? "Анализируем" : "Готово к работе"; color: Theme.textSecondary; font.pixelSize: 11 }
-                Rectangle { anchors.verticalCenter: parent.verticalCenter; width: gpuLabel.implicitWidth + 18; height: 26; radius: 13; color: AppInfo.backendIsGpu ? Theme.sageMuted : Theme.panelAlt
+            Row { anchors.left: parent.left; anchors.leftMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 12
+                Text { text: "✳"; color: Theme.accent; font.pixelSize: 20 }
+                Text { text: "Parallel Finder"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 20 }
+                Text { text: "·  motion study"; color: Theme.textDisabled; font.pixelSize: 11 }
+            }
+            Row { anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 12
+                Text { text: Analysis.busy ? "Анализируем" : "Готово к работе"; color: Theme.textSecondary; font.pixelSize: 11 }
+                Rectangle { width: gpuLabel.implicitWidth + 18; height: 26; radius: 13; color: AppInfo.backendIsGpu ? Theme.sageMuted : Theme.panelAlt
                     Text { id: gpuLabel; anchors.centerIn: parent; text: AppInfo.backendIsGpu ? "●  " + AppInfo.gpuSummary : "○  CPU"; color: AppInfo.backendIsGpu ? Theme.sage : Theme.textSecondary; font.pixelSize: 10 }
                 }
             }
@@ -59,10 +56,12 @@ ApplicationWindow {
         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
 
         Row {
-            width: parent.width
+            anchors.left: parent.left
+            anchors.right: parent.right
             height: parent.height - 61
             spacing: 12
-            padding: 14
+            anchors.leftMargin: 14
+            anchors.rightMargin: 14
 
             Rectangle {
                 width: 286
