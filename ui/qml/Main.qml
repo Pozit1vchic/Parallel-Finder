@@ -3,6 +3,7 @@
 // Stage 0: layout skeleton and theme wiring only — no logic yet.
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Dialogs
 import PfUi
 import PfUiBridge
 
@@ -17,7 +18,25 @@ ApplicationWindow {
     title: L10n.t("app.title")
     color: Theme.background
 
-    // Splash → Main transition (stage 0 demo flow)
+    property var sourceFiles: []
+    property bool analysisRunning: false
+    property int analysisProgress: 0
+
+    FileDialog {
+        id: fileDialog
+        title: "Выберите видеофайлы"
+        fileMode: FileDialog.OpenFiles
+        nameFilters: ["Видео (*.mp4 *.mov *.mkv *.avi *.webm)", "Все файлы (*)"]
+        onAccepted: {
+            for (const url of selectedFiles) {
+                const path = decodeURIComponent(url.toString().replace(/^file:\/\//, ""))
+                if (root.sourceFiles.indexOf(path) < 0) root.sourceFiles.push(path)
+            }
+            root.sourceFilesChanged()
+        }
+    }
+
+    // Splash → Main transition
     Loader {
         id: splashLoader
         anchors.fill: parent
@@ -96,7 +115,7 @@ ApplicationWindow {
             height: parent.height - Theme.topBarHeight
             spacing: 0
 
-            // Left: sources + sliders (placeholders, stage 5)
+            // Left: sources and analysis controls
             Rectangle {
                 width: Theme.sidePanelWidth
                 height: parent.height
@@ -114,12 +133,24 @@ ApplicationWindow {
                         font.pixelSize: Theme.fontSizeBody
                         font.weight: Font.DemiBold
                     }
+                    Rectangle { width: parent.width; height: 1; color: Theme.border }
+                    Button { text: "Добавить видео"; width: parent.width; onClicked: fileDialog.open() }
+                    Button { text: "Очистить список"; width: parent.width; enabled: root.sourceFiles.length > 0; onClicked: { root.sourceFiles = []; } }
+                    ListView {
+                        width: parent.width; height: 130; clip: true; model: root.sourceFiles
+                        delegate: Text { width: ListView.view.width; text: (index + 1) + ". " + modelData.split("/").pop(); elide: Text.ElideMiddle; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall }
+                    }
                     Text {
                         text: L10n.t("panel.sliders")
                         color: Theme.textSecondary
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeBody
                     }
+                    Slider { id: similarity; width: parent.width; from: 0.5; to: 0.99; value: 0.85; ToolTip.visible: hovered; ToolTip.text: "Порог схожести: " + value.toFixed(2) }
+                    Slider { id: candidate; width: parent.width; from: 0.1; to: 0.95; value: 0.55; ToolTip.visible: hovered; ToolTip.text: "Порог кандидата: " + value.toFixed(2) }
+                    Text { text: "Порог схожести  " + Math.round(similarity.value * 100) + "%"; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall }
+                    Text { text: "Порог кандидата  " + Math.round(candidate.value * 100) + "%"; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall }
+                    Button { text: "Запустить анализ"; width: parent.width; enabled: false; ToolTip.visible: hovered; ToolTip.text: "Подключение pose-модели выполняется на следующем этапе" }
                 }
             }
 
@@ -140,6 +171,7 @@ ApplicationWindow {
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeTitle
                     }
+                    Text { text: root.sourceFiles.length === 0 ? "Добавьте видео слева, чтобы начать" : root.analysisRunning ? "Подготовка кадров…" : root.sourceFiles.length + " файлов готовы к анализу"; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeBody }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: L10n.t("center.empty")
@@ -169,4 +201,5 @@ ApplicationWindow {
             }
         }
     }
+
 }
