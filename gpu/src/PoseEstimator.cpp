@@ -46,9 +46,21 @@ std::vector<PoseDetection> PoseEstimator::infer(const PoseImage& image)
     if (!output.ok) throw std::runtime_error(output.error);
     if (output.outputs.empty()) return {};
     const auto& tensor = output.outputs.front();
-    const std::size_t attributes = 5 + params_.keypointCount * 3;
+    // Ultralytics' current end-to-end pose export adds a class column after
+    // the confidence score: [x1,y1,x2,y2,score,class,kpts...].  Older
+    // exports use the compact [cx,cy,w,h,score,kpts...] layout.  Accept both
+    // layouts because the model exporter is intentionally version-agnostic.
+    const std::size_t compactAttributes = 5 + params_.keypointCount * 3;
+    const std::size_t endToEndAttributes = 6 + params_.keypointCount * 3;
     if (tensor.shape.size() != 3) throw std::runtime_error("PoseEstimator: unsupported output rank");
-    const bool channelsFirst = tensor.shape[1] == static_cast<std::int64_t>(attributes);
+    const bool channelsFirst = tensor.shape[1] == static_cast<std::int64_t>(compactAttributes)
+        || tensor.shape[1] == static_cast<std::int64_t>(endToEndAttributes);
+    const std::size_t attributes = channelsFirst
+        ? static_cast<std::size_t>(tensor.shape[1])
+        : static_cast<std::size_t>(tensor.shape[2]);
+    const bool hasClassColumn = attributes == endToEndAttributes;
+    if (attributes != compactAttributes && !hasClassColumn)
+        throw std::runtime_error("PoseEstimator: unsupported YOLO-pose attribute count");
     const std::size_t candidates = channelsFirst ? static_cast<std::size_t>(tensor.shape[2]) : static_cast<std::size_t>(tensor.shape[1]);
     if ((!channelsFirst && tensor.shape[2] != static_cast<std::int64_t>(attributes)) || candidates == 0)
         throw std::runtime_error("PoseEstimator: unsupported YOLO-pose output shape");
@@ -64,16 +76,24 @@ std::vector<PoseDetection> PoseEstimator::infer(const PoseImage& image)
         detection.confidence = confidence;
         const float sx = static_cast<float>(image.width) / params_.inputWidth;
         const float sy = static_cast<float>(image.height) / params_.inputHeight;
-        const float cx = at(c, 0) * sx, cy = at(c, 1) * sy;
-        const float width = at(c, 2) * sx, height = at(c, 3) * sy;
-        detection.left = std::max(0.0F, cx - width * 0.5F); detection.top = std::max(0.0F, cy - height * 0.5F);
-        detection.right = std::min(static_cast<float>(image.width), cx + width * 0.5F);
-        detection.bottom = std::min(static_cast<float>(image.height), cy + height * 0.5F);
+        if (hasClassColumn) {
+            detection.left = std::clamp(at(c, 0) * sx, 0.0F, static_cast<float>(image.width));
+            detection.top = std::clamp(at(c, 1) * sy, 0.0F, static_cast<float>(image.height));
+            detection.right = std::clamp(at(c, 2) * sx, detection.left, static_cast<float>(image.width));
+            detection.bottom = std::clamp(at(c, 3) * sy, detection.top, static_cast<float>(image.height));
+        } else {
+            const float cx = at(c, 0) * sx, cy = at(c, 1) * sy;
+            const float width = at(c, 2) * sx, height = at(c, 3) * sy;
+            detection.left = std::max(0.0F, cx - width * 0.5F); detection.top = std::max(0.0F, cy - height * 0.5F);
+            detection.right = std::min(static_cast<float>(image.width), cx + width * 0.5F);
+            detection.bottom = std::min(static_cast<float>(image.height), cy + height * 0.5F);
+        }
+        const std::size_t keypointOffset = hasClassColumn ? 6 : 5;
         detection.keypoints.reserve(params_.keypointCount * 3);
         for (std::size_t k = 0; k < params_.keypointCount; ++k) {
-            detection.keypoints.push_back(at(c, 5 + k * 3) * sx);
-            detection.keypoints.push_back(at(c, 6 + k * 3) * sy);
-            detection.keypoints.push_back(at(c, 7 + k * 3));
+            detection.keypoints.push_back(at(c, keypointOffset + k * 3) * sx);
+            detection.keypoints.push_back(at(c, keypointOffset + 1 + k * 3) * sy);
+            detection.keypoints.push_back(at(c, keypointOffset + 2 + k * 3));
         }
         detections.push_back(std::move(detection));
     }

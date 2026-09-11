@@ -1,0 +1,22 @@
+{
+  "name": "yolo26m-pose",
+  "format": "onnx",
+  "input": {
+    "name": "images",
+    "shape": [1, 3, 640, 640],
+    "layout": "NCHW",
+    "batch": 1
+  },
+  "output": {
+    "name": "output0",
+    "shape": [1, 300, 57],
+    "layout": "NMS_XYXY_SCORE_CLASS_KEYPOINTS",
+    "keypoints": 17
+  },
+  "opset": 17,
+  "nms": false,
+  "sha256": "045318a5e73f96fb0940827957fca5a2bc065dbff01b959780a230bacc55fd90",
+  "license": "AGPL-3.0",
+  "source": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-pose.pt",
+  "asset": "D:/PF_CUDA/models/yolo26m-pose-640-b1.onnx"
+}
