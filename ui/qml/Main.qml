@@ -43,7 +43,6 @@ ApplicationWindow {
             height: 60
             color: Theme.canvas
             Row { anchors.left: parent.left; anchors.leftMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 12
-                Text { text: "PF"; color: Theme.accent; font.family: "Georgia"; font.pixelSize: 18; font.weight: Font.DemiBold; font.letterSpacing: -1.2 }
                 Text { text: "Parallel Finder"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 20 }
             }
             Row { anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 12
@@ -175,7 +174,8 @@ ApplicationWindow {
                                     Column { anchors.fill: parent; anchors.margins: 12; spacing: 8
                                         Text { text: "A  ·  " + (Analysis.resultItems[root.selectedResultIndex] || ""); color: Theme.textPrimary; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
                                         Rectangle { width: parent.width; height: parent.height - 42; color: Theme.canvas; radius: 5
-                                            Column { anchors.centerIn: parent; spacing: 6
+                                            Image { anchors.fill: parent; anchors.margins: 2; source: root.selectedResultIndex >= 0 && Analysis.previewA.length > root.selectedResultIndex ? Analysis.previewA[root.selectedResultIndex] : ""; fillMode: Image.PreserveAspectCrop; smooth: true; visible: source.length > 0 }
+                                            Column { anchors.centerIn: parent; spacing: 6; visible: !(root.selectedResultIndex >= 0 && Analysis.previewA.length > root.selectedResultIndex)
                                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: "A"; color: Theme.accent; font.family: "Georgia"; font.pixelSize: 30 }
                                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: "левый фрагмент"; color: Theme.textDisabled; font.pixelSize: 10 }
                                             }
@@ -186,7 +186,8 @@ ApplicationWindow {
                                     Column { anchors.fill: parent; anchors.margins: 12; spacing: 8
                                         Text { text: "B  ·  " + (Analysis.resultItems[root.selectedResultIndex] || ""); color: Theme.textPrimary; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
                                         Rectangle { width: parent.width; height: parent.height - 42; color: Theme.canvas; radius: 5
-                                            Column { anchors.centerIn: parent; spacing: 6
+                                            Image { anchors.fill: parent; anchors.margins: 2; source: root.selectedResultIndex >= 0 && Analysis.previewB.length > root.selectedResultIndex ? Analysis.previewB[root.selectedResultIndex] : ""; fillMode: Image.PreserveAspectCrop; smooth: true; visible: source.length > 0 }
+                                            Column { anchors.centerIn: parent; spacing: 6; visible: !(root.selectedResultIndex >= 0 && Analysis.previewB.length > root.selectedResultIndex)
                                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: "B"; color: Theme.sage; font.family: "Georgia"; font.pixelSize: 30 }
                                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: "правый фрагмент"; color: Theme.textDisabled; font.pixelSize: 10 }
                                             }

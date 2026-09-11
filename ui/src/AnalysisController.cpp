@@ -2,6 +2,9 @@
 
 #include <QMetaObject>
 #include <QCoreApplication>
+#include <QDir>
+#include <QImage>
+#include <QStandardPaths>
 #include <QQmlEngine>
 #include <QThread>
 
@@ -18,6 +21,16 @@
 
 namespace pfui {
 namespace {
+
+QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
+{
+    if (frame.rgba.empty() || frame.width <= 0 || frame.height <= 0) return {};
+    const QString directory = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/ParallelFinder/previews");
+    QDir().mkpath(directory);
+    const QString path = directory + QLatin1Char('/') + name;
+    QImage image(frame.rgba.data(), frame.width, frame.height, QImage::Format_RGBA8888);
+    return image.copy().save(path, "PNG") ? path : QString();
+}
 
 std::filesystem::path findPoseModel()
 {
@@ -124,6 +137,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         int poseDetections = 0;
         int matches = 0;
         QStringList resultItems;
+        QStringList previewA;
+        QStringList previewB;
         qlonglong frames = 0;
         double duration = 0.0;
         QString error;
@@ -151,6 +166,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 for (const auto& item : decoded)
                     samples.push_back({item.timestampSeconds, item.width, item.height, item.rgba});
                 scenes += static_cast<int>(pfcore::SceneDetector().detect(samples).size());
+                const QString previewStart = decoded.empty() ? QString() : savePreview(decoded.front(), QStringLiteral("%1_start.png").arg(files));
+                const QString previewEnd = decoded.empty() ? QString() : savePreview(decoded.back(), QStringLiteral("%1_end.png").arg(files));
                 if (pose) {
                     pfcore::MotionWindow window;
                     window.sourceId = path.toStdString();
@@ -183,6 +200,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             chunk.frames.assign(window.frames.begin() + static_cast<std::ptrdiff_t>(start),
                                                 window.frames.begin() + static_cast<std::ptrdiff_t>(end));
                             windows.push_back(std::move(chunk));
+                            previewA.push_back(previewStart);
+                            previewB.push_back(previewEnd);
                             if (end == window.frames.size()) break;
                         }
                     }
@@ -198,6 +217,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.candidateThreshold = candidateThreshold;
             const auto found = pfcore::MotionMatcher(params).findAllPairs(windows);
             matches = static_cast<int>(found.size());
+            const QStringList windowPreviewA = previewA;
+            const QStringList windowPreviewB = previewB;
+            previewA.clear();
+            previewB.clear();
             for (std::size_t i = 0; i < found.size(); ++i) {
                 const auto& item = found[i];
                 resultItems.push_back(QStringLiteral("Пара %1  ·  %2%  ·  %3 с / %4 с")
@@ -205,13 +228,17 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     .arg(static_cast<int>(item.similarity * 100.0))
                     .arg(QString::number(item.leftStartSeconds, 'f', 1))
                     .arg(QString::number(item.rightStartSeconds, 'f', 1)));
+                previewA.push_back(item.leftIndex < static_cast<std::size_t>(windowPreviewA.size()) ? windowPreviewA.at(static_cast<int>(item.leftIndex)) : QString());
+                previewB.push_back(item.rightIndex < static_cast<std::size_t>(windowPreviewB.size()) ? windowPreviewB.at(static_cast<int>(item.rightIndex)) : QString());
             }
         }
-        QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, matches, resultItems, error] {
+        QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, matches, resultItems, previewA, previewB, error] {
             fileCount_ = files; frameCount_ = frames; durationSeconds_ = duration; sceneCount_ = scenes;
             poseDetectionCount_ = poseDetections;
             matchCount_ = matches;
             resultItems_ = resultItems;
+            previewA_ = previewA;
+            previewB_ = previewB;
             emit summaryChanged();
             busy_ = false; emit busyChanged();
             setStatus(error.isEmpty() ? QStringLiteral("Анализ сцен завершён")
