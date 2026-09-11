@@ -56,7 +56,8 @@ ApplicationWindow {
         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
 
         Row {
-            width: parent.width
+            anchors.left: parent.left
+            anchors.right: parent.right
             height: parent.height - 73
             anchors.leftMargin: 40
             anchors.rightMargin: 40
