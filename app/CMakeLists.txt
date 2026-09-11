@@ -9,8 +9,7 @@ target_link_libraries(ParallelFinder PRIVATE
     pfgpu              # init step reads the active backend for the GPU badge
 )
 
-# Console subsystem kept for dev visibility of QML warnings; switched to
-# WIN32_EXECUTABLE at stage 5b (Qt deploy).
 set_target_properties(ParallelFinder PROPERTIES
     MACOSX_BUNDLE FALSE
+    WIN32_EXECUTABLE TRUE
 )

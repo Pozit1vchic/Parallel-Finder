@@ -13,6 +13,7 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(int sceneCount READ sceneCount NOTIFY summaryChanged)
     Q_PROPERTY(int poseDetectionCount READ poseDetectionCount NOTIFY summaryChanged)
     Q_PROPERTY(int matchCount READ matchCount NOTIFY summaryChanged)
+    Q_PROPERTY(QStringList resultItems READ resultItems NOTIFY summaryChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(double similarityThreshold READ similarityThreshold WRITE setSimilarityThreshold NOTIFY matcherParamsChanged)
@@ -26,6 +27,7 @@ public:
     int sceneCount() const noexcept { return sceneCount_; }
     int poseDetectionCount() const noexcept { return poseDetectionCount_; }
     int matchCount() const noexcept { return matchCount_; }
+    QStringList resultItems() const { return resultItems_; }
     QString status() const { return status_; }
     bool busy() const noexcept { return busy_; }
     double similarityThreshold() const noexcept { return similarityThreshold_; }
@@ -51,6 +53,7 @@ private:
     int sceneCount_ = 0;
     int poseDetectionCount_ = 0;
     int matchCount_ = 0;
+    QStringList resultItems_;
     QString status_;
     bool busy_ = false;
     double similarityThreshold_ = 0.85;

@@ -123,6 +123,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         int scenes = 0;
         int poseDetections = 0;
         int matches = 0;
+        QStringList resultItems;
         qlonglong frames = 0;
         double duration = 0.0;
         QString error;
@@ -195,12 +196,22 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             pfcore::MotionMatcherParams params;
             params.similarityThreshold = similarityThreshold;
             params.candidateThreshold = candidateThreshold;
-            matches = static_cast<int>(pfcore::MotionMatcher(params).findAllPairs(windows).size());
+            const auto found = pfcore::MotionMatcher(params).findAllPairs(windows);
+            matches = static_cast<int>(found.size());
+            for (std::size_t i = 0; i < found.size(); ++i) {
+                const auto& item = found[i];
+                resultItems.push_back(QStringLiteral("Пара %1  ·  %2%  ·  %3 с / %4 с")
+                    .arg(static_cast<int>(i + 1), 2, 10, QLatin1Char('0'))
+                    .arg(static_cast<int>(item.similarity * 100.0))
+                    .arg(QString::number(item.leftStartSeconds, 'f', 1))
+                    .arg(QString::number(item.rightStartSeconds, 'f', 1)));
+            }
         }
-        QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, matches, error] {
+        QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, matches, resultItems, error] {
             fileCount_ = files; frameCount_ = frames; durationSeconds_ = duration; sceneCount_ = scenes;
             poseDetectionCount_ = poseDetections;
             matchCount_ = matches;
+            resultItems_ = resultItems;
             emit summaryChanged();
             busy_ = false; emit busyChanged();
             setStatus(error.isEmpty() ? QStringLiteral("Анализ сцен завершён")

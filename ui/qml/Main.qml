@@ -199,10 +199,9 @@ ApplicationWindow {
                     }
                     Rectangle { width: parent.width; height: 1; color: Theme.border }
                     Text { text: Analysis.matchCount > 0 ? "Найденные параллели" : "Результаты появятся здесь"; color: Theme.textSecondary; font.pixelSize: 12 }
-                    ListView { width: parent.width; height: parent.height - 100; clip: true; model: Analysis.matchCount > 0 ? Analysis.matchCount : 0
+                    ListView { width: parent.width; height: parent.height - 100; clip: true; model: Analysis.resultItems
                         delegate: Rectangle { width: ListView.view.width; height: 54; color: Theme.panelAlt; radius: 7; anchors.margins: 2
-                            Text { anchors.left: parent.left; anchors.leftMargin: 10; anchors.top: parent.top; anchors.topMargin: 9; text: "Параллель " + (index + 1); color: Theme.textPrimary; font.pixelSize: 11 }
-                            Text { anchors.left: parent.left; anchors.leftMargin: 10; anchors.bottom: parent.bottom; anchors.bottomMargin: 8; text: "движение готово к просмотру"; color: Theme.textDisabled; font.pixelSize: 10 }
+                            Text { anchors.left: parent.left; anchors.leftMargin: 10; anchors.verticalCenter: parent.verticalCenter; text: modelData; color: Theme.textPrimary; font.pixelSize: 11 }
                         }
                     }
                 }
