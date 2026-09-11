@@ -12,7 +12,7 @@ ApplicationWindow {
     minimumHeight: 700
     visible: true
     title: L10n.t("app.title")
-    color: "#11110F"
+    color: Theme.canvas
     property var sourceFiles: []
 
     FileDialog {
@@ -38,7 +38,7 @@ ApplicationWindow {
         Rectangle {
             width: parent.width
             height: 72
-            color: "#11110F"
+            color: Theme.canvas
             Row {
                 anchors.fill: parent
                 anchors.leftMargin: 40
@@ -53,7 +53,7 @@ ApplicationWindow {
                 }
             }
         }
-        Rectangle { width: parent.width; height: 1; color: Qt.rgba(255,255,255,0.10) }
+        Rectangle { width: parent.width; height: 1; color: Theme.hairline }
 
         Row {
             width: parent.width
@@ -74,7 +74,7 @@ ApplicationWindow {
                     Row {
                         spacing: 12
                         Button { width: 170; height: 44; text: Analysis.busy ? "Идёт анализ…" : "Добавить видео"; onClicked: fileDialog.open()
-                            contentItem: Text { text: parent.text; color: "#11110F"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 13; font.weight: Font.DemiBold }
+                            contentItem: Text { text: parent.text; color: Theme.canvas; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 13; font.weight: Font.DemiBold }
                             background: Rectangle { radius: 22; color: Theme.textPrimary }
                         }
                         Button { width: 128; height: 44; text: "Запустить"; enabled: root.sourceFiles.length > 0 && !Analysis.busy; onClicked: Analysis.analyzeFiles(root.sourceFiles)
@@ -82,7 +82,7 @@ ApplicationWindow {
                             background: Rectangle { radius: 22; color: "transparent"; border.color: parent.enabled ? Theme.accent : Theme.textDisabled }
                         }
                     }
-                    Rectangle { width: 390; height: 1; color: Qt.rgba(255,255,255,0.12) }
+                    Rectangle { width: 390; height: 1; color: Theme.hairline }
                     Row { spacing: 28
                         Column {
                             Text { text: Analysis.fileCount; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 28 }
@@ -107,9 +107,9 @@ ApplicationWindow {
                     anchors.verticalCenter: parent.verticalCenter
                     width: parent.width
                     height: parent.height * 0.72
-                    color: "#1B1B18"
+                    color: Theme.heroPanel
                     radius: 14
-                    border.color: Qt.rgba(255,255,255,0.10)
+                    border.color: Theme.hairline
                     clip: true
                     Rectangle { x: 0; y: 0; width: parent.width * 0.55; height: parent.height; color: Theme.sageMuted; opacity: 0.22 }
                     Rectangle { x: parent.width * 0.58; y: parent.height * 0.10; width: parent.width * 0.33; height: parent.height * 0.80; color: Theme.accentMuted; opacity: 0.24; radius: 180 }
@@ -128,7 +128,7 @@ ApplicationWindow {
                     }
                     Text { anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.margins: 24; text: Analysis.durationSeconds > 0 ? Math.round(Analysis.durationSeconds) + " секунд материала" : "Нет выбранного материала"; color: Theme.textDisabled; font.pixelSize: 11 }
                 }
-                Rectangle { anchors.bottom: parent.bottom; anchors.bottomMargin: 42; width: parent.width; height: 42; color: "#1B1B18"; radius: 6; border.color: Qt.rgba(255,255,255,0.10)
+                Rectangle { anchors.bottom: parent.bottom; anchors.bottomMargin: 42; width: parent.width; height: 42; color: Theme.heroPanel; radius: 6; border.color: Theme.hairline
                     Rectangle { x: 12; y: 9; width: parent.width * 0.20; height: 24; radius: 4; color: Theme.sageMuted }
                     Rectangle { x: parent.width * 0.48; y: 9; width: 2; height: 24; color: Theme.accent }
                     Text { anchors.left: parent.left; anchors.leftMargin: 14; anchors.verticalCenter: parent.verticalCenter; text: "timeline"; color: Theme.textDisabled; font.pixelSize: 10 }

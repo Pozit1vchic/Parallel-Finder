@@ -6,9 +6,12 @@ import QtQuick
 QtObject {
     // Palette
     readonly property color background: "#262624"       // app background
+    readonly property color canvas: "#11110F"           // editorial main canvas
     readonly property color panel: "#30302E"            // panels
+    readonly property color heroPanel: "#1B1B18"        // motion field surface
     readonly property color panelAlt: "#353533"         // hover / nested panels
     readonly property color border: Qt.rgba(255, 255, 255, 0.06)
+    readonly property color hairline: Qt.rgba(255, 255, 255, 0.10)
     readonly property color accent: "#D97757"           // terracotta
     readonly property color accentMuted: Qt.rgba(0.851, 0.467, 0.341, 0.16)
     readonly property color sage: "#7C9885"             // second accent
