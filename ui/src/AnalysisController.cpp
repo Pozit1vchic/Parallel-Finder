@@ -12,6 +12,7 @@
 
 #include "pfcore/VideoDecoder.hpp"
 #include "pfcore/SceneDetector.hpp"
+#include "pfcore/MotionMatcher.hpp"
 #include "pfgpu/PoseEstimator.hpp"
 
 namespace pfui {
@@ -102,12 +103,14 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         int files = 0;
         int scenes = 0;
         int poseDetections = 0;
+        int matches = 0;
         qlonglong frames = 0;
         double duration = 0.0;
         QString error;
         const auto model = findPoseModel();
         std::unique_ptr<pfgpu::PoseEstimator> pose;
         if (!model.empty()) pose = std::make_unique<pfgpu::PoseEstimator>(model.string());
+        std::vector<pfcore::MotionWindow> windows;
         for (const QString& path : paths) {
             try {
                 pfcore::VideoDecoder decoder;
@@ -129,19 +132,35 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     samples.push_back({item.timestampSeconds, item.width, item.height, item.rgba});
                 scenes += static_cast<int>(pfcore::SceneDetector().detect(samples).size());
                 if (pose) {
+                    pfcore::MotionWindow window;
+                    window.sourceId = path.toStdString();
                     for (const auto& item : decoded) {
                         pfgpu::PoseImage image{item.width, item.height, item.rgba.data()};
-                        poseDetections += static_cast<int>(pose->infer(image).size());
+                        const auto detections = pose->infer(image);
+                        poseDetections += static_cast<int>(detections.size());
+                        if (!detections.empty()) {
+                            pfcore::PoseFrame poseFrame;
+                            poseFrame.timestampSeconds = item.timestampSeconds;
+                            const auto& keypoints = detections.front().keypoints;
+                            poseFrame.keypoints.reserve(keypoints.size() / 3);
+                            for (std::size_t i = 0; i + 2 < keypoints.size(); i += 3)
+                                poseFrame.keypoints.push_back({keypoints[i], keypoints[i + 1], keypoints[i + 2]});
+                            window.frames.push_back(std::move(poseFrame));
+                        }
                     }
+                    if (window.frames.size() >= 2) windows.push_back(std::move(window));
                 }
             } catch (const std::exception& exception) {
                 error = QString::fromUtf8(exception.what());
                 break;
             }
         }
-        QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, error] {
+        if (error.isEmpty() && windows.size() >= 2)
+            matches = static_cast<int>(pfcore::MotionMatcher().findAllPairs(windows).size());
+        QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, matches, error] {
             fileCount_ = files; frameCount_ = frames; durationSeconds_ = duration; sceneCount_ = scenes;
             poseDetectionCount_ = poseDetections;
+            matchCount_ = matches;
             emit summaryChanged();
             busy_ = false; emit busyChanged();
             setStatus(error.isEmpty() ? QStringLiteral("Анализ сцен завершён")

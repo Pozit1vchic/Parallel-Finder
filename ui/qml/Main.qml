@@ -171,7 +171,7 @@ ApplicationWindow {
                         font.pixelSize: Theme.fontSizeTitle
                     }
                     Text { text: Analysis.status.length > 0 ? Analysis.status : "Добавьте видео слева, чтобы начать"; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeBody; wrapMode: Text.WordWrap; width: parent.width }
-                    Text { text: Analysis.fileCount > 0 ? Analysis.fileCount + " файлов · " + Math.round(Analysis.durationSeconds) + " с · " + Analysis.frameCount + " кадров · " + Analysis.sceneCount + " сцен · " + Analysis.poseDetectionCount + " поз" : ""; color: Theme.sage; font.pixelSize: Theme.fontSizeSmall }
+                    Text { text: Analysis.fileCount > 0 ? Analysis.fileCount + " файлов · " + Math.round(Analysis.durationSeconds) + " с · " + Analysis.frameCount + " кадров · " + Analysis.sceneCount + " сцен · " + Analysis.poseDetectionCount + " поз · " + Analysis.matchCount + " пар" : ""; color: Theme.sage; font.pixelSize: Theme.fontSizeSmall }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: L10n.t("center.empty")
@@ -197,6 +197,14 @@ ApplicationWindow {
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeBody
                     font.weight: Font.DemiBold
+                }
+                Text {
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.margins: Theme.margins
+                    text: Analysis.matchCount > 0 ? Analysis.matchCount + " пар" : "Нет результатов"
+                    color: Analysis.matchCount > 0 ? Theme.sage : Theme.textSecondary
+                    font.pixelSize: Theme.fontSizeSmall
                 }
             }
         }
