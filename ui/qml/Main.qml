@@ -32,35 +32,52 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    Popup {
         id: settingsDialog
         modal: true
-        title: "Настройки Parallel Finder"
-        width: 460
-        standardButtons: Dialog.Close
-        contentItem: Rectangle {
-            implicitHeight: 330
-            color: Theme.heroPanel
-            Column { anchors.fill: parent; anchors.margins: 24; spacing: 16
-                Text { text: "Настройки анализа"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 22 }
+        width: 520; height: 390; padding: 0
+        x: Math.round((root.width - width) / 2); y: Math.round((root.height - height) / 2)
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle { color: Theme.heroPanel; radius: 14; border.color: Theme.hairline; layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0,0,0,0.72); shadowBlur: 1.0; shadowVerticalOffset: 18 } }
+        contentItem: Column { spacing: 0
+            Rectangle { width: parent.width; height: 54; color: Theme.panelAlt; radius: 14
+                Text { anchors.left: parent.left; anchors.leftMargin: 24; anchors.verticalCenter: parent.verticalCenter; text: "Настройки Parallel Finder"; color: Theme.textPrimary; font.pixelSize: 13; font.weight: Font.DemiBold }
+                Text { anchors.right: parent.right; anchors.rightMargin: 20; anchors.verticalCenter: parent.verticalCenter; text: "×"; color: Theme.textSecondary; font.pixelSize: 20 }
+                MouseArea {
+                    anchors.fill: parent
+                    property real sx
+                    property real sy
+                    onPressed: { sx = mouse.x; sy = mouse.y }
+                    onPositionChanged: if (pressed) {
+                        settingsDialog.x = Math.max(12, Math.min(root.width - settingsDialog.width - 12, settingsDialog.x + mouse.x - sx))
+                        settingsDialog.y = Math.max(12, Math.min(root.height - settingsDialog.height - 12, settingsDialog.y + mouse.y - sy))
+                    }
+                    onClicked: if (Math.abs(mouse.x - sx) < 3 && Math.abs(mouse.y - sy) < 3) settingsDialog.close()
+                }
+            }
+            Column { anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 24; spacing: 15
+                Text { text: "Настройки анализа"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 24 }
                 Text { text: "Параметры сохраняются для следующих запусков."; color: Theme.textSecondary; font.pixelSize: 12 }
                 Rectangle { width: parent.width; height: 1; color: Theme.border }
-                Row { width: parent.width
+                Row {
+                    width: parent.width
                     Text { text: "Провайдер"; color: Theme.textPrimary; font.pixelSize: 12 }
                     Item { width: parent.width - 180; height: 1 }
                     Text { text: AppInfo.gpuBackend; color: Theme.sage; font.pixelSize: 12 }
                 }
-                Row { width: parent.width
+                Row {
+                    width: parent.width
                     Text { text: "Тема"; color: Theme.textPrimary; font.pixelSize: 12 }
                     Item { width: parent.width - 180; height: 1 }
                     Text { text: "Parallel / dark"; color: Theme.textSecondary; font.pixelSize: 12 }
                 }
-                Row { width: parent.width
+                Row {
+                    width: parent.width
                     Text { text: "Кэш"; color: Theme.textPrimary; font.pixelSize: 12 }
                     Item { width: parent.width - 180; height: 1 }
                     Text { text: "8 ГБ · LocalAppData"; color: Theme.textSecondary; font.pixelSize: 12 }
                 }
-                Rectangle { width: parent.width; height: 42; radius: 8; color: Theme.panelAlt; border.color: Theme.border
+                Rectangle { width: parent.width; height: 40; radius: 8; color: Theme.panelAlt; border.color: Theme.border
                     Text { anchors.centerIn: parent; text: "Сбросить параметры анализа"; color: Theme.textSecondary; font.pixelSize: 12 }
                     MouseArea { anchors.fill: parent; onClicked: { similarity.value = 0.85; candidate.value = 0.55 } }
                 }
@@ -68,23 +85,19 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    Popup {
         id: exportDialog
         modal: true
-        title: "Экспорт результатов"
-        width: 440
-        standardButtons: Dialog.Cancel
-        contentItem: Rectangle {
-            implicitHeight: 260
-            color: Theme.heroPanel
-            Column { anchors.fill: parent; anchors.margins: 24; spacing: 14
-                Text { text: "Подготовить результаты"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 22 }
-                Text { text: Analysis.matchCount + " выбранных параллелей"; color: Theme.textSecondary; font.pixelSize: 12 }
-                ComboBox { id: exportFormat; width: parent.width; model: ["JSON", "CSV", "TXT", "EDL", "FCPXML"] }
-                Button { width: parent.width; height: 40; text: "Сохранить " + exportFormat.currentText; onClicked: exportDialog.close()
-                    contentItem: Text { text: parent.text; color: Theme.canvas; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 12; font.weight: Font.DemiBold }
-                    background: Rectangle { radius: 8; color: Theme.textPrimary }
-                }
+        width: 440; height: 290; padding: 0; x: Math.round((root.width-width)/2); y: Math.round((root.height-height)/2)
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle { color: Theme.heroPanel; radius: 14; border.color: Theme.hairline; layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0,0,0,0.72); shadowBlur: 1.0; shadowVerticalOffset: 18 } }
+        contentItem: Column { anchors.fill: parent; anchors.margins: 24; spacing: 14
+            Text { text: "Подготовить результаты"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 22 }
+            Text { text: Analysis.matchCount + " выбранных параллелей"; color: Theme.textSecondary; font.pixelSize: 12 }
+            ComboBox { id: exportFormat; width: parent.width; model: ["JSON", "CSV", "TXT", "EDL", "FCPXML"] }
+            Button { width: parent.width; height: 40; text: "Сохранить " + exportFormat.currentText; onClicked: exportDialog.close()
+                contentItem: Text { text: parent.text; color: Theme.canvas; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 12; font.weight: Font.DemiBold }
+                background: Rectangle { radius: 8; color: Theme.textPrimary }
             }
         }
     }
@@ -260,10 +273,20 @@ ApplicationWindow {
                             radius: 10
                             border.color: Theme.hairline
                             Column { anchors.centerIn: parent; spacing: 12; visible: root.selectedResultIndex < 0
-                                Rectangle { anchors.horizontalCenter: parent.horizontalCenter; width: 190; height: 190; radius: 95; color: "transparent"; border.color: Theme.accent; border.width: 1
+                                Item { anchors.horizontalCenter: parent.horizontalCenter; width: 250; height: 190
+                                    Rectangle { anchors.centerIn: parent; width: 238; height: 150; radius: 75; color: Theme.accentMuted; opacity: 0.22
+                                        layer.enabled: true
+                                        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0.80, 0.47, 0.36, 0.42); shadowBlur: 1.0; shadowVerticalOffset: 0 }
+                                    }
+                                    Rectangle { anchors.centerIn: parent; width: 190; height: 190; radius: 95; color: "transparent"; border.color: Theme.accent; border.width: 1
+                                    layer.enabled: true
+                                    layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0.80, 0.47, 0.36, 0.72); shadowBlur: 1.0; shadowVerticalOffset: 0 }
                                     Rectangle { anchors.centerIn: parent; width: 128; height: 128; radius: 64; color: "transparent"; border.color: Theme.sage; border.width: 1
+                                        layer.enabled: true
+                                        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0.43, 0.61, 0.56, 0.72); shadowBlur: 0.9; shadowVerticalOffset: 0 }
                                         Rectangle { anchors.centerIn: parent; width: 48; height: 48; radius: 24; color: Theme.panel; border.color: Theme.textPrimary; border.width: 1 }
                                     }
+                                }
                                 }
                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.selectedResultIndex >= 0 ? "Пара " + (root.selectedResultIndex + 1) + " выбрана" : (Analysis.fileCount > 0 ? "Движение готово к сравнению" : "Добавьте видео, чтобы начать"); color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 17 }
                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.selectedResultIndex >= 0 ? Analysis.resultItems[root.selectedResultIndex] : (Analysis.fileCount > 0 ? Analysis.poseDetectionCount + " поз  ·  " + Analysis.matchCount + " пар" : "В центре появится превью пары"); color: Theme.textSecondary; font.pixelSize: 11 }
