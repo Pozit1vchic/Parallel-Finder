@@ -8,6 +8,7 @@ add_executable(pf_tests
     core/test_scene_detector.cpp
     core/test_video_decoder.cpp
     core/test_motion_matcher.cpp
+    core/test_job_manager.cpp
     core/test_thumbnail_cache.cpp
     gpu/test_device_info.cpp
     gpu/test_provider.cpp

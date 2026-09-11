@@ -41,6 +41,8 @@ struct MotionMatch {
     double similarity = 0.0;
     double dtwDistance = 0.0;
     double durationSeconds = 0.0;
+    double leftStartSeconds = 0.0;
+    double rightStartSeconds = 0.0;
 };
 
 class MotionMatcher {
