@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
+import QtQuick.Effects
 import PfUi
 import PfUiBridge
 
@@ -68,6 +69,8 @@ ApplicationWindow {
                 height: parent.height - 28
                 color: Theme.panel
                 radius: Theme.radiusCard
+                layer.enabled: true
+                layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0, 0, 0, 0.42); shadowBlur: 0.55; shadowVerticalOffset: 8 }
                 Column {
                     anchors.fill: parent
                     anchors.margins: 16
@@ -141,6 +144,8 @@ ApplicationWindow {
                     height: parent.height - 92
                     color: Theme.panel
                     radius: Theme.radiusCard
+                    layer.enabled: true
+                    layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0, 0, 0, 0.48); shadowBlur: 0.65; shadowVerticalOffset: 10 }
                     Column {
                         anchors.fill: parent
                         anchors.margins: 16
@@ -184,6 +189,8 @@ ApplicationWindow {
                 height: parent.height - 28
                 color: Theme.panel
                 radius: Theme.radiusCard
+                layer.enabled: true
+                layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0, 0, 0, 0.42); shadowBlur: 0.55; shadowVerticalOffset: 8 }
                 Column { anchors.fill: parent; anchors.margins: 16; spacing: 12
                     Row { width: parent.width
                         Text { text: "Результаты"; color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }

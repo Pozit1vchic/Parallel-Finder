@@ -5,20 +5,20 @@ import QtQuick
 
 QtObject {
     // Palette
-    readonly property color background: "#262624"       // app background
-    readonly property color canvas: "#11110F"           // editorial main canvas
-    readonly property color panel: "#30302E"            // panels
-    readonly property color heroPanel: "#1B1B18"        // motion field surface
-    readonly property color panelAlt: "#353533"         // hover / nested panels
+    readonly property color background: "#181715"       // app background
+    readonly property color canvas: "#10100F"           // near-black editorial canvas
+    readonly property color panel: "#1F1E1B"            // dark product surface
+    readonly property color heroPanel: "#181715"        // elevated motion surface
+    readonly property color panelAlt: "#252320"         // elevated inner surface
     readonly property color border: Qt.rgba(255, 255, 255, 0.06)
     readonly property color hairline: Qt.rgba(255, 255, 255, 0.10)
-    readonly property color accent: "#D97757"           // terracotta
-    readonly property color accentMuted: Qt.rgba(0.851, 0.467, 0.341, 0.16)
-    readonly property color sage: "#7C9885"             // second accent
-    readonly property color sageMuted: Qt.rgba(0.486, 0.596, 0.522, 0.16)
-    readonly property color textPrimary: "#F5F1EC"
-    readonly property color textSecondary: "#B0AEA6"
-    readonly property color textDisabled: "#6E6C66"
+    readonly property color accent: "#CC785C"           // warm coral
+    readonly property color accentMuted: Qt.rgba(0.80, 0.47, 0.36, 0.14)
+    readonly property color sage: "#6D9B8F"             // restrained teal-sage
+    readonly property color sageMuted: Qt.rgba(0.43, 0.61, 0.56, 0.14)
+    readonly property color textPrimary: "#F5F0E8"
+    readonly property color textSecondary: "#A09D96"
+    readonly property color textDisabled: "#68655F"
 
     // Typography
     readonly property string fontFamily: "Segoe UI"
