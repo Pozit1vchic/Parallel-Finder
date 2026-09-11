@@ -1,6 +1,11 @@
 """Export the pinned YOLO26m-pose checkpoint to a static-batch ONNX asset."""
 from pathlib import Path
 import os
+
+# Never let Ultralytics mutate the Python installation behind our back.  All
+# export dependencies are expected to be provisioned in D:\\PythonLibs.
+os.environ.setdefault("YOLO_AUTOINSTALL", "False")
+
 from ultralytics import YOLO
 
 ROOT = Path(__file__).resolve().parent
