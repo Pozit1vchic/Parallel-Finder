@@ -5,20 +5,25 @@ import QtQuick
 
 QtObject {
     // Palette
-    readonly property color background: "#181715"       // app background
-    readonly property color canvas: "#10100F"           // near-black editorial canvas
-    readonly property color panel: "#1F1E1B"            // dark product surface
-    readonly property color heroPanel: "#181715"        // elevated motion surface
-    readonly property color panelAlt: "#252320"         // elevated inner surface
-    readonly property color border: Qt.rgba(255, 255, 255, 0.06)
-    readonly property color hairline: Qt.rgba(255, 255, 255, 0.10)
-    readonly property color accent: "#CC785C"           // warm coral
-    readonly property color accentMuted: Qt.rgba(0.80, 0.47, 0.36, 0.14)
-    readonly property color sage: "#6D9B8F"             // restrained teal-sage
-    readonly property color sageMuted: Qt.rgba(0.43, 0.61, 0.56, 0.14)
-    readonly property color textPrimary: "#F5F0E8"
-    readonly property color textSecondary: "#A09D96"
-    readonly property color textDisabled: "#68655F"
+    readonly property color background: "#10110F"       // restrained app chrome
+    readonly property color canvas: "#0A0B0A"            // true black work surface
+    readonly property color panel: "#151613"             // functional rail surface
+    readonly property color heroPanel: "#11120F"         // elevated overlay surface
+    readonly property color panelAlt: "#1B1C18"          // selected/inset surface
+    readonly property color well: "#0D0E0C"              // video and stage well
+    readonly property color border: Qt.rgba(245, 241, 236, 0.07)
+    readonly property color hairline: Qt.rgba(245, 241, 236, 0.12)
+    readonly property color accent: "#D97757"             // terracotta / A
+    readonly property color accentPressed: "#B95D42"
+    readonly property color accentMuted: Qt.rgba(0.85, 0.47, 0.34, 0.12)
+    readonly property color sage: "#7C9885"              // sage / B
+    readonly property color sageBright: "#A0B9A9"
+    readonly property color sageMuted: Qt.rgba(0.49, 0.60, 0.52, 0.11)
+    readonly property color glowA: Qt.rgba(0.85, 0.47, 0.34, 0.18)
+    readonly property color glowB: Qt.rgba(0.49, 0.60, 0.52, 0.14)
+    readonly property color textPrimary: "#F5F1EC"
+    readonly property color textSecondary: "#B0AEA6"
+    readonly property color textDisabled: "#77766F"
 
     // Typography
     readonly property string fontFamily: "Segoe UI"
@@ -41,7 +46,7 @@ QtObject {
 
     // Layout
     readonly property int topBarHeight: 48
-    readonly property int sidePanelWidth: 300
+    readonly property int sidePanelWidth: 296
     readonly property int resultRowHeight: 32 // virtualized rows
     readonly property int margins: 12
 }

@@ -18,7 +18,9 @@ qt_add_qml_module(pfui
     VERSION 1.0
     OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/PfUi
     QML_FILES ${PFUI_QML_FILES}
-    RESOURCES qml/pf_logo.png
+    RESOURCES
+        qml/pf_logo.png
+        qml/assets/film.svg
 )
 
 # C++ bridge is part of the pfui library but NOT part of the QML module:

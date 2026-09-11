@@ -77,6 +77,62 @@ void AnalysisController::setCandidateThreshold(double value)
     emit matcherParamsChanged();
 }
 
+void AnalysisController::setRepeatGap(double value)
+{
+    const double clamped = std::clamp(value, 0.0, 30.0);
+    if (std::abs(repeatGap_ - clamped) < 1e-9) return;
+    repeatGap_ = clamped;
+    emit matcherParamsChanged();
+}
+
+void AnalysisController::setSameFileGap(double value)
+{
+    const double clamped = std::clamp(value, 0.0, 15.0);
+    if (std::abs(sameFileGap_ - clamped) < 1e-9) return;
+    sameFileGap_ = clamped;
+    emit matcherParamsChanged();
+}
+
+void AnalysisController::setCrossFileGap(double value)
+{
+    const double clamped = std::clamp(value, 0.0, 15.0);
+    if (std::abs(crossFileGap_ - clamped) < 1e-9) return;
+    crossFileGap_ = clamped;
+    emit matcherParamsChanged();
+}
+
+void AnalysisController::setDuplicateWindow(double value)
+{
+    const double clamped = std::clamp(value, 0.25, 8.0);
+    if (std::abs(duplicateWindow_ - clamped) < 1e-9) return;
+    duplicateWindow_ = clamped;
+    emit matcherParamsChanged();
+}
+
+void AnalysisController::setNoiseFactor(double value)
+{
+    const double clamped = std::clamp(value, 0.0, 2.0);
+    if (std::abs(noiseFactor_ - clamped) < 1e-9) return;
+    noiseFactor_ = clamped;
+    emit matcherParamsChanged();
+}
+
+void AnalysisController::setMaxUniqueResults(int value)
+{
+    const int clamped = std::clamp(value, 10, 500);
+    if (maxUniqueResults_ == clamped) return;
+    maxUniqueResults_ = clamped;
+    emit matcherParamsChanged();
+}
+
+void AnalysisController::setTimeWeight(double value)
+{
+    const double clamped = std::clamp(value, 0.0, 1.0);
+    if (std::abs(timeWeight_ - clamped) < 1e-9) return;
+    timeWeight_ = clamped;
+    emit matcherParamsChanged();
+}
+
 void AnalysisController::setStatus(const QString& status)
 {
     if (status_ == status) return;
@@ -131,7 +187,16 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     setStatus(QStringLiteral("Декодируем кадры и ищем смены сцен…"));
     const double similarityThreshold = similarityThreshold_;
     const double candidateThreshold = candidateThreshold_;
-    QThread* thread = QThread::create([this, paths, similarityThreshold, candidateThreshold] {
+    const double repeatGap = repeatGap_;
+    const double sameFileGap = sameFileGap_;
+    const double crossFileGap = crossFileGap_;
+    const double duplicateWindow = duplicateWindow_;
+    const double noiseFactor = noiseFactor_;
+    const int maxUniqueResults = maxUniqueResults_;
+    const double timeWeight = timeWeight_;
+    QThread* thread = QThread::create([this, paths, similarityThreshold, candidateThreshold, repeatGap,
+                                        sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
+                                        maxUniqueResults, timeWeight] {
         int files = 0;
         int scenes = 0;
         int poseDetections = 0;
@@ -215,6 +280,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             pfcore::MotionMatcherParams params;
             params.similarityThreshold = similarityThreshold;
             params.candidateThreshold = candidateThreshold;
+            params.minRepeatGapSec = repeatGap;
+            params.sameFileGapSec = sameFileGap;
+            params.crossFileGapSec = crossFileGap;
+            params.duplicateWindowSec = duplicateWindow;
+            params.noiseFactor = noiseFactor;
+            params.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults);
+            params.timeWeight = timeWeight;
             const auto found = pfcore::MotionMatcher(params).findAllPairs(windows);
             matches = static_cast<int>(found.size());
             const QStringList windowPreviewA = previewA;

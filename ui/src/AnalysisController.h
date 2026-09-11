@@ -20,6 +20,13 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(double similarityThreshold READ similarityThreshold WRITE setSimilarityThreshold NOTIFY matcherParamsChanged)
     Q_PROPERTY(double candidateThreshold READ candidateThreshold WRITE setCandidateThreshold NOTIFY matcherParamsChanged)
+    Q_PROPERTY(double repeatGap READ repeatGap WRITE setRepeatGap NOTIFY matcherParamsChanged)
+    Q_PROPERTY(double sameFileGap READ sameFileGap WRITE setSameFileGap NOTIFY matcherParamsChanged)
+    Q_PROPERTY(double crossFileGap READ crossFileGap WRITE setCrossFileGap NOTIFY matcherParamsChanged)
+    Q_PROPERTY(double duplicateWindow READ duplicateWindow WRITE setDuplicateWindow NOTIFY matcherParamsChanged)
+    Q_PROPERTY(double noiseFactor READ noiseFactor WRITE setNoiseFactor NOTIFY matcherParamsChanged)
+    Q_PROPERTY(int maxUniqueResults READ maxUniqueResults WRITE setMaxUniqueResults NOTIFY matcherParamsChanged)
+    Q_PROPERTY(double timeWeight READ timeWeight WRITE setTimeWeight NOTIFY matcherParamsChanged)
 public:
     static AnalysisController* instance();
     static void registerQmlTypes();
@@ -38,6 +45,20 @@ public:
     double candidateThreshold() const noexcept { return candidateThreshold_; }
     void setSimilarityThreshold(double value);
     void setCandidateThreshold(double value);
+    double repeatGap() const noexcept { return repeatGap_; }
+    double sameFileGap() const noexcept { return sameFileGap_; }
+    double crossFileGap() const noexcept { return crossFileGap_; }
+    double duplicateWindow() const noexcept { return duplicateWindow_; }
+    double noiseFactor() const noexcept { return noiseFactor_; }
+    int maxUniqueResults() const noexcept { return maxUniqueResults_; }
+    double timeWeight() const noexcept { return timeWeight_; }
+    void setRepeatGap(double value);
+    void setSameFileGap(double value);
+    void setCrossFileGap(double value);
+    void setDuplicateWindow(double value);
+    void setNoiseFactor(double value);
+    void setMaxUniqueResults(int value);
+    void setTimeWeight(double value);
 
     Q_INVOKABLE void inspectFiles(const QStringList& paths);
     Q_INVOKABLE void analyzeFiles(const QStringList& paths);
@@ -64,6 +85,13 @@ private:
     bool busy_ = false;
     double similarityThreshold_ = 0.85;
     double candidateThreshold_ = 0.55;
+    double repeatGap_ = 6.0;
+    double sameFileGap_ = 2.0;
+    double crossFileGap_ = 0.0;
+    double duplicateWindow_ = 1.5;
+    double noiseFactor_ = 1.0;
+    int maxUniqueResults_ = 100;
+    double timeWeight_ = 0.25;
 };
 
 } // namespace pfui

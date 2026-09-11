@@ -212,26 +212,26 @@ ApplicationWindow {
                     }
                     Slider { id: candidate; width: parent.width; from: 0.1; to: 0.95; value: Analysis.candidateThreshold; onValueChanged: Analysis.candidateThreshold = value }
                     Text { text: "Минимальный зазор повторов"; color: Theme.textSecondary; font.pixelSize: 11 }
-                    Row { width: parent.width; Text { text: root.repeatGap.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 0; to: 30; stepSize: 0.5; value: root.repeatGap; onValueChanged: root.repeatGap = value }
+                    Row { width: parent.width; Text { text: Analysis.repeatGap.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 0; to: 30; stepSize: 0.5; value: Analysis.repeatGap; onValueChanged: if (Math.abs(Analysis.repeatGap - value) > 0.001) Analysis.repeatGap = value }
                     Text { text: "Зазор в одном видео"; color: Theme.textSecondary; font.pixelSize: 11 }
-                    Row { width: parent.width; Text { text: root.sameFileGap.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: root.sameFileGap; onValueChanged: root.sameFileGap = value }
+                    Row { width: parent.width; Text { text: Analysis.sameFileGap.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: Analysis.sameFileGap; onValueChanged: if (Math.abs(Analysis.sameFileGap - value) > 0.001) Analysis.sameFileGap = value }
                     Text { text: "Зазор между видео"; color: Theme.textSecondary; font.pixelSize: 11 }
-                    Row { width: parent.width; Text { text: root.crossFileGap.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: root.crossFileGap; onValueChanged: root.crossFileGap = value }
+                    Row { width: parent.width; Text { text: Analysis.crossFileGap.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: Analysis.crossFileGap; onValueChanged: if (Math.abs(Analysis.crossFileGap - value) > 0.001) Analysis.crossFileGap = value }
                     Text { text: "Окно дубликатов"; color: Theme.textSecondary; font.pixelSize: 11 }
-                    Row { width: parent.width; Text { text: root.duplicateWindow.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 0.25; to: 8; stepSize: 0.25; value: root.duplicateWindow; onValueChanged: root.duplicateWindow = value }
+                    Row { width: parent.width; Text { text: Analysis.duplicateWindow.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 0.25; to: 8; stepSize: 0.25; value: Analysis.duplicateWindow; onValueChanged: if (Math.abs(Analysis.duplicateWindow - value) > 0.001) Analysis.duplicateWindow = value }
                     Text { text: "Коэффициент шума"; color: Theme.textSecondary; font.pixelSize: 11 }
-                    Row { width: parent.width; Text { text: root.noiseFactor.toFixed(2); color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 0; to: 2; stepSize: 0.05; value: root.noiseFactor; onValueChanged: root.noiseFactor = value }
+                    Row { width: parent.width; Text { text: Analysis.noiseFactor.toFixed(2); color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 0; to: 2; stepSize: 0.05; value: Analysis.noiseFactor; onValueChanged: if (Math.abs(Analysis.noiseFactor - value) > 0.001) Analysis.noiseFactor = value }
                     Text { text: "Максимум уникальных"; color: Theme.textSecondary; font.pixelSize: 11 }
-                    Row { width: parent.width; Text { text: root.maxUniqueResults; color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 10; to: 500; stepSize: 10; value: root.maxUniqueResults; onValueChanged: root.maxUniqueResults = Math.round(value) }
+                    Row { width: parent.width; Text { text: Analysis.maxUniqueResults; color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 10; to: 500; stepSize: 10; value: Analysis.maxUniqueResults; onValueChanged: if (Analysis.maxUniqueResults !== Math.round(value)) Analysis.maxUniqueResults = Math.round(value) }
                     Text { text: "Вес времени"; color: Theme.textSecondary; font.pixelSize: 11 }
-                    Row { width: parent.width; Text { text: Math.round(root.timeWeight * 100) + "%"; color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 0; to: 1; stepSize: 0.05; value: root.timeWeight; onValueChanged: root.timeWeight = value }
+                    Row { width: parent.width; Text { text: Math.round(Analysis.timeWeight * 100) + "%"; color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 0; to: 1; stepSize: 0.05; value: Analysis.timeWeight; onValueChanged: if (Math.abs(Analysis.timeWeight - value) > 0.001) Analysis.timeWeight = value }
                     Text { text: "Качество анализа"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; spacing: 4
                         property int selectedQuality: 2
@@ -265,16 +265,29 @@ ApplicationWindow {
                 width: parent.width - 610
                 height: parent.height - 28
                 spacing: 12
-                Row {
+                Rectangle {
                     width: parent.width
                     height: 68
-                    spacing: 10
-                    Repeater {
-                        model: [["КАДРЫ", Analysis.frameCount], ["ПОВТОРЫ", Analysis.matchCount], ["ДЛИТЕЛЬНОСТЬ", Math.round(Analysis.durationSeconds) + " с"], ["СХОЖЕСТЬ", Analysis.matchCount > 0 ? "85%" : "—"], ["ОСТАЛОСЬ", Analysis.busy ? "…" : "00:00"], ["ПРОГРЕСС", Analysis.busy ? "…" : (Analysis.fileCount > 0 ? "100%" : "0%")]]
-                        delegate: Rectangle { width: (parent.width - 50) / 6; height: 68; color: Theme.panel; radius: 9
-                            Column { anchors.left: parent.left; anchors.leftMargin: 14; anchors.verticalCenter: parent.verticalCenter; spacing: 4
-                                Text { text: modelData[0]; color: Theme.textDisabled; font.pixelSize: 9; font.weight: Font.DemiBold }
-                                Text { text: modelData[1]; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 21 }
+                    color: Theme.panel
+                    radius: 10
+                    border.color: Theme.border
+                    Row {
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        Repeater {
+                            model: [["Кадры", Analysis.frameCount], ["Повторы", Analysis.matchCount], ["Длительность", Math.round(Analysis.durationSeconds) + " с"], ["Схожесть", Analysis.matchCount > 0 ? "85%" : "—"], ["Осталось", Analysis.busy ? "…" : "00:00"], ["Прогресс", Analysis.busy ? "…" : (Analysis.fileCount > 0 ? "100%" : "0%")]]
+                            delegate: Item {
+                                width: (parent.width - 5) / 6
+                                height: parent.height
+                                Rectangle { visible: index > 0; x: 0; y: 15; width: 1; height: parent.height - 30; color: Theme.border }
+                                Column {
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 14
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 4
+                                    Text { text: modelData[0]; color: Theme.textDisabled; font.pixelSize: 10 }
+                                    Text { text: modelData[1]; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 21 }
+                                }
                             }
                         }
                     }
@@ -311,24 +324,27 @@ ApplicationWindow {
                             color: Theme.canvas
                             radius: 10
                             border.color: Theme.hairline
-                            Column { anchors.centerIn: parent; spacing: 12; visible: root.selectedResultIndex < 0
-                                Item { anchors.horizontalCenter: parent.horizontalCenter; width: 250; height: 190
-                                    Rectangle { anchors.centerIn: parent; width: 238; height: 150; radius: 75; color: Theme.accentMuted; opacity: 0.22
+                            Column { anchors.centerIn: parent; spacing: 16; visible: root.selectedResultIndex < 0
+                                Item { anchors.horizontalCenter: parent.horizontalCenter; width: 340; height: 116
+                                    Rectangle { x: 20; y: 56; width: 300; height: 1; color: Theme.hairline; opacity: 0.7 }
+                                    Rectangle { x: 48; y: 35; width: 232; height: 1; rotation: -10; color: Theme.accent; opacity: 0.72
                                         layer.enabled: true
-                                        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0.80, 0.47, 0.36, 0.42); shadowBlur: 1.0; shadowVerticalOffset: 0 }
+                                        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.glowA; shadowBlur: 0.9; shadowVerticalOffset: 0 }
                                     }
-                                    Rectangle { anchors.centerIn: parent; width: 190; height: 190; radius: 95; color: "transparent"; border.color: Theme.accent; border.width: 1
-                                    layer.enabled: true
-                                    layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0.80, 0.47, 0.36, 0.72); shadowBlur: 1.0; shadowVerticalOffset: 0 }
-                                    Rectangle { anchors.centerIn: parent; width: 128; height: 128; radius: 64; color: "transparent"; border.color: Theme.sage; border.width: 1
+                                    Rectangle { x: 74; y: 78; width: 205; height: 1; rotation: 8; color: Theme.sage; opacity: 0.65
                                         layer.enabled: true
-                                        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0.43, 0.61, 0.56, 0.72); shadowBlur: 0.9; shadowVerticalOffset: 0 }
-                                        Rectangle { anchors.centerIn: parent; width: 48; height: 48; radius: 24; color: Theme.panel; border.color: Theme.textPrimary; border.width: 1 }
+                                        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.glowB; shadowBlur: 0.9; shadowVerticalOffset: 0 }
                                     }
+                                    Rectangle { x: 42; y: 51; width: 5; height: 5; radius: 2.5; color: Theme.accent }
+                                    Rectangle { x: 286; y: 51; width: 5; height: 5; radius: 2.5; color: Theme.sage }
+                                    Image { anchors.centerIn: parent; width: 28; height: 28; source: "qrc:/qt/qml/PfUi/assets/film.svg" }
                                 }
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: Analysis.fileCount > 0 ? "Движение готово к сравнению" : "Добавьте видео для поиска повторений"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 18 }
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: Analysis.fileCount > 0 ? Analysis.poseDetectionCount + " поз найдено" : "Начните с одного или нескольких файлов"; color: Theme.textSecondary; font.pixelSize: 12 }
+                                Button { anchors.horizontalCenter: parent.horizontalCenter; visible: Analysis.fileCount === 0; text: "Добавить видео"; onClicked: fileDialog.open()
+                                    contentItem: Text { text: parent.text; color: Theme.canvas; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 12; font.weight: Font.DemiBold }
+                                    background: Rectangle { radius: 8; color: Theme.textPrimary }
                                 }
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.selectedResultIndex >= 0 ? "Пара " + (root.selectedResultIndex + 1) + " выбрана" : (Analysis.fileCount > 0 ? "Движение готово к сравнению" : "Добавьте видео, чтобы начать"); color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 17 }
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.selectedResultIndex >= 0 ? Analysis.resultItems[root.selectedResultIndex] : (Analysis.fileCount > 0 ? Analysis.poseDetectionCount + " поз  ·  " + Analysis.matchCount + " пар" : "В центре появится превью пары"); color: Theme.textSecondary; font.pixelSize: 11 }
                             }
                             Row { anchors.centerIn: parent; width: parent.width - 36; height: parent.height - 36; spacing: 10; visible: root.selectedResultIndex >= 0
                                 Rectangle { width: (parent.width - 10) / 2; height: parent.height; color: Theme.panel; radius: 8; border.color: Theme.hairline
