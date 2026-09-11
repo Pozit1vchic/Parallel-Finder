@@ -6,6 +6,7 @@ find_package(Qt6 REQUIRED COMPONENTS Test)
 # ── Core tests (Google Test): pfcore + pfservices + pfgpu ──────────────────
 add_executable(pf_tests
     core/test_scene_detector.cpp
+    core/test_video_decoder.cpp
     core/test_thumbnail_cache.cpp
     gpu/test_device_info.cpp
     gpu/test_provider.cpp
@@ -13,6 +14,7 @@ add_executable(pf_tests
     gpu/test_session_cache.cpp
 )
 set_target_properties(pf_tests PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_compile_definitions(pf_tests PRIVATE PF_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 target_link_libraries(pf_tests PRIVATE
     pf::core
     pf::services
