@@ -16,6 +16,13 @@ ApplicationWindow {
     color: Theme.canvas
     property var sourceFiles: []
     property int selectedResultIndex: -1
+    property real repeatGap: 6.0
+    property real sameFileGap: 2.0
+    property real crossFileGap: 0.0
+    property real duplicateWindow: 1.5
+    property real noiseFactor: 1.0
+    property int maxUniqueResults: 100
+    property real timeWeight: 0.25
 
     FileDialog {
         id: fileDialog
@@ -144,9 +151,18 @@ ApplicationWindow {
                 radius: Theme.radiusCard
                 layer.enabled: true
                 layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0, 0, 0, 0.42); shadowBlur: 0.55; shadowVerticalOffset: 8 }
-                Column {
+                Flickable {
+                    id: leftScroll
                     anchors.fill: parent
                     anchors.margins: 16
+                    clip: true
+                    contentWidth: width
+                    contentHeight: leftContent.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                    Column {
+                    id: leftContent
+                    width: leftScroll.width
                     spacing: 12
                     Text { text: "Источники"; color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
                     Text { text: root.sourceFiles.length > 0 ? root.sourceFiles.length + " видео добавлено" : "Видео для сравнения"; color: Theme.textSecondary; font.pixelSize: 11 }
@@ -195,6 +211,27 @@ ApplicationWindow {
                         Item { width: parent.width - 42; height: 1 }
                     }
                     Slider { id: candidate; width: parent.width; from: 0.1; to: 0.95; value: Analysis.candidateThreshold; onValueChanged: Analysis.candidateThreshold = value }
+                    Text { text: "Минимальный зазор повторов"; color: Theme.textSecondary; font.pixelSize: 11 }
+                    Row { width: parent.width; Text { text: root.repeatGap.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 0; to: 30; stepSize: 0.5; value: root.repeatGap; onValueChanged: root.repeatGap = value }
+                    Text { text: "Зазор в одном видео"; color: Theme.textSecondary; font.pixelSize: 11 }
+                    Row { width: parent.width; Text { text: root.sameFileGap.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: root.sameFileGap; onValueChanged: root.sameFileGap = value }
+                    Text { text: "Зазор между видео"; color: Theme.textSecondary; font.pixelSize: 11 }
+                    Row { width: parent.width; Text { text: root.crossFileGap.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: root.crossFileGap; onValueChanged: root.crossFileGap = value }
+                    Text { text: "Окно дубликатов"; color: Theme.textSecondary; font.pixelSize: 11 }
+                    Row { width: parent.width; Text { text: root.duplicateWindow.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 0.25; to: 8; stepSize: 0.25; value: root.duplicateWindow; onValueChanged: root.duplicateWindow = value }
+                    Text { text: "Коэффициент шума"; color: Theme.textSecondary; font.pixelSize: 11 }
+                    Row { width: parent.width; Text { text: root.noiseFactor.toFixed(2); color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 0; to: 2; stepSize: 0.05; value: root.noiseFactor; onValueChanged: root.noiseFactor = value }
+                    Text { text: "Максимум уникальных"; color: Theme.textSecondary; font.pixelSize: 11 }
+                    Row { width: parent.width; Text { text: root.maxUniqueResults; color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 10; to: 500; stepSize: 10; value: root.maxUniqueResults; onValueChanged: root.maxUniqueResults = Math.round(value) }
+                    Text { text: "Вес времени"; color: Theme.textSecondary; font.pixelSize: 11 }
+                    Row { width: parent.width; Text { text: Math.round(root.timeWeight * 100) + "%"; color: Theme.accent; font.pixelSize: 12 } }
+                    Slider { width: parent.width; from: 0; to: 1; stepSize: 0.05; value: root.timeWeight; onValueChanged: root.timeWeight = value }
                     Text { text: "Качество анализа"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; spacing: 4
                         property int selectedQuality: 2
@@ -219,6 +256,8 @@ ApplicationWindow {
                         background: Rectangle { radius: 8; color: parent.enabled ? Theme.accent : Theme.panelAlt }
                     }
                     Text { width: parent.width; text: Analysis.status; color: Theme.textDisabled; font.pixelSize: 10; wrapMode: Text.WordWrap }
+                    Item { width: 1; height: 12 }
+                }
                 }
             }
 
