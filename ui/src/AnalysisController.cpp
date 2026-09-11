@@ -6,6 +6,7 @@
 #include <QThread>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <vector>
@@ -46,6 +47,22 @@ void AnalysisController::registerQmlTypes()
 }
 
 AnalysisController::AnalysisController(QObject* parent) : QObject(parent) {}
+
+void AnalysisController::setSimilarityThreshold(double value)
+{
+    const double clamped = std::clamp(value, 0.0, 1.0);
+    if (std::abs(similarityThreshold_ - clamped) < 1e-9) return;
+    similarityThreshold_ = clamped;
+    emit matcherParamsChanged();
+}
+
+void AnalysisController::setCandidateThreshold(double value)
+{
+    const double clamped = std::clamp(value, 0.0, 1.0);
+    if (std::abs(candidateThreshold_ - clamped) < 1e-9) return;
+    candidateThreshold_ = clamped;
+    emit matcherParamsChanged();
+}
 
 void AnalysisController::setStatus(const QString& status)
 {
@@ -99,7 +116,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     busy_ = true;
     emit busyChanged();
     setStatus(QStringLiteral("Декодируем кадры и ищем смены сцен…"));
-    QThread* thread = QThread::create([this, paths] {
+    const double similarityThreshold = similarityThreshold_;
+    const double candidateThreshold = candidateThreshold_;
+    QThread* thread = QThread::create([this, paths, similarityThreshold, candidateThreshold] {
         int files = 0;
         int scenes = 0;
         int poseDetections = 0;
@@ -172,8 +191,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 break;
             }
         }
-        if (error.isEmpty() && windows.size() >= 2)
-            matches = static_cast<int>(pfcore::MotionMatcher().findAllPairs(windows).size());
+        if (error.isEmpty() && windows.size() >= 2) {
+            pfcore::MotionMatcherParams params;
+            params.similarityThreshold = similarityThreshold;
+            params.candidateThreshold = candidateThreshold;
+            matches = static_cast<int>(pfcore::MotionMatcher(params).findAllPairs(windows).size());
+        }
         QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, matches, error] {
             fileCount_ = files; frameCount_ = frames; durationSeconds_ = duration; sceneCount_ = scenes;
             poseDetectionCount_ = poseDetections;

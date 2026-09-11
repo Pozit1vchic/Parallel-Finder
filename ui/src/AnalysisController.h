@@ -15,6 +15,8 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(int matchCount READ matchCount NOTIFY summaryChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(double similarityThreshold READ similarityThreshold WRITE setSimilarityThreshold NOTIFY matcherParamsChanged)
+    Q_PROPERTY(double candidateThreshold READ candidateThreshold WRITE setCandidateThreshold NOTIFY matcherParamsChanged)
 public:
     static AnalysisController* instance();
     static void registerQmlTypes();
@@ -26,6 +28,10 @@ public:
     int matchCount() const noexcept { return matchCount_; }
     QString status() const { return status_; }
     bool busy() const noexcept { return busy_; }
+    double similarityThreshold() const noexcept { return similarityThreshold_; }
+    double candidateThreshold() const noexcept { return candidateThreshold_; }
+    void setSimilarityThreshold(double value);
+    void setCandidateThreshold(double value);
 
     Q_INVOKABLE void inspectFiles(const QStringList& paths);
     Q_INVOKABLE void analyzeFiles(const QStringList& paths);
@@ -34,6 +40,7 @@ signals:
     void summaryChanged();
     void statusChanged();
     void busyChanged();
+    void matcherParamsChanged();
 
 private:
     explicit AnalysisController(QObject* parent = nullptr);
@@ -46,6 +53,8 @@ private:
     int matchCount_ = 0;
     QString status_;
     bool busy_ = false;
+    double similarityThreshold_ = 0.85;
+    double candidateThreshold_ = 0.55;
 };
 
 } // namespace pfui

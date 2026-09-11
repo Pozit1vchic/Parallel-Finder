@@ -145,8 +145,8 @@ ApplicationWindow {
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeBody
                     }
-                    Slider { id: similarity; width: parent.width; from: 0.5; to: 0.99; value: 0.85; ToolTip.visible: hovered; ToolTip.text: "Порог схожести: " + value.toFixed(2) }
-                    Slider { id: candidate; width: parent.width; from: 0.1; to: 0.95; value: 0.55; ToolTip.visible: hovered; ToolTip.text: "Порог кандидата: " + value.toFixed(2) }
+                    Slider { id: similarity; width: parent.width; from: 0.5; to: 0.99; value: Analysis.similarityThreshold; onValueChanged: Analysis.similarityThreshold = value; ToolTip.visible: hovered; ToolTip.text: "Порог схожести: " + value.toFixed(2) }
+                    Slider { id: candidate; width: parent.width; from: 0.1; to: 0.95; value: Analysis.candidateThreshold; onValueChanged: Analysis.candidateThreshold = value; ToolTip.visible: hovered; ToolTip.text: "Порог кандидата: " + value.toFixed(2) }
                     Text { text: "Порог схожести  " + Math.round(similarity.value * 100) + "%"; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall }
                     Text { text: "Порог кандидата  " + Math.round(candidate.value * 100) + "%"; color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall }
                     Button { text: Analysis.busy ? "Анализ выполняется…" : "Запустить анализ сцен"; width: parent.width; enabled: root.sourceFiles.length > 0 && !Analysis.busy; onClicked: Analysis.analyzeFiles(root.sourceFiles) }
