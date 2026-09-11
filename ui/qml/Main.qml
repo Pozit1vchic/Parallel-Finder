@@ -145,6 +145,21 @@ ApplicationWindow {
                         contentItem: Text { text: parent.text; color: Theme.canvas; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 12; font.weight: Font.DemiBold }
                         background: Rectangle { radius: 8; color: Theme.textPrimary }
                     }
+                    Row { width: parent.width; spacing: 6
+                        Button { width: (parent.width - 6) / 2; height: 30; text: "Выбрать папку"
+                            contentItem: Text { text: parent.text; color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 }
+                            background: Rectangle { radius: 6; color: Theme.panelAlt }
+                        }
+                        Button { width: (parent.width - 6) / 2; height: 30; text: "Очистить"; enabled: root.sourceFiles.length > 0; onClicked: { root.sourceFiles = []; root.sourceFilesChanged() }
+                            contentItem: Text { text: parent.text; color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 }
+                            background: Rectangle { radius: 6; color: Theme.panelAlt }
+                        }
+                    }
+                    Button { width: parent.width; height: 28; text: "Удалить выбранное"; enabled: root.sourceFiles.length > 0
+                        contentItem: Text { text: parent.text; color: Theme.textDisabled; horizontalAlignment: Text.AlignLeft; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 }
+                        background: Rectangle { color: "transparent" }
+                    }
+                    CheckBox { text: "Найти человека по фото"; checked: false; contentItem: Text { text: parent.text; color: Theme.textSecondary; leftPadding: 24; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 } }
                     ListView {
                         width: parent.width
                         height: 130
@@ -167,6 +182,19 @@ ApplicationWindow {
                         Item { width: parent.width - 42; height: 1 }
                     }
                     Slider { id: candidate; width: parent.width; from: 0.1; to: 0.95; value: Analysis.candidateThreshold; onValueChanged: Analysis.candidateThreshold = value }
+                    Text { text: "Качество анализа"; color: Theme.textSecondary; font.pixelSize: 11 }
+                    Row { width: parent.width; spacing: 4
+                        property int selectedQuality: 2
+                        Repeater { model: ["Быстро", "Средне", "Максимум"]
+                            delegate: Button { width: (parent.width - 8) / 3; height: 28; text: modelData; onClicked: parent.parent.selectedQuality = index
+                                contentItem: Text { text: parent.text; color: parent.parent.selectedQuality === index ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 9 }
+                                background: Rectangle { radius: 5; color: parent.parent.selectedQuality === index ? Theme.accent : Theme.panelAlt }
+                            }
+                        }
+                    }
+                    Text { text: "Опции"; color: Theme.textSecondary; font.pixelSize: 11 }
+                    CheckBox { text: "Нормализация размера"; checked: true; contentItem: Text { text: parent.text; color: Theme.textSecondary; leftPadding: 24; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 } }
+                    CheckBox { text: "Зеркальные позы"; checked: true; contentItem: Text { text: parent.text; color: Theme.textSecondary; leftPadding: 24; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 } }
                     Item { width: 1; height: 1 }
                     Button {
                         width: parent.width
@@ -190,8 +218,8 @@ ApplicationWindow {
                     height: 68
                     spacing: 10
                     Repeater {
-                        model: [["ФАЙЛЫ", Analysis.fileCount], ["КАДРЫ", Analysis.frameCount], ["СЦЕНЫ", Analysis.sceneCount], ["ПАРЫ", Analysis.matchCount]]
-                        delegate: Rectangle { width: (parent.width - 30) / 4; height: 68; color: Theme.panel; radius: 9
+                        model: [["КАДРЫ", Analysis.frameCount], ["ПОВТОРЫ", Analysis.matchCount], ["ДЛИТЕЛЬНОСТЬ", Math.round(Analysis.durationSeconds) + " с"], ["СХОЖЕСТЬ", Analysis.matchCount > 0 ? "85%" : "—"], ["ОСТАЛОСЬ", Analysis.busy ? "…" : "00:00"], ["ПРОГРЕСС", Analysis.busy ? "…" : (Analysis.fileCount > 0 ? "100%" : "0%")]]
+                        delegate: Rectangle { width: (parent.width - 50) / 6; height: 68; color: Theme.panel; radius: 9
                             Column { anchors.left: parent.left; anchors.leftMargin: 14; anchors.verticalCenter: parent.verticalCenter; spacing: 4
                                 Text { text: modelData[0]; color: Theme.textDisabled; font.pixelSize: 9; font.weight: Font.DemiBold }
                                 Text { text: modelData[1]; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 21 }
@@ -210,6 +238,16 @@ ApplicationWindow {
                         anchors.fill: parent
                         anchors.margins: 16
                         spacing: 10
+                        Rectangle { width: parent.width; height: 46; color: Theme.panelAlt; radius: 7
+                            Column { anchors.fill: parent; anchors.margins: 9; spacing: 4
+                                Row { width: parent.width
+                                    Text { text: Analysis.busy ? "Обрабатываем материал" : "Прогресс"; color: Theme.textSecondary; font.pixelSize: 10 }
+                                    Item { width: parent.width - 110; height: 1 }
+                                    Text { text: Analysis.busy ? "…" : (Analysis.fileCount > 0 ? "готово" : "ожидание"); color: Theme.sage; font.pixelSize: 10 }
+                                }
+                                Rectangle { width: parent.width; height: 4; radius: 2; color: Theme.canvas; Rectangle { width: Analysis.fileCount > 0 ? parent.width : 0; height: parent.height; radius: 2; color: Theme.accent } }
+                            }
+                        }
                         Row { width: parent.width
                             Text { text: "Сравнение"; color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
                             Item { width: parent.width - 300; height: 1 }
@@ -284,11 +322,28 @@ ApplicationWindow {
                         Item { width: parent.width - 170; height: 1 }
                         Text { text: Analysis.matchCount; color: Theme.accent; font.family: "Georgia"; font.pixelSize: 20 }
                     }
+                    Row { width: parent.width; spacing: 6
+                        Button { width: 82; height: 28; text: "‹ Пред."
+                            contentItem: Text { text: parent.text; color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 }
+                            background: Rectangle { radius: 6; color: Theme.panelAlt }
+                        }
+                        Item { width: parent.width - 176; height: 1 }
+                        Button { width: 82; height: 28; text: "След. ›"
+                            contentItem: Text { text: parent.text; color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 }
+                            background: Rectangle { radius: 6; color: Theme.panelAlt }
+                        }
+                    }
                     Rectangle { width: parent.width; height: 1; color: Theme.border }
                     Text { text: Analysis.matchCount > 0 ? "Найденные параллели" : "Результаты появятся здесь"; color: Theme.textSecondary; font.pixelSize: 12 }
                     Button { width: parent.width; height: 36; text: "Экспорт результатов"; enabled: Analysis.matchCount > 0; onClicked: exportDialog.open()
                         contentItem: Text { text: parent.text; color: parent.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 11 }
                         background: Rectangle { radius: 8; color: parent.enabled ? Theme.accent : Theme.panelAlt }
+                    }
+                    Text { text: "Категории движений"; color: Theme.textSecondary; font.pixelSize: 11 }
+                    Row { width: parent.width; spacing: 4
+                        Rectangle { width: 42; height: 24; radius: 12; color: Theme.accentMuted; Text { anchors.centerIn: parent; text: "Все"; color: Theme.textPrimary; font.pixelSize: 10 } }
+                        Rectangle { width: 72; height: 24; radius: 12; color: Theme.panelAlt; Text { anchors.centerIn: parent; text: "К камере"; color: Theme.textSecondary; font.pixelSize: 10 } }
+                        Rectangle { width: 70; height: 24; radius: 12; color: Theme.panelAlt; Text { anchors.centerIn: parent; text: "В сторону"; color: Theme.textSecondary; font.pixelSize: 10 } }
                     }
                     ListView { width: parent.width; height: parent.height - 100; clip: true; model: Analysis.resultItems
                         delegate: Rectangle { width: ListView.view.width; height: 54; color: index === root.selectedResultIndex ? Theme.accentMuted : Theme.panelAlt; radius: 7; anchors.margins: 2
