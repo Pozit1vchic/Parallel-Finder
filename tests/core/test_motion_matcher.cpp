@@ -22,7 +22,7 @@ TEST(MotionMatcher, IdenticalNormalizedMotionScoresHighly)
 
 TEST(MotionMatcher, AllPairsAllowsOneWindowInSeveralResults)
 {
-    pfcore::MotionMatcherParams params; params.similarityThreshold = 0.7; params.maxUnique = 10;
+    pfcore::MotionMatcherParams params; params.similarityThreshold = 0.7; params.maxUniqueResults = 10;
     pfcore::MotionMatcher matcher(params);
     const auto matches = matcher.findAllPairs({window("a", 0), window("b", 4), window("c", 8)});
     EXPECT_EQ(matches.size(), 3U);

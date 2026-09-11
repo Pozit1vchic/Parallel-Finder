@@ -23,15 +23,15 @@ struct MotionWindow {
 };
 
 struct MotionMatcherParams {
-    double similarityThreshold = 0.72;
-    double candidateThreshold = 0.45;
-    double minRepeatGapSeconds = 0.0;
-    double sameVideoGapSeconds = 0.5;
-    double crossVideoGapSeconds = 0.0;
-    double duplicateWindowSeconds = 1.0;
-    double noiseCoefficient = 0.15;
-    std::size_t maxUnique = 100;
-    double timeWeight = 0.10;
+    double similarityThreshold = 0.85;
+    double candidateThreshold = 0.55;
+    double minRepeatGapSec = 6.0;
+    double sameFileGapSec = 2.0;
+    double crossFileGapSec = 0.0;
+    double duplicateWindowSec = 1.5;
+    double noiseFactor = 1.0;
+    std::size_t maxUniqueResults = 100;
+    double timeWeight = 0.25;
     std::size_t dtwBand = 8;
 };
 

@@ -37,12 +37,12 @@ std::vector<Descriptor> describe(const MotionWindow& window)
     return result;
 }
 
-double frameDistance(const Descriptor& left, const Descriptor& right, double noise)
+double frameDistance(const Descriptor& left, const Descriptor& right)
 {
-    if (left.empty() || right.empty() || left.size() != right.size()) return 1.0 + noise;
+    if (left.empty() || right.empty() || left.size() != right.size()) return 1.0;
     double sum = 0.0;
     for (std::size_t i = 0; i < left.size(); ++i) sum += std::abs(left[i] - right[i]);
-    return sum / static_cast<double>(left.size()) + noise;
+    return sum / static_cast<double>(left.size());
 }
 
 double duration(const MotionWindow& window)
@@ -59,7 +59,7 @@ void MotionMatcher::setParams(MotionMatcherParams params)
 {
     if (!(params.similarityThreshold >= 0.0 && params.similarityThreshold <= 1.0)
         || !(params.candidateThreshold >= 0.0 && params.candidateThreshold <= 1.0)
-        || params.maxUnique == 0 || params.dtwBand == 0 || params.noiseCoefficient < 0.0)
+        || params.maxUniqueResults == 0 || params.dtwBand == 0 || params.noiseFactor < 0.0)
         throw std::invalid_argument("MotionMatcher: invalid parameters");
     params_ = params;
 }
@@ -81,7 +81,7 @@ MotionMatch MotionMatcher::compare(const MotionWindow& left, const MotionWindow&
         const std::size_t begin = i > band ? i - band : 1;
         const std::size_t end = std::min(cols, i + band);
         for (std::size_t j = begin; j <= end; ++j) {
-            const double cost = frameDistance(a[i - 1], b[j - 1], params_.noiseCoefficient);
+            const double cost = frameDistance(a[i - 1], b[j - 1]);
             current[j] = cost + std::min({previous[j], current[j - 1], previous[j - 1]});
         }
         previous.swap(current);
@@ -103,7 +103,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             const bool sameSource = windows[i].sourceId == windows[j].sourceId;
             const double gap = std::abs(windows[i].frames.front().timestampSeconds
                 - windows[j].frames.front().timestampSeconds);
-            const double requiredGap = sameSource ? params_.sameVideoGapSeconds : params_.crossVideoGapSeconds;
+            const double requiredGap = sameSource ? params_.sameFileGapSec : params_.crossFileGapSec;
             if (sameSource && gap < requiredGap) continue;
             MotionMatch candidate = compare(windows[i], windows[j], i, j);
             if (candidate.similarity >= params_.similarityThreshold) matches.push_back(candidate);
@@ -112,7 +112,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     std::sort(matches.begin(), matches.end(), [](const auto& a, const auto& b) {
         return a.similarity > b.similarity;
     });
-    if (matches.size() > params_.maxUnique) matches.resize(params_.maxUnique);
+    if (matches.size() > params_.maxUniqueResults) matches.resize(params_.maxUniqueResults);
     return matches;
 }
 
