@@ -5,6 +5,7 @@ add_library(pfgpu STATIC
     src/Provider.cpp
     src/ProviderFactory.cpp
     src/SessionCache.cpp
+    src/Inference.cpp
 )
 add_library(pf::gpu ALIAS pfgpu)
 set_target_properties(pfgpu PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
