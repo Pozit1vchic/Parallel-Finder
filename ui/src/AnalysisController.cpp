@@ -148,7 +148,24 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             window.frames.push_back(std::move(poseFrame));
                         }
                     }
-                    if (window.frames.size() >= 2) windows.push_back(std::move(window));
+                    // Compare overlapping motion windows rather than one
+                    // aggregate window per file. This preserves independent
+                    // matches and allows repeated actions in the same clip.
+                    constexpr std::size_t minimumFrames = 8;
+                    constexpr std::size_t windowFrames = 32;
+                    constexpr std::size_t windowStride = 16;
+                    if (window.frames.size() >= minimumFrames) {
+                        for (std::size_t start = 0; start + minimumFrames <= window.frames.size(); start += windowStride) {
+                            const std::size_t end = std::min(window.frames.size(), start + windowFrames);
+                            if (end - start < minimumFrames) break;
+                            pfcore::MotionWindow chunk;
+                            chunk.sourceId = window.sourceId;
+                            chunk.frames.assign(window.frames.begin() + static_cast<std::ptrdiff_t>(start),
+                                                window.frames.begin() + static_cast<std::ptrdiff_t>(end));
+                            windows.push_back(std::move(chunk));
+                            if (end == window.frames.size()) break;
+                        }
+                    }
                 }
             } catch (const std::exception& exception) {
                 error = QString::fromUtf8(exception.what());
