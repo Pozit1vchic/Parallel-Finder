@@ -42,9 +42,8 @@ ApplicationWindow {
             height: 60
             color: Theme.canvas
             Row { anchors.left: parent.left; anchors.leftMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 12
-                Text { text: "✳"; color: Theme.accent; font.pixelSize: 20 }
+                Image { width: 25; height: 25; source: "qrc:/qt/qml/PfUi/qml/pf_logo.png"; fillMode: Image.PreserveAspectFit; smooth: true }
                 Text { text: "Parallel Finder"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 20 }
-                Text { text: "·  motion study"; color: Theme.textDisabled; font.pixelSize: 11 }
             }
             Row { anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 12
                 Text { text: Analysis.busy ? "Анализируем" : "Готово к работе"; color: Theme.textSecondary; font.pixelSize: 11 }
@@ -62,6 +61,7 @@ ApplicationWindow {
             spacing: 12
             anchors.leftMargin: 14
             anchors.rightMargin: 14
+            clip: true
 
             Rectangle {
                 width: 286

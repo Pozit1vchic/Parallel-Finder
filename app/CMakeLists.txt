@@ -1,5 +1,6 @@
 qt_add_executable(ParallelFinder
     src/main.cpp
+    ParallelFinder.rc
 )
 
 target_compile_definitions(ParallelFinder PRIVATE PF_VERSION="${PROJECT_VERSION}")
