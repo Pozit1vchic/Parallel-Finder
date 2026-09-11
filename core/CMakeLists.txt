@@ -1,22 +1,34 @@
 add_library(pfcore STATIC
     src/SceneDetector.cpp
+    src/VideoDecoder.cpp
 )
 add_library(pf::core ALIAS pfcore)
+set_target_properties(pfcore PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 
 target_include_directories(pfcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(pfcore PUBLIC cxx_std_23)
 
 # Guard: pfcore must not include Qt headers (spec section 2: "ядро без Qt").
-file(GLOB_RECURSE PF_CORE_SOURCES CONFIGURE_DEPENDS
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
+set(PF_CORE_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/SceneDetector.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/VideoDecoder.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/SceneDetector.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/VideoDecoder.cpp
 )
-add_custom_target(pfcore_qt_ban
-    COMMAND ${CMAKE_COMMAND}
-        -DQT_BAN_FILES="${PF_CORE_SOURCES}"
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/QtBanCheck.cmake
-    DEPENDS ${PF_CORE_SOURCES}
-    VERBATIM
-)
-add_dependencies(pfcore pfcore_qt_ban)
+
+find_path(PF_FFMPEG_INCLUDE_DIR NAMES libavformat/avformat.h REQUIRED)
+find_library(PF_AVFORMAT_LIBRARY NAMES avformat REQUIRED)
+find_library(PF_AVCODEC_LIBRARY NAMES avcodec REQUIRED)
+find_library(PF_AVUTIL_LIBRARY NAMES avutil REQUIRED)
+find_library(PF_SWSCALE_LIBRARY NAMES swscale REQUIRED)
+target_include_directories(pfcore PRIVATE ${PF_FFMPEG_INCLUDE_DIR})
+target_link_libraries(pfcore PRIVATE ${PF_AVFORMAT_LIBRARY} ${PF_AVCODEC_LIBRARY}
+    ${PF_AVUTIL_LIBRARY} ${PF_SWSCALE_LIBRARY})
+# Run the Qt ban at configure time. A nested cmd.exe custom target can remain
+# blocked after an interrupted Ninja invocation on Windows.
+foreach(_pf_file IN LISTS PF_CORE_SOURCES)
+    file(READ "${_pf_file}" _pf_content)
+    if(_pf_content MATCHES [[#include[ \t]*[<"]Qt]])
+        message(FATAL_ERROR "pfcore must remain Qt-free: ${_pf_file}")
+    endif()
+endforeach()

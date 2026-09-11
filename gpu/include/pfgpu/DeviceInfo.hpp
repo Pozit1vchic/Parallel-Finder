@@ -1,38 +1,57 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
+#include "pfgpu/OrtRuntime.hpp"
+#include "pfgpu/Provider.hpp"
+
 namespace pfgpu {
 
-// Inference providers, in fallback order: TensorRT -> CUDA -> DirectML -> CPU.
-// Auto = probe the machine, pick the best available.
-enum class Provider {
-    Auto,
-    Cuda,
-    Dml,
-    Cpu,
-};
-
 struct DeviceInfo {
-    std::string name;    // e.g. "NVIDIA GeForce RTX 4070", "cpu"
+    std::string name;    // "NVIDIA GeForce RTX 4070", "cpu (24 threads)"
     std::string backend; // "tensorrt" | "cuda" | "dml" | "cpu"
 };
 
-const char* providerName(Provider p);
+// One link of the fallback chain, after probing this machine.
+struct BackendStatus {
+    Provider provider = Provider::Cpu;
+    bool available = false;
+    std::string reason;     // why it is unusable ("" when available)
+    std::string deviceName; // human-readable device, when known
+};
 
-// Stage 0 stub: real enumeration (ORT provider factory + DXGI) lands in stage 1.
-std::vector<DeviceInfo> getDeviceInfo();
+struct BackendProbe {
+    bool ortLoaded = false;
+    std::string ortVersion;
+    std::uint32_t ortApiVersion = 0;
+    std::string ortError;                // runtime-level failure, when any
+    std::vector<BackendStatus> backends; // kFallbackOrder, CPU last
+};
 
-// Stage 0 stub: with no ORT probing yet, CPU is the only safe default.
+// Probes the machine once per process and memoizes the result. The probe
+// creates throwaway sessions (see ProbeModel.hpp), which is cheap but not free,
+// so it is never repeated on the hot path.
+const BackendProbe& probeBackends();
+
+// Test-only: forgets the memoized probe so a test can observe a fresh run.
+void resetBackendProbeForTesting();
+
+// First usable provider in kFallbackOrder. CPU is the last resort and is
+// reported even when ONNX Runtime itself could not be loaded (the badge then
+// shows the runtime error).
 Provider defaultProvider();
 
-// Version-agnostic ORT runtime probe: LoadLibraryW("onnxruntime.dll") +
-// GetProcAddress("OrtGetApiBase"). No link-time ORT dependency at all.
-bool ortRuntimeAvailable();
+// Auto resolves through the probe, concrete providers pass through unchanged.
+Provider resolveProvider(Provider requested);
 
-// ORT version string from OrtGetApiBase()->GetVersionString(), or "" if the
-// runtime is not loadable.
-std::string ortRuntimeVersion();
+bool isProviderAvailable(Provider provider);
+
+// nullptr when the provider is not part of the fallback chain.
+const BackendStatus* findBackendStatus(Provider provider);
+
+// Available backends as display entries, used by the UI badge and About.
+std::vector<DeviceInfo> getDeviceInfo();
 
 } // namespace pfgpu

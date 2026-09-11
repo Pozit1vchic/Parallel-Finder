@@ -62,15 +62,38 @@ ctest --preset ucrt64-debug
 
 Тесты автоматически используют `QT_QPA_PLATFORM=offscreen` там, где нужно окно.
 
+### Только из окружения UCRT64
+
+Сборка должна запускаться с `MSYSTEM=UCRT64` (ярлык «MSYS2 UCRT64»), а не из
+MINGW64/CLANG64: если в `PATH` раньше окажется `/mingw64/bin`, сканер QML-импортов
+подхватит чужую Qt и конфигурация упадёт с `0xc0000139`
+(`STATUS_ENTRYPOINT_NOT_FOUND`) на `qt6_import_qml_plugins`. Проверить и вылечить
+в текущей оболочке:
+
+```bash
+echo $MSYSTEM   # должно быть UCRT64
+export PATH="/d/msys2/ucrt64/bin:$(echo "$PATH" | tr ':' '\n' \
+  | grep -v -E '^/(mingw64|clang64|mingw32|clangarm64)/bin$' | paste -sd:)"
+```
+
 ## Тяжёлые GPU-зависимости
 
 ORT-GPU / CUDA / TensorRT / DML-redist при сборке размещаются **только в
 `D:\PF_CUDA`** — отдельно от репозитория и от диска C. В репозиторий не попадают.
 
+## Документы
+
+- [`docs/decisions.md`](docs/decisions.md) — зафиксированные решения по ТЗ п.10 (batch при
+  экспорте модели, метод и пороги SceneDetector, тай-брейк доминантного персонажа,
+  appearance-компонент, fetch-механизм .onnx, лимит кэша) и полная таблица 9 слайдеров →
+  `MotionMatcherParams`. Обязательный вход в стадии 3a–4.
+
 ## Стадии
 
 0. ✅ Скелет: CMake-пресеты, все таргеты, ctest зелёный, CI
-1. pfgpu: getDeviceInfo, кэш сессий, fallback-цепочка, бейдж
+1. ✅ pfgpu: проба провайдеров (TensorRT → CUDA → DML → CPU по факту создания сессии), EP-device API
+   с ORT ≥ 1.22 и фолбэком на классические экспорты для 1.12–1.21, кэш сессий с LRU, живой GPU-бейдж;
+   `--pf-smoke` печатает всю цепочку с причинами недоступности
 2. VideoDecoder (DISPLAYMATRIX/SAR/VFR/RAII) · 2b. SceneDetector
 3. Модель+инференс · треки+матчер (all-pairs, HNSW+DTW) · JobManager · PFCACHE1
 4. Экспорт + сервисы (CutService, ThumbnailCache, settings.json)

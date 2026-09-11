@@ -55,22 +55,37 @@ ApplicationWindow {
                     font.weight: Font.DemiBold
                 }
 
-                // GPU badge (stage 0: value from AppInfo bridge)
+                // GPU badge — live value from the pfgpu probe (stage 1).
+                // Sage marks "accelerated", plain panel marks CPU: the colour
+                // carries the meaning, the text carries the detail.
                 Rectangle {
+                    id: gpuBadge
                     anchors.verticalCenter: parent.verticalCenter
                     width: gpuBadgeText.implicitWidth + 16
                     height: 22
                     radius: Theme.radiusButton
-                    color: Theme.sageMuted
+                    color: AppInfo.backendIsGpu ? Theme.sageMuted : Theme.panelAlt
 
                     Text {
                         id: gpuBadgeText
                         anchors.centerIn: parent
-                        text: L10n.t("top.gpu").arg(AppInfo.gpuBackend)
-                        color: Theme.sage
+                        text: L10n.t("top.gpu").arg(AppInfo.gpuSummary)
+                        color: AppInfo.backendIsGpu ? Theme.sage : Theme.textSecondary
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSmall
                     }
+
+                    MouseArea {
+                        id: gpuBadgeHover
+                        anchors.fill: parent
+                        hoverEnabled: true
+                    }
+
+                    ToolTip.visible: gpuBadgeHover.containsMouse
+                    ToolTip.delay: 300
+                    ToolTip.text: L10n.t("top.gpu.tooltip")
+                        .arg(AppInfo.gpuBackend)
+                        .arg(AppInfo.ortVersion)
                 }
             }
         }

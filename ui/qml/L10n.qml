@@ -9,9 +9,10 @@ QtObject {
     readonly property var _dict: ({
         ru: {
             "app.title": "Parallel Finder",
-            "app.stage": "стадия 0 — скелет",
+            "app.stage": "стадия 1 — GPU и провайдеры",
             "splash.loading": "Инициализация…",
             "top.gpu": "GPU: %1",
+            "top.gpu.tooltip": "Провайдер вывода: %1 · ONNX Runtime: %2",
             "panel.sources": "Источники",
             "panel.sliders": "Параметры поиска",
             "panel.results": "Результаты",
@@ -21,9 +22,10 @@ QtObject {
         },
         en: {
             "app.title": "Parallel Finder",
-            "app.stage": "stage 0 — skeleton",
+            "app.stage": "stage 1 — GPU & providers",
             "splash.loading": "Initializing…",
             "top.gpu": "GPU: %1",
+            "top.gpu.tooltip": "Inference provider: %1 · ONNX Runtime: %2",
             "panel.sources": "Sources",
             "panel.sliders": "Search parameters",
             "panel.results": "Results",

@@ -4,6 +4,9 @@
 #include <QQmlEngine>
 
 namespace pfui {
+namespace {
+constexpr QChar kSeparator = QChar(0x00B7); // middle dot: "cuda · RTX 4070"
+}
 
 AppInfo* AppInfo::instance()
 {
@@ -36,13 +39,44 @@ QString AppInfo::gpuBackend() const
     return m_gpuBackend;
 }
 
-void AppInfo::setGpuBackend(const QString& backend)
+QString AppInfo::gpuDevice() const
 {
-    if (m_gpuBackend == backend) {
+    return m_gpuDevice;
+}
+
+QString AppInfo::gpuSummary() const
+{
+    if (m_gpuDevice.isEmpty()) {
+        return m_gpuBackend;
+    }
+    return m_gpuBackend + QStringLiteral(" ") + kSeparator + QStringLiteral(" ")
+        + m_gpuDevice;
+}
+
+QString AppInfo::ortVersion() const
+{
+    return m_ortVersion;
+}
+
+bool AppInfo::backendIsGpu() const
+{
+    return m_backendIsGpu;
+}
+
+void AppInfo::setGpuInfo(const QString& backend,
+                         const QString& device,
+                         bool isGpu,
+                         const QString& ortVersion)
+{
+    if (m_gpuBackend == backend && m_gpuDevice == device && m_backendIsGpu == isGpu
+        && m_ortVersion == ortVersion) {
         return;
     }
     m_gpuBackend = backend;
-    emit gpuBackendChanged();
+    m_gpuDevice = device;
+    m_backendIsGpu = isGpu;
+    m_ortVersion = ortVersion;
+    emit gpuInfoChanged();
 }
 
 } // namespace pfui

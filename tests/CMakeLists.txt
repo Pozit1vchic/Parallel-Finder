@@ -8,7 +8,11 @@ add_executable(pf_tests
     core/test_scene_detector.cpp
     core/test_thumbnail_cache.cpp
     gpu/test_device_info.cpp
+    gpu/test_provider.cpp
+    gpu/test_provider_factory.cpp
+    gpu/test_session_cache.cpp
 )
+set_target_properties(pf_tests PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(pf_tests PRIVATE
     pf::core
     pf::services

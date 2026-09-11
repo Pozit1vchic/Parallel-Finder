@@ -1,6 +1,9 @@
 #include "pfcore/SceneDetector.hpp"
 
 #include <stdexcept>
+#include <array>
+#include <algorithm>
+#include <cmath>
 
 namespace pfcore {
 
@@ -22,9 +25,45 @@ void SceneDetector::setThreshold(double threshold)
 
 std::vector<SceneBoundary> SceneDetector::detect() const
 {
-    // TODO(2b): frame-pair scoring over decoded frames (HSV histogram diff,
-    // adaptive threshold) with a calibrated default on video fixtures.
     return {};
+}
+
+std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> samples) const
+{
+    std::vector<SceneBoundary> boundaries;
+    if (samples.size() < 2) return boundaries;
+
+    // A compact RGB histogram is robust to small camera motion and avoids
+    // treating a person briefly leaving the frame as a scene boundary.
+    auto histogram = [](const SceneSample& sample) {
+        std::array<double, 96> bins{};
+        const std::size_t pixelCount = sample.rgba.size() / 4;
+        if (sample.width <= 0 || sample.height <= 0 || pixelCount == 0) return bins;
+        for (std::size_t p = 0; p < pixelCount; ++p) {
+            const auto* px = sample.rgba.data() + p * 4;
+            bins[px[0] >> 3] += 1.0;
+            bins[32 + (px[1] >> 3)] += 1.0;
+            bins[64 + (px[2] >> 3)] += 1.0;
+        }
+        const double scale = 1.0 / static_cast<double>(pixelCount);
+        for (double& value : bins) value *= scale;
+        return bins;
+    };
+
+    auto previous = histogram(samples.front());
+    double previousTimestamp = samples.front().timestampSeconds;
+    for (std::size_t i = 1; i < samples.size(); ++i) {
+        const auto current = histogram(samples[i]);
+        double score = 0.0;
+        for (std::size_t b = 0; b < current.size(); ++b) score += std::abs(current[b] - previous[b]);
+        score *= 0.5; // L1 distance of normalized histograms, range [0, 3].
+        const double gap = samples[i].timestampSeconds - previousTimestamp;
+        if (gap >= 0.0 && score >= threshold_ && !samples[i].rgba.empty())
+            boundaries.push_back({samples[i].timestampSeconds, score});
+        previous = current;
+        previousTimestamp = samples[i].timestampSeconds;
+    }
+    return boundaries;
 }
 
 } // namespace pfcore

@@ -6,7 +6,7 @@
 
 namespace {
 
-TEST(SceneDetector, DefaultThresholdIsPlaceholder30)
+TEST(SceneDetector, DefaultThresholdIs30PercentHistogramDistance)
 {
     pfcore::SceneDetector detector;
     EXPECT_DOUBLE_EQ(detector.threshold(), pfcore::SceneDetector::kDefaultThreshold);
@@ -32,11 +32,38 @@ TEST(SceneDetector, RejectsNonPositiveThreshold)
     EXPECT_DOUBLE_EQ(detector.threshold(), pfcore::SceneDetector::kDefaultThreshold);
 }
 
-// Stage 0 stub: no frames analyzed yet, no boundaries produced.
-TEST(SceneDetector, StubDetectReturnsEmpty)
+TEST(SceneDetector, EmptySamplesProduceNoBoundaries)
 {
     pfcore::SceneDetector detector;
     EXPECT_TRUE(detector.detect().empty());
+}
+
+TEST(SceneDetector, DetectsStrongHistogramCut)
+{
+    std::vector<std::uint8_t> dark(4 * 4 * 4, 0);
+    std::vector<std::uint8_t> bright(4 * 4 * 4, 255);
+    const pfcore::SceneSample samples[] = {
+        {0.0, 4, 4, dark},
+        {1.0, 4, 4, bright},
+    };
+    pfcore::SceneDetector detector(0.3);
+    const auto boundaries = detector.detect(samples);
+    ASSERT_EQ(boundaries.size(), 1U);
+    EXPECT_DOUBLE_EQ(boundaries.front().timestampSeconds, 1.0);
+    EXPECT_GE(boundaries.front().score, 0.9);
+}
+
+TEST(SceneDetector, IgnoresSmallHistogramChangeBelowThreshold)
+{
+    std::vector<std::uint8_t> first(4 * 4 * 4, 0);
+    std::vector<std::uint8_t> second = first;
+    second[0] = 32;
+    const pfcore::SceneSample samples[] = {
+        {0.0, 4, 4, first},
+        {1.0, 4, 4, second},
+    };
+    pfcore::SceneDetector detector(0.3);
+    EXPECT_TRUE(detector.detect(samples).empty());
 }
 
 } // namespace
