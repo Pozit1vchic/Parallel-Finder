@@ -163,7 +163,7 @@ ApplicationWindow {
                     Column {
                     id: leftContent
                     width: leftScroll.width
-                    spacing: 12
+                    spacing: 9
                     Text { text: "Источники"; color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
                     Text { text: root.sourceFiles.length > 0 ? root.sourceFiles.length + " видео добавлено" : "Видео для сравнения"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Button {
@@ -204,34 +204,34 @@ ApplicationWindow {
                         Text { text: Math.round(similarity.value * 100) + "%"; color: Theme.accent; font.pixelSize: 12 }
                         Item { width: parent.width - 42; height: 1 }
                     }
-                    Slider { id: similarity; width: parent.width; from: 0.5; to: 0.99; value: Analysis.similarityThreshold; onValueChanged: Analysis.similarityThreshold = value }
+                    PfSlider { id: similarity; width: parent.width; from: 0.5; to: 0.99; value: Analysis.similarityThreshold; onValueChanged: if (Math.abs(Analysis.similarityThreshold - value) > 0.001) Analysis.similarityThreshold = value }
                     Text { text: "Порог кандидата"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width
                         Text { text: Math.round(candidate.value * 100) + "%"; color: Theme.accent; font.pixelSize: 12 }
                         Item { width: parent.width - 42; height: 1 }
                     }
-                    Slider { id: candidate; width: parent.width; from: 0.1; to: 0.95; value: Analysis.candidateThreshold; onValueChanged: Analysis.candidateThreshold = value }
+                    PfSlider { id: candidate; width: parent.width; from: 0.1; to: 0.95; value: Analysis.candidateThreshold; onValueChanged: if (Math.abs(Analysis.candidateThreshold - value) > 0.001) Analysis.candidateThreshold = value }
                     Text { text: "Минимальный зазор повторов"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; Text { text: Analysis.repeatGap.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 0; to: 30; stepSize: 0.5; value: Analysis.repeatGap; onValueChanged: if (Math.abs(Analysis.repeatGap - value) > 0.001) Analysis.repeatGap = value }
+                    PfSlider { width: parent.width; from: 0; to: 30; stepSize: 0.5; value: Analysis.repeatGap; onValueChanged: if (Math.abs(Analysis.repeatGap - value) > 0.001) Analysis.repeatGap = value }
                     Text { text: "Зазор в одном видео"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; Text { text: Analysis.sameFileGap.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: Analysis.sameFileGap; onValueChanged: if (Math.abs(Analysis.sameFileGap - value) > 0.001) Analysis.sameFileGap = value }
+                    PfSlider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: Analysis.sameFileGap; onValueChanged: if (Math.abs(Analysis.sameFileGap - value) > 0.001) Analysis.sameFileGap = value }
                     Text { text: "Зазор между видео"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; Text { text: Analysis.crossFileGap.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: Analysis.crossFileGap; onValueChanged: if (Math.abs(Analysis.crossFileGap - value) > 0.001) Analysis.crossFileGap = value }
+                    PfSlider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: Analysis.crossFileGap; onValueChanged: if (Math.abs(Analysis.crossFileGap - value) > 0.001) Analysis.crossFileGap = value }
                     Text { text: "Окно дубликатов"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; Text { text: Analysis.duplicateWindow.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 0.25; to: 8; stepSize: 0.25; value: Analysis.duplicateWindow; onValueChanged: if (Math.abs(Analysis.duplicateWindow - value) > 0.001) Analysis.duplicateWindow = value }
+                    PfSlider { width: parent.width; from: 0.25; to: 8; stepSize: 0.25; value: Analysis.duplicateWindow; onValueChanged: if (Math.abs(Analysis.duplicateWindow - value) > 0.001) Analysis.duplicateWindow = value }
                     Text { text: "Коэффициент шума"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; Text { text: Analysis.noiseFactor.toFixed(2); color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 0; to: 2; stepSize: 0.05; value: Analysis.noiseFactor; onValueChanged: if (Math.abs(Analysis.noiseFactor - value) > 0.001) Analysis.noiseFactor = value }
+                    PfSlider { width: parent.width; from: 0; to: 2; stepSize: 0.05; value: Analysis.noiseFactor; onValueChanged: if (Math.abs(Analysis.noiseFactor - value) > 0.001) Analysis.noiseFactor = value }
                     Text { text: "Максимум уникальных"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; Text { text: Analysis.maxUniqueResults; color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 10; to: 500; stepSize: 10; value: Analysis.maxUniqueResults; onValueChanged: if (Analysis.maxUniqueResults !== Math.round(value)) Analysis.maxUniqueResults = Math.round(value) }
+                    PfSlider { width: parent.width; from: 10; to: 500; stepSize: 10; value: Analysis.maxUniqueResults; onValueChanged: if (Analysis.maxUniqueResults !== Math.round(value)) Analysis.maxUniqueResults = Math.round(value) }
                     Text { text: "Вес времени"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; Text { text: Math.round(Analysis.timeWeight * 100) + "%"; color: Theme.accent; font.pixelSize: 12 } }
-                    Slider { width: parent.width; from: 0; to: 1; stepSize: 0.05; value: Analysis.timeWeight; onValueChanged: if (Math.abs(Analysis.timeWeight - value) > 0.001) Analysis.timeWeight = value }
+                    PfSlider { width: parent.width; from: 0; to: 1; stepSize: 0.05; value: Analysis.timeWeight; onValueChanged: if (Math.abs(Analysis.timeWeight - value) > 0.001) Analysis.timeWeight = value }
                     Text { text: "Качество анализа"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; spacing: 4
                         property int selectedQuality: 2
