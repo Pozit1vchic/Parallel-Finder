@@ -32,6 +32,63 @@ ApplicationWindow {
         }
     }
 
+    Dialog {
+        id: settingsDialog
+        modal: true
+        title: "Настройки Parallel Finder"
+        width: 460
+        standardButtons: Dialog.Close
+        contentItem: Rectangle {
+            implicitHeight: 330
+            color: Theme.heroPanel
+            Column { anchors.fill: parent; anchors.margins: 24; spacing: 16
+                Text { text: "Настройки анализа"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 22 }
+                Text { text: "Параметры сохраняются для следующих запусков."; color: Theme.textSecondary; font.pixelSize: 12 }
+                Rectangle { width: parent.width; height: 1; color: Theme.border }
+                Row { width: parent.width
+                    Text { text: "Провайдер"; color: Theme.textPrimary; font.pixelSize: 12 }
+                    Item { width: parent.width - 180; height: 1 }
+                    Text { text: AppInfo.gpuBackend; color: Theme.sage; font.pixelSize: 12 }
+                }
+                Row { width: parent.width
+                    Text { text: "Тема"; color: Theme.textPrimary; font.pixelSize: 12 }
+                    Item { width: parent.width - 180; height: 1 }
+                    Text { text: "Parallel / dark"; color: Theme.textSecondary; font.pixelSize: 12 }
+                }
+                Row { width: parent.width
+                    Text { text: "Кэш"; color: Theme.textPrimary; font.pixelSize: 12 }
+                    Item { width: parent.width - 180; height: 1 }
+                    Text { text: "8 ГБ · LocalAppData"; color: Theme.textSecondary; font.pixelSize: 12 }
+                }
+                Rectangle { width: parent.width; height: 42; radius: 8; color: Theme.panelAlt; border.color: Theme.border
+                    Text { anchors.centerIn: parent; text: "Сбросить параметры анализа"; color: Theme.textSecondary; font.pixelSize: 12 }
+                    MouseArea { anchors.fill: parent; onClicked: { similarity.value = 0.85; candidate.value = 0.55 } }
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: exportDialog
+        modal: true
+        title: "Экспорт результатов"
+        width: 440
+        standardButtons: Dialog.Cancel
+        contentItem: Rectangle {
+            implicitHeight: 260
+            color: Theme.heroPanel
+            Column { anchors.fill: parent; anchors.margins: 24; spacing: 14
+                Text { text: "Подготовить результаты"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 22 }
+                Text { text: Analysis.matchCount + " выбранных параллелей"; color: Theme.textSecondary; font.pixelSize: 12 }
+                ComboBox { id: exportFormat; width: parent.width; model: ["JSON", "CSV", "TXT", "EDL", "FCPXML"] }
+                Button { width: parent.width; height: 40; text: "Сохранить " + exportFormat.currentText; onClicked: exportDialog.close()
+                    contentItem: Text { text: parent.text; color: Theme.canvas; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 12; font.weight: Font.DemiBold }
+                    background: Rectangle { radius: 8; color: Theme.textPrimary }
+                }
+            }
+        }
+    }
+
     Loader { id: splashLoader; anchors.fill: parent; active: true; sourceComponent: Splash {} }
     Timer { interval: 1500; running: splashLoader.active; onTriggered: splashLoader.active = false }
 
@@ -46,6 +103,10 @@ ApplicationWindow {
                 Text { text: "Parallel Finder"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 20 }
             }
             Row { anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 12
+                Button { text: "Настройки"; onClicked: settingsDialog.open()
+                    contentItem: Text { text: parent.text; color: Theme.textSecondary; font.pixelSize: 11 }
+                    background: Rectangle { color: "transparent" }
+                }
                 Text { text: Analysis.busy ? "Анализируем" : "Готово к работе"; color: Theme.textSecondary; font.pixelSize: 11 }
                 Rectangle { width: gpuLabel.implicitWidth + 18; height: 26; radius: 13; color: AppInfo.backendIsGpu ? Theme.sageMuted : Theme.panelAlt
                     Text { id: gpuLabel; anchors.centerIn: parent; text: AppInfo.backendIsGpu ? "●  " + AppInfo.gpuSummary : "○  CPU"; color: AppInfo.backendIsGpu ? Theme.sage : Theme.textSecondary; font.pixelSize: 10 }
@@ -225,6 +286,10 @@ ApplicationWindow {
                     }
                     Rectangle { width: parent.width; height: 1; color: Theme.border }
                     Text { text: Analysis.matchCount > 0 ? "Найденные параллели" : "Результаты появятся здесь"; color: Theme.textSecondary; font.pixelSize: 12 }
+                    Button { width: parent.width; height: 36; text: "Экспорт результатов"; enabled: Analysis.matchCount > 0; onClicked: exportDialog.open()
+                        contentItem: Text { text: parent.text; color: parent.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 11 }
+                        background: Rectangle { radius: 8; color: parent.enabled ? Theme.accent : Theme.panelAlt }
+                    }
                     ListView { width: parent.width; height: parent.height - 100; clip: true; model: Analysis.resultItems
                         delegate: Rectangle { width: ListView.view.width; height: 54; color: index === root.selectedResultIndex ? Theme.accentMuted : Theme.panelAlt; radius: 7; anchors.margins: 2
                             Text { anchors.left: parent.left; anchors.leftMargin: 10; anchors.verticalCenter: parent.verticalCenter; text: modelData; color: Theme.textPrimary; font.pixelSize: 11 }
