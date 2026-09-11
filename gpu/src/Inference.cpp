@@ -6,7 +6,7 @@
 
 namespace pfgpu {
 
-InferenceResult runFloat(SessionHandle& session, const FloatTensor& input)
+InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
 {
     InferenceResult result;
     const OrtApi* api = ortApi();

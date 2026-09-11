@@ -23,6 +23,6 @@ struct InferenceResult {
 // read from the model, so exported pose models are not coupled to a hardcoded
 // graph name. The current implementation intentionally requires float output;
 // model-specific decoding (YOLO/NMS variants) belongs in PoseEstimator.
-InferenceResult runFloat(SessionHandle& session, const FloatTensor& input);
+InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input);
 
 } // namespace pfgpu
