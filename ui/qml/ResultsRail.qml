@@ -72,10 +72,14 @@ Rectangle {
             PfButton { width: (parent.width - 10) / 3; text: L10n.t("results.side"); quiet: root.activeFilter !== "side"; onClicked: root.activeFilter = "side" }
         }
         ListView {
-            id: resultList; width: parent.width; height: parent.height - 178; clip: true; spacing: 5; model: root.visibleResults
+            id: resultList; width: parent.width; height: parent.height - 178; clip: true; spacing: 5; model: root.visibleResults; focus: true; activeFocusOnTab: true
+            Accessible.name: L10n.t("results.title")
+            Keys.onUpPressed: { root.selectPrevious(); event.accepted = true }
+            Keys.onDownPressed: { root.selectNext(); event.accepted = true }
+            Keys.onReturnPressed: if (root.visibleResults.length > 0) root.resultSelected(root.selectedIndex < 0 ? Number(root.visibleResults[0].id) : root.selectedIndex)
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             delegate: Rectangle {
-                width: resultList.width - 8; height: Theme.resultRowHeight + 12; radius: 7; color: root.selectedRows[modelData.id] ? Theme.accentMuted : Theme.surfaceRaised; border.color: Theme.border
+                width: resultList.width - 8; height: Theme.resultRowHeight + 12; radius: 7; color: root.selectedRows[modelData.id] ? Theme.accentMuted : Theme.surfaceRaised; border.color: index === root.selectedIndex ? Theme.accent : Theme.border; Accessible.name: String(modelData.direction || "") + " " + Math.round(Number(modelData.similarity) * 100) + "%"; Accessible.role: Accessible.ListItem
                 Row { anchors.fill: parent; anchors.margins: 7; spacing: 8
                     PfCheckBox { id: exportCheck; width: 18; text: ""; checked: root.selectedRows[modelData.id] === true; Accessible.name: L10n.t("results.export") + " " + (modelData.id + 1); onToggled: { const next = Object.assign({}, root.selectedRows); if (checked) next[modelData.id] = true; else delete next[modelData.id]; root.exportSelectionChanged(next) } }
                     Column { width: parent.width - 34; spacing: 2

@@ -26,6 +26,6 @@ Item {
                 Text { id: gpuLabel; text: AppInfo.gpuSummary; color: AppInfo.backendIsGpu ? Theme.sageBright : Theme.textSecondary; font.pixelSize: 10 }
             }
         }
-        PfIconButton { iconSource: "qrc:/qt/qml/PfUi/assets/settings.svg"; accessibleName: L10n.t("top.settings"); onClicked: root.settingsRequested() }
+        PfButton { text: L10n.t("top.settings"); quiet: true; onClicked: root.settingsRequested() }
     }
 }
