@@ -261,7 +261,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 pfcore::SceneDetector sceneDetector(settings.sceneThreshold,
                                                     std::max<std::size_t>(1, (settings.sceneMinFrames + 4) / 5),
                                                     settings.sceneAdaptiveMultiplier);
-                scenes += static_cast<int>(sceneDetector.detect(samples).size());
+                const auto sceneBoundaries = sceneDetector.detect(samples);
+                scenes += static_cast<int>(sceneBoundaries.size());
                 const QString previewStart = decoded.empty() ? QString() : savePreview(decoded.front(), QStringLiteral("%1_start.png").arg(files));
                 const QString previewEnd = decoded.empty() ? QString() : savePreview(decoded.back(), QStringLiteral("%1_end.png").arg(files));
                 if (pose) {
@@ -290,16 +291,30 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         tracker.update(item.timestampSeconds, frameDuration, frameDetections);
                     }
                     const auto dominant = tracker.dominant();
-                    pfcore::MotionWindow window;
-                    window.sourceId = path.toStdString();
-                    if (dominant.has_value()) {
-                        for (const auto& observation : dominant->observations) {
-                            window.frames.push_back({observation.timestampSeconds, observation.keypoints});
+                    // Keep scene boundaries in the motion index: a candidate
+                    // never crosses a shot change, and a clip can end only at
+                    // the end of its scene rather than when a person briefly
+                    // leaves the frame.
+                    std::vector<double> sceneStarts {samples.empty() ? 0.0 : samples.front().timestampSeconds};
+                    for (const auto& boundary : sceneBoundaries) sceneStarts.push_back(boundary.timestampSeconds);
+                    const double lastTimestamp = samples.empty() ? info.durationSeconds : samples.back().timestampSeconds;
+                    for (std::size_t sceneIndex = 0; sceneIndex < sceneStarts.size(); ++sceneIndex) {
+                        const double sceneStart = sceneStarts[sceneIndex];
+                        const double sceneEnd = sceneIndex + 1 < sceneStarts.size()
+                            ? sceneStarts[sceneIndex + 1] : std::max(info.durationSeconds, lastTimestamp + 0.001);
+                        pfcore::MotionWindow window;
+                        window.sourceId = path.toStdString();
+                        if (dominant.has_value()) {
+                            for (const auto& observation : dominant->observations) {
+                                if (observation.timestampSeconds >= sceneStart
+                                    && observation.timestampSeconds < sceneEnd) {
+                                    window.frames.push_back({observation.timestampSeconds, observation.keypoints});
+                                }
+                            }
                         }
-                    }
-                    // Compare overlapping motion windows rather than one
-                    // aggregate window per file. This preserves independent
-                    // matches and allows repeated actions in the same clip.
+                        // Compare overlapping motion windows rather than one
+                        // aggregate window per scene. This preserves
+                        // independent matches without crossing shot changes.
                     constexpr std::size_t minimumFrames = 8;
                     constexpr std::size_t windowFrames = 32;
                     constexpr std::size_t windowStride = 16;
@@ -316,6 +331,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             previewB.push_back(previewEnd);
                             if (end == window.frames.size()) break;
                         }
+                    }
                     }
                 }
             } catch (const std::exception& exception) {
