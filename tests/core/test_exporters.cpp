@@ -34,6 +34,11 @@ TEST(Exporters, FormatsStructuredResults)
     EXPECT_NE(pfexporters::formatResults(matches, options).find("left_source"), std::string::npos);
     options.format = pfexporters::ExportFormat::Edl;
     EXPECT_NE(pfexporters::formatResults(matches, options).find("TITLE:"), std::string::npos);
+
+    options.format = pfexporters::ExportFormat::FcpXml;
+    const std::string xml = pfexporters::formatResults(matches, options);
+    EXPECT_NE(xml.find("<asset-clip ref=\"a1\""), std::string::npos);
+    EXPECT_NE(xml.find("file:///a%20clip.mp4"), std::string::npos);
 }
 
 TEST(Exporters, WritesAepPair)
