@@ -23,28 +23,35 @@ InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
 
     OrtAllocator* allocator = nullptr;
     if (!checkStatus(*api, api->GetAllocatorWithDefaultOptions(&allocator), result.error)) return result;
+    const auto freeAllocated = [&](void* pointer) {
+        if (pointer) {
+            if (OrtStatus* status = api->AllocatorFree(allocator, pointer)) {
+                api->ReleaseStatus(status);
+            }
+        }
+    };
     char* inputName = nullptr;
     if (!checkStatus(*api, api->SessionGetInputName(session.session, 0, allocator, &inputName), result.error)) return result;
     OrtMemoryInfo* memory = nullptr;
     if (!checkStatus(*api, api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory), result.error)) {
-        api->AllocatorFree(allocator, inputName); return result;
+        freeAllocated(inputName); return result;
     }
     OrtValue* inputValue = nullptr;
     if (!checkStatus(*api, api->CreateTensorWithDataAsOrtValue(memory, const_cast<float*>(input.values.data()),
         input.values.size() * sizeof(float), input.shape.data(), input.shape.size(), ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &inputValue), result.error)) {
-        api->ReleaseMemoryInfo(memory); api->AllocatorFree(allocator, inputName); return result;
+        api->ReleaseMemoryInfo(memory); freeAllocated(inputName); return result;
     }
     const char* inputNames[] = {inputName};
     std::size_t outputCount = 0;
     if (!checkStatus(*api, api->SessionGetOutputCount(session.session, &outputCount), result.error)) {
-        api->ReleaseValue(inputValue); api->ReleaseMemoryInfo(memory); api->AllocatorFree(allocator, inputName); return result;
+        api->ReleaseValue(inputValue); api->ReleaseMemoryInfo(memory); freeAllocated(inputName); return result;
     }
     std::vector<const char*> outputNames(outputCount);
     std::vector<char*> ownedNames(outputCount);
     for (std::size_t i = 0; i < outputCount; ++i) {
         if (!checkStatus(*api, api->SessionGetOutputName(session.session, i, allocator, &ownedNames[i]), result.error)) {
-            for (char* name : ownedNames) if (name) api->AllocatorFree(allocator, name);
-            api->ReleaseValue(inputValue); api->ReleaseMemoryInfo(memory); api->AllocatorFree(allocator, inputName); return result;
+            for (char* name : ownedNames) freeAllocated(name);
+            api->ReleaseValue(inputValue); api->ReleaseMemoryInfo(memory); freeAllocated(inputName); return result;
         }
         outputNames[i] = ownedNames[i];
     }
@@ -53,8 +60,8 @@ InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
     const OrtStatus* runStatus = api->Run(session.session, nullptr, inputNames, inputValues, 1,
                                            outputNames.data(), outputNames.size(), outputs.data());
     const bool ran = checkStatus(*api, const_cast<OrtStatus*>(runStatus), result.error);
-    for (char* name : ownedNames) if (name) api->AllocatorFree(allocator, name);
-    api->AllocatorFree(allocator, inputName);
+    for (char* name : ownedNames) freeAllocated(name);
+    freeAllocated(inputName);
     api->ReleaseValue(inputValue);
     api->ReleaseMemoryInfo(memory);
     if (!ran) { for (auto* value : outputs) if (value) api->ReleaseValue(value); return result; }
@@ -63,10 +70,25 @@ InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
         OrtTensorTypeAndShapeInfo* shapeInfo = nullptr;
         if (!checkStatus(*api, api->GetTensorTypeAndShape(value, &shapeInfo), result.error)) { api->ReleaseValue(value); continue; }
         ONNXTensorElementDataType type;
-        api->GetTensorElementType(shapeInfo, &type);
+        if (!checkStatus(*api, api->GetTensorElementType(shapeInfo, &type), result.error)) {
+            api->ReleaseTensorTypeAndShapeInfo(shapeInfo);
+            api->ReleaseValue(value);
+            continue;
+        }
         if (type != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) { result.error = "model output is not float32"; api->ReleaseTensorTypeAndShapeInfo(shapeInfo); api->ReleaseValue(value); continue; }
-        std::size_t rank = 0; api->GetDimensionsCount(shapeInfo, &rank);
-        FloatTensor tensor; tensor.shape.resize(rank); api->GetDimensions(shapeInfo, tensor.shape.data(), rank);
+        std::size_t rank = 0;
+        if (!checkStatus(*api, api->GetDimensionsCount(shapeInfo, &rank), result.error)) {
+            api->ReleaseTensorTypeAndShapeInfo(shapeInfo);
+            api->ReleaseValue(value);
+            continue;
+        }
+        FloatTensor tensor;
+        tensor.shape.resize(rank);
+        if (!checkStatus(*api, api->GetDimensions(shapeInfo, tensor.shape.data(), rank), result.error)) {
+            api->ReleaseTensorTypeAndShapeInfo(shapeInfo);
+            api->ReleaseValue(value);
+            continue;
+        }
         std::size_t count = 0;
         if (!checkStatus(*api, api->GetTensorShapeElementCount(shapeInfo, &count), result.error)) { api->ReleaseTensorTypeAndShapeInfo(shapeInfo); api->ReleaseValue(value); continue; }
         // GetTensorMutableData returns a pointer owned by ORT.  Passing a

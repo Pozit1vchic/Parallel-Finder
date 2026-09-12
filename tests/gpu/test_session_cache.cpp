@@ -19,7 +19,7 @@ namespace {
 bool runIdentity(const OrtApi& api, OrtSession* session, std::vector<float>& data,
                  std::string& error)
 {
-    const std::int64_t shape[2] = {1, data.size()};
+    const std::int64_t shape[2] = {1, static_cast<std::int64_t>(data.size())};
 
     OrtMemoryInfo* memoryInfo = nullptr;
     if (!pfgpu::checkStatus(api,
