@@ -40,7 +40,7 @@ Popup {
         }
         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
         Text { text: L10n.t("export.format"); color: Theme.textSecondary; font.pixelSize: 11 }
-        ComboBox { id: exportFormat; width: parent.width; height: 36; model: ["JSON", "CSV", "TXT", "EDL", "FCPXML", "AEP"] }
+        ComboBox { id: exportFormat; width: parent.width; height: 36; model: ["JSON", "CSV", "TXT", "EDL", "FCPXML", "AEP"]; Accessible.name: L10n.t("export.format") }
         Text { text: L10n.t("export.numbering"); color: Theme.textSecondary; font.pixelSize: 11 }
             Row { width: parent.width; spacing: 8
                 PfButton { width: (parent.width - 8) / 2; text: L10n.t("export.asVideo"); quiet: exportNumbering.currentIndex !== 0; onClicked: exportNumbering.currentIndex = 0 }
@@ -54,10 +54,10 @@ Popup {
         }
         ComboBox { id: cutMode; visible: false; model: [0, 1]; currentIndex: 0 }
         Row { width: parent.width; spacing: 8
-            TextField { id: folderField; width: parent.width - 110; text: root.outputFolder; placeholderText: L10n.t("export.folder"); onEditingFinished: root.outputFolder = text }
+            TextField { id: folderField; width: parent.width - 110; text: root.outputFolder; placeholderText: L10n.t("export.folder"); Accessible.name: L10n.t("export.folder"); onEditingFinished: root.outputFolder = text }
             PfButton { width: 102; text: L10n.t("export.chooseFolder"); quiet: true; onClicked: folderDialog.open() }
         }
-        TextField { id: prefixField; width: parent.width; text: "frame_"; placeholderText: L10n.t("export.prefix") }
+        TextField { id: prefixField; width: parent.width; text: "frame_"; placeholderText: L10n.t("export.prefix"); Accessible.name: L10n.t("export.prefix") }
         Text { width: parent.width; text: root.exportStatus || L10n.t("export.hint"); color: root.exportStatus ? Theme.accent : Theme.textSecondary; font.pixelSize: 11; wrapMode: Text.WordWrap }
         PfButton { width: parent.width; text: L10n.t("export.prepare"); sageAction: true; enabled: Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(exportFormat.currentText, exportNumbering.currentIndex, cutMode.currentIndex, root.outputFolder, prefixField.text, root.selectedIndexes()) }
     }

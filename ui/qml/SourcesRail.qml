@@ -37,6 +37,7 @@ Rectangle {
             }
             DropArea {
                 width: parent.width; height: 102
+                Accessible.name: L10n.t("sources.dropTitle")
                 onDropped: if (drop.hasUrls) root.filesRequested(drop.urls)
                 Rectangle { anchors.fill: parent; radius: Theme.radiusButton; color: parent.containsDrag ? Theme.accentMuted : Theme.well; border.width: 1; border.color: parent.containsDrag ? Theme.accent : Theme.hairlineStrong
                     Column { anchors.centerIn: parent; spacing: 7
@@ -55,9 +56,13 @@ Rectangle {
                 PfButton { width: (parent.width - 7) / 2; text: L10n.t("sources.remove"); quiet: true; enabled: root.selectedSourceIndex >= 0; onClicked: root.removeRequested(root.selectedSourceIndex) }
             }
             ListView {
-                width: parent.width; height: root.sourceFiles.length > 0 ? Math.min(128, root.sourceFiles.length * 30) : 34; clip: true; model: root.sourceFiles
+                width: parent.width; height: root.sourceFiles.length > 0 ? Math.min(128, root.sourceFiles.length * 30) : 34; clip: true; model: root.sourceFiles; focus: true; activeFocusOnTab: true
+                Accessible.name: L10n.t("sources.title")
+                Keys.onUpPressed: { root.selectedSourceIndex = Math.max(0, root.selectedSourceIndex < 0 ? 0 : root.selectedSourceIndex - 1); positionViewAtIndex(root.selectedSourceIndex, ListView.Contain); event.accepted = true }
+                Keys.onDownPressed: { root.selectedSourceIndex = Math.min(root.sourceFiles.length - 1, root.selectedSourceIndex < 0 ? 0 : root.selectedSourceIndex + 1); positionViewAtIndex(root.selectedSourceIndex, ListView.Contain); event.accepted = true }
+                Keys.onReturnPressed: if (root.selectedSourceIndex >= 0) root.removeRequested(root.selectedSourceIndex)
                 delegate: Rectangle {
-                    width: ListView.view.width; height: 30; radius: 5; color: index === root.selectedSourceIndex ? Theme.accentMuted : (index % 2 === 0 ? Theme.surfaceRaised : "transparent")
+                    width: ListView.view.width; height: 30; radius: 5; color: index === root.selectedSourceIndex ? Theme.accentMuted : (index % 2 === 0 ? Theme.surfaceRaised : "transparent"); Accessible.name: root.sourceName(modelData); Accessible.role: Accessible.ListItem
                     Text { anchors.left: parent.left; anchors.leftMargin: 9; anchors.right: parent.right; anchors.rightMargin: 7; anchors.verticalCenter: parent.verticalCenter; text: (index + 1) + "  " + root.sourceName(modelData); color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideMiddle }
                     MouseArea { anchors.fill: parent; onClicked: root.selectedSourceIndex = index }
                 }

@@ -37,17 +37,17 @@ Popup {
                 Text { text: L10n.t("settings.environment"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
                 Row { width: parent.width; height: 36; spacing: 12
                     Text { width: 135; text: L10n.t("settings.provider"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                    ComboBox { id: provider; width: 180; height: 32; model: ["Auto", "TensorRT", "CUDA", "DirectML", "CPU"]; currentIndex: ["auto", "tensorrt", "cuda", "dml", "cpu"].indexOf(Analysis.providerChoice); onActivated: Analysis.providerChoice = ["auto", "tensorrt", "cuda", "dml", "cpu"][currentIndex] }
+                    ComboBox { id: provider; width: 180; height: 32; model: ["Auto", "TensorRT", "CUDA", "DirectML", "CPU"]; currentIndex: ["auto", "tensorrt", "cuda", "dml", "cpu"].indexOf(Analysis.providerChoice); Accessible.name: L10n.t("settings.provider"); onActivated: Analysis.providerChoice = ["auto", "tensorrt", "cuda", "dml", "cpu"][currentIndex] }
                     Text { text: AppInfo.gpuSummary; color: AppInfo.backendIsGpu ? Theme.sage : Theme.textSecondary; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight; width: parent.width - 340 }
                 }
                 Row { width: parent.width; height: 34; spacing: 12
                     Text { width: 135; text: L10n.t("settings.modelPath"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                    TextField { width: parent.width - 220; text: Analysis.modelPath; placeholderText: "models / yolo26m-pose.onnx"; onEditingFinished: Analysis.setModelPath(text) }
+                    TextField { width: parent.width - 220; text: Analysis.modelPath; placeholderText: "models / yolo26m-pose.onnx"; Accessible.name: L10n.t("settings.modelPath"); onEditingFinished: Analysis.setModelPath(text) }
                     PfButton { width: 70; text: L10n.t("settings.browse"); quiet: true; onClicked: modelDialog.open() }
                 }
                 Row { width: parent.width; height: 34; spacing: 12
                     Text { width: 135; text: L10n.t("settings.cachePath"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                    TextField { width: parent.width - 220; text: Analysis.cachePath; placeholderText: "%LocalAppData%/ParallelFinder/cache"; onEditingFinished: Analysis.setCachePath(text) }
+                    TextField { width: parent.width - 220; text: Analysis.cachePath; placeholderText: "%LocalAppData%/ParallelFinder/cache"; Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }
                     PfButton { width: 70; text: L10n.t("settings.browse"); quiet: true; onClicked: cacheDialog.open() }
                 }
                 Row { width: parent.width; height: 34; spacing: 12
