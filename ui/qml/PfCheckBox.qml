@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Effects
 import PfUi
 
 CheckBox {
@@ -15,16 +16,17 @@ CheckBox {
         height: 18
         radius: 4
         color: control.checked ? Theme.accent : Theme.canvas
-        border.color: control.checked ? Theme.accent : Theme.hairline
-        border.width: 1
+        border.color: control.activeFocus ? Theme.accent : control.checked ? Theme.accent : Theme.hairline
+        border.width: control.activeFocus ? 2 : 1
 
-        Text {
+        Image {
             anchors.centerIn: parent
-            text: "✓"
+            source: "qrc:/qt/qml/PfUi/assets/check.svg"
+            sourceSize.width: 13
+            sourceSize.height: 13
             visible: control.checked
-            color: Theme.canvas
-            font.pixelSize: 13
-            font.weight: Font.DemiBold
+            layer.enabled: true
+            layer.effect: MultiEffect { colorization: 1; colorizationColor: Theme.canvas }
         }
     }
 

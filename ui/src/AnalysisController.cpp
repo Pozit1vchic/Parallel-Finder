@@ -3,10 +3,12 @@
 #include <QMetaObject>
 #include <QCoreApplication>
 #include <QDir>
+#include <QFileInfo>
 #include <QImage>
 #include <QStandardPaths>
 #include <QQmlEngine>
 #include <QThread>
+#include <QVariantMap>
 
 #include <algorithm>
 #include <cmath>
@@ -25,6 +27,7 @@
 #include "pfservices/SettingsStore.hpp"
 #include "pfservices/ModelStore.hpp"
 #include "pfservices/PfCache.hpp"
+#include "pfexporters/ExportOptions.hpp"
 
 namespace pfui {
 namespace {
@@ -37,6 +40,19 @@ QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
     const QString path = directory + QLatin1Char('/') + name;
     QImage image(frame.rgba.data(), frame.width, frame.height, QImage::Format_RGBA8888);
     return image.copy().save(path, "PNG") ? path : QString();
+}
+
+QString savePreviewAt(const std::string& source, double timestamp, const QString& name)
+{
+    try {
+        pfcore::VideoDecoder decoder;
+        decoder.open(source);
+        decoder.seek(std::max(0.0, timestamp));
+        pfcore::DecodedFrame frame;
+        if (decoder.readNext(frame)) return savePreview(frame, name);
+    } catch (...) {
+    }
+    return {};
 }
 
 std::vector<std::uint8_t> sceneThumbnail(const pfcore::DecodedFrame& frame,
@@ -207,6 +223,16 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     noiseFactor_ = std::clamp(settings.noiseFactor, 0.0, 2.0);
     maxUniqueResults_ = std::clamp(static_cast<int>(settings.maxUniqueResults), 10, 500);
     timeWeight_ = std::clamp(settings.timeWeight, 0.0, 1.0);
+    providerChoice_ = QString::fromStdString(settings.provider);
+    qualityProfile_ = QStringLiteral("maximum");
+    if (settings.qualityProfile == "fast" || settings.qualityProfile == "medium" || settings.qualityProfile == "maximum")
+        qualityProfile_ = QString::fromStdString(settings.qualityProfile);
+    normalizeSize_ = settings.normalizeSize;
+    mirrorPoses_ = settings.mirrorPoses;
+    modelPath_ = QString::fromStdString(settings.modelPath);
+    cachePath_ = QString::fromStdString(settings.cachePath);
+    cacheLimitGb_ = static_cast<double>(settings.cacheLimitBytes) / (1024.0 * 1024.0 * 1024.0);
+    sceneThreshold_ = settings.sceneThreshold;
 }
 
 void AnalysisController::saveMatcherSettings() const
@@ -224,6 +250,40 @@ void AnalysisController::saveMatcherSettings() const
     settings.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults_);
     settings.timeWeight = timeWeight_;
     store.save(settings, error);
+}
+
+void AnalysisController::saveSettings() const
+{
+    std::string error;
+    pfservices::SettingsStore store;
+    auto settings = store.load(error);
+    settings.provider = providerChoice_.toStdString();
+    settings.qualityProfile = qualityProfile_.toStdString();
+    settings.normalizeSize = normalizeSize_;
+    settings.mirrorPoses = mirrorPoses_;
+    settings.modelPath = modelPath_.toStdString();
+    settings.cachePath = cachePath_.toStdString();
+    settings.cacheLimitBytes = static_cast<std::size_t>(std::max(0.25, cacheLimitGb_) * 1024.0 * 1024.0 * 1024.0);
+    settings.sceneThreshold = sceneThreshold_;
+    settings.similarityThreshold = similarityThreshold_;
+    settings.candidateThreshold = candidateThreshold_;
+    settings.minRepeatGapSec = repeatGap_;
+    settings.sameFileGapSec = sameFileGap_;
+    settings.crossFileGapSec = crossFileGap_;
+    settings.duplicateWindowSec = duplicateWindow_;
+    settings.noiseFactor = noiseFactor_;
+    settings.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults_);
+    settings.timeWeight = timeWeight_;
+    store.save(settings, error);
+}
+
+void AnalysisController::setProgress(double value, const QString& stage, qlonglong processed, qlonglong total)
+{
+    progress_ = std::clamp(value, 0.0, 1.0);
+    progressStage_ = stage;
+    processedFrames_ = processed;
+    totalFrames_ = total;
+    emit progressChanged();
 }
 
 void AnalysisController::setSimilarityThreshold(double value)
@@ -307,6 +367,122 @@ void AnalysisController::setTimeWeight(double value)
     emit matcherParamsChanged();
 }
 
+void AnalysisController::setProviderChoice(const QString& value)
+{
+    const QString normalized = value.trimmed().toLower();
+    if (normalized != QStringLiteral("auto") && normalized != QStringLiteral("tensorrt")
+        && normalized != QStringLiteral("cuda") && normalized != QStringLiteral("dml")
+        && normalized != QStringLiteral("directml") && normalized != QStringLiteral("cpu")) {
+        return;
+    }
+    const QString canonical = normalized == QStringLiteral("directml") ? QStringLiteral("dml") : normalized;
+    if (providerChoice_ == canonical) return;
+    providerChoice_ = canonical;
+    saveSettings();
+    emit settingsChanged();
+}
+
+void AnalysisController::setQualityProfile(const QString& value)
+{
+    const QString normalized = value.trimmed().toLower();
+    if (normalized != QStringLiteral("fast") && normalized != QStringLiteral("medium")
+        && normalized != QStringLiteral("maximum")) return;
+    if (qualityProfile_ == normalized) return;
+    qualityProfile_ = normalized;
+    saveSettings();
+    emit settingsChanged();
+}
+
+void AnalysisController::setNormalizeSize(bool value)
+{
+    if (normalizeSize_ == value) return;
+    normalizeSize_ = value;
+    saveSettings();
+    emit settingsChanged();
+}
+
+void AnalysisController::setMirrorPoses(bool value)
+{
+    if (mirrorPoses_ == value) return;
+    mirrorPoses_ = value;
+    saveSettings();
+    emit settingsChanged();
+}
+
+void AnalysisController::setModelPath(const QString& value)
+{
+    const QString normalized = value.trimmed();
+    if (modelPath_ == normalized) return;
+    modelPath_ = normalized;
+    saveSettings();
+    emit settingsChanged();
+}
+
+void AnalysisController::setCachePath(const QString& value)
+{
+    const QString normalized = value.trimmed();
+    if (cachePath_ == normalized) return;
+    cachePath_ = normalized;
+    saveSettings();
+    emit settingsChanged();
+}
+
+void AnalysisController::setCacheLimitGb(double value)
+{
+    const double clamped = std::clamp(value, 0.25, 128.0);
+    if (std::abs(cacheLimitGb_ - clamped) < 1e-9) return;
+    cacheLimitGb_ = clamped;
+    saveSettings();
+    emit settingsChanged();
+}
+
+void AnalysisController::setSceneThreshold(double value)
+{
+    const double clamped = std::clamp(value, 1.0, 255.0);
+    if (std::abs(sceneThreshold_ - clamped) < 1e-9) return;
+    sceneThreshold_ = clamped;
+    saveSettings();
+    emit settingsChanged();
+}
+
+bool AnalysisController::exportResults(const QString& format,
+                                       int numberingMode,
+                                       int cutMode,
+                                       const QString& outputFolder,
+                                       const QString& prefix,
+                                       const QVariantList& selectedIndexes)
+{
+    std::vector<pfcore::MotionMatch> selected;
+    for (const QVariant& value : selectedIndexes) {
+        bool ok = false;
+        const int index = value.toInt(&ok);
+        if (ok && index >= 0 && index < static_cast<int>(matches_.size()))
+            selected.push_back(matches_[static_cast<std::size_t>(index)]);
+    }
+    if (selected.empty()) {
+        emit exportFinished(false, QStringLiteral("Не выбраны результаты для экспорта"));
+        return false;
+    }
+    pfexporters::ExportOptions options;
+    const QString normalized = format.trimmed().toUpper();
+    if (normalized == QStringLiteral("CSV")) options.format = pfexporters::ExportFormat::Csv;
+    else if (normalized == QStringLiteral("TXT")) options.format = pfexporters::ExportFormat::Txt;
+    else if (normalized == QStringLiteral("EDL")) options.format = pfexporters::ExportFormat::Edl;
+    else if (normalized == QStringLiteral("FCPXML")) options.format = pfexporters::ExportFormat::FcpXml;
+    else if (normalized == QStringLiteral("AEP")) options.format = pfexporters::ExportFormat::Aep;
+    else options.format = pfexporters::ExportFormat::Json;
+    options.numbering = numberingMode == 1 ? pfexporters::NumberingMode::RenumberSorted
+                                           : pfexporters::NumberingMode::AsInVideo;
+    options.cutMode = cutMode == 1 ? pfexporters::CutMode::Fast : pfexporters::CutMode::Exact;
+    options.outputFolder = outputFolder.toStdString();
+    options.filePrefix = prefix.trimmed().isEmpty() ? "frame_" : prefix.trimmed().toStdString();
+    options.framesPerSecond = sourceFps_;
+    std::string error;
+    const bool ok = pfexporters::writeResults(selected, options, error);
+    emit exportFinished(ok, ok ? QStringLiteral("Экспорт завершён") : QString::fromStdString(error));
+    return ok;
+}
+
 void AnalysisController::setStatus(const QString& status)
 {
     if (status_ == status) return;
@@ -317,8 +493,14 @@ void AnalysisController::setStatus(const QString& status)
 void AnalysisController::inspectFiles(const QStringList& paths)
 {
     if (busy_) return;
+    results_.clear();
+    matches_.clear();
+    matchCount_ = 0;
+    emit resultsChanged();
+    emit summaryChanged();
     busy_ = true;
     emit busyChanged();
+    setProgress(0.0, QStringLiteral("Открываем файлы"), 0, 0);
     setStatus(QStringLiteral("Открываем видео…"));
     QThread* thread = QThread::create([this, paths] {
         int files = 0;
@@ -345,6 +527,7 @@ void AnalysisController::inspectFiles(const QStringList& paths)
             emit summaryChanged();
             busy_ = false;
             emit busyChanged();
+            setProgress(1.0, error.isEmpty() ? QStringLiteral("Файлы готовы") : QStringLiteral("Ошибка чтения"), 0, 0);
             setStatus(error.isEmpty() ? QStringLiteral("Файлы готовы к анализу")
                                       : QStringLiteral("Не удалось открыть файл: ") + error);
         }, Qt::QueuedConnection);
@@ -353,11 +536,30 @@ void AnalysisController::inspectFiles(const QStringList& paths)
     thread->start();
 }
 
+QStringList AnalysisController::filesInFolder(const QString& folder) const
+{
+    QString path = folder;
+    if (path.startsWith(QStringLiteral("file:///"))) path = path.mid(8);
+    else if (path.startsWith(QStringLiteral("file://"))) path = path.mid(7);
+    QDir directory(path);
+    const QStringList filters { QStringLiteral("*.mp4"), QStringLiteral("*.mov"), QStringLiteral("*.mkv"), QStringLiteral("*.avi"), QStringLiteral("*.webm"), QStringLiteral("*.m4v") };
+    QStringList files;
+    for (const QFileInfo& info : directory.entryInfoList(filters, QDir::Files | QDir::Readable, QDir::Name))
+        files.push_back(info.absoluteFilePath());
+    return files;
+}
+
 void AnalysisController::analyzeFiles(const QStringList& paths)
 {
     if (busy_) return;
+    results_.clear();
+    matches_.clear();
+    matchCount_ = 0;
+    emit resultsChanged();
+    emit summaryChanged();
     busy_ = true;
     emit busyChanged();
+    setProgress(0.0, QStringLiteral("Подготавливаем анализ"), 0, 0);
     setStatus(QStringLiteral("Декодируем кадры и ищем смены сцен…"));
     const double similarityThreshold = similarityThreshold_;
     const double candidateThreshold = candidateThreshold_;
@@ -368,19 +570,28 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     const double noiseFactor = noiseFactor_;
     const int maxUniqueResults = maxUniqueResults_;
     const double timeWeight = timeWeight_;
+    const QString providerChoice = providerChoice_;
+    const QString qualityProfile = qualityProfile_;
+    const bool normalizeSize = normalizeSize_;
+    const bool mirrorPoses = mirrorPoses_;
     QThread* thread = QThread::create([this, paths, similarityThreshold, candidateThreshold, repeatGap,
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
-                                        maxUniqueResults, timeWeight] {
+                                        maxUniqueResults, timeWeight, providerChoice,
+                                        qualityProfile, normalizeSize, mirrorPoses] {
         int files = 0;
         int scenes = 0;
         int poseDetections = 0;
         int matches = 0;
-        QStringList resultItems;
+        QVariantList resultRecords;
+        std::vector<pfcore::MotionMatch> foundMatches;
         QStringList previewA;
         QStringList previewB;
         qlonglong frames = 0;
         double duration = 0.0;
+        double sourceFps = 0.0;
         QString error;
+        qlonglong totalFramesEstimate = 0;
+        qlonglong processedFrames = 0;
         std::string settingsError;
         const pfservices::Settings settings = pfservices::SettingsStore().load(settingsError);
         (void)settingsError;
@@ -389,10 +600,23 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             QMetaObject::invokeMethod(this, [this] {
                 busy_ = false;
                 emit busyChanged();
+                setProgress(0.0, QStringLiteral("Модель не найдена"), 0, 0);
                 setStatus(QStringLiteral("Модель поз не найдена. Укажите её в settings.json или в папке models."));
             }, Qt::QueuedConnection);
             return;
         }
+        for (const QString& path : paths) {
+            try {
+                pfcore::VideoDecoder probe;
+                probe.open(path.toStdString());
+                const auto& info = probe.info();
+                totalFramesEstimate += static_cast<qlonglong>(std::max(1.0, info.durationSeconds * info.frameRate));
+            } catch (...) {
+            }
+        }
+        QMetaObject::invokeMethod(this, [this, totalFramesEstimate] {
+            setProgress(0.0, QStringLiteral("Читаем кадры"), 0, totalFramesEstimate);
+        }, Qt::QueuedConnection);
         std::unique_ptr<pfservices::PfCache> analysisCache;
         try {
             const std::filesystem::path cacheRoot = settings.cachePath.empty()
@@ -406,7 +630,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         std::unique_ptr<pfgpu::PoseEstimator> pose;
         {
             pfgpu::PoseEstimatorParams poseParams;
-            if (const auto provider = pfgpu::parseProvider(settings.provider); provider.has_value()) {
+            if (const auto provider = pfgpu::parseProvider(providerChoice.toStdString()); provider.has_value()) {
                 poseParams.provider = *provider;
             }
             pose = std::make_unique<pfgpu::PoseEstimator>(model.string(), poseParams);
@@ -431,6 +655,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
                 ++files;
                 duration += info.durationSeconds;
+                if (sourceFps <= 0.0) sourceFps = info.frameRate;
                 frames += static_cast<qlonglong>(std::max(0.0, info.durationSeconds * info.frameRate));
                 std::vector<std::vector<std::uint8_t>> sceneBuffers;
                 std::vector<double> sceneTimestamps;
@@ -443,7 +668,18 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 std::size_t index = 0;
                 double nextSceneSample = 0.0;
                 double previousPoseTimestamp = -1.0;
+                const std::size_t poseStride = qualityProfile == QStringLiteral("fast") ? 8U
+                    : qualityProfile == QStringLiteral("medium") ? 5U : 3U;
                 while (decoder.readNext(frame)) {
+                    ++processedFrames;
+                    if (processedFrames % 10 == 0 || processedFrames == totalFramesEstimate) {
+                        const double localProgress = totalFramesEstimate > 0
+                            ? static_cast<double>(processedFrames) / static_cast<double>(totalFramesEstimate)
+                            : 0.0;
+                        QMetaObject::invokeMethod(this, [this, localProgress, processedFrames, totalFramesEstimate] {
+                            setProgress(localProgress * 0.85, QStringLiteral("Анализируем движение"), processedFrames, totalFramesEstimate);
+                        }, Qt::QueuedConnection);
+                    }
                     if (firstFrame.rgba.empty()) firstFrame = frame;
                     if (frame.timestampSeconds + 1e-9 >= nextSceneSample) {
                         sceneBuffers.push_back(sceneThumbnail(frame));
@@ -451,7 +687,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         do { nextSceneSample += 1.0; }
                         while (nextSceneSample <= frame.timestampSeconds + 1e-9);
                     }
-                    if (pose && !cacheHit && (index++ % 5U) == 0U) {
+                    if (pose && !cacheHit && (index++ % poseStride) == 0U) {
                         pfgpu::PoseImage image{frame.width, frame.height, frame.rgba.data()};
                         const auto detections = pose->infer(image);
                         poseDetections += static_cast<int>(detections.size());
@@ -468,6 +704,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             }
                             if (!person.keypoints.empty()) {
                                 person.keypointConfidence /= static_cast<double>(person.keypoints.size());
+                            }
+                            if (mirrorPoses) {
+                                for (auto& point : person.keypoints) point.x = 1.0 - point.x;
                             }
                             frameDetections.push_back(std::move(person));
                         }
@@ -590,34 +829,57 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.noiseFactor = noiseFactor;
             params.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults);
             params.timeWeight = timeWeight;
-            auto found = pfcore::MotionMatcher(params).findAllPairs(windows);
-            pfcore::MotionRanker::rank(found, windows);
-            matches = static_cast<int>(found.size());
+            params.normalizeSize = normalizeSize;
+            foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows);
+            pfcore::MotionRanker::rank(foundMatches, windows);
+            matches = static_cast<int>(foundMatches.size());
             const QStringList windowPreviewA = previewA;
             const QStringList windowPreviewB = previewB;
             previewA.clear();
             previewB.clear();
-            for (std::size_t i = 0; i < found.size(); ++i) {
-                const auto& item = found[i];
-                resultItems.push_back(QStringLiteral("Пара %1  ·  %2%  ·  %3  ·  %4  ·  %5 с / %6 с")
-                    .arg(static_cast<int>(i + 1), 2, 10, QLatin1Char('0'))
-                    .arg(static_cast<int>(item.similarity * 100.0))
-                    .arg(QString::fromStdString(item.directionLabel))
-                    .arg(QString::fromStdString(item.gestureLabel))
-                    .arg(QString::number(item.leftStartSeconds, 'f', 1))
-                    .arg(QString::number(item.rightStartSeconds, 'f', 1)));
-                previewA.push_back(item.leftIndex < static_cast<std::size_t>(windowPreviewA.size()) ? windowPreviewA.at(static_cast<int>(item.leftIndex)) : QString());
-                previewB.push_back(item.rightIndex < static_cast<std::size_t>(windowPreviewB.size()) ? windowPreviewB.at(static_cast<int>(item.rightIndex)) : QString());
+            for (std::size_t i = 0; i < foundMatches.size(); ++i) {
+                const auto& item = foundMatches[i];
+                QVariantMap record;
+                record.insert(QStringLiteral("id"), static_cast<int>(i));
+                record.insert(QStringLiteral("similarity"), item.similarity);
+                record.insert(QStringLiteral("direction"), QString::fromStdString(item.directionLabel));
+                record.insert(QStringLiteral("gesture"), QString::fromStdString(item.gestureLabel));
+                record.insert(QStringLiteral("leftSource"), QString::fromStdString(item.leftSourceId));
+                record.insert(QStringLiteral("rightSource"), QString::fromStdString(item.rightSourceId));
+                record.insert(QStringLiteral("leftStart"), item.leftStartSeconds);
+                record.insert(QStringLiteral("leftEnd"), item.leftEndSeconds);
+                record.insert(QStringLiteral("rightStart"), item.rightStartSeconds);
+                record.insert(QStringLiteral("rightEnd"), item.rightEndSeconds);
+                record.insert(QStringLiteral("duration"), item.durationSeconds);
+                record.insert(QStringLiteral("rankScore"), item.rankScore);
+                QVariantList markers;
+                markers << 0.0 << std::max(0.0, item.leftEndSeconds - item.leftStartSeconds)
+                        << 0.0 << std::max(0.0, item.rightEndSeconds - item.rightStartSeconds);
+                record.insert(QStringLiteral("markers"), markers);
+                resultRecords.push_back(record);
+                const QString exactA = savePreviewAt(item.leftSourceId, item.leftStartSeconds,
+                                                     QStringLiteral("match_%1_a.png").arg(static_cast<int>(i)));
+                const QString exactB = savePreviewAt(item.rightSourceId, item.rightStartSeconds,
+                                                     QStringLiteral("match_%1_b.png").arg(static_cast<int>(i)));
+                previewA.push_back(exactA.isEmpty() && item.leftIndex < static_cast<std::size_t>(windowPreviewA.size())
+                                       ? windowPreviewA.at(static_cast<int>(item.leftIndex)) : exactA);
+                previewB.push_back(exactB.isEmpty() && item.rightIndex < static_cast<std::size_t>(windowPreviewB.size())
+                                       ? windowPreviewB.at(static_cast<int>(item.rightIndex)) : exactB);
+                record.insert(QStringLiteral("leftPreview"), previewA.back());
+                record.insert(QStringLiteral("rightPreview"), previewB.back());
+                resultRecords.back() = record;
             }
         }
-        QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, matches, resultItems, previewA, previewB, error] {
+        QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, matches, resultRecords, foundMatches, error, processedFrames, totalFramesEstimate, sourceFps] {
             fileCount_ = files; frameCount_ = frames; durationSeconds_ = duration; sceneCount_ = scenes;
             poseDetectionCount_ = poseDetections;
             matchCount_ = matches;
-            resultItems_ = resultItems;
-            previewA_ = previewA;
-            previewB_ = previewB;
+            results_ = resultRecords;
+            matches_ = foundMatches;
+            sourceFps_ = sourceFps;
             emit summaryChanged();
+            emit resultsChanged();
+            setProgress(1.0, error.isEmpty() ? QStringLiteral("Анализ завершён") : QStringLiteral("Анализ остановлен"), processedFrames, totalFramesEstimate);
             busy_ = false; emit busyChanged();
             setStatus(error.isEmpty() ? QStringLiteral("Анализ сцен завершён")
                                       : QStringLiteral("Анализ остановлен: ") + error);

@@ -30,8 +30,8 @@ Button {
               : control.down ? (control.sageAction ? Theme.sagePressed : Theme.accentPressed)
               : control.hovered ? (control.sageAction ? Theme.sageBright : Theme.accentBright)
               : control.quiet ? Theme.surfaceRaised : (control.sageAction ? Theme.sage : Theme.accent)
-        border.width: control.quiet ? 1 : 0
-        border.color: control.hovered ? Theme.hairlineStrong : Theme.hairline
-        Behavior on color { ColorAnimation { duration: 120 } }
+        border.width: control.activeFocus ? 2 : control.quiet ? 1 : 0
+        border.color: control.activeFocus ? Theme.accent : control.hovered ? Theme.hairlineStrong : Theme.hairline
+        Behavior on color { ColorAnimation { duration: Theme.motionDuration } }
     }
 }

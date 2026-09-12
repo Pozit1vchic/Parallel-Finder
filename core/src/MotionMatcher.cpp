@@ -14,7 +14,7 @@ namespace {
 
 using Descriptor = std::vector<double>;
 
-std::vector<Descriptor> describe(const MotionWindow& window)
+std::vector<Descriptor> describe(const MotionWindow& window, bool normalizeSize)
 {
     std::vector<std::vector<std::pair<double, double>>> normalized;
     normalized.reserve(window.frames.size());
@@ -27,10 +27,13 @@ std::vector<Descriptor> describe(const MotionWindow& window)
         }
         if (weight <= 1e-9) weight = static_cast<double>(frame.keypoints.size());
         cx /= weight; cy /= weight;
-        double scale = 0.0;
-        for (const auto& point : frame.keypoints)
-            scale = std::max(scale, std::hypot(point.x - cx, point.y - cy));
-        if (scale <= 1e-9) scale = 1.0;
+        double scale = 1.0;
+        if (normalizeSize) {
+            scale = 0.0;
+            for (const auto& point : frame.keypoints)
+                scale = std::max(scale, std::hypot(point.x - cx, point.y - cy));
+            if (scale <= 1e-9) scale = 1.0;
+        }
         std::vector<std::pair<double, double>> pose;
         pose.reserve(frame.keypoints.size());
         for (const auto& point : frame.keypoints) {
@@ -227,7 +230,7 @@ void MotionMatcher::setParams(MotionMatcherParams params)
 MotionMatch MotionMatcher::compare(const MotionWindow& left, const MotionWindow& right,
                                    std::size_t leftIndex, std::size_t rightIndex) const
 {
-    return comparePrepared(left, right, {describe(left), {}}, {describe(right), {}},
+    return comparePrepared(left, right, {describe(left, params_.normalizeSize), {}}, {describe(right, params_.normalizeSize), {}},
                            params_, leftIndex, rightIndex);
 }
 
@@ -240,7 +243,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     std::size_t embeddingDimension = 0;
     for (std::size_t index = 0; index < windows.size(); ++index) {
         if (windows[index].frames.empty()) continue;
-        prepared[index].descriptors = describe(windows[index]);
+        prepared[index].descriptors = describe(windows[index], params_.normalizeSize);
         for (const auto& descriptor : prepared[index].descriptors)
             embeddingDimension = std::max(embeddingDimension, descriptor.size());
     }

@@ -11,7 +11,7 @@ QtObject {
     readonly property color panel: "#171813"
     readonly property color heroPanel: "#171813"
     readonly property color panelAlt: "#1E1F19"
-    readonly property color surfaceRaised: "#20211B"
+    readonly property color surfaceRaised: "#1E1F19"
     readonly property color surfaceMuted: "#272820"
     readonly property color well: "#0A0B09"
     readonly property color border: Qt.rgba(245, 241, 236, 0.06)
@@ -28,7 +28,7 @@ QtObject {
     readonly property color glowA: Qt.rgba(0.85, 0.47, 0.34, 0.18)
     readonly property color glowB: Qt.rgba(0.49, 0.60, 0.52, 0.14)
     readonly property color textPrimary: "#F5F1EC"
-    readonly property color textSecondary: "#B0AEA6"
+    readonly property color textSecondary: "#ACA89F"
     readonly property color textDisabled: "#77766F"
 
     // Typography
@@ -57,4 +57,6 @@ QtObject {
     readonly property int sidePanelWidth: 286
     readonly property int resultRowHeight: 32 // virtualized rows
     readonly property int margins: 12
+    property bool reducedMotion: false
+    readonly property int motionDuration: reducedMotion ? 0 : 160
 }

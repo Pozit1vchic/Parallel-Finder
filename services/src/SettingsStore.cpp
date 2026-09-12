@@ -37,6 +37,9 @@ QJsonObject toJson(const Settings& settings)
     json[QStringLiteral("maxUniqueResults")] = static_cast<qint64>(settings.maxUniqueResults);
     json[QStringLiteral("timeWeight")] = settings.timeWeight;
     json[QStringLiteral("sakoeChibaRatio")] = settings.sakoeChibaRatio;
+    json[QStringLiteral("qualityProfile")] = QString::fromStdString(settings.qualityProfile);
+    json[QStringLiteral("normalizeSize")] = settings.normalizeSize;
+    json[QStringLiteral("mirrorPoses")] = settings.mirrorPoses;
     return json;
 }
 
@@ -87,6 +90,11 @@ Settings SettingsStore::load(std::string& error) const
     readString(json, "theme", settings.theme);
     readString(json, "modelPath", settings.modelPath);
     readString(json, "cachePath", settings.cachePath);
+    readString(json, "qualityProfile", settings.qualityProfile);
+    const auto normalizeSize = json.value(QStringLiteral("normalizeSize"));
+    if (normalizeSize.isBool()) settings.normalizeSize = normalizeSize.toBool();
+    const auto mirrorPoses = json.value(QStringLiteral("mirrorPoses"));
+    if (mirrorPoses.isBool()) settings.mirrorPoses = mirrorPoses.toBool();
     const auto cacheLimit = json.value(QStringLiteral("cacheLimitBytes"));
     if (cacheLimit.isDouble() && cacheLimit.toInteger() > 0)
         settings.cacheLimitBytes = static_cast<std::size_t>(cacheLimit.toInteger());

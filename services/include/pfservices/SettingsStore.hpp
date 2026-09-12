@@ -25,6 +25,9 @@ struct Settings {
     std::size_t maxUniqueResults = 100;
     double timeWeight = 0.25;
     double sakoeChibaRatio = 0.10;
+    std::string qualityProfile = "maximum";
+    bool normalizeSize = true;
+    bool mirrorPoses = true;
 };
 
 class SettingsStore {

@@ -31,7 +31,7 @@ Slider {
         height: 12
         radius: 7
         color: Theme.canvas
-        border.color: control.pressed ? Theme.textPrimary : Theme.accent
+        border.color: control.activeFocus ? Theme.textPrimary : control.pressed ? Theme.textPrimary : Theme.accent
         border.width: 1
         layer.enabled: control.pressed || control.hovered
         layer.effect: MultiEffect {

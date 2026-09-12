@@ -32,6 +32,7 @@ struct MotionMatcherParams {
     double noiseFactor = 1.0;
     std::size_t maxUniqueResults = 100;
     double timeWeight = 0.25;
+    bool normalizeSize = true;
     std::size_t dtwBand = 2;
     // Relative Sakoe–Chiba width. dtwBand remains a useful lower bound for
     // short windows, while this ratio keeps the constraint proportional to a

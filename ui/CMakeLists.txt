@@ -12,6 +12,13 @@ set(PFUI_QML_FILES
     qml/PfCheckBox.qml
     qml/PfButton.qml
     qml/PfIconButton.qml
+    qml/TopBar.qml
+    qml/StatsStrip.qml
+    qml/SourcesRail.qml
+    qml/MotionCenter.qml
+    qml/ResultsRail.qml
+    qml/SettingsDialog.qml
+    qml/ExportDialog.qml
 )
 set_source_files_properties(qml/Theme.qml qml/L10n.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE
@@ -33,6 +40,7 @@ qt_add_qml_module(pfui
         qml/assets/x.svg
         qml/assets/play.svg
         qml/assets/download.svg
+        qml/assets/check.svg
 )
 
 # C++ bridge is part of the pfui library but NOT part of the QML module:
@@ -42,7 +50,7 @@ target_sources(pfui PRIVATE
     src/AppInfo.cpp
     src/AnalysisController.cpp
 )
-target_link_libraries(pfui PUBLIC pf::core pf::gpu pf::services)
+target_link_libraries(pfui PUBLIC pf::core pf::gpu pf::services pf::exporters)
 
 # Static import of the module plugin: qt_add_qml_module writes "optional
 # plugin pfuiplugin" into qmldir, but shared-Qt builds do not link static
