@@ -41,6 +41,8 @@ qt_add_qml_module(pfui
         qml/assets/play.svg
         qml/assets/download.svg
         qml/assets/check.svg
+        qml/assets/minus.svg
+        qml/assets/maximize.svg
 )
 
 # C++ bridge is part of the pfui library but NOT part of the QML module:

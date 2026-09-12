@@ -6,9 +6,35 @@ import PfUiBridge
 
 Column {
     id: root
+    focus: true
+    activeFocusOnTab: true
     property var sourceFiles: []
     property var selectedRecord: null
+    property real timelineZoom: 1.0
+    property real timelineOffset: 0.0
+    property bool fullscreenTimeline: false
     signal addRequested()
+
+    onSelectedRecordChanged: {
+        root.timelineZoom = 1.0
+        root.timelineOffset = 0.0
+        root.fullscreenTimeline = false
+    }
+
+    Keys.onEscapePressed: if (root.fullscreenTimeline) root.fullscreenTimeline = false
+
+    function setZoom(nextZoom) {
+        const oldZoom = root.timelineZoom
+        root.timelineZoom = Math.max(1, Math.min(8, nextZoom))
+        if (root.timelineZoom <= 1) root.timelineOffset = 0
+        else root.timelineOffset = Math.max(0, Math.min(1, root.timelineOffset + (oldZoom - root.timelineZoom) * 0.08))
+    }
+
+    function markerX(value, width) {
+        const duration = Math.max(0.001, Number(root.selectedRecord && root.selectedRecord.duration) || 0.001)
+        const normalized = Math.max(0, Math.min(1, Number(value) / duration))
+        return normalized * width * root.timelineZoom
+    }
     spacing: 12
 
     function timecode(seconds) {
@@ -94,14 +120,50 @@ Column {
                     }
                 }
             }
-            Row { width: parent.width; height: 20
+            Row { width: parent.width; height: 24
                 Text { text: L10n.t("timeline.title"); color: Theme.textDisabled; font.pixelSize: 10; font.letterSpacing: 0.8 }
-                Item { width: parent.width - 190; height: 1 }
-                Text { visible: !!root.selectedRecord; text: root.selectedRecord ? root.timecode(root.selectedRecord.duration) : L10n.t("common.empty"); color: Theme.textSecondary; font.pixelSize: 10 }
+                Item { width: parent.width - 300; height: 1 }
+                Text { visible: !!root.selectedRecord; text: root.selectedRecord ? root.timecode(root.selectedRecord.duration) : L10n.t("common.empty"); color: Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
+                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/assets/minus.svg"; accessibleName: "Уменьшить масштаб таймлайна"; enabled: !!root.selectedRecord && root.timelineZoom > 1; onClicked: root.setZoom(root.timelineZoom - 1) }
+                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/assets/plus.svg"; accessibleName: "Увеличить масштаб таймлайна"; enabled: !!root.selectedRecord && root.timelineZoom < 8; onClicked: root.setZoom(root.timelineZoom + 1) }
+                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/assets/maximize.svg"; accessibleName: "Открыть таймлайн на весь экран"; enabled: !!root.selectedRecord; onClicked: { root.fullscreenTimeline = true; root.forceActiveFocus() } }
             }
-            Rectangle { width: parent.width; height: 34; color: Theme.surfaceRaised; radius: 5; border.color: Theme.border
-                Rectangle { x: 8; y: 9; width: parent.width * 0.18; height: 16; radius: 3; color: Theme.sageMuted }
-                Repeater { model: root.selectedRecord ? root.selectedRecord.markers : []; delegate: Rectangle { x: 8 + (parent.width - 16) * Math.min(1, Math.max(0, Number(modelData) / Math.max(0.001, Number(root.selectedRecord.duration)))); y: 5; width: 2; height: 24; color: index < 2 ? Theme.accent : Theme.sage } }
+            Rectangle { id: timelineTrack; width: parent.width; height: 42; color: Theme.surfaceRaised; radius: 5; border.color: Theme.border; clip: true
+                Item { id: timelineContent; x: -root.timelineOffset * Math.max(0, width * root.timelineZoom - timelineTrack.width); width: timelineTrack.width * root.timelineZoom; height: parent.height
+                    Rectangle { x: 8; y: 13; width: Math.max(20, parent.width * 0.18); height: 16; radius: 3; color: Theme.sageMuted }
+                    Repeater { model: root.selectedRecord ? root.selectedRecord.markers : []; delegate: Rectangle { x: root.markerX(modelData, timelineTrack.width); y: 7; width: 2; height: 28; color: index < 2 ? Theme.accent : Theme.sage; layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: index < 2 ? Theme.accent : Theme.sage; shadowBlur: 0.55 } } }
+                    MouseArea { anchors.fill: parent; enabled: root.timelineZoom > 1; cursorShape: Qt.OpenHandCursor; property real pressX; property real initialOffset
+                        onPressed: { pressX = mouse.x; initialOffset = root.timelineOffset; cursorShape = Qt.ClosedHandCursor }
+                        onReleased: cursorShape = Qt.OpenHandCursor
+                        onPositionChanged: if (pressed) { const travel = Math.max(1, timelineContent.width - timelineTrack.width); root.timelineOffset = Math.max(0, Math.min(1, initialOffset - (mouse.x - pressX) / travel)) }
+                    }
+                }
+                Text { anchors.centerIn: parent; visible: !root.selectedRecord; text: L10n.t("common.empty"); color: Theme.textDisabled; font.pixelSize: 12 }
+            }
+        }
+    }
+
+    Rectangle { id: fullscreenOverlay; anchors.fill: parent; visible: root.fullscreenTimeline && !!root.selectedRecord; z: 30; color: Theme.canvas; border.color: Theme.hairlineStrong; radius: Theme.radiusOverlay; focus: visible; Keys.onEscapePressed: root.fullscreenTimeline = false
+        Column { anchors.fill: parent; anchors.margins: 24; spacing: 16
+            Row { width: parent.width; height: 34
+                Text { text: L10n.t("center.comparison"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 22; verticalAlignment: Text.AlignVCenter }
+                Item { width: parent.width - 80; height: 1 }
+                PfIconButton { iconSource: "qrc:/qt/qml/PfUi/assets/x.svg"; accessibleName: L10n.t("common.close"); onClicked: root.fullscreenTimeline = false }
+            }
+            Row { width: parent.width; height: parent.height - 112; spacing: 14
+                Rectangle { width: (parent.width - 14) / 2; height: parent.height; color: Theme.well; radius: Theme.radiusButton; border.color: Theme.accent
+                    Image { anchors.fill: parent; anchors.margins: 10; source: root.selectedRecord.leftPreview || ""; fillMode: Image.PreserveAspectFit; smooth: true }
+                    Text { anchors.centerIn: parent; visible: !root.selectedRecord.leftPreview; text: L10n.t("timeline.left"); color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 48 }
+                }
+                Rectangle { width: (parent.width - 14) / 2; height: parent.height; color: Theme.well; radius: Theme.radiusButton; border.color: Theme.sage
+                    Image { anchors.fill: parent; anchors.margins: 10; source: root.selectedRecord.rightPreview || ""; fillMode: Image.PreserveAspectFit; smooth: true }
+                    Text { anchors.centerIn: parent; visible: !root.selectedRecord.rightPreview; text: L10n.t("timeline.right"); color: Theme.sage; font.family: Theme.displayFont; font.pixelSize: 48 }
+                }
+            }
+            Rectangle { width: parent.width; height: 44; color: Theme.surfaceRaised; radius: 6; border.color: Theme.border; clip: true
+                Item { x: -root.timelineOffset * Math.max(0, width * root.timelineZoom - parent.width); width: parent.width * root.timelineZoom; height: parent.height
+                    Repeater { model: root.selectedRecord ? root.selectedRecord.markers : []; delegate: Rectangle { x: root.markerX(modelData, fullscreenOverlay.width - 48); y: 7; width: 2; height: 30; color: index < 2 ? Theme.accent : Theme.sage } }
+                }
             }
         }
     }
