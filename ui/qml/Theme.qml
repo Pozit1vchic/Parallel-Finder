@@ -17,11 +17,11 @@ QtObject {
     readonly property color border: Qt.rgba(245, 241, 236, 0.06)
     readonly property color hairline: Qt.rgba(245, 241, 236, 0.10)
     readonly property color hairlineStrong: Qt.rgba(245, 241, 236, 0.18)
-    readonly property color accent: "#D97757"             // terracotta / A
+    property color accent: "#D97757"             // terracotta / A
     readonly property color accentBright: "#E18A6B"
     readonly property color accentPressed: "#B95D42"
     readonly property color accentMuted: Qt.rgba(0.85, 0.47, 0.34, 0.12)
-    readonly property color sage: "#7C9885"              // sage / B
+    property color sage: "#7C9885"              // sage / B
     readonly property color sageBright: "#A0B9A9"
     readonly property color sagePressed: "#607B69"
     readonly property color sageMuted: Qt.rgba(0.49, 0.60, 0.52, 0.11)
@@ -32,7 +32,7 @@ QtObject {
     readonly property color textDisabled: "#77766F"
 
     // Typography
-    readonly property string fontFamily: "Segoe UI"
+    property string fontFamily: "Segoe UI"
     readonly property string displayFont: "Georgia"
     readonly property int fontSizeSmall: 12
     readonly property int fontSizeBody: 13
