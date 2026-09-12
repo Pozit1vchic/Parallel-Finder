@@ -69,25 +69,7 @@ Column {
                 MouseArea { anchors.fill: parent; z: 0; hoverEnabled: true; acceptedButtons: Qt.NoButton
                     onPositionChanged: { root.auraX = Math.max(0, Math.min(1, mouse.x / Math.max(1, width))); root.auraY = Math.max(0, Math.min(1, mouse.y / Math.max(1, height))) }
                 }
-                Canvas { id: aura; z: 0; width: 360; height: 300; x: root.auraX * stage.width - width / 2; y: root.auraY * stage.height - height / 2; visible: !root.selectedRecord; opacity: 0.92
-                    Behavior on x { NumberAnimation { duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
-                    Behavior on y { NumberAnimation { duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
-                    onPaint: {
-                        const ctx = getContext("2d")
-                        ctx.clearRect(0, 0, width, height)
-                        const ax = width * 0.42; const ay = height * 0.48
-                        let gradient = ctx.createRadialGradient(ax, ay, 0, ax, ay, width * 0.48)
-                        gradient.addColorStop(0, Qt.rgba(0.85, 0.47, 0.34, 0.16))
-                        gradient.addColorStop(0.44, Qt.rgba(0.85, 0.47, 0.34, 0.055))
-                        gradient.addColorStop(1, Qt.rgba(0.85, 0.47, 0.34, 0))
-                        ctx.fillStyle = gradient; ctx.fillRect(0, 0, width, height)
-                        let sageGradient = ctx.createRadialGradient(width * 0.64, height * 0.58, 0, width * 0.64, height * 0.58, width * 0.36)
-                        sageGradient.addColorStop(0, Qt.rgba(0.49, 0.60, 0.52, 0.11))
-                        sageGradient.addColorStop(1, Qt.rgba(0.49, 0.60, 0.52, 0))
-                        ctx.fillStyle = sageGradient; ctx.fillRect(0, 0, width, height)
-                    }
-                    Component.onCompleted: requestPaint()
-                }
+                MotionAura { z: 0; width: 430; height: 300; x: root.auraX * stage.width - width / 2; y: root.auraY * stage.height - height / 2; targetX: root.auraX; targetY: root.auraY; active: !root.selectedRecord }
                 Column { anchors.fill: parent; anchors.margins: 16; spacing: 10; visible: !root.selectedRecord
                     Row { width: parent.width
                         Text { text: L10n.t("center.motionField"); color: Theme.textDisabled; font.pixelSize: 10; font.letterSpacing: 0.8 }

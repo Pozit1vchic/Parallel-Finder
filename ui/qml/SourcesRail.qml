@@ -68,58 +68,63 @@ Rectangle {
                 }
                 Text { anchors.centerIn: parent; visible: root.sourceFiles.length === 0; text: L10n.t("sources.empty"); color: Theme.textDisabled; font.pixelSize: 10 }
             }
-            Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-            Text { text: L10n.t("search.similarityGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-            Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-            Column { width: parent.width; spacing: 3
-                Row { width: parent.width
-                    Text { text: L10n.t("search.similarity"); color: Theme.textSecondary; font.pixelSize: 11 }
-                    Item { width: parent.width - 100; height: 1 }
-                    Text { text: Math.round(Analysis.similarityThreshold * 100) + "%"; color: Theme.accent; font.pixelSize: 11 }
+            Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: similarityCard.implicitHeight + 24
+                Column { id: similarityCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
+                    Text { text: L10n.t("search.similarityGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                    Row { width: parent.width
+                        Text { text: L10n.t("search.similarity"); color: Theme.textSecondary; font.pixelSize: 11 }
+                        Item { width: parent.width - 100; height: 1 }
+                        Text { text: Math.round(Analysis.similarityThreshold * 100) + "%"; color: Theme.accent; font.pixelSize: 11 }
+                    }
+                    PfSlider { width: parent.width; from: 0.5; to: 0.99; stepSize: 0.01; value: Analysis.similarityThreshold; Accessible.name: L10n.t("search.similarity"); onValueChanged: if (Math.abs(Analysis.similarityThreshold - value) > 0.001) Analysis.similarityThreshold = value }
+                    Row { width: parent.width
+                        Text { text: L10n.t("search.candidate"); color: Theme.textSecondary; font.pixelSize: 11 }
+                        Item { width: parent.width - 100; height: 1 }
+                        Text { text: Math.round(Analysis.candidateThreshold * 100) + "%"; color: Theme.accent; font.pixelSize: 11 }
+                    }
+                    PfSlider { width: parent.width; from: 0.2; to: 0.95; stepSize: 0.01; value: Analysis.candidateThreshold; Accessible.name: L10n.t("search.candidate"); onValueChanged: if (Math.abs(Analysis.candidateThreshold - value) > 0.001) Analysis.candidateThreshold = value }
                 }
-                PfSlider { width: parent.width; from: 0.5; to: 0.99; stepSize: 0.01; value: Analysis.similarityThreshold; Accessible.name: L10n.t("search.similarity"); onValueChanged: if (Math.abs(Analysis.similarityThreshold - value) > 0.001) Analysis.similarityThreshold = value }
-                Row { width: parent.width
-                    Text { text: L10n.t("search.candidate"); color: Theme.textSecondary; font.pixelSize: 11 }
-                    Item { width: parent.width - 100; height: 1 }
-                    Text { text: Math.round(Analysis.candidateThreshold * 100) + "%"; color: Theme.accent; font.pixelSize: 11 }
+            }
+            Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: spacingCard.implicitHeight + 24
+                Column { id: spacingCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
+                    Text { text: L10n.t("search.spacingGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                    Text { text: L10n.t("search.repeatGap") + "  ·  " + Analysis.repeatGap.toFixed(1) + " " + L10n.t("common.seconds"); color: Theme.textSecondary; font.pixelSize: 11 }
+                    PfSlider { width: parent.width; from: 0; to: 30; stepSize: 0.5; value: Analysis.repeatGap; onValueChanged: if (Math.abs(Analysis.repeatGap - value) > 0.001) Analysis.repeatGap = value }
+                    Text { text: L10n.t("search.sameFileGap") + "  ·  " + Analysis.sameFileGap.toFixed(1) + " " + L10n.t("common.seconds"); color: Theme.textSecondary; font.pixelSize: 11 }
+                    PfSlider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: Analysis.sameFileGap; onValueChanged: if (Math.abs(Analysis.sameFileGap - value) > 0.001) Analysis.sameFileGap = value }
+                    Text { text: L10n.t("search.crossFileGap") + "  ·  " + Analysis.crossFileGap.toFixed(1) + " " + L10n.t("common.seconds"); color: Theme.textSecondary; font.pixelSize: 11 }
+                    PfSlider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: Analysis.crossFileGap; onValueChanged: if (Math.abs(Analysis.crossFileGap - value) > 0.001) Analysis.crossFileGap = value }
+                    Text { text: L10n.t("search.duplicateWindow") + "  ·  " + Analysis.duplicateWindow.toFixed(1) + " " + L10n.t("common.seconds"); color: Theme.textSecondary; font.pixelSize: 11 }
+                    PfSlider { width: parent.width; from: 0.25; to: 8; stepSize: 0.25; value: Analysis.duplicateWindow; onValueChanged: if (Math.abs(Analysis.duplicateWindow - value) > 0.001) Analysis.duplicateWindow = value }
                 }
-                PfSlider { width: parent.width; from: 0.2; to: 0.95; stepSize: 0.01; value: Analysis.candidateThreshold; Accessible.name: L10n.t("search.candidate"); onValueChanged: if (Math.abs(Analysis.candidateThreshold - value) > 0.001) Analysis.candidateThreshold = value }
             }
-            Text { text: L10n.t("search.spacingGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-            Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-            Column { width: parent.width; spacing: 3
-                Text { text: L10n.t("search.repeatGap") + "  ·  " + Analysis.repeatGap.toFixed(1) + " " + L10n.t("common.seconds"); color: Theme.textSecondary; font.pixelSize: 11 }
-                PfSlider { width: parent.width; from: 0; to: 30; stepSize: 0.5; value: Analysis.repeatGap; onValueChanged: if (Math.abs(Analysis.repeatGap - value) > 0.001) Analysis.repeatGap = value }
-                Text { text: L10n.t("search.sameFileGap") + "  ·  " + Analysis.sameFileGap.toFixed(1) + " " + L10n.t("common.seconds"); color: Theme.textSecondary; font.pixelSize: 11 }
-                PfSlider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: Analysis.sameFileGap; onValueChanged: if (Math.abs(Analysis.sameFileGap - value) > 0.001) Analysis.sameFileGap = value }
-                Text { text: L10n.t("search.crossFileGap") + "  ·  " + Analysis.crossFileGap.toFixed(1) + " " + L10n.t("common.seconds"); color: Theme.textSecondary; font.pixelSize: 11 }
-                PfSlider { width: parent.width; from: 0; to: 15; stepSize: 0.5; value: Analysis.crossFileGap; onValueChanged: if (Math.abs(Analysis.crossFileGap - value) > 0.001) Analysis.crossFileGap = value }
-                Text { text: L10n.t("search.duplicateWindow") + "  ·  " + Analysis.duplicateWindow.toFixed(1) + " " + L10n.t("common.seconds"); color: Theme.textSecondary; font.pixelSize: 11 }
-                PfSlider { width: parent.width; from: 0.25; to: 8; stepSize: 0.25; value: Analysis.duplicateWindow; onValueChanged: if (Math.abs(Analysis.duplicateWindow - value) > 0.001) Analysis.duplicateWindow = value }
+            Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: rankingCard.implicitHeight + 24
+                Column { id: rankingCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
+                    Text { text: L10n.t("search.rankingGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                    Text { text: L10n.t("search.noise") + "  ·  " + Analysis.noiseFactor.toFixed(2); color: Theme.textSecondary; font.pixelSize: 11 }
+                    PfSlider { width: parent.width; from: 0; to: 2; stepSize: 0.05; value: Analysis.noiseFactor; onValueChanged: if (Math.abs(Analysis.noiseFactor - value) > 0.001) Analysis.noiseFactor = value }
+                    Text { text: L10n.t("search.maxResults") + "  ·  " + Analysis.maxUniqueResults; color: Theme.textSecondary; font.pixelSize: 11 }
+                    PfSlider { width: parent.width; from: 10; to: 500; stepSize: 10; value: Analysis.maxUniqueResults; onValueChanged: if (Analysis.maxUniqueResults !== Math.round(value)) Analysis.maxUniqueResults = Math.round(value) }
+                    Text { text: L10n.t("search.timeWeight") + "  ·  " + Math.round(Analysis.timeWeight * 100) + "%"; color: Theme.textSecondary; font.pixelSize: 11 }
+                    PfSlider { width: parent.width; from: 0; to: 1; stepSize: 0.05; value: Analysis.timeWeight; onValueChanged: if (Math.abs(Analysis.timeWeight - value) > 0.001) Analysis.timeWeight = value }
+                }
             }
-            Text { text: L10n.t("search.rankingGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-            Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-            Column { width: parent.width; spacing: 3
-                Text { text: L10n.t("search.noise") + "  ·  " + Analysis.noiseFactor.toFixed(2); color: Theme.textSecondary; font.pixelSize: 11 }
-                PfSlider { width: parent.width; from: 0; to: 2; stepSize: 0.05; value: Analysis.noiseFactor; onValueChanged: if (Math.abs(Analysis.noiseFactor - value) > 0.001) Analysis.noiseFactor = value }
-                Text { text: L10n.t("search.maxResults") + "  ·  " + Analysis.maxUniqueResults; color: Theme.textSecondary; font.pixelSize: 11 }
-                PfSlider { width: parent.width; from: 10; to: 500; stepSize: 10; value: Analysis.maxUniqueResults; onValueChanged: if (Analysis.maxUniqueResults !== Math.round(value)) Analysis.maxUniqueResults = Math.round(value) }
-                Text { text: L10n.t("search.timeWeight") + "  ·  " + Math.round(Analysis.timeWeight * 100) + "%"; color: Theme.textSecondary; font.pixelSize: 11 }
-                PfSlider { width: parent.width; from: 0; to: 1; stepSize: 0.05; value: Analysis.timeWeight; onValueChanged: if (Math.abs(Analysis.timeWeight - value) > 0.001) Analysis.timeWeight = value }
+            Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: qualityCard.implicitHeight + 24
+                Column { id: qualityCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
+                    Row { width: parent.width
+                        Text { text: L10n.t("search.quality"); color: Theme.textSecondary; font.pixelSize: 11 }
+                        Item { width: parent.width - 92; height: 1 }
+                        Text { text: Analysis.qualityProfile; color: Theme.sage; font.pixelSize: 10 }
+                    }
+                    Row { width: parent.width; spacing: 5
+                        PfButton { width: (parent.width - 10) / 3; text: L10n.t("search.fast"); quiet: Analysis.qualityProfile !== "fast"; onClicked: Analysis.qualityProfile = "fast" }
+                        PfButton { width: (parent.width - 10) / 3; text: L10n.t("search.medium"); quiet: Analysis.qualityProfile !== "medium"; onClicked: Analysis.qualityProfile = "medium" }
+                        PfButton { width: (parent.width - 10) / 3; text: L10n.t("search.maximum"); sageAction: Analysis.qualityProfile === "maximum"; quiet: Analysis.qualityProfile !== "maximum"; onClicked: Analysis.qualityProfile = "maximum" }
+                    }
+                    PfCheckBox { text: L10n.t("search.normalize"); checked: Analysis.normalizeSize; onToggled: Analysis.normalizeSize = checked }
+                    PfCheckBox { text: L10n.t("search.mirror"); checked: Analysis.mirrorPoses; onToggled: Analysis.mirrorPoses = checked }
+                }
             }
-            Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-            Row { width: parent.width
-                Text { text: L10n.t("search.quality"); color: Theme.textSecondary; font.pixelSize: 11 }
-                Item { width: parent.width - 92; height: 1 }
-                Text { text: Analysis.qualityProfile; color: Theme.sage; font.pixelSize: 10 }
-            }
-            Row { width: parent.width; spacing: 5
-                PfButton { width: (parent.width - 10) / 3; text: L10n.t("search.fast"); quiet: Analysis.qualityProfile !== "fast"; onClicked: Analysis.qualityProfile = "fast" }
-                PfButton { width: (parent.width - 10) / 3; text: L10n.t("search.medium"); quiet: Analysis.qualityProfile !== "medium"; onClicked: Analysis.qualityProfile = "medium" }
-                PfButton { width: (parent.width - 10) / 3; text: L10n.t("search.maximum"); sageAction: Analysis.qualityProfile === "maximum"; quiet: Analysis.qualityProfile !== "maximum"; onClicked: Analysis.qualityProfile = "maximum" }
-            }
-            PfCheckBox { text: L10n.t("search.normalize"); checked: Analysis.normalizeSize; onToggled: Analysis.normalizeSize = checked }
-            PfCheckBox { text: L10n.t("search.mirror"); checked: Analysis.mirrorPoses; onToggled: Analysis.mirrorPoses = checked }
             PfButton { width: parent.width; text: Analysis.busy ? L10n.t("search.running") : L10n.t("search.start"); enabled: root.sourceFiles.length > 0 && !Analysis.busy; onClicked: root.analyzeRequested() }
             Text { width: parent.width; text: Analysis.busy ? Analysis.progressStage + " · " + Math.round(Analysis.progress * 100) + "%" : Analysis.status; color: Theme.textDisabled; font.pixelSize: 10; wrapMode: Text.WordWrap }
         }

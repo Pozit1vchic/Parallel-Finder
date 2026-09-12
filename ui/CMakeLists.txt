@@ -16,6 +16,7 @@ set(PFUI_QML_FILES
     qml/StatsStrip.qml
     qml/SourcesRail.qml
     qml/MotionCenter.qml
+    qml/MotionAura.qml
     qml/ResultsRail.qml
     qml/SettingsDialog.qml
     qml/ExportDialog.qml
