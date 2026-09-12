@@ -36,4 +36,14 @@ TEST(DominantPerson, ChoosesLongestTrackThenArea)
     EXPECT_EQ(dominant->observations.size(), 3U);
 }
 
+TEST(DominantPerson, DoesNotBridgeLongDetectionGaps)
+{
+    pfcore::DominantPersonTracker tracker(0.30, 0.5);
+    tracker.update(0.0, 0.1, {person(0.0, 0.0, 0.8)});
+    tracker.update(2.0, 0.1, {person(2.0, 0.1, 0.8)});
+    ASSERT_EQ(tracker.tracks().size(), 2U);
+    EXPECT_EQ(tracker.tracks().front().observations.size(), 1U);
+    EXPECT_EQ(tracker.tracks().back().observations.size(), 1U);
+}
+
 } // namespace

@@ -22,6 +22,8 @@ set(PF_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MotionMatcher.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/MotionIndex.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MotionIndex.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/DominantPerson.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/DominantPerson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/JobManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/JobManager.cpp
 )

@@ -33,7 +33,7 @@ ONNX Runtime.
 ```
 app/            ParallelFinder (thin: init → Splash → Main)
 gpu/    pfgpu        getDeviceInfo, ORT-сессии (модель|провайдер), auto/cuda/dml/cpu
-core/   pfcore       VideoDecoder, SceneDetector, PoseEstimator, DominantPerson, MotionMatcher, JobManager, PFCACHE1
+core/   pfcore       VideoDecoder, SceneDetector, DominantPerson, MotionMatcher, JobManager, PFCACHE1
 services/ pfservices ThumbnailCache LRU64, CutService (ffmpeg QProcess), ThemeStore, settings.json
 exporters/ pfexporters JSON/CSV/TXT/EDL/FCPXML/AEP(.jsx + json)
 ui/     pfui         QML Splash/Main/Settings/DemoMode + C++ bridge
@@ -94,8 +94,10 @@ ORT-GPU / CUDA / TensorRT / DML-redist при сборке размещаютс�
 1. ✅ pfgpu: проба провайдеров (TensorRT → CUDA → DML → CPU по факту создания сессии), EP-device API
    с ORT ≥ 1.22 и фолбэком на классические экспорты для 1.12–1.21, кэш сессий с LRU, живой GPU-бейдж;
    `--pf-smoke` печатает всю цепочку с причинами недоступности
-2. VideoDecoder (DISPLAYMATRIX/SAR/VFR/RAII) · 2b. SceneDetector
-3. Модель+инференс · треки+матчер (all-pairs, HNSW+DTW) · JobManager · PFCACHE1
+2. ✅ VideoDecoder (DISPLAYMATRIX/SAR/VFR/RAII) · 2b. ✅ SceneDetector
+3a. ✅ Модель+инференс (статические b1/b8-профили, end2end/raw decoder, C++ NMS)
+3b. ✅ Треки + дескрипторы движения + all-pairs HNSW-prefilter + band-constrained DTW
+3c. Классификатор направления/жеста · ранжирование · JobManager · PFCACHE1
 4. Экспорт + сервисы (CutService, ThumbnailCache, settings.json)
 5. UI (Splash/Main/Settings/DemoMode) · 5b. Qt-деплой
 6. GPU-бандл + перф-валидация + финальный аудит

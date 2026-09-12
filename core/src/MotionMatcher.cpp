@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
+#include <utility>
 #include <unordered_set>
 
 namespace pfcore {
@@ -15,9 +16,10 @@ using Descriptor = std::vector<double>;
 
 std::vector<Descriptor> describe(const MotionWindow& window)
 {
-    std::vector<Descriptor> result;
+    std::vector<std::vector<std::pair<double, double>>> normalized;
+    normalized.reserve(window.frames.size());
     for (const PoseFrame& frame : window.frames) {
-        if (frame.keypoints.empty()) { result.emplace_back(); continue; }
+        if (frame.keypoints.empty()) { normalized.emplace_back(); continue; }
         double cx = 0.0, cy = 0.0, weight = 0.0;
         for (const auto& point : frame.keypoints) {
             const double w = std::max(0.0, point.confidence);
@@ -29,11 +31,36 @@ std::vector<Descriptor> describe(const MotionWindow& window)
         for (const auto& point : frame.keypoints)
             scale = std::max(scale, std::hypot(point.x - cx, point.y - cy));
         if (scale <= 1e-9) scale = 1.0;
-        Descriptor descriptor;
-        descriptor.reserve(frame.keypoints.size() * 2);
+        std::vector<std::pair<double, double>> pose;
+        pose.reserve(frame.keypoints.size());
         for (const auto& point : frame.keypoints) {
-            descriptor.push_back((point.x - cx) / scale);
-            descriptor.push_back((point.y - cy) / scale);
+            pose.emplace_back((point.x - cx) / scale, (point.y - cy) / scale);
+        }
+        normalized.push_back(std::move(pose));
+    }
+    std::vector<Descriptor> result;
+    result.reserve(normalized.size());
+    for (std::size_t frameIndex = 0; frameIndex < normalized.size(); ++frameIndex) {
+        const auto& pose = normalized[frameIndex];
+        if (pose.empty()) { result.emplace_back(); continue; }
+        const auto* previous = frameIndex > 0 ? &normalized[frameIndex - 1] : nullptr;
+        const double dt = frameIndex > 0
+            ? std::max(1e-3, window.frames[frameIndex].timestampSeconds
+                - window.frames[frameIndex - 1].timestampSeconds)
+            : 1.0;
+        Descriptor descriptor;
+        descriptor.reserve(pose.size() * 4);
+        for (std::size_t pointIndex = 0; pointIndex < pose.size(); ++pointIndex) {
+            descriptor.push_back(pose[pointIndex].first);
+            descriptor.push_back(pose[pointIndex].second);
+            double velocityX = 0.0;
+            double velocityY = 0.0;
+            if (previous && previous->size() == pose.size()) {
+                velocityX = (pose[pointIndex].first - (*previous)[pointIndex].first) / dt;
+                velocityY = (pose[pointIndex].second - (*previous)[pointIndex].second) / dt;
+            }
+            descriptor.push_back(std::clamp(velocityX, -4.0, 4.0));
+            descriptor.push_back(std::clamp(velocityY, -4.0, 4.0));
         }
         result.push_back(std::move(descriptor));
     }
@@ -137,19 +164,39 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     const double noise = params.noiseFactor * std::max(noiseFloor(a), noiseFloor(b));
     const double inf = std::numeric_limits<double>::infinity();
     std::vector<double> previous(cols + 1, inf), current(cols + 1, inf);
+    std::vector<std::size_t> previousSteps(cols + 1, 0), currentSteps(cols + 1, 0);
     previous[0] = 0.0;
-    const std::size_t band = std::max(params.dtwBand, rows > cols ? rows - cols : cols - rows);
+    const std::size_t ratioBand = std::max<std::size_t>(2, static_cast<std::size_t>(std::ceil(
+        static_cast<double>(std::max(rows, cols)) * params.sakoeChibaRatio)));
+    const std::size_t band = std::max({params.dtwBand, ratioBand,
+                                       rows > cols ? rows - cols : cols - rows});
     for (std::size_t i = 1; i <= rows; ++i) {
         std::fill(current.begin(), current.end(), inf);
+        std::fill(currentSteps.begin(), currentSteps.end(), 0);
         const std::size_t begin = i > band ? i - band : 1;
         const std::size_t end = std::min(cols, i + band);
         for (std::size_t j = begin; j <= end; ++j) {
             const double cost = std::max(0.0, frameDistance(a[i - 1], b[j - 1]) - noise);
-            current[j] = cost + std::min({previous[j], current[j - 1], previous[j - 1]});
+            double best = previous[j - 1];
+            std::size_t bestSteps = previousSteps[j - 1];
+            if (previous[j] < best) {
+                best = previous[j];
+                bestSteps = previousSteps[j];
+            }
+            if (current[j - 1] < best) {
+                best = current[j - 1];
+                bestSteps = currentSteps[j - 1];
+            }
+            if (std::isfinite(best)) {
+                current[j] = cost + best;
+                currentSteps[j] = bestSteps + 1;
+            }
         }
         previous.swap(current);
+        previousSteps.swap(currentSteps);
     }
-    result.dtwDistance = previous[cols] / static_cast<double>(rows + cols);
+    if (!std::isfinite(previous[cols]) || previousSteps[cols] == 0) return result;
+    result.dtwDistance = previous[cols] / static_cast<double>(previousSteps[cols]);
     const double leftDuration = duration(left);
     const double rightDuration = duration(right);
     const double durationDenominator = std::max({leftDuration, rightDuration, 1e-9});
@@ -169,6 +216,11 @@ void MotionMatcher::setParams(MotionMatcherParams params)
         || !(params.candidateThreshold >= 0.0 && params.candidateThreshold <= 1.0)
         || params.maxUniqueResults == 0 || params.dtwBand == 0 || params.noiseFactor < 0.0)
         throw std::invalid_argument("MotionMatcher: invalid parameters");
+    if (!(params.sakoeChibaRatio >= 0.0 && params.sakoeChibaRatio <= 1.0)
+        || !(params.minRepeatGapSec >= 0.0 && params.sameFileGapSec >= 0.0)
+        || !(params.crossFileGapSec >= 0.0 && params.duplicateWindowSec >= 0.0)
+        || !(params.timeWeight >= 0.0 && params.timeWeight <= 1.0))
+        throw std::invalid_argument("MotionMatcher: invalid temporal parameters");
     params_ = params;
 }
 
@@ -231,7 +283,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         const double requiredGap = sameSource
             ? std::max(params_.sameFileGapSec, params_.minRepeatGapSec)
             : params_.crossFileGapSec;
-        if (sameSource && gap < requiredGap) continue;
+        if (gap < requiredGap) continue;
         if (coarseSimilarity(prepared[i].descriptors, prepared[j].descriptors)
             < params_.candidateThreshold) continue;
         MotionMatch candidate = comparePrepared(windows[i], windows[j], prepared[i], prepared[j],

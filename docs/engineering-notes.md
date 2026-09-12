@@ -49,3 +49,9 @@ Backend performance note:
   first frame. The profile controls fixed batch (`b1`, `b8`, `b16`), short final
   batches repeat their last frame, and the decoder accepts both end-to-end
   `[B,N,57]` pose output and raw `[B,56,8400]` output with C++ IoU-NMS.
+- `pfcore::DominantPersonTracker` refuses to reconnect a track after a
+  configurable time gap (default 1 s), and matching ties are deterministic.
+  `MotionMatcher` uses position-plus-velocity descriptors, path-length
+  normalized Sakoe–Chiba DTW, and applies the cross-file gap constraint. The
+  production window builder uses a 1.0 s window and 0.25 s stride on decoded
+  timestamps, so VFR material is not silently converted to guessed counts.

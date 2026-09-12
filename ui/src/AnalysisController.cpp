@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <vector>
@@ -33,6 +34,30 @@ QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
     const QString path = directory + QLatin1Char('/') + name;
     QImage image(frame.rgba.data(), frame.width, frame.height, QImage::Format_RGBA8888);
     return image.copy().save(path, "PNG") ? path : QString();
+}
+
+std::vector<std::uint8_t> sceneThumbnail(const pfcore::DecodedFrame& frame,
+                                         int width = 64, int height = 36)
+{
+    std::vector<std::uint8_t> result(static_cast<std::size_t>(width)
+                                     * static_cast<std::size_t>(height) * 4U);
+    if (frame.width <= 0 || frame.height <= 0 || frame.rgba.empty()) return result;
+    for (int y = 0; y < height; ++y) {
+        const int sourceY = std::min(frame.height - 1, (y * frame.height) / height);
+        for (int x = 0; x < width; ++x) {
+            const int sourceX = std::min(frame.width - 1, (x * frame.width) / width);
+            const std::size_t source = (static_cast<std::size_t>(sourceY)
+                                        * static_cast<std::size_t>(frame.width)
+                                        + static_cast<std::size_t>(sourceX)) * 4U;
+            const std::size_t target = (static_cast<std::size_t>(y)
+                                        * static_cast<std::size_t>(width)
+                                        + static_cast<std::size_t>(x)) * 4U;
+            if (source + 3U >= frame.rgba.size()) continue;
+            std::copy_n(frame.rgba.begin() + static_cast<std::ptrdiff_t>(source), 4,
+                        result.begin() + static_cast<std::ptrdiff_t>(target));
+        }
+    }
+    return result;
 }
 
 std::filesystem::path findPoseModel()
@@ -268,35 +293,34 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 ++files;
                 duration += info.durationSeconds;
                 frames += static_cast<qlonglong>(std::max(0.0, info.durationSeconds * info.frameRate));
-                std::vector<pfcore::DecodedFrame> decoded;
+                std::vector<std::vector<std::uint8_t>> sceneBuffers;
+                std::vector<double> sceneTimestamps;
+                sceneBuffers.reserve(static_cast<std::size_t>(std::max(1.0, info.durationSeconds)) + 1U);
+                sceneTimestamps.reserve(sceneBuffers.capacity());
+                pfcore::DominantPersonTracker tracker;
+                pfcore::DecodedFrame firstFrame;
+                pfcore::DecodedFrame lastFrame;
                 pfcore::DecodedFrame frame;
                 std::size_t index = 0;
+                double nextSceneSample = 0.0;
+                double previousPoseTimestamp = -1.0;
                 while (decoder.readNext(frame)) {
-                    if ((index++ % 5U) == 0U && decoded.size() < 240U) decoded.push_back(std::move(frame));
-                    if (index > 1200U) break;
-                }
-                std::vector<pfcore::SceneSample> samples;
-                samples.reserve(decoded.size());
-                for (const auto& item : decoded)
-                    samples.push_back({item.timestampSeconds, item.width, item.height, item.rgba});
-                pfcore::SceneDetector sceneDetector(settings.sceneThreshold,
-                                                    std::max<std::size_t>(1, (settings.sceneMinFrames + 4) / 5),
-                                                    settings.sceneAdaptiveMultiplier);
-                const auto sceneBoundaries = sceneDetector.detect(samples);
-                scenes += static_cast<int>(sceneBoundaries.size());
-                const QString previewStart = decoded.empty() ? QString() : savePreview(decoded.front(), QStringLiteral("%1_start.png").arg(files));
-                const QString previewEnd = decoded.empty() ? QString() : savePreview(decoded.back(), QStringLiteral("%1_end.png").arg(files));
-                if (pose) {
-                    pfcore::DominantPersonTracker tracker;
-                    for (const auto& item : decoded) {
-                        pfgpu::PoseImage image{item.width, item.height, item.rgba.data()};
+                    if (firstFrame.rgba.empty()) firstFrame = frame;
+                    if (frame.timestampSeconds + 1e-9 >= nextSceneSample) {
+                        sceneBuffers.push_back(sceneThumbnail(frame));
+                        sceneTimestamps.push_back(frame.timestampSeconds);
+                        do { nextSceneSample += 1.0; }
+                        while (nextSceneSample <= frame.timestampSeconds + 1e-9);
+                    }
+                    if (pose && (index++ % 5U) == 0U) {
+                        pfgpu::PoseImage image{frame.width, frame.height, frame.rgba.data()};
                         const auto detections = pose->infer(image);
                         poseDetections += static_cast<int>(detections.size());
                         std::vector<pfcore::PersonDetection> frameDetections;
                         frameDetections.reserve(detections.size());
                         for (const auto& detection : detections) {
                             pfcore::PersonDetection person;
-                            person.timestampSeconds = item.timestampSeconds;
+                            person.timestampSeconds = frame.timestampSeconds;
                             person.box = {detection.left, detection.top, detection.right, detection.bottom};
                             person.confidence = detection.confidence;
                             for (std::size_t i = 0; i + 2 < detection.keypoints.size(); i += 3) {
@@ -308,9 +332,29 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             }
                             frameDetections.push_back(std::move(person));
                         }
-                        const double frameDuration = info.frameRate > 0.0 ? 1.0 / info.frameRate : 0.0;
-                        tracker.update(item.timestampSeconds, frameDuration, frameDetections);
+                        const double frameDuration = previousPoseTimestamp >= 0.0
+                            ? std::max(0.0, frame.timestampSeconds - previousPoseTimestamp)
+                            : (info.frameRate > 0.0 ? 1.0 / info.frameRate : 0.0);
+                        tracker.update(frame.timestampSeconds, frameDuration, frameDetections);
+                        previousPoseTimestamp = frame.timestampSeconds;
                     }
+                    lastFrame = std::move(frame);
+                }
+                std::vector<pfcore::SceneSample> samples;
+                samples.reserve(sceneBuffers.size());
+                for (std::size_t sample = 0; sample < sceneBuffers.size(); ++sample)
+                    samples.push_back({sceneTimestamps[sample], 64, 36, sceneBuffers[sample]});
+                pfcore::SceneDetector sceneDetector(settings.sceneThreshold,
+                                                    std::max<std::size_t>(1,
+                                                        static_cast<std::size_t>(std::ceil(
+                                                            static_cast<double>(settings.sceneMinFrames)
+                                                            / std::max(1.0, info.frameRate)))),
+                                                    settings.sceneAdaptiveMultiplier);
+                const auto sceneBoundaries = sceneDetector.detect(samples);
+                scenes += static_cast<int>(sceneBoundaries.size());
+                const QString previewStart = firstFrame.rgba.empty() ? QString() : savePreview(firstFrame, QStringLiteral("%1_start.png").arg(files));
+                const QString previewEnd = lastFrame.rgba.empty() ? QString() : savePreview(lastFrame, QStringLiteral("%1_end.png").arg(files));
+                if (pose) {
                     const auto dominant = tracker.dominant();
                     // Keep scene boundaries in the motion index: a candidate
                     // never crosses a shot change, and a clip can end only at
@@ -334,25 +378,43 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             }
                         }
                         // Compare overlapping motion windows rather than one
-                        // aggregate window per scene. This preserves
-                        // independent matches without crossing shot changes.
-                    constexpr std::size_t minimumFrames = 8;
-                    constexpr std::size_t windowFrames = 32;
-                    constexpr std::size_t windowStride = 16;
-                    if (window.frames.size() >= minimumFrames) {
-                        for (std::size_t start = 0; start + minimumFrames <= window.frames.size(); start += windowStride) {
-                            const std::size_t end = std::min(window.frames.size(), start + windowFrames);
-                            if (end - start < minimumFrames) break;
-                            pfcore::MotionWindow chunk;
-                            chunk.sourceId = window.sourceId;
-                            chunk.frames.assign(window.frames.begin() + static_cast<std::ptrdiff_t>(start),
-                                                window.frames.begin() + static_cast<std::ptrdiff_t>(end));
-                            windows.push_back(std::move(chunk));
-                            previewA.push_back(previewStart);
-                            previewB.push_back(previewEnd);
-                            if (end == window.frames.size()) break;
+                        // aggregate window per scene. The durations and stride
+                        // are the documented 3b contract, measured on actual
+                        // timestamps rather than guessed frame counts.
+                        constexpr double windowSeconds = 1.0;
+                        constexpr double strideSeconds = 0.25;
+                        constexpr double minimumWindowSeconds = 0.5;
+                        std::size_t start = 0;
+                        while (start < window.frames.size()) {
+                            const double startTime = window.frames[start].timestampSeconds;
+                            if (startTime + minimumWindowSeconds > sceneEnd + 1e-9) break;
+                            std::size_t end = start;
+                            while (end + 1 < window.frames.size()
+                                   && window.frames[end + 1].timestampSeconds
+                                       <= startTime + windowSeconds + 1e-9) {
+                                ++end;
+                            }
+                            if (end > start
+                                && window.frames[end].timestampSeconds - startTime
+                                    >= minimumWindowSeconds) {
+                                pfcore::MotionWindow chunk;
+                                chunk.sourceId = window.sourceId;
+                                chunk.frames.assign(window.frames.begin()
+                                                        + static_cast<std::ptrdiff_t>(start),
+                                                    window.frames.begin()
+                                                        + static_cast<std::ptrdiff_t>(end + 1));
+                                windows.push_back(std::move(chunk));
+                                previewA.push_back(previewStart);
+                                previewB.push_back(previewEnd);
+                            }
+                            const double nextTime = startTime + strideSeconds;
+                            std::size_t next = start + 1;
+                            while (next < window.frames.size()
+                                   && window.frames[next].timestampSeconds < nextTime) {
+                                ++next;
+                            }
+                            start = next;
                         }
-                    }
                     }
                 }
             } catch (const std::exception& exception) {

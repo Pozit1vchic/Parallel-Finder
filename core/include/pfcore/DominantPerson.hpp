@@ -39,7 +39,8 @@ struct PersonTrack {
 
 class DominantPersonTracker {
 public:
-    explicit DominantPersonTracker(double iouThreshold = 0.30);
+    explicit DominantPersonTracker(double iouThreshold = 0.30,
+                                   double maxGapSeconds = 1.0);
 
     void reset();
     void update(double timestampSeconds,
@@ -50,6 +51,7 @@ public:
 
 private:
     double iouThreshold_;
+    double maxGapSeconds_;
     std::size_t nextId_ = 1;
     std::vector<PersonTrack> tracks_;
 };

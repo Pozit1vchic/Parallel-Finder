@@ -38,6 +38,9 @@ struct VideoDecoder::Impl {
     AVPacket* packet = nullptr;
     AVFrame* decoded = nullptr;
     SwsContext* scaler = nullptr;
+    int scalerWidth = 0;
+    int scalerHeight = 0;
+    AVPixelFormat scalerFormat = AV_PIX_FMT_NONE;
     int streamIndex = -1;
     VideoInfo metadata;
     bool draining = false;
@@ -52,6 +55,9 @@ struct VideoDecoder::Impl {
         if (codec) avcodec_free_context(&codec);
         if (format) avformat_close_input(&format);
         scaler = nullptr;
+        scalerWidth = 0;
+        scalerHeight = 0;
+        scalerFormat = AV_PIX_FMT_NONE;
         streamIndex = -1;
         draining = false;
         metadata = {};
@@ -101,6 +107,11 @@ void VideoDecoder::open(const std::string& path)
         : stream->duration * av_q2d(stream->time_base);
     const AVRational rate = stream->avg_frame_rate.num ? stream->avg_frame_rate : stream->r_frame_rate;
     impl_->metadata.frameRate = rationalOr(rate, 0.0);
+    if (impl_->metadata.durationSeconds <= 0.0 && stream->nb_frames > 0
+        && impl_->metadata.frameRate > 0.0) {
+        impl_->metadata.durationSeconds = static_cast<double>(stream->nb_frames)
+            / impl_->metadata.frameRate;
+    }
     impl_->metadata.variableFrameRate = stream->avg_frame_rate.num == 0
         || stream->avg_frame_rate.den == 0 || stream->r_frame_rate.num != stream->avg_frame_rate.num
         || stream->r_frame_rate.den != stream->avg_frame_rate.den;
@@ -133,15 +144,24 @@ bool VideoDecoder::readNext(DecodedFrame& output)
         int result = avcodec_receive_frame(impl_->codec, impl_->decoded);
         if (result == 0) {
             const AVFrame* source = impl_->decoded;
-            if (!impl_->scaler) {
+            const auto pixelFormat = static_cast<AVPixelFormat>(source->format);
+            if (!impl_->scaler || impl_->scalerWidth != source->width
+                || impl_->scalerHeight != source->height || impl_->scalerFormat != pixelFormat) {
+                if (impl_->scaler) sws_freeContext(impl_->scaler);
                 impl_->scaler = sws_getContext(source->width, source->height, static_cast<AVPixelFormat>(source->format),
                     source->width, source->height, AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr, nullptr, nullptr);
                 if (!impl_->scaler) throw std::runtime_error("create pixel converter failed");
+                impl_->scalerWidth = source->width;
+                impl_->scalerHeight = source->height;
+                impl_->scalerFormat = pixelFormat;
             }
             output.width = source->width; output.height = source->height;
             output.rgba.resize(static_cast<std::size_t>(output.width) * output.height * 4);
             std::uint8_t* dst[] = { output.rgba.data() }; int stride[] = { output.width * 4 };
-            sws_scale(impl_->scaler, source->data, source->linesize, 0, source->height, dst, stride);
+            if (sws_scale(impl_->scaler, source->data, source->linesize, 0,
+                          source->height, dst, stride) <= 0) {
+                throw std::runtime_error("convert decoded frame to RGBA failed");
+            }
             const AVStream* stream = impl_->format->streams[impl_->streamIndex];
             const int64_t pts = source->best_effort_timestamp == AV_NOPTS_VALUE ? 0 : source->best_effort_timestamp;
             output.timestampSeconds = pts * av_q2d(stream->time_base);

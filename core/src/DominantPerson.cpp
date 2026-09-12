@@ -56,11 +56,15 @@ double PersonTrack::firstTimestampSeconds() const noexcept
     return observations.empty() ? 0.0 : observations.front().timestampSeconds;
 }
 
-DominantPersonTracker::DominantPersonTracker(double iouThreshold)
+DominantPersonTracker::DominantPersonTracker(double iouThreshold, double maxGapSeconds)
     : iouThreshold_(iouThreshold)
+    , maxGapSeconds_(maxGapSeconds)
 {
     if (!(iouThreshold_ >= 0.0 && iouThreshold_ <= 1.0)) {
         throw std::invalid_argument("DominantPersonTracker: IoU threshold must be in [0, 1]");
+    }
+    if (!(maxGapSeconds_ > 0.0)) {
+        throw std::invalid_argument("DominantPersonTracker: max gap must be > 0");
     }
 }
 
@@ -86,12 +90,17 @@ void DominantPersonTracker::update(double timestampSeconds,
     for (std::size_t track = 0; track < tracks_.size(); ++track) {
         if (tracks_[track].observations.empty()) continue;
         for (std::size_t detection = 0; detection < detections.size(); ++detection) {
-            const double score = tracks_[track].observations.back().box.iou(detections[detection].box);
+            const auto& last = tracks_[track].observations.back();
+            if (timestampSeconds < last.timestampSeconds
+                || timestampSeconds - last.timestampSeconds > maxGapSeconds_) continue;
+            const double score = last.box.iou(detections[detection].box);
             if (score >= iouThreshold_) candidates.push_back({score, track, detection});
         }
     }
     std::sort(candidates.begin(), candidates.end(), [](const Candidate& left, const Candidate& right) {
-        return left.score > right.score;
+        if (std::abs(left.score - right.score) > 1e-12) return left.score > right.score;
+        if (left.track != right.track) return left.track < right.track;
+        return left.detection < right.detection;
     });
     for (const Candidate& candidate : candidates) {
         if (trackUsed[candidate.track] || detectionUsed[candidate.detection]) continue;
