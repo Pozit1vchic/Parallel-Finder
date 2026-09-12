@@ -39,6 +39,8 @@ Popup {
         property color sage: "#7C9885"
         property string fontFamily: "Segoe UI"
         property bool reducedMotion: false
+        property real surfaceOpacity: 1.0
+        property real radiusScale: 1.0
     }
     ColorDialog {
         id: colorDialog
@@ -51,7 +53,7 @@ Popup {
     }
     FileDialog { id: modelDialog; title: L10n.t("settings.modelPath"); fileMode: FileDialog.OpenFile; nameFilters: ["ONNX (*.onnx)", L10n.t("dialog.allFiles")]; onAccepted: Analysis.setModelPath(selectedFile.toString().replace(/^file:\/\//, "")) }
     FolderDialog { id: cacheDialog; title: L10n.t("settings.cachePath"); onAccepted: Analysis.setCachePath(selectedFolder.toString().replace(/^file:\/\//, "")) }
-    FileDialog { id: exportThemeDialog; title: L10n.t("settings.exportTheme"); fileMode: FileDialog.SaveFile; nameFilters: ["Parallel Finder Theme (*.pftheme)"]; currentFile: "parallel-theme.pftheme"; onAccepted: root.themeStatus = Analysis.exportTheme(selectedFile.toString(), ({ accent: String(Theme.accent), sage: String(Theme.sage), fontFamily: Theme.fontFamily, reducedMotion: Theme.reducedMotion })) ? "Профиль сохранён" : "Не удалось сохранить профиль" }
+    FileDialog { id: exportThemeDialog; title: L10n.t("settings.exportTheme"); fileMode: FileDialog.SaveFile; nameFilters: ["Parallel Finder Theme (*.pftheme)"]; currentFile: "parallel-theme.pftheme"; onAccepted: root.themeStatus = Analysis.exportTheme(selectedFile.toString(), ({ accent: String(Theme.accent), sage: String(Theme.sage), fontFamily: Theme.fontFamily, reducedMotion: Theme.reducedMotion, surfaceOpacity: Theme.surfaceOpacity, radiusScale: Theme.radiusScale })) ? "Профиль сохранён" : "Не удалось сохранить профиль" }
     FileDialog { id: importThemeDialog; title: L10n.t("settings.importTheme"); fileMode: FileDialog.OpenFile; nameFilters: ["Parallel Finder Theme (*.pftheme)", L10n.t("dialog.allFiles")]; onAccepted: root.applyTheme(Analysis.importTheme(selectedFile.toString())) }
 
     Component.onCompleted: {
@@ -59,12 +61,16 @@ Popup {
         Theme.sage = customizationStore.sage
         Theme.fontFamily = customizationStore.fontFamily
         Theme.reducedMotion = customizationStore.reducedMotion
+        Theme.surfaceOpacity = customizationStore.surfaceOpacity
+        Theme.radiusScale = customizationStore.radiusScale
     }
     onClosed: {
         customizationStore.accent = Theme.accent
         customizationStore.sage = Theme.sage
         customizationStore.fontFamily = Theme.fontFamily
         customizationStore.reducedMotion = Theme.reducedMotion
+        customizationStore.surfaceOpacity = Theme.surfaceOpacity
+        customizationStore.radiusScale = Theme.radiusScale
     }
     Keys.onEscapePressed: root.close()
 
@@ -73,10 +79,14 @@ Popup {
         Theme.sage = "#7C9885"
         Theme.fontFamily = "Segoe UI"
         Theme.reducedMotion = false
+        Theme.surfaceOpacity = 1.0
+        Theme.radiusScale = 1.0
         customizationStore.accent = Theme.accent
         customizationStore.sage = Theme.sage
         customizationStore.fontFamily = Theme.fontFamily
         customizationStore.reducedMotion = Theme.reducedMotion
+        customizationStore.surfaceOpacity = Theme.surfaceOpacity
+        customizationStore.radiusScale = Theme.radiusScale
     }
     function applyTheme(theme) {
         if (!theme || !theme.accent || !theme.sage) { root.themeStatus = "Профиль не распознан"; return }
@@ -84,10 +94,14 @@ Popup {
         Theme.sage = String(theme.sage)
         if (theme.fontFamily) Theme.fontFamily = String(theme.fontFamily)
         if (theme.reducedMotion !== undefined) Theme.reducedMotion = Boolean(theme.reducedMotion)
+        if (theme.surfaceOpacity !== undefined) Theme.surfaceOpacity = Number(theme.surfaceOpacity)
+        if (theme.radiusScale !== undefined) Theme.radiusScale = Number(theme.radiusScale)
         customizationStore.accent = Theme.accent
         customizationStore.sage = Theme.sage
         customizationStore.fontFamily = Theme.fontFamily
         customizationStore.reducedMotion = Theme.reducedMotion
+        customizationStore.surfaceOpacity = Theme.surfaceOpacity
+        customizationStore.radiusScale = Theme.radiusScale
         root.themeStatus = "Профиль применён"
     }
 
@@ -185,6 +199,16 @@ Popup {
                         }
                         Text { text: L10n.t("settings.font"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
                         ComboBox { width: parent.width; model: ["Segoe UI", "Arial", "Verdana"]; currentIndex: model.indexOf(Theme.fontFamily); Accessible.name: L10n.t("settings.font"); onActivated: { Theme.fontFamily = currentText; customizationStore.fontFamily = currentText } }
+                        Row { width: parent.width; height: 32; spacing: 12
+                            Text { width: 170; text: L10n.t("settings.surfaceOpacity"); color: Theme.textSecondary; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
+                            PfSlider { width: parent.width - 240; from: 0.72; to: 1.0; stepSize: 0.01; value: Theme.surfaceOpacity; Accessible.name: L10n.t("settings.surfaceOpacity"); onValueChanged: { if (Math.abs(Theme.surfaceOpacity - value) > 0.001) { Theme.surfaceOpacity = value; customizationStore.surfaceOpacity = value } } }
+                            Text { width: 58; text: Math.round(Theme.surfaceOpacity * 100) + "%"; color: Theme.accent; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
+                        }
+                        Row { width: parent.width; height: 32; spacing: 12
+                            Text { width: 170; text: L10n.t("settings.radiusScale"); color: Theme.textSecondary; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
+                            PfSlider { width: parent.width - 240; from: 0.7; to: 1.35; stepSize: 0.05; value: Theme.radiusScale; Accessible.name: L10n.t("settings.radiusScale"); onValueChanged: { if (Math.abs(Theme.radiusScale - value) > 0.001) { Theme.radiusScale = value; customizationStore.radiusScale = value } } }
+                            Text { width: 58; text: Theme.radiusScale.toFixed(2) + "×"; color: Theme.accent; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
+                        }
                         PfCheckBox { text: L10n.t("settings.reducedMotion"); checked: Theme.reducedMotion; onToggled: { Theme.reducedMotion = checked; customizationStore.reducedMotion = checked } }
                         Row { width: parent.width; spacing: 8
                             PfButton { width: (parent.width - 8) / 2; text: L10n.t("settings.resetAppearance"); quiet: true; onClicked: root.resetAppearance() }
