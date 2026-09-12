@@ -17,6 +17,7 @@
 #include "pfcore/VideoDecoder.hpp"
 #include "pfcore/SceneDetector.hpp"
 #include "pfcore/MotionMatcher.hpp"
+#include "pfcore/DominantPerson.hpp"
 #include "pfgpu/PoseEstimator.hpp"
 #include "pfservices/SettingsStore.hpp"
 #include "pfservices/ModelStore.hpp"
@@ -264,20 +265,36 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 const QString previewStart = decoded.empty() ? QString() : savePreview(decoded.front(), QStringLiteral("%1_start.png").arg(files));
                 const QString previewEnd = decoded.empty() ? QString() : savePreview(decoded.back(), QStringLiteral("%1_end.png").arg(files));
                 if (pose) {
-                    pfcore::MotionWindow window;
-                    window.sourceId = path.toStdString();
+                    pfcore::DominantPersonTracker tracker;
                     for (const auto& item : decoded) {
                         pfgpu::PoseImage image{item.width, item.height, item.rgba.data()};
                         const auto detections = pose->infer(image);
                         poseDetections += static_cast<int>(detections.size());
-                        if (!detections.empty()) {
-                            pfcore::PoseFrame poseFrame;
-                            poseFrame.timestampSeconds = item.timestampSeconds;
-                            const auto& keypoints = detections.front().keypoints;
-                            poseFrame.keypoints.reserve(keypoints.size() / 3);
-                            for (std::size_t i = 0; i + 2 < keypoints.size(); i += 3)
-                                poseFrame.keypoints.push_back({keypoints[i], keypoints[i + 1], keypoints[i + 2]});
-                            window.frames.push_back(std::move(poseFrame));
+                        std::vector<pfcore::PersonDetection> frameDetections;
+                        frameDetections.reserve(detections.size());
+                        for (const auto& detection : detections) {
+                            pfcore::PersonDetection person;
+                            person.timestampSeconds = item.timestampSeconds;
+                            person.box = {detection.left, detection.top, detection.right, detection.bottom};
+                            person.confidence = detection.confidence;
+                            for (std::size_t i = 0; i + 2 < detection.keypoints.size(); i += 3) {
+                                person.keypoints.push_back({detection.keypoints[i], detection.keypoints[i + 1], detection.keypoints[i + 2]});
+                                person.keypointConfidence += detection.keypoints[i + 2];
+                            }
+                            if (!person.keypoints.empty()) {
+                                person.keypointConfidence /= static_cast<double>(person.keypoints.size());
+                            }
+                            frameDetections.push_back(std::move(person));
+                        }
+                        const double frameDuration = info.frameRate > 0.0 ? 1.0 / info.frameRate : 0.0;
+                        tracker.update(item.timestampSeconds, frameDuration, frameDetections);
+                    }
+                    const auto dominant = tracker.dominant();
+                    pfcore::MotionWindow window;
+                    window.sourceId = path.toStdString();
+                    if (dominant.has_value()) {
+                        for (const auto& observation : dominant->observations) {
+                            window.frames.push_back({observation.timestampSeconds, observation.keypoints});
                         }
                     }
                     // Compare overlapping motion windows rather than one

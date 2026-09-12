@@ -2,6 +2,7 @@ add_library(pfcore STATIC
     src/SceneDetector.cpp
     src/VideoDecoder.cpp
     src/MotionMatcher.cpp
+    src/DominantPerson.cpp
     src/JobManager.cpp
 )
 add_library(pf::core ALIAS pfcore)
