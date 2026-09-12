@@ -230,8 +230,16 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         const pfservices::Settings settings = pfservices::SettingsStore().load(settingsError);
         (void)settingsError;
         const auto model = findPoseModel();
+        if (model.empty()) {
+            QMetaObject::invokeMethod(this, [this] {
+                busy_ = false;
+                emit busyChanged();
+                setStatus(QStringLiteral("Модель поз не найдена. Укажите её в settings.json или в папке models."));
+            }, Qt::QueuedConnection);
+            return;
+        }
         std::unique_ptr<pfgpu::PoseEstimator> pose;
-        if (!model.empty()) {
+        {
             pfgpu::PoseEstimatorParams poseParams;
             if (const auto provider = pfgpu::parseProvider(settings.provider); provider.has_value()) {
                 poseParams.provider = *provider;
