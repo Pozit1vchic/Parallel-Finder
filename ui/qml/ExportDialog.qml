@@ -15,8 +15,8 @@ Popup {
     width: Math.min(600, rootWindow ? rootWindow.width - 40 : 560); height: 520
     x: rootWindow ? Math.round((rootWindow.width - width) / 2) : 0; y: rootWindow ? Math.round((rootWindow.height - height) / 2) : 0
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.70) }
-    background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairline; layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0, 0, 0, 0.78); shadowBlur: 1.0; shadowVerticalOffset: 18 } }
+    Overlay.modal: Rectangle { color: Theme.overlayDim }
+    background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairline; layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowBlur: 1.0; shadowVerticalOffset: 18 } }
     FolderDialog { id: folderDialog; title: L10n.t("export.chooseFolder"); onAccepted: root.outputFolder = selectedFolder.toString().replace(/^file:\/\//, "") }
     Connections { target: Analysis; function onExportFinished(success, message) { root.exportStatus = message; if (success) root.close() } }
     function selectedIndexes() { return Object.keys(root.selectedRows).map(function (key) { return Number(key) }) }
@@ -59,6 +59,6 @@ Popup {
         }
         TextField { id: prefixField; width: parent.width; text: "frame_"; placeholderText: L10n.t("export.prefix"); Accessible.name: L10n.t("export.prefix") }
         Text { width: parent.width; text: root.exportStatus || L10n.t("export.hint"); color: root.exportStatus ? Theme.accent : Theme.textSecondary; font.pixelSize: 11; wrapMode: Text.WordWrap }
-        PfButton { width: parent.width; text: L10n.t("export.prepare"); sageAction: true; enabled: Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(exportFormat.currentText, exportNumbering.currentIndex, cutMode.currentIndex, root.outputFolder, prefixField.text, root.selectedIndexes()) }
+        PfButton { width: parent.width; text: L10n.t("export.prepare"); enabled: Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(exportFormat.currentText, exportNumbering.currentIndex, cutMode.currentIndex, root.outputFolder, prefixField.text, root.selectedIndexes()) }
     }
 }

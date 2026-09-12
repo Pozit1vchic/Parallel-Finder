@@ -21,7 +21,7 @@ Popup {
     x: rootWindow ? Math.round((rootWindow.width - width) / 2) : 0
     y: rootWindow ? Math.round((rootWindow.height - height) / 2) : 0
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.74) }
+    Overlay.modal: Rectangle { color: Theme.overlayDim }
     enter: Transition { NumberAnimation { properties: "opacity,scale"; from: 0.94; to: 1; duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
     exit: Transition { NumberAnimation { properties: "opacity,scale"; to: 0.94; duration: Theme.motionDuration } }
     background: Rectangle {
@@ -29,7 +29,7 @@ Popup {
         radius: Theme.radiusOverlay
         border.color: Theme.hairline
         layer.enabled: true
-        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0, 0, 0, 0.82); shadowBlur: 1.0; shadowVerticalOffset: 20 }
+        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowBlur: 1.0; shadowVerticalOffset: 20 }
     }
 
     Settings {
@@ -41,6 +41,7 @@ Popup {
         property bool reducedMotion: false
         property real surfaceOpacity: 1.0
         property real radiusScale: 1.0
+        property string language: "ru"
     }
     ColorDialog {
         id: colorDialog
@@ -53,7 +54,7 @@ Popup {
     }
     FileDialog { id: modelDialog; title: L10n.t("settings.modelPath"); fileMode: FileDialog.OpenFile; nameFilters: ["ONNX (*.onnx)", L10n.t("dialog.allFiles")]; onAccepted: Analysis.setModelPath(selectedFile.toString().replace(/^file:\/\//, "")) }
     FolderDialog { id: cacheDialog; title: L10n.t("settings.cachePath"); onAccepted: Analysis.setCachePath(selectedFolder.toString().replace(/^file:\/\//, "")) }
-    FileDialog { id: exportThemeDialog; title: L10n.t("settings.exportTheme"); fileMode: FileDialog.SaveFile; nameFilters: ["Parallel Finder Theme (*.pftheme)"]; currentFile: "parallel-theme.pftheme"; onAccepted: root.themeStatus = Analysis.exportTheme(selectedFile.toString(), ({ accent: String(Theme.accent), sage: String(Theme.sage), fontFamily: Theme.fontFamily, reducedMotion: Theme.reducedMotion, surfaceOpacity: Theme.surfaceOpacity, radiusScale: Theme.radiusScale })) ? "Профиль сохранён" : "Не удалось сохранить профиль" }
+    FileDialog { id: exportThemeDialog; title: L10n.t("settings.exportTheme"); fileMode: FileDialog.SaveFile; nameFilters: ["Parallel Finder Theme (*.pftheme)"]; currentFile: "parallel-theme.pftheme"; onAccepted: root.themeStatus = Analysis.exportTheme(selectedFile.toString(), ({ accent: String(Theme.accent), sage: String(Theme.sage), fontFamily: Theme.fontFamily, reducedMotion: Theme.reducedMotion, surfaceOpacity: Theme.surfaceOpacity, radiusScale: Theme.radiusScale })) ? L10n.t("settings.profileSaveSuccess") : L10n.t("settings.profileSaveFailed") }
     FileDialog { id: importThemeDialog; title: L10n.t("settings.importTheme"); fileMode: FileDialog.OpenFile; nameFilters: ["Parallel Finder Theme (*.pftheme)", L10n.t("dialog.allFiles")]; onAccepted: root.applyTheme(Analysis.importTheme(selectedFile.toString())) }
 
     Component.onCompleted: {
@@ -63,6 +64,7 @@ Popup {
         Theme.reducedMotion = customizationStore.reducedMotion
         Theme.surfaceOpacity = customizationStore.surfaceOpacity
         Theme.radiusScale = customizationStore.radiusScale
+        L10n.language = customizationStore.language
     }
     onClosed: {
         customizationStore.accent = Theme.accent
@@ -71,6 +73,7 @@ Popup {
         customizationStore.reducedMotion = Theme.reducedMotion
         customizationStore.surfaceOpacity = Theme.surfaceOpacity
         customizationStore.radiusScale = Theme.radiusScale
+        customizationStore.language = L10n.language
     }
     Keys.onEscapePressed: root.close()
 
@@ -89,7 +92,7 @@ Popup {
         customizationStore.radiusScale = Theme.radiusScale
     }
     function applyTheme(theme) {
-        if (!theme || !theme.accent || !theme.sage) { root.themeStatus = "Профиль не распознан"; return }
+        if (!theme || !theme.accent || !theme.sage) { root.themeStatus = L10n.t("settings.profileNotRecognized"); return }
         Theme.accent = String(theme.accent)
         Theme.sage = String(theme.sage)
         if (theme.fontFamily) Theme.fontFamily = String(theme.fontFamily)
@@ -102,7 +105,7 @@ Popup {
         customizationStore.reducedMotion = Theme.reducedMotion
         customizationStore.surfaceOpacity = Theme.surfaceOpacity
         customizationStore.radiusScale = Theme.radiusScale
-        root.themeStatus = "Профиль применён"
+        root.themeStatus = L10n.t("settings.profileApplied")
     }
 
     contentItem: Column {
@@ -143,13 +146,17 @@ Popup {
                             Text { text: AppInfo.gpuSummary; color: AppInfo.backendIsGpu ? Theme.sage : Theme.textSecondary; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight; width: parent.width - 345 }
                         }
                         Row { width: parent.width; height: 34; spacing: 12
+                            Text { width: 135; text: L10n.t("settings.language"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
+                            ComboBox { width: 190; height: 32; model: [L10n.t("settings.languageRussian"), L10n.t("settings.languageEnglish")]; currentIndex: L10n.language === "en" ? 1 : 0; Accessible.name: L10n.t("settings.language"); onActivated: { L10n.language = currentIndex === 1 ? "en" : "ru"; customizationStore.language = L10n.language } }
+                        }
+                        Row { width: parent.width; height: 34; spacing: 12
                             Text { width: 135; text: L10n.t("settings.modelPath"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                            TextField { width: parent.width - 230; text: Analysis.modelPath; placeholderText: "models / yolo26m-pose.onnx"; Accessible.name: L10n.t("settings.modelPath"); onEditingFinished: Analysis.setModelPath(text) }
+                            TextField { width: parent.width - 230; text: Analysis.modelPath; placeholderText: L10n.t("settings.modelPlaceholder"); Accessible.name: L10n.t("settings.modelPath"); onEditingFinished: Analysis.setModelPath(text) }
                             PfButton { width: 80; text: L10n.t("settings.browse"); quiet: true; onClicked: modelDialog.open() }
                         }
                         Row { width: parent.width; height: 34; spacing: 12
                             Text { width: 135; text: L10n.t("settings.cachePath"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                            TextField { width: parent.width - 230; text: Analysis.cachePath; placeholderText: "%LocalAppData%/ParallelFinder/cache"; Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }
+                            TextField { width: parent.width - 230; text: Analysis.cachePath; placeholderText: L10n.t("settings.cachePlaceholder"); Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }
                             PfButton { width: 80; text: L10n.t("settings.browse"); quiet: true; onClicked: cacheDialog.open() }
                         }
                         Row { width: parent.width; height: 34; spacing: 12

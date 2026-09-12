@@ -5,8 +5,13 @@ import PfUi
 
 Slider {
     id: control
+    property string tooltipText: ""
     implicitHeight: 18
     height: 18
+
+    ToolTip.visible: control.hovered && control.tooltipText.length > 0
+    ToolTip.delay: 650
+    ToolTip.text: control.tooltipText
 
     background: Rectangle {
         x: 0

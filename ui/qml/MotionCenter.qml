@@ -54,7 +54,7 @@ Column {
     StatsStrip { width: parent.width; analysis: Analysis }
     Rectangle {
         width: parent.width; height: parent.height - 80; color: Theme.panel; radius: Theme.radiusCard; border.color: Theme.border
-        layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0, 0, 0, 0.50); shadowBlur: 0.72; shadowVerticalOffset: 12 }
+        layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowPanel; shadowBlur: 0.72; shadowVerticalOffset: 12 }
         Column { anchors.fill: parent; anchors.margins: 16; spacing: 11
             Row { width: parent.width; height: 23
                 Text { text: L10n.t("center.comparison"); color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
@@ -65,11 +65,11 @@ Column {
                 Rectangle { width: parent.width * Analysis.progress; height: parent.height; radius: 3; color: Theme.accent; Behavior on width { NumberAnimation { duration: Theme.motionDuration } } }
             }
             Rectangle {
-                id: stage; width: parent.width; height: parent.height - 102; color: Theme.well; radius: Theme.radiusButton; border.color: Theme.hairline
+                id: stage; width: parent.width; height: parent.height - 102; color: Theme.well; radius: Theme.radiusButton; border.color: Theme.hairline; clip: true
                 MouseArea { anchors.fill: parent; z: 0; hoverEnabled: true; acceptedButtons: Qt.NoButton
                     onPositionChanged: { root.auraX = Math.max(0, Math.min(1, mouse.x / Math.max(1, width))); root.auraY = Math.max(0, Math.min(1, mouse.y / Math.max(1, height))) }
                 }
-                MotionAura { z: 0; width: 430; height: 300; x: root.auraX * stage.width - width / 2; y: root.auraY * stage.height - height / 2; targetX: root.auraX; targetY: root.auraY; active: !root.selectedRecord }
+                MotionAura { z: 0; anchors.fill: parent; targetX: root.auraX; targetY: root.auraY; active: !root.selectedRecord }
                 Column { anchors.fill: parent; anchors.margins: 16; spacing: 10; visible: !root.selectedRecord
                     Row { width: parent.width
                         Text { text: L10n.t("center.motionField"); color: Theme.textDisabled; font.pixelSize: 10; font.letterSpacing: 0.8 }
@@ -78,16 +78,6 @@ Column {
                     }
                     Item { width: parent.width; height: parent.height - 72
                         Rectangle { anchors.centerIn: parent; width: 260; height: 160; radius: 80; color: Theme.glowA; opacity: 0.10; layer.enabled: true; layer.effect: MultiEffect { blurEnabled: true; blur: 1.0 } }
-                        Canvas { anchors.centerIn: parent; width: Math.min(520, parent.width - 40); height: 190
-                            onPaint: {
-                                const ctx = getContext("2d"); ctx.clearRect(0, 0, width, height); const cy = height * 0.54; ctx.lineCap = "round"
-                                ctx.lineWidth = 8; ctx.globalAlpha = 0.05; ctx.strokeStyle = Theme.accent; ctx.beginPath(); ctx.moveTo(26, cy + 10); ctx.bezierCurveTo(width * 0.30, 20, width * 0.64, height - 6, width - 24, 46); ctx.stroke()
-                                ctx.lineWidth = 1; ctx.globalAlpha = 0.76; ctx.strokeStyle = Theme.accent; ctx.beginPath(); ctx.moveTo(26, cy + 10); ctx.bezierCurveTo(width * 0.30, 20, width * 0.64, height - 6, width - 24, 46); ctx.stroke()
-                                ctx.lineWidth = 8; ctx.globalAlpha = 0.045; ctx.strokeStyle = Theme.sage; ctx.beginPath(); ctx.moveTo(40, 44); ctx.bezierCurveTo(width * 0.34, height - 8, width * 0.68, 30, width - 36, cy + 18); ctx.stroke()
-                                ctx.lineWidth = 1; ctx.globalAlpha = 0.68; ctx.strokeStyle = Theme.sage; ctx.beginPath(); ctx.moveTo(40, 44); ctx.bezierCurveTo(width * 0.34, height - 8, width * 0.68, 30, width - 36, cy + 18); ctx.stroke()
-                                ctx.globalAlpha = 0.95; ctx.fillStyle = Theme.accent; ctx.beginPath(); ctx.arc(26, cy + 10, 3, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = Theme.sage; ctx.beginPath(); ctx.arc(width - 36, cy + 18, 3, 0, Math.PI * 2); ctx.fill()
-                            }
-                        }
                         Column { anchors.centerIn: parent; spacing: 9
                             Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.sourceFiles.length > 0 ? L10n.t("center.readyTitle") : L10n.t("center.emptyTitle"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 20 }
                             Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.sourceFiles.length > 0 ? L10n.t("center.readyHint") : L10n.t("center.emptyHint"); color: Theme.textSecondary; font.pixelSize: 12 }
@@ -130,9 +120,9 @@ Column {
                 Text { text: L10n.t("timeline.title"); color: Theme.textDisabled; font.pixelSize: 10; font.letterSpacing: 0.8 }
                 Item { width: parent.width - 300; height: 1 }
                 Text { visible: !!root.selectedRecord; text: root.selectedRecord ? root.timecode(root.selectedRecord.duration) : L10n.t("common.empty"); color: Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
-                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/assets/minus.svg"; accessibleName: "Уменьшить масштаб таймлайна"; enabled: !!root.selectedRecord && root.timelineZoom > 1; onClicked: root.setZoom(root.timelineZoom - 1) }
-                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/assets/plus.svg"; accessibleName: "Увеличить масштаб таймлайна"; enabled: !!root.selectedRecord && root.timelineZoom < 8; onClicked: root.setZoom(root.timelineZoom + 1) }
-                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/assets/maximize.svg"; accessibleName: "Открыть таймлайн на весь экран"; enabled: !!root.selectedRecord; onClicked: { root.fullscreenTimeline = true; root.forceActiveFocus() } }
+                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/assets/minus.svg"; accessibleName: L10n.t("timeline.zoomOut"); enabled: !!root.selectedRecord && root.timelineZoom > 1; onClicked: root.setZoom(root.timelineZoom - 1) }
+                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/assets/plus.svg"; accessibleName: L10n.t("timeline.zoomIn"); enabled: !!root.selectedRecord && root.timelineZoom < 8; onClicked: root.setZoom(root.timelineZoom + 1) }
+                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/assets/maximize.svg"; accessibleName: L10n.t("timeline.fullscreen"); enabled: !!root.selectedRecord; onClicked: { root.fullscreenTimeline = true; root.forceActiveFocus() } }
             }
             Rectangle { id: timelineTrack; width: parent.width; height: 42; color: Theme.surfaceRaised; radius: 5; border.color: Theme.border; clip: true
                 Item { id: timelineContent; x: -root.timelineOffset * Math.max(0, width * root.timelineZoom - timelineTrack.width); width: timelineTrack.width * root.timelineZoom; height: parent.height

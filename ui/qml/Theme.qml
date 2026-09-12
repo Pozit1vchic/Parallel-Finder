@@ -19,15 +19,15 @@ QtObject {
     readonly property color hairline: Qt.rgba(245, 241, 236, 0.10)
     readonly property color hairlineStrong: Qt.rgba(245, 241, 236, 0.18)
     property color accent: "#D97757"             // terracotta / A
-    readonly property color accentBright: "#E18A6B"
-    readonly property color accentPressed: "#B95D42"
-    readonly property color accentMuted: Qt.rgba(0.85, 0.47, 0.34, 0.12)
+    readonly property color accentBright: Qt.lighter(accent, 1.12)
+    readonly property color accentPressed: Qt.darker(accent, 1.25)
+    readonly property color accentMuted: Qt.rgba(accent.r, accent.g, accent.b, 0.12)
     property color sage: "#7C9885"              // sage / B
-    readonly property color sageBright: "#A0B9A9"
-    readonly property color sagePressed: "#607B69"
-    readonly property color sageMuted: Qt.rgba(0.49, 0.60, 0.52, 0.11)
-    readonly property color glowA: Qt.rgba(0.85, 0.47, 0.34, 0.18)
-    readonly property color glowB: Qt.rgba(0.49, 0.60, 0.52, 0.14)
+    readonly property color sageBright: Qt.lighter(sage, 1.18)
+    readonly property color sagePressed: Qt.darker(sage, 1.25)
+    readonly property color sageMuted: Qt.rgba(sage.r, sage.g, sage.b, 0.11)
+    readonly property color glowA: Qt.rgba(accent.r, accent.g, accent.b, 0.18)
+    readonly property color glowB: Qt.rgba(sage.r, sage.g, sage.b, 0.14)
     readonly property color textPrimary: "#F5F1EC"
     readonly property color textSecondary: "#ACA89F"
     readonly property color textDisabled: "#77766F"
@@ -50,6 +50,9 @@ QtObject {
     readonly property int shadowBlurPanel: 16
     readonly property int shadowBlurOverlay: 24
     readonly property real shadowOpacity: 0.12
+    readonly property color shadowPanel: Qt.rgba(0, 0, 0, 0.48)
+    readonly property color shadowOverlay: Qt.rgba(0, 0, 0, 0.82)
+    readonly property color overlayDim: Qt.rgba(0, 0, 0, 0.74)
 
     // Icon line width (Lucide, line-style)
     readonly property real iconStrokeWidth: 1.6
