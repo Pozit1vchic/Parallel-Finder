@@ -55,6 +55,19 @@ std::filesystem::path findPoseModel()
     const std::filesystem::path localModels = std::filesystem::path(pfservices::SettingsStore::defaultDirectory())
         / "models" / "yolo26m-pose-640-b1.onnx";
     if (std::filesystem::is_regular_file(localModels)) return localModels;
+    const auto executableModels = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) / "models";
+    const auto localManifest = std::filesystem::path(pfservices::SettingsStore::defaultDirectory())
+        / "models" / "manifest.json";
+    const auto executableManifest = executableModels / "manifest.json";
+    for (const auto& manifest : {executableManifest, localManifest}) {
+        std::string manifestError;
+        const auto asset = pfservices::ModelStore::readManifest(manifest,
+            "yolo26m-pose-640-b1.onnx", manifestError);
+        if (!asset.has_value()) continue;
+        std::string downloadError;
+        if (pfservices::ModelStore::download(*asset, localModels, {}, downloadError))
+            return localModels;
+    }
     std::string modelError;
     const pfservices::ModelAsset asset;
     if (const auto resolved = pfservices::ModelStore::resolve(

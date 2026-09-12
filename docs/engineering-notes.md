@@ -40,3 +40,8 @@ Backend performance note:
   similarity gate, while DTW remains the acceptance decision. This keeps the
   all-pairs result semantics (a window may appear in multiple matches) without
   paying the quadratic DTW cost for every possible pair.
+- `pfservices::ModelStore` treats a release manifest as untrusted input: only
+  HTTPS URLs are accepted, downloads resume into `*.part`, declared size and
+  SHA-256 are checked, and only then is the file installed under the local
+  models directory. A missing network or manifest leaves the explicit local
+  model path usable.
