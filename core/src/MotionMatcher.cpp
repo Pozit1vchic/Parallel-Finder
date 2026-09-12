@@ -239,7 +239,9 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if (candidate.similarity >= params_.similarityThreshold) matches.push_back(candidate);
     }
     std::sort(matches.begin(), matches.end(), [](const auto& a, const auto& b) {
-        return a.similarity > b.similarity;
+        if (std::abs(a.similarity - b.similarity) > 1e-12) return a.similarity > b.similarity;
+        if (a.leftIndex != b.leftIndex) return a.leftIndex < b.leftIndex;
+        return a.rightIndex < b.rightIndex;
     });
     // Keep the strongest result for overlapping windows.  A window may still
     // participate in multiple independent pairs; only near-identical pairs
