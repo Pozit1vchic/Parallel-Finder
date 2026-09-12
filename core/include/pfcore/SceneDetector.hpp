@@ -21,22 +21,30 @@ struct SceneSample {
     std::span<const std::uint8_t> rgba;
 };
 
-// Scene change detector (stage 2b).
-//
-// Stage 0 stub: interface only. Candidate method to be finalized and justified
-// in stage 2b: per-frame HSV histogram difference with an adaptive threshold
-// (median of a sliding window), threshold tuned on video fixtures.
+// Scene change detector (stage 2b).  The current implementation uses a
+// normalized compact color histogram plus a short adaptive baseline.  FFmpeg
+// frame reduction and fade/dissolve-specific passes remain separate concerns
+// for the decoder pipeline.
 class SceneDetector {
 public:
-    // Placeholder default; the final value is justified and fixed in stage 2b.
+    // Histogram distance is normalized to [0, 1.5].  The adaptive multiplier
+    // rejects isolated camera-motion spikes while still allowing hard cuts.
     static constexpr double kDefaultThreshold = 0.30;
+    static constexpr std::size_t kDefaultMinSceneFrames = 8;
+    static constexpr double kDefaultAdaptiveMultiplier = 3.0;
 
-    explicit SceneDetector(double threshold = kDefaultThreshold);
+    explicit SceneDetector(double threshold = kDefaultThreshold,
+                           std::size_t minSceneFrames = kDefaultMinSceneFrames,
+                           double adaptiveMultiplier = kDefaultAdaptiveMultiplier);
 
     // Threshold must be strictly positive.
     // Throws std::invalid_argument otherwise.
     void setThreshold(double threshold);
     double threshold() const noexcept { return threshold_; }
+    void setMinSceneFrames(std::size_t value);
+    std::size_t minSceneFrames() const noexcept { return minSceneFrames_; }
+    void setAdaptiveMultiplier(double value);
+    double adaptiveMultiplier() const noexcept { return adaptiveMultiplier_; }
 
     // Detects cuts from adjacent RGBA frame samples. Samples must be ordered
     // by timestamp; malformed/empty frames are skipped.
@@ -47,6 +55,8 @@ public:
 
 private:
     double threshold_;
+    std::size_t minSceneFrames_;
+    double adaptiveMultiplier_;
 };
 
 } // namespace pfcore

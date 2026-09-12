@@ -69,9 +69,21 @@ InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
         FloatTensor tensor; tensor.shape.resize(rank); api->GetDimensions(shapeInfo, tensor.shape.data(), rank);
         std::size_t count = 0;
         if (!checkStatus(*api, api->GetTensorShapeElementCount(shapeInfo, &count), result.error)) { api->ReleaseTensorTypeAndShapeInfo(shapeInfo); api->ReleaseValue(value); continue; }
-        tensor.values.resize(count);
-        void* data = tensor.values.empty() ? nullptr : tensor.values.data();
+        // GetTensorMutableData returns a pointer owned by ORT.  Passing a
+        // pointer to our vector here does not make ORT write into that vector;
+        // the API overwrites the pointer argument.  Copy the returned buffer
+        // before releasing the OrtValue, otherwise every inference would
+        // silently return a zero-filled tensor.
+        void* data = nullptr;
         if (!checkStatus(*api, api->GetTensorMutableData(value, &data), result.error)) { api->ReleaseTensorTypeAndShapeInfo(shapeInfo); api->ReleaseValue(value); continue; }
+        if (count > 0 && !data) {
+            result.error = "ONNX Runtime returned a null tensor buffer";
+            api->ReleaseTensorTypeAndShapeInfo(shapeInfo);
+            api->ReleaseValue(value);
+            continue;
+        }
+        const auto* source = static_cast<const float*>(data);
+        tensor.values.assign(source, source + count);
         result.outputs.push_back(std::move(tensor));
         api->ReleaseTensorTypeAndShapeInfo(shapeInfo); api->ReleaseValue(value);
     }

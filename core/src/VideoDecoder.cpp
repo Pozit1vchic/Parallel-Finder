@@ -7,6 +7,7 @@
 
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavcodec/packet.h>
 #include <libavformat/avformat.h>
 #include <libavutil/display.h>
 #include <libavutil/error.h>
@@ -105,9 +106,17 @@ void VideoDecoder::open(const std::string& path)
         || stream->r_frame_rate.den != stream->avg_frame_rate.den;
     impl_->metadata.sampleAspectRatio = rationalOr(stream->sample_aspect_ratio, 1.0);
     if (impl_->metadata.sampleAspectRatio <= 0.0) impl_->metadata.sampleAspectRatio = 1.0;
-    // FFmpeg 9 no longer exposes stream side-data through avformat. Containers
-    // that carry a legacy rotation tag still arrive here through metadata.
-    if (const AVDictionaryEntry* rotate = av_dict_get(stream->metadata, "rotate", nullptr, 0)) {
+    // Prefer the standards-based DISPLAYMATRIX side data.  The old `rotate`
+    // metadata tag is retained as a fallback for legacy containers.
+    const AVPacketSideData* displaySideData = av_packet_side_data_get(
+        stream->codecpar->coded_side_data, stream->codecpar->nb_coded_side_data,
+        AV_PKT_DATA_DISPLAYMATRIX);
+    if (displaySideData && displaySideData->size >= 9 * static_cast<int>(sizeof(std::int32_t))) {
+        const std::uint8_t* displayMatrix = displaySideData->data;
+        const double rotation = -av_display_rotation_get(
+            reinterpret_cast<const std::int32_t*>(displayMatrix));
+        if (std::isfinite(rotation)) impl_->metadata.rotationDegrees = rotation;
+    } else if (const AVDictionaryEntry* rotate = av_dict_get(stream->metadata, "rotate", nullptr, 0)) {
         try { impl_->metadata.rotationDegrees = std::stod(rotate->value); }
         catch (const std::exception&) { /* malformed metadata: keep zero */ }
     }

@@ -29,4 +29,28 @@ TEST(ThumbnailCache, RejectsZeroCapacity)
     EXPECT_EQ(cache.maxEntries(), pfservices::ThumbnailCache::kDefaultMaxEntries);
 }
 
+TEST(ThumbnailCache, EvictsLeastRecentlyUsedEntry)
+{
+    pfservices::ThumbnailCache cache(2);
+    cache.put("a", {1});
+    cache.put("b", {2});
+    ASSERT_TRUE(cache.get("a").has_value()); // touch a; b is now oldest
+    cache.put("c", {3});
+    EXPECT_TRUE(cache.get("a").has_value());
+    EXPECT_FALSE(cache.get("b").has_value());
+    ASSERT_TRUE(cache.get("c").has_value());
+    EXPECT_EQ(cache.get("c")->front(), 3);
+}
+
+TEST(ThumbnailCache, ShrinkingCapacityEvictsImmediately)
+{
+    pfservices::ThumbnailCache cache(3);
+    cache.put("a", {1});
+    cache.put("b", {2});
+    cache.put("c", {3});
+    cache.setMaxEntries(1);
+    EXPECT_EQ(cache.size(), 1U);
+    EXPECT_TRUE(cache.get("c").has_value());
+}
+
 } // namespace

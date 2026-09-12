@@ -46,7 +46,9 @@ TEST(SceneDetector, DetectsStrongHistogramCut)
         {0.0, 4, 4, dark},
         {1.0, 4, 4, bright},
     };
-    pfcore::SceneDetector detector(0.3);
+    // Use a one-frame minimum for this two-frame unit fixture. Production
+    // defaults keep an eight-frame minimum to reject camera-motion spikes.
+    pfcore::SceneDetector detector(0.3, 1, 0.0);
     const auto boundaries = detector.detect(samples);
     ASSERT_EQ(boundaries.size(), 1U);
     EXPECT_DOUBLE_EQ(boundaries.front().timestampSeconds, 1.0);
@@ -62,7 +64,7 @@ TEST(SceneDetector, IgnoresSmallHistogramChangeBelowThreshold)
         {0.0, 4, 4, first},
         {1.0, 4, 4, second},
     };
-    pfcore::SceneDetector detector(0.3);
+    pfcore::SceneDetector detector(0.3, 1, 0.0);
     EXPECT_TRUE(detector.detect(samples).empty());
 }
 

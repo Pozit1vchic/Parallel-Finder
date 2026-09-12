@@ -1,6 +1,10 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
+#include <vector>
+
+#include <pfcore/MotionMatcher.hpp>
 
 namespace pfexporters {
 
@@ -26,7 +30,6 @@ enum class CutMode {
     Fast,  // -c copy; accuracy ±0.5s around keyframes
 };
 
-// Stage 0 stub: interface only. Real exporters arrive in stage 4.
 struct ExportOptions {
     ExportFormat format = ExportFormat::Json;
     NumberingMode numbering = NumberingMode::AsInVideo;
@@ -35,6 +38,16 @@ struct ExportOptions {
     std::string outputFolder;
     std::string filePrefix = "frame_";
     bool downscaleAboveSource = true; // разрешение не выше исходника
+    double framesPerSecond = 30.0;
 };
+
+std::string formatResults(const std::vector<pfcore::MotionMatch>& matches,
+                          const ExportOptions& options);
+
+// Writes the selected textual export. For AEP, `outputFolder/filePrefix.jsx`
+// and `outputFolder/parallel_data.json` are written together.
+bool writeResults(const std::vector<pfcore::MotionMatch>& matches,
+                  const ExportOptions& options,
+                  std::string& error);
 
 } // namespace pfexporters

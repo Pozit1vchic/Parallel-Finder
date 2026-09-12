@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <pfgpu/DeviceInfo.hpp>
+#include <pfgpu/Inference.hpp>
 #include <pfgpu/OrtRuntime.hpp>
 #include <pfgpu/ProbeModel.hpp>
 #include <pfgpu/SessionCache.hpp>
@@ -115,6 +116,23 @@ TEST_F(SessionCacheTest, CachedSessionActuallyRunsTheGraph)
     ASSERT_TRUE(runIdentity(*api_, result.handle.session, data, error)) << error;
     EXPECT_FLOAT_EQ(data[0], 3.5f);
     EXPECT_FLOAT_EQ(data[1], -1.25f);
+}
+
+TEST_F(SessionCacheTest, FloatInferenceCopiesOrtOutputIntoOwnedTensor)
+{
+    pfgpu::SessionCache cache;
+    const auto result = cache.getOrCreate(probeModel());
+    ASSERT_TRUE(result.ok) << result.error;
+
+    pfgpu::FloatTensor input;
+    input.shape = {1, 2};
+    input.values = {4.25F, -2.5F};
+    const auto output = pfgpu::runFloat(result.handle, input);
+    ASSERT_TRUE(output.ok) << output.error;
+    ASSERT_EQ(output.outputs.size(), 1U);
+    ASSERT_EQ(output.outputs.front().values.size(), 2U);
+    EXPECT_FLOAT_EQ(output.outputs.front().values[0], 4.25F);
+    EXPECT_FLOAT_EQ(output.outputs.front().values[1], -2.5F);
 }
 
 TEST_F(SessionCacheTest, SecondRequestIsAHit)

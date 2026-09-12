@@ -38,11 +38,15 @@ struct MotionMatcherParams {
 struct MotionMatch {
     std::size_t leftIndex = 0;
     std::size_t rightIndex = 0;
+    std::string leftSourceId;
+    std::string rightSourceId;
     double similarity = 0.0;
     double dtwDistance = 0.0;
     double durationSeconds = 0.0;
     double leftStartSeconds = 0.0;
+    double leftEndSeconds = 0.0;
     double rightStartSeconds = 0.0;
+    double rightEndSeconds = 0.0;
 };
 
 class MotionMatcher {

@@ -10,6 +10,7 @@ add_executable(pf_tests
     core/test_motion_matcher.cpp
     core/test_job_manager.cpp
     core/test_thumbnail_cache.cpp
+    core/test_exporters.cpp
     gpu/test_device_info.cpp
     gpu/test_provider.cpp
     gpu/test_provider_factory.cpp
@@ -20,6 +21,7 @@ target_compile_definitions(pf_tests PRIVATE PF_TEST_FIXTURE_DIR="${CMAKE_CURRENT
 target_link_libraries(pf_tests PRIVATE
     pf::core
     pf::services
+    pf::exporters
     pf::gpu
     GTest::gtest_main
 )
