@@ -30,3 +30,13 @@ Applied in the current UI pass:
 - the left rail scrolls instead of clipping controls;
 - empty state, settings and result states are explicit states, not fake data;
 - the core remains Qt-free and the app/UI bridge owns presentation concerns.
+
+Backend performance note:
+
+- `pfcore::MotionIndex` is a deterministic, dependency-free HNSW-style index.
+  `MotionMatcher` builds one fixed-size temporal embedding per motion window,
+  queries a bounded union of nearest candidates in both directions, and only
+  then runs exact band-constrained DTW. The candidate threshold remains a
+  similarity gate, while DTW remains the acceptance decision. This keeps the
+  all-pairs result semantics (a window may appear in multiple matches) without
+  paying the quadratic DTW cost for every possible pair.
