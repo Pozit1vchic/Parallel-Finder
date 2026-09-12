@@ -48,6 +48,19 @@ CutResult CutService::cut(const CutRequest& request) const
         result.error = "invalid cut time range";
         return result;
     }
+    if (request.maxWidth < 0 || request.maxHeight < 0) {
+        result.error = "maximum output dimensions must not be negative";
+        return result;
+    }
+    if ((request.maxWidth > 0 && request.maxWidth < 2)
+        || (request.maxHeight > 0 && request.maxHeight < 2)) {
+        result.error = "maximum output dimensions must be at least 2 pixels";
+        return result;
+    }
+    if (request.mode == CutMode::Fast && (request.maxWidth > 0 || request.maxHeight > 0)) {
+        result.error = "resolution cap requires exact cut mode";
+        return result;
+    }
     std::error_code filesystemError;
     if (!std::filesystem::is_regular_file(request.inputPath, filesystemError)) {
         result.error = "input video does not exist: " + request.inputPath.string();
@@ -92,6 +105,14 @@ CutResult CutService::cut(const CutRequest& request) const
             arguments << QStringLiteral("-c:v") << QString::fromStdString(encoder)
                       << QStringLiteral("-c:a") << QStringLiteral("aac")
                       << QStringLiteral("-movflags") << QStringLiteral("+faststart");
+            if (request.maxWidth > 0 || request.maxHeight > 0) {
+                // min(iw/ih, limit) prevents upscaling while preserving aspect ratio.
+                const int width = request.maxWidth > 0 ? request.maxWidth : 100000;
+                const int height = request.maxHeight > 0 ? request.maxHeight : 100000;
+                const QString filter = QStringLiteral("scale=min(iw\\,%1):min(ih\\,%2):force_original_aspect_ratio=decrease")
+                    .arg(width).arg(height);
+                arguments << QStringLiteral("-vf") << filter;
+            }
         }
         arguments << QString::fromStdWString(std::filesystem::path(temporaryPath).wstring());
 

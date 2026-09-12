@@ -98,6 +98,6 @@ ORT-GPU / CUDA / TensorRT / DML-redist при сборке размещаютс�
 3a. ✅ Модель+инференс (статические b1/b8-профили, end2end/raw decoder, C++ NMS)
 3b. ✅ Треки + дескрипторы движения + all-pairs HNSW-prefilter + band-constrained DTW
 3c. ✅ Классификатор направления/жеста · ранжирование · JobManager · PFCACHE1
-4. Экспорт + сервисы (CutService, ThumbnailCache, settings.json)
+4. ✅ Экспорт + сервисы (CutService, ThumbnailCache, settings.json)
 5. UI (Splash/Main/Settings/DemoMode) · 5b. Qt-деплой
 6. GPU-бандл + перф-валидация + финальный аудит

@@ -194,13 +194,44 @@ void AnalysisController::registerQmlTypes()
     qmlRegisterSingletonInstance("PfUiBridge", 1, 0, "Analysis", instance());
 }
 
-AnalysisController::AnalysisController(QObject* parent) : QObject(parent) {}
+AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
+{
+    std::string error;
+    const auto settings = pfservices::SettingsStore().load(error);
+    similarityThreshold_ = std::clamp(settings.similarityThreshold, 0.0, 1.0);
+    candidateThreshold_ = std::clamp(settings.candidateThreshold, 0.0, 1.0);
+    repeatGap_ = std::clamp(settings.minRepeatGapSec, 0.0, 30.0);
+    sameFileGap_ = std::clamp(settings.sameFileGapSec, 0.0, 15.0);
+    crossFileGap_ = std::clamp(settings.crossFileGapSec, 0.0, 15.0);
+    duplicateWindow_ = std::clamp(settings.duplicateWindowSec, 0.25, 8.0);
+    noiseFactor_ = std::clamp(settings.noiseFactor, 0.0, 2.0);
+    maxUniqueResults_ = std::clamp(static_cast<int>(settings.maxUniqueResults), 10, 500);
+    timeWeight_ = std::clamp(settings.timeWeight, 0.0, 1.0);
+}
+
+void AnalysisController::saveMatcherSettings() const
+{
+    std::string error;
+    pfservices::SettingsStore store;
+    auto settings = store.load(error);
+    settings.similarityThreshold = similarityThreshold_;
+    settings.candidateThreshold = candidateThreshold_;
+    settings.minRepeatGapSec = repeatGap_;
+    settings.sameFileGapSec = sameFileGap_;
+    settings.crossFileGapSec = crossFileGap_;
+    settings.duplicateWindowSec = duplicateWindow_;
+    settings.noiseFactor = noiseFactor_;
+    settings.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults_);
+    settings.timeWeight = timeWeight_;
+    store.save(settings, error);
+}
 
 void AnalysisController::setSimilarityThreshold(double value)
 {
     const double clamped = std::clamp(value, 0.0, 1.0);
     if (std::abs(similarityThreshold_ - clamped) < 1e-9) return;
     similarityThreshold_ = clamped;
+    saveMatcherSettings();
     emit matcherParamsChanged();
 }
 
@@ -209,6 +240,7 @@ void AnalysisController::setCandidateThreshold(double value)
     const double clamped = std::clamp(value, 0.0, 1.0);
     if (std::abs(candidateThreshold_ - clamped) < 1e-9) return;
     candidateThreshold_ = clamped;
+    saveMatcherSettings();
     emit matcherParamsChanged();
 }
 
@@ -217,6 +249,7 @@ void AnalysisController::setRepeatGap(double value)
     const double clamped = std::clamp(value, 0.0, 30.0);
     if (std::abs(repeatGap_ - clamped) < 1e-9) return;
     repeatGap_ = clamped;
+    saveMatcherSettings();
     emit matcherParamsChanged();
 }
 
@@ -225,6 +258,7 @@ void AnalysisController::setSameFileGap(double value)
     const double clamped = std::clamp(value, 0.0, 15.0);
     if (std::abs(sameFileGap_ - clamped) < 1e-9) return;
     sameFileGap_ = clamped;
+    saveMatcherSettings();
     emit matcherParamsChanged();
 }
 
@@ -233,6 +267,7 @@ void AnalysisController::setCrossFileGap(double value)
     const double clamped = std::clamp(value, 0.0, 15.0);
     if (std::abs(crossFileGap_ - clamped) < 1e-9) return;
     crossFileGap_ = clamped;
+    saveMatcherSettings();
     emit matcherParamsChanged();
 }
 
@@ -241,6 +276,7 @@ void AnalysisController::setDuplicateWindow(double value)
     const double clamped = std::clamp(value, 0.25, 8.0);
     if (std::abs(duplicateWindow_ - clamped) < 1e-9) return;
     duplicateWindow_ = clamped;
+    saveMatcherSettings();
     emit matcherParamsChanged();
 }
 
@@ -249,6 +285,7 @@ void AnalysisController::setNoiseFactor(double value)
     const double clamped = std::clamp(value, 0.0, 2.0);
     if (std::abs(noiseFactor_ - clamped) < 1e-9) return;
     noiseFactor_ = clamped;
+    saveMatcherSettings();
     emit matcherParamsChanged();
 }
 
@@ -257,6 +294,7 @@ void AnalysisController::setMaxUniqueResults(int value)
     const int clamped = std::clamp(value, 10, 500);
     if (maxUniqueResults_ == clamped) return;
     maxUniqueResults_ = clamped;
+    saveMatcherSettings();
     emit matcherParamsChanged();
 }
 
@@ -265,6 +303,7 @@ void AnalysisController::setTimeWeight(double value)
     const double clamped = std::clamp(value, 0.0, 1.0);
     if (std::abs(timeWeight_ - clamped) < 1e-9) return;
     timeWeight_ = clamped;
+    saveMatcherSettings();
     emit matcherParamsChanged();
 }
 

@@ -1,10 +1,12 @@
 #include <pfexporters/ExportOptions.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <numeric>
 #include <sstream>
 
 namespace pfexporters {
@@ -76,12 +78,45 @@ std::string fileUri(const std::string& path)
     return "file:///" + escaped;
 }
 
-std::string timecode(double seconds, double fps)
+std::vector<pfcore::MotionMatch> orderedMatches(const std::vector<pfcore::MotionMatch>& matches,
+                                                NumberingMode mode)
 {
-    const double safeFps = fps > 0.0 ? fps : 30.0;
-    const auto totalFrames = static_cast<long long>(std::llround(std::max(0.0, seconds) * safeFps));
-    const auto frame = totalFrames % static_cast<long long>(safeFps);
-    const auto totalSeconds = totalFrames / static_cast<long long>(safeFps);
+    std::vector<pfcore::MotionMatch> ordered = matches;
+    if (mode == NumberingMode::AsInVideo) {
+        std::stable_sort(ordered.begin(), ordered.end(), [](const auto& left, const auto& right) {
+            if (left.leftSourceId != right.leftSourceId) return left.leftSourceId < right.leftSourceId;
+            if (std::abs(left.leftStartSeconds - right.leftStartSeconds) > 1e-9)
+                return left.leftStartSeconds < right.leftStartSeconds;
+            if (left.rightSourceId != right.rightSourceId) return left.rightSourceId < right.rightSourceId;
+            return left.rightStartSeconds < right.rightStartSeconds;
+        });
+    } else {
+        std::stable_sort(ordered.begin(), ordered.end(), [](const auto& left, const auto& right) {
+            if (std::abs(left.rankScore - right.rankScore) > 1e-9)
+                return left.rankScore > right.rankScore;
+            if (std::abs(left.similarity - right.similarity) > 1e-9)
+                return left.similarity > right.similarity;
+            return left.leftStartSeconds < right.leftStartSeconds;
+        });
+    }
+    return ordered;
+}
+
+std::string timecode(double seconds, double fps, bool dropFrame)
+{
+    const double safeFps = std::max(1.0, fps);
+    const long long nominalFps = std::max(1LL, std::llround(safeFps));
+    long long totalFrames = static_cast<long long>(std::llround(std::max(0.0, seconds) * safeFps));
+    if (dropFrame && (nominalFps == 30 || nominalFps == 60)) {
+        const long long drop = nominalFps == 60 ? 4 : 2;
+        const long long framesPerMinute = nominalFps * 60 - drop;
+        const long long framesPerTenMinutes = nominalFps * 600 - drop * 9;
+        const long long blocks = totalFrames / framesPerTenMinutes;
+        const long long remainder = totalFrames % framesPerTenMinutes;
+        totalFrames += drop * 9 * blocks + drop * std::max(0LL, (remainder - drop) / framesPerMinute);
+    }
+    const auto frame = totalFrames % nominalFps;
+    const auto totalSeconds = totalFrames / nominalFps;
     const auto second = totalSeconds % 60;
     const auto minute = (totalSeconds / 60) % 60;
     const auto hour = totalSeconds / 3600;
@@ -90,6 +125,19 @@ std::string timecode(double seconds, double fps)
            << std::setw(2) << minute << ':' << std::setw(2) << second << ':'
            << std::setw(2) << frame;
     return output.str();
+}
+
+std::string frameDuration(double fps)
+{
+    if (!(fps > 0.0) || !std::isfinite(fps)) return "1/1s";
+    const auto closeTo = [fps](double value) { return std::abs(fps - value) < 0.01; };
+    if (closeTo(23.976)) return "1001/24000s";
+    if (closeTo(29.97)) return "1001/30000s";
+    if (closeTo(59.94)) return "1001/60000s";
+    const long long fpsScale = 1'000'000;
+    const long long fpsNumerator = std::max(1LL, std::llround(fps * fpsScale));
+    const long long divisor = std::gcd(fpsScale, fpsNumerator);
+    return std::to_string(fpsScale / divisor) + "/" + std::to_string(fpsNumerator / divisor) + "s";
 }
 
 std::string jsonResults(const std::vector<pfcore::MotionMatch>& matches)
@@ -144,21 +192,24 @@ std::string textResults(const std::vector<pfcore::MotionMatch>& matches)
     return output.str();
 }
 
-std::string edlResults(const std::vector<pfcore::MotionMatch>& matches, double fps)
+std::string edlResults(const std::vector<pfcore::MotionMatch>& matches, const ExportOptions& options)
 {
     std::ostringstream output;
-    output << "TITLE: Parallel Finder\nFCM: NON-DROP FRAME\n\n";
+    output << "TITLE: Parallel Finder\nFCM: "
+           << (options.dropFrame ? "DROP FRAME" : "NON-DROP FRAME") << "\n\n";
     for (std::size_t i = 0; i < matches.size(); ++i) {
         const auto& item = matches[i];
         output << std::setfill('0') << std::setw(3) << (i + 1) << "  PF      V     C        "
-               << timecode(item.leftStartSeconds, fps) << ' ' << timecode(item.leftEndSeconds, fps)
-               << ' ' << timecode(item.leftStartSeconds, fps) << ' ' << timecode(item.leftEndSeconds, fps) << "\n"
+               << timecode(item.leftStartSeconds, options.framesPerSecond, options.dropFrame) << ' '
+               << timecode(item.leftEndSeconds, options.framesPerSecond, options.dropFrame) << ' '
+               << timecode(item.leftStartSeconds, options.framesPerSecond, options.dropFrame) << ' '
+               << timecode(item.leftEndSeconds, options.framesPerSecond, options.dropFrame) << "\n"
                << "* FROM CLIP NAME: " << item.leftSourceId << "\n";
     }
     return output.str();
 }
 
-std::string fcpxmlResults(const std::vector<pfcore::MotionMatch>& matches, double fps)
+std::string fcpxmlResults(const std::vector<pfcore::MotionMatch>& matches, const ExportOptions& options)
 {
     std::vector<std::string> sources;
     for (const auto& item : matches) {
@@ -170,7 +221,8 @@ std::string fcpxmlResults(const std::vector<pfcore::MotionMatch>& matches, doubl
     std::ostringstream output;
     output << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
            << "<!DOCTYPE fcpxml>\n<fcpxml version=\"1.10\"><resources>"
-           << "<format id=\"r1\" name=\"Parallel Finder\" frameDuration=\"1/" << std::max(1, static_cast<int>(std::lround(fps))) << "s\"/>\n";
+           << "<format id=\"r1\" name=\"Parallel Finder\" frameDuration=\""
+           << frameDuration(options.framesPerSecond) << "\"/>\n";
     for (std::size_t i = 0; i < sources.size(); ++i) {
         double duration = 0.001;
         for (const auto& item : matches) {
@@ -201,32 +253,77 @@ std::string fcpxmlResults(const std::vector<pfcore::MotionMatch>& matches, doubl
     return output.str();
 }
 
+std::string jsEscape(const std::string& value)
+{
+    std::string result;
+    for (const char character : value) {
+        if (character == '\\' || character == '\'') result += '\\';
+        if (character == '\n') result += "\\n";
+        else if (character == '\r') result += "\\r";
+        else result += character;
+    }
+    return result;
+}
+
+std::string aepResults(const std::vector<pfcore::MotionMatch>& matches, const ExportOptions& options)
+{
+    std::ostringstream jsx;
+    jsx << "// Parallel Finder import helper\n"
+        << "// Generated by Parallel Finder. Keep this file next to parallel_data.json.\n"
+        << "(function () {\n"
+        << "  var dataFile = new File(File($.fileName).parent.fsName + '/parallel_data.json');\n"
+        << "  if (!dataFile.exists) { alert('parallel_data.json not found next to the script.'); return; }\n"
+        << "  dataFile.open('r'); var data = JSON.parse(dataFile.read()); dataFile.close();\n"
+        << "  function footage(path) { var f = new File(path); if (!f.exists) return null;"
+        << " var io = new ImportOptions(f); return app.project.importFile(io); }\n"
+        << "  app.beginUndoGroup('Parallel Finder import');\n"
+        << "  var comp = app.project.items.addComp('Parallel Finder results', 1920, 1080, 1, 3600, "
+        << options.framesPerSecond << ");\n"
+        << "  var cursor = 0;\n";
+    for (std::size_t i = 0; i < matches.size(); ++i) {
+        const auto& item = matches[i];
+        const double duration = std::max(0.001, item.durationSeconds);
+        jsx << "  var a" << i << " = footage('" << jsEscape(item.leftSourceId) << "');\n"
+            << "  var b" << i << " = footage('" << jsEscape(item.rightSourceId) << "');\n"
+            << "  if (a" << i << ") { var la" << i << " = comp.layers.add(a" << i
+            << "); la" << i << ".startTime = cursor - " << item.leftStartSeconds
+            << "; la" << i << ".inPoint = cursor; la" << i << ".outPoint = cursor + " << duration
+            << "; la" << i << ".name = 'Pair " << (i + 1) << " A'; }\n"
+            << "  if (b" << i << ") { var lb" << i << " = comp.layers.add(b" << i
+            << "); lb" << i << ".startTime = cursor - " << item.rightStartSeconds
+            << "; lb" << i << ".inPoint = cursor; lb" << i << ".outPoint = cursor + " << duration
+            << "; lb" << i << ".name = 'Pair " << (i + 1) << " B'; }\n"
+            << "  cursor += " << (duration + 0.25) << ";\n";
+    }
+    jsx << "  comp.duration = Math.max(1, cursor);\n"
+        << "  comp.comment = 'Parallel Finder: ' + data.matches.length + ' motion pairs';\n"
+        << "  app.endUndoGroup();\n"
+        << "})();\n";
+    return jsx.str();
+}
+
+bool validPrefix(const std::string& prefix)
+{
+    if (prefix.empty() || prefix == "." || prefix == ".." || prefix.find('/') != std::string::npos
+        || prefix.find('\\') != std::string::npos) return false;
+    return std::all_of(prefix.begin(), prefix.end(), [](unsigned char character) {
+        return std::isalnum(character) || character == '_' || character == '-' || character == '.';
+    });
+}
+
 } // namespace
 
 std::string formatResults(const std::vector<pfcore::MotionMatch>& matches,
                           const ExportOptions& options)
 {
+    const auto ordered = orderedMatches(matches, options.numbering);
     switch (options.format) {
-    case ExportFormat::Json: return jsonResults(matches);
-    case ExportFormat::Csv: return csvResults(matches);
-    case ExportFormat::Txt: return textResults(matches);
-    case ExportFormat::Edl: return edlResults(matches, options.framesPerSecond);
-    case ExportFormat::FcpXml: return fcpxmlResults(matches, options.framesPerSecond);
-    case ExportFormat::Aep: {
-        std::ostringstream jsx;
-        jsx << "// Parallel Finder import helper\n"
-            << "// Place this file next to parallel_data.json, then run it in After Effects.\n"
-            << "(function () {\n"
-            << "  var dataFile = new File(File($.fileName).parent.fsName + '/parallel_data.json');\n"
-            << "  if (!dataFile.exists) { alert('parallel_data.json not found next to the script.'); return; }\n"
-            << "  dataFile.open('r'); var data = JSON.parse(dataFile.read()); dataFile.close();\n"
-            << "  app.beginUndoGroup('Parallel Finder import');\n"
-            << "  var comp = app.project.items.addComp('Parallel Finder results', 1920, 1080, 1, 10, 30);\n"
-            << "  comp.comment = 'Imported ' + data.matches.length + ' motion pairs';\n"
-            << "  app.endUndoGroup();\n"
-            << "})();\n";
-        return jsx.str();
-    }
+    case ExportFormat::Json: return jsonResults(ordered);
+    case ExportFormat::Csv: return csvResults(ordered);
+    case ExportFormat::Txt: return textResults(ordered);
+    case ExportFormat::Edl: return edlResults(ordered, options);
+    case ExportFormat::FcpXml: return fcpxmlResults(ordered, options);
+    case ExportFormat::Aep: return aepResults(ordered, options);
     }
     return {};
 }
@@ -237,6 +334,16 @@ bool writeResults(const std::vector<pfcore::MotionMatch>& matches,
 {
     if (options.outputFolder.empty()) {
         error = "export output folder is empty";
+        return false;
+    }
+    if (!validPrefix(options.filePrefix)) {
+        error = "export file prefix contains unsupported path characters";
+        return false;
+    }
+    if ((options.format == ExportFormat::Edl || options.format == ExportFormat::FcpXml
+         || options.format == ExportFormat::Aep)
+        && !(options.framesPerSecond > 0.0 && std::isfinite(options.framesPerSecond))) {
+        error = "a positive probed FPS is required for this export format";
         return false;
     }
     std::error_code filesystemError;
@@ -255,7 +362,9 @@ bool writeResults(const std::vector<pfcore::MotionMatch>& matches,
     case ExportFormat::FcpXml: extension = ".fcpxml"; break;
     case ExportFormat::Aep: extension = ".jsx"; break;
     }
-    std::ofstream output(root.string() + extension, std::ios::binary);
+    const std::filesystem::path destination = root.string() + extension;
+    const std::filesystem::path temporary = destination.string() + ".part";
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
     if (!output) {
         error = "open export file failed";
         return false;
@@ -263,10 +372,23 @@ bool writeResults(const std::vector<pfcore::MotionMatch>& matches,
     output << formatResults(matches, options);
     if (!output) {
         error = "write export file failed";
+        output.close();
+        std::filesystem::remove(temporary, filesystemError);
+        return false;
+    }
+    output.close();
+    std::filesystem::remove(destination, filesystemError);
+    filesystemError.clear();
+    std::filesystem::rename(temporary, destination, filesystemError);
+    if (filesystemError) {
+        error = "install export file failed: " + filesystemError.message();
+        std::filesystem::remove(temporary, filesystemError);
         return false;
     }
     if (options.format == ExportFormat::Aep) {
-        std::ofstream data(root.parent_path() / "parallel_data.json", std::ios::binary);
+        const auto dataDestination = root.parent_path() / "parallel_data.json";
+        const auto dataTemporary = dataDestination.string() + ".part";
+        std::ofstream data(dataTemporary, std::ios::binary | std::ios::trunc);
         if (!data) {
             error = "open AEP data file failed";
             return false;
@@ -274,6 +396,15 @@ bool writeResults(const std::vector<pfcore::MotionMatch>& matches,
         ExportOptions jsonOptions = options;
         jsonOptions.format = ExportFormat::Json;
         data << formatResults(matches, jsonOptions);
+        data.close();
+        std::filesystem::remove(dataDestination, filesystemError);
+        filesystemError.clear();
+        std::filesystem::rename(dataTemporary, dataDestination, filesystemError);
+        if (filesystemError) {
+            error = "install AEP data file failed: " + filesystemError.message();
+            std::filesystem::remove(dataTemporary, filesystemError);
+            return false;
+        }
     }
     return true;
 }

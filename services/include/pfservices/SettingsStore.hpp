@@ -15,6 +15,16 @@ struct Settings {
     double sceneThreshold = 27.0;
     std::size_t sceneMinFrames = 8;
     double sceneAdaptiveMultiplier = 3.0;
+    double similarityThreshold = 0.85;
+    double candidateThreshold = 0.55;
+    double minRepeatGapSec = 6.0;
+    double sameFileGapSec = 2.0;
+    double crossFileGapSec = 0.0;
+    double duplicateWindowSec = 1.5;
+    double noiseFactor = 1.0;
+    std::size_t maxUniqueResults = 100;
+    double timeWeight = 0.25;
+    double sakoeChibaRatio = 0.10;
 };
 
 class SettingsStore {

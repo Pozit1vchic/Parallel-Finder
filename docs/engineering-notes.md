@@ -62,3 +62,22 @@ Backend performance note:
   now supports multiple workers while preventing two jobs for the same source
   path from running concurrently; unrelated paths can use the available
   workers, and queue overflow remains explicit backpressure.
+
+Stage 4 audit and implementation notes:
+
+- Text exports are written through a sibling `.part` file and installed with
+  a rename. Prefixes are restricted to filename-safe characters, so an export
+  cannot escape the selected destination directory. EDL, FCPXML and AEP
+  require a positive FPS obtained from the decoder/probe; no writer silently
+  invents a 30 FPS timeline. FCPXML keeps rational frame durations such as
+  `1001/30000s` for 29.97 FPS.
+- `NumberingMode::AsInVideo` orders pairs by source and timeline position;
+  `RenumberSorted` orders by rank score with deterministic similarity/time
+  tie-breakers. AEP output contains a real JSX importer with footage layers
+  plus the adjacent `parallel_data.json` sidecar.
+- `CutService` still uses QProcess without a shell and encoder fallback
+  NVENC → AMF → QSV → CPU for exact cuts. Optional output ceilings prevent
+  upscaling while preserving aspect ratio; fast stream-copy mode rejects a
+  resize request because filtering would invalidate `-c copy`.
+- Settings schema 3 persists all nine matcher controls. Writes use `QSaveFile`
+  and now check directory creation and the byte count returned by the write.

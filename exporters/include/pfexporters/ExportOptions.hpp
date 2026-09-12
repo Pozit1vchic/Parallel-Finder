@@ -38,7 +38,10 @@ struct ExportOptions {
     std::string outputFolder;
     std::string filePrefix = "frame_";
     bool downscaleAboveSource = true; // разрешение не выше исходника
-    double framesPerSecond = 30.0;
+    // Must be supplied by the decoder/probe for EDL/FCPXML. Zero means
+    // unknown and is rejected by writeResults for frame-based formats.
+    double framesPerSecond = 0.0;
+    bool dropFrame = false;
 };
 
 std::string formatResults(const std::vector<pfcore::MotionMatch>& matches,

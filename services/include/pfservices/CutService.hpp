@@ -16,6 +16,10 @@ struct CutRequest {
     double startSeconds = 0.0;
     double endSeconds = 0.0;
     CutMode mode = CutMode::Exact;
+    // Optional output ceiling. Zero leaves the source dimensions unchanged.
+    // Resizing requires Exact mode because Fast mode stream-copies frames.
+    int maxWidth = 0;
+    int maxHeight = 0;
 };
 
 struct CutResult {

@@ -64,6 +64,10 @@ int runSmoke()
 int main(int argc, char* argv[])
 {
     QGuiApplication app(argc, argv);
+    // QStandardPaths uses these identifiers for %LocalAppData%/ParallelFinder.
+    // Set them before the UI singleton constructs SettingsStore or ModelStore.
+    QCoreApplication::setOrganizationName(QStringLiteral("ParallelFinder"));
+    QCoreApplication::setApplicationName(QStringLiteral("ParallelFinder"));
     QGuiApplication::setApplicationVersion(QStringLiteral(PF_VERSION));
 
     publishGpuInfo();

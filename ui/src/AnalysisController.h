@@ -72,6 +72,7 @@ signals:
 private:
     explicit AnalysisController(QObject* parent = nullptr);
     void setStatus(const QString& status);
+    void saveMatcherSettings() const;
     int fileCount_ = 0;
     qlonglong frameCount_ = 0;
     double durationSeconds_ = 0.0;
