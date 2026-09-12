@@ -23,7 +23,12 @@ ApplicationWindow {
 
     function addFiles(urls) {
         for (const url of urls || []) {
-            const path = decodeURIComponent(url.toString().replace(/^file:\/\//, ""))
+            const text = url.toString()
+            let path = text
+            if (text.toLowerCase().startsWith("file:")) {
+                path = url.toLocalFile ? url.toLocalFile() : decodeURIComponent(text.replace(/^file:\/\//, ""))
+            }
+            if (path.match(/^\/[A-Za-z]:/)) path = path.slice(1)
             if (root.sourceFiles.indexOf(path) < 0) root.sourceFiles.push(path)
         }
         root.sourceFilesChanged()

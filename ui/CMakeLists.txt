@@ -9,6 +9,8 @@ set(PFUI_QML_FILES
     qml/Splash.qml
     qml/Main.qml
     qml/PfSlider.qml
+    qml/PfComboBox.qml
+    qml/PfTextField.qml
     qml/PfCheckBox.qml
     qml/PfButton.qml
     qml/PfIconButton.qml

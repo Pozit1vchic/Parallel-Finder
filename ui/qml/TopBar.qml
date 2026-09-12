@@ -23,7 +23,7 @@ Item {
             color: AppInfo.backendIsGpu ? Theme.sageMuted : Theme.surfaceRaised; border.color: Theme.border
             Row { anchors.centerIn: parent; spacing: 7
                 Rectangle { width: 5; height: 5; radius: 3; color: AppInfo.backendIsGpu ? Theme.sage : Theme.textDisabled; anchors.verticalCenter: parent.verticalCenter }
-                Text { id: gpuLabel; text: AppInfo.gpuSummary; color: AppInfo.backendIsGpu ? Theme.sageBright : Theme.textSecondary; font.pixelSize: 10 }
+                Text { id: gpuLabel; text: AppInfo.gpuSummary.toUpperCase(); color: AppInfo.backendIsGpu ? Theme.sageBright : Theme.textSecondary; font.pixelSize: 10 }
             }
         }
         PfButton { text: L10n.t("top.settings"); quiet: true; onClicked: root.settingsRequested() }

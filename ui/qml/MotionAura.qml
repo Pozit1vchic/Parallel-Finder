@@ -56,11 +56,11 @@ Item {
         function onSageChanged() { sageSprite.requestPaint() }
     }
 
-    readonly property int particleCount: 200
+    readonly property int particleCount: 96
     readonly property real ringsTotal: particleCount / 7
 
     Timer {
-        interval: 16
+        interval: 24
         running: root.active && !Theme.reducedMotion
         repeat: true
         onTriggered: {
@@ -69,9 +69,9 @@ Item {
             // carry a little momentum past the target before settling
             // (so tracking doesn't snap to a dead stop at the edge), but
             // not so underdamped that it visibly oscillates.
-            const dt = 0.016
-            const stiffness = 120
-            const damping = 18
+            const dt = 0.024
+            const stiffness = 85
+            const damping = 17
             const ax = (root.targetX - root.smoothX) * stiffness - root.velX * damping
             const ay = (root.targetY - root.smoothY) * stiffness - root.velY * damping
             root.velX += ax * dt
@@ -79,8 +79,8 @@ Item {
             root.smoothX += root.velX * dt
             root.smoothY += root.velY * dt
 
-            root.phase += 0.03
-            root.breath += 0.018
+            root.phase += 0.018
+            root.breath += 0.010
             particles.requestPaint()
         }
     }
@@ -88,6 +88,7 @@ Item {
     Canvas {
         id: particles
         anchors.fill: parent
+        opacity: root.active && !Theme.reducedMotion ? 1 : 0
         onPaint: {
             const ctx = getContext("2d")
 
@@ -95,7 +96,7 @@ Item {
             // slightly rather than being wiped, leaving a soft comet tail
             // behind every moving particle (the "motion blur").
             ctx.globalCompositeOperation = "destination-out"
-            ctx.fillStyle = "rgba(0, 0, 0, 0.16)"
+            ctx.fillStyle = Qt.rgba(0, 0, 0, Theme.auraTrail)
             ctx.fillRect(0, 0, width, height)
             ctx.globalCompositeOperation = "source-over"
 
@@ -103,7 +104,7 @@ Item {
             const cy = height * root.smoothY
 
             const breathScale = 0.82 + Math.sin(root.breath) * 0.18
-            const maxRadius = Math.min(width, height) * 0.42 * breathScale
+            const maxRadius = Math.min(width, height) * 0.30 * breathScale
 
             for (let i = 0; i < root.particleCount; ++i) {
                 const arm = i % 7
@@ -120,12 +121,12 @@ Item {
 
                 const falloff = Math.max(0, 1 - ring)
                 const twinkle = 0.7 + 0.3 * Math.sin(root.phase * 1.1 + i * 1.7)
-                const alpha = (0.12 + falloff * 0.55) * twinkle
-                const size = (0.7 + falloff * (i % 5 === 0 ? 2.8 : 1.45)) * (0.92 + breathScale * 0.12)
+                const alpha = Theme.auraOpacity * (0.04 + falloff * 0.25) * twinkle
+                const size = (0.55 + falloff * (i % 5 === 0 ? 1.8 : 0.85)) * (0.92 + breathScale * 0.08)
 
                 const useSage = (i + arm) % 5 === 0
                 const sprite = useSage ? sageSprite : accentSprite
-                const glowSize = size * (i % 5 === 0 ? 7.5 : 5.0)
+                const glowSize = size * (i % 5 === 0 ? 4.5 : 3.0)
 
                 ctx.globalAlpha = alpha
                 ctx.drawImage(sprite, px - glowSize, py - glowSize, glowSize * 2, glowSize * 2)

@@ -1,9 +1,11 @@
 #include "pfgpu/OrtRuntime.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #if defined(_WIN32)
@@ -15,19 +17,34 @@ namespace {
 
 // OrtApi is append-only: newer versions add fields at the end, so a struct
 // obtained for version N is safe to use for every entry point that exists in N.
-// We therefore ask for the *highest* version the loaded runtime supports, by
-// scanning upwards from the oldest version we can drive and stopping at the
-// first miss.
-//
-// Scanning upwards instead of downwards is deliberate: GetApi() logs a warning
-// to stderr for every unsupported version it is asked about, and this machine
-// (1.26 headers, 1.17.1 runtime) is exactly the mismatch case the probe exists
-// for.
-std::pair<const OrtApi*, std::uint32_t> selectApiVersion(const OrtApiBase& apiBase)
+// The runtime's minor version is also its maximum API version.  Using that
+// hint avoids asking GetApi() for an API newer than the loaded DLL (which
+// prints a noisy warning before returning null on ORT 1.17.x).
+std::uint32_t runtimeApiHint(std::string_view version)
+{
+    const auto dot = version.find('.');
+    if (dot == std::string_view::npos) return ORT_API_VERSION;
+    const auto begin = dot + 1;
+    const auto end = version.find('.', begin);
+    const auto minorText = version.substr(begin, end == std::string_view::npos
+        ? std::string_view::npos : end - begin);
+    if (minorText.empty()) return ORT_API_VERSION;
+    std::uint32_t minor = 0;
+    for (const char digit : minorText) {
+        if (digit < '0' || digit > '9') return ORT_API_VERSION;
+        minor = minor * 10u + static_cast<std::uint32_t>(digit - '0');
+    }
+    return minor > 0 ? std::min<std::uint32_t>(minor, ORT_API_VERSION) : ORT_API_VERSION;
+}
+
+std::pair<const OrtApi*, std::uint32_t> selectApiVersion(const OrtApiBase& apiBase,
+                                                         std::uint32_t maxVersion)
 {
     const OrtApi* selected = nullptr;
     std::uint32_t selectedVersion = 0;
-    for (std::uint32_t version = kMinSupportedApiVersion; version <= ORT_API_VERSION;
+    const auto upperBound = std::max(kMinSupportedApiVersion,
+                                     std::min(maxVersion, static_cast<std::uint32_t>(ORT_API_VERSION)));
+    for (std::uint32_t version = kMinSupportedApiVersion; version <= upperBound;
          ++version) {
         const OrtApi* candidate = apiBase.GetApi(version);
         if (!candidate) {
@@ -114,7 +131,7 @@ void loadRuntime(RuntimeState& s)
 
     s.status.version = apiBase->GetVersionString() ? apiBase->GetVersionString() : "";
 
-    const auto [api, apiVersion] = selectApiVersion(*apiBase);
+    const auto [api, apiVersion] = selectApiVersion(*apiBase, runtimeApiHint(s.status.version));
     if (api) {
         s.api = api;
         s.status.apiVersion = apiVersion;

@@ -11,13 +11,14 @@ Popup {
     property var selectedRows: ({})
     property string outputFolder: ""
     property string exportStatus: ""
+    property bool userPositioned: false
     modal: true; focus: true; padding: 0
     width: Math.min(600, rootWindow ? rootWindow.width - 40 : 560); height: 520
-    x: rootWindow ? Math.round((rootWindow.width - width) / 2) : 0; y: rootWindow ? Math.round((rootWindow.height - height) / 2) : 0
+    x: 0; y: 0
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     Overlay.modal: Rectangle { color: Theme.overlayDim }
     background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairline; layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowBlur: 1.0; shadowVerticalOffset: 18 } }
-    FolderDialog { id: folderDialog; title: L10n.t("export.chooseFolder"); onAccepted: root.outputFolder = selectedFolder.toString().replace(/^file:\/\//, "") }
+    FolderDialog { id: folderDialog; title: L10n.t("export.chooseFolder"); onAccepted: root.outputFolder = selectedFolder.toLocalFile() }
     Connections { target: Analysis; function onExportFinished(success, message) { root.exportStatus = message; if (success) root.close() } }
     function selectedIndexes() { return Object.keys(root.selectedRows).map(function (key) { return Number(key) }) }
     contentItem: Column { anchors.fill: parent; anchors.margins: 24; spacing: 14
@@ -31,16 +32,20 @@ Popup {
                 anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.rightMargin: 42
                 property real pressX
                 property real pressY
-                onPressed: { pressX = mouse.x; pressY = mouse.y }
+                property real startX
+                property real startY
+                cursorShape: Qt.SizeAllCursor
+                onPressed: { pressX = mouse.x; pressY = mouse.y; startX = root.x; startY = root.y }
                 onPositionChanged: if (pressed && rootWindow) {
-                    root.x = Math.max(12, Math.min(rootWindow.width - root.width - 12, root.x + mouse.x - pressX))
-                    root.y = Math.max(12, Math.min(rootWindow.height - root.height - 12, root.y + mouse.y - pressY))
+                    root.userPositioned = true
+                    root.x = Math.max(12, Math.min(rootWindow.width - root.width - 12, startX + mouse.x - pressX))
+                    root.y = Math.max(12, Math.min(rootWindow.height - root.height - 12, startY + mouse.y - pressY))
                 }
             }
         }
         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
         Text { text: L10n.t("export.format"); color: Theme.textSecondary; font.pixelSize: 11 }
-        ComboBox { id: exportFormat; width: parent.width; height: 36; model: ["JSON", "CSV", "TXT", "EDL", "FCPXML", "AEP"]; Accessible.name: L10n.t("export.format") }
+        PfComboBox { id: exportFormat; width: parent.width; model: ["JSON", "CSV", "TXT", "EDL", "FCPXML", "AEP"]; Accessible.name: L10n.t("export.format") }
         Text { text: L10n.t("export.numbering"); color: Theme.textSecondary; font.pixelSize: 11 }
             Row { width: parent.width; spacing: 8
                 PfButton { width: (parent.width - 8) / 2; text: L10n.t("export.asVideo"); quiet: exportNumbering.currentIndex !== 0; onClicked: exportNumbering.currentIndex = 0 }
@@ -54,11 +59,18 @@ Popup {
         }
         ComboBox { id: cutMode; visible: false; model: [0, 1]; currentIndex: 0 }
         Row { width: parent.width; spacing: 8
-            TextField { id: folderField; width: parent.width - 110; text: root.outputFolder; placeholderText: L10n.t("export.folder"); Accessible.name: L10n.t("export.folder"); onEditingFinished: root.outputFolder = text }
+            PfTextField { id: folderField; width: parent.width - 110; text: root.outputFolder; placeholderText: L10n.t("export.folder"); Accessible.name: L10n.t("export.folder"); onEditingFinished: root.outputFolder = text }
             PfButton { width: 102; text: L10n.t("export.chooseFolder"); quiet: true; onClicked: folderDialog.open() }
         }
-        TextField { id: prefixField; width: parent.width; text: "frame_"; placeholderText: L10n.t("export.prefix"); Accessible.name: L10n.t("export.prefix") }
+        PfTextField { id: prefixField; width: parent.width; text: "frame_"; placeholderText: L10n.t("export.prefix"); Accessible.name: L10n.t("export.prefix") }
         Text { width: parent.width; text: root.exportStatus || L10n.t("export.hint"); color: root.exportStatus ? Theme.accent : Theme.textSecondary; font.pixelSize: 11; wrapMode: Text.WordWrap }
         PfButton { width: parent.width; text: L10n.t("export.prepare"); enabled: Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(exportFormat.currentText, exportNumbering.currentIndex, cutMode.currentIndex, root.outputFolder, prefixField.text, root.selectedIndexes()) }
     }
+
+    function centerInWindow() {
+        if (!rootWindow || root.userPositioned) return
+        root.x = Math.round((rootWindow.width - root.width) / 2)
+        root.y = Math.round((rootWindow.height - root.height) / 2)
+    }
+    onOpened: centerInWindow()
 }

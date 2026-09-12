@@ -36,6 +36,35 @@
 namespace pfui {
 namespace {
 
+QString localPathFromInput(const QString& value)
+{
+    QString path = value.trimmed();
+    if (path.startsWith(QStringLiteral("file:"), Qt::CaseInsensitive)) {
+        const QUrl url(path);
+        if (url.isLocalFile()) path = url.toLocalFile();
+    }
+    path = QDir::fromNativeSeparators(path);
+#ifdef Q_OS_WIN
+    // QML FileDialog may return file:///D:/... while FFmpeg expects D:/...
+    if (path.size() >= 3 && path.at(0) == QLatin1Char('/')
+        && path.at(2) == QLatin1Char(':')) {
+        path.remove(0, 1);
+    }
+#endif
+    return QDir::cleanPath(path);
+}
+
+QStringList normalizedPaths(const QStringList& values)
+{
+    QStringList result;
+    result.reserve(values.size());
+    for (const QString& value : values) {
+        const QString path = localPathFromInput(value);
+        if (!path.isEmpty() && !result.contains(path)) result.push_back(path);
+    }
+    return result;
+}
+
 QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
 {
     if (frame.rgba.empty() || frame.width <= 0 || frame.height <= 0) return {};
@@ -526,6 +555,7 @@ void AnalysisController::setStatus(const QString& status)
 void AnalysisController::inspectFiles(const QStringList& paths)
 {
     if (busy_) return;
+    const QStringList normalized = normalizedPaths(paths);
     results_.clear();
     matches_.clear();
     matchCount_ = 0;
@@ -535,7 +565,7 @@ void AnalysisController::inspectFiles(const QStringList& paths)
     emit busyChanged();
     setProgress(0.0, QStringLiteral("Открываем файлы"), 0, 0);
     setStatus(QStringLiteral("Открываем видео…"));
-    QThread* thread = QThread::create([this, paths] {
+    QThread* thread = QThread::create([this, paths = normalized] {
         int files = 0;
         qlonglong frames = 0;
         double duration = 0.0;
@@ -571,9 +601,7 @@ void AnalysisController::inspectFiles(const QStringList& paths)
 
 QStringList AnalysisController::filesInFolder(const QString& folder) const
 {
-    QString path = folder;
-    if (path.startsWith(QStringLiteral("file:///"))) path = path.mid(8);
-    else if (path.startsWith(QStringLiteral("file://"))) path = path.mid(7);
+    const QString path = localPathFromInput(folder);
     QDir directory(path);
     const QStringList filters { QStringLiteral("*.mp4"), QStringLiteral("*.mov"), QStringLiteral("*.mkv"), QStringLiteral("*.avi"), QStringLiteral("*.webm"), QStringLiteral("*.m4v") };
     QStringList files;
@@ -585,6 +613,7 @@ QStringList AnalysisController::filesInFolder(const QString& folder) const
 void AnalysisController::analyzeFiles(const QStringList& paths)
 {
     if (busy_) return;
+    const QStringList normalized = normalizedPaths(paths);
     results_.clear();
     matches_.clear();
     matchCount_ = 0;
@@ -607,7 +636,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     const QString qualityProfile = qualityProfile_;
     const bool normalizeSize = normalizeSize_;
     const bool mirrorPoses = mirrorPoses_;
-    QThread* thread = QThread::create([this, paths, similarityThreshold, candidateThreshold, repeatGap,
+    QThread* thread = QThread::create([this, paths = normalized, similarityThreshold, candidateThreshold, repeatGap,
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
                                         maxUniqueResults, timeWeight, providerChoice,
                                         qualityProfile, normalizeSize, mirrorPoses] {

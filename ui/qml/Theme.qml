@@ -63,5 +63,9 @@ QtObject {
     readonly property int resultRowHeight: 32 // virtualized rows
     readonly property int margins: 12
     property bool reducedMotion: false
+    // The empty-state field is an accent, not a second background. Keep the
+    // defaults deliberately restrained; both values are user-customizable.
+    property real auraOpacity: 0.20
+    property real auraTrail: 0.34
     readonly property int motionDuration: reducedMotion ? 0 : 160
 }
