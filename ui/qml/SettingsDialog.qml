@@ -12,6 +12,7 @@ Popup {
     property Item rootWindow
     property string selectedToken: "accent"
     property bool customizationMode: false
+    property string themeStatus: ""
     modal: true
     focus: true
     padding: 0
@@ -50,6 +51,8 @@ Popup {
     }
     FileDialog { id: modelDialog; title: L10n.t("settings.modelPath"); fileMode: FileDialog.OpenFile; nameFilters: ["ONNX (*.onnx)", L10n.t("dialog.allFiles")]; onAccepted: Analysis.setModelPath(selectedFile.toString().replace(/^file:\/\//, "")) }
     FolderDialog { id: cacheDialog; title: L10n.t("settings.cachePath"); onAccepted: Analysis.setCachePath(selectedFolder.toString().replace(/^file:\/\//, "")) }
+    FileDialog { id: exportThemeDialog; title: L10n.t("settings.exportTheme"); fileMode: FileDialog.SaveFile; nameFilters: ["Parallel Finder Theme (*.pftheme)"]; currentFile: "parallel-theme.pftheme"; onAccepted: root.themeStatus = Analysis.exportTheme(selectedFile.toString(), ({ accent: String(Theme.accent), sage: String(Theme.sage), fontFamily: Theme.fontFamily, reducedMotion: Theme.reducedMotion })) ? "Профиль сохранён" : "Не удалось сохранить профиль" }
+    FileDialog { id: importThemeDialog; title: L10n.t("settings.importTheme"); fileMode: FileDialog.OpenFile; nameFilters: ["Parallel Finder Theme (*.pftheme)", L10n.t("dialog.allFiles")]; onAccepted: root.applyTheme(Analysis.importTheme(selectedFile.toString())) }
 
     Component.onCompleted: {
         Theme.accent = customizationStore.accent
@@ -74,6 +77,18 @@ Popup {
         customizationStore.sage = Theme.sage
         customizationStore.fontFamily = Theme.fontFamily
         customizationStore.reducedMotion = Theme.reducedMotion
+    }
+    function applyTheme(theme) {
+        if (!theme || !theme.accent || !theme.sage) { root.themeStatus = "Профиль не распознан"; return }
+        Theme.accent = String(theme.accent)
+        Theme.sage = String(theme.sage)
+        if (theme.fontFamily) Theme.fontFamily = String(theme.fontFamily)
+        if (theme.reducedMotion !== undefined) Theme.reducedMotion = Boolean(theme.reducedMotion)
+        customizationStore.accent = Theme.accent
+        customizationStore.sage = Theme.sage
+        customizationStore.fontFamily = Theme.fontFamily
+        customizationStore.reducedMotion = Theme.reducedMotion
+        root.themeStatus = "Профиль применён"
     }
 
     contentItem: Column {
@@ -173,9 +188,12 @@ Popup {
                         PfCheckBox { text: L10n.t("settings.reducedMotion"); checked: Theme.reducedMotion; onToggled: { Theme.reducedMotion = checked; customizationStore.reducedMotion = checked } }
                         Row { width: parent.width; spacing: 8
                             PfButton { width: (parent.width - 8) / 2; text: L10n.t("settings.resetAppearance"); quiet: true; onClicked: root.resetAppearance() }
-                            PfButton { width: (parent.width - 8) / 2; text: L10n.t("settings.exportTheme"); quiet: true; enabled: false }
+                            PfButton { width: (parent.width - 8) / 2; text: L10n.t("settings.exportTheme"); quiet: true; onClicked: exportThemeDialog.open() }
                         }
-                        Text { text: L10n.t("settings.profileSaved"); color: Theme.textDisabled; font.pixelSize: 10 }
+                        Row { width: parent.width; spacing: 8
+                            PfButton { width: (parent.width - 8) / 2; text: L10n.t("settings.importTheme"); quiet: true; onClicked: importThemeDialog.open() }
+                            Text { width: (parent.width - 8) / 2; text: root.themeStatus || L10n.t("settings.profileSaved"); color: root.themeStatus ? Theme.accent : Theme.textDisabled; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap }
+                        }
                     }
                 }
             }

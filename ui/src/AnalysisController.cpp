@@ -5,6 +5,10 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QUrl>
 #include <QStandardPaths>
 #include <QQmlEngine>
 #include <QThread>
@@ -481,6 +485,35 @@ bool AnalysisController::exportResults(const QString& format,
     const bool ok = pfexporters::writeResults(selected, options, error);
     emit exportFinished(ok, ok ? QStringLiteral("Экспорт завершён") : QString::fromStdString(error));
     return ok;
+}
+
+bool AnalysisController::exportTheme(const QString& path, const QVariantMap& theme) const
+{
+    QString localPath = path;
+    if (localPath.startsWith(QStringLiteral("file:"))) localPath = QUrl(localPath).toLocalFile();
+    if (localPath.isEmpty()) return false;
+    QJsonObject object = QJsonObject::fromVariantMap(theme);
+    object.insert(QStringLiteral("schema"), QStringLiteral("parallel-finder-theme"));
+    object.insert(QStringLiteral("version"), 1);
+    QFile file(localPath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    const bool written = file.write(QJsonDocument(object).toJson(QJsonDocument::Indented)) >= 0;
+    file.close();
+    return written;
+}
+
+QVariantMap AnalysisController::importTheme(const QString& path) const
+{
+    QString localPath = path;
+    if (localPath.startsWith(QStringLiteral("file:"))) localPath = QUrl(localPath).toLocalFile();
+    QFile file(localPath);
+    if (!file.open(QIODevice::ReadOnly)) return {};
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) return {};
+    const QJsonObject object = document.object();
+    if (object.value(QStringLiteral("schema")).toString() != QStringLiteral("parallel-finder-theme")) return {};
+    return object.toVariantMap();
 }
 
 void AnalysisController::setStatus(const QString& status)
