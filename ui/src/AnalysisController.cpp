@@ -18,6 +18,7 @@
 #include "pfcore/SceneDetector.hpp"
 #include "pfcore/MotionMatcher.hpp"
 #include "pfgpu/PoseEstimator.hpp"
+#include "pfservices/SettingsStore.hpp"
 
 namespace pfui {
 namespace {
@@ -43,6 +44,15 @@ std::filesystem::path findPoseModel()
     const auto besideExecutable = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString())
         / "models" / "yolo26m-pose-640-b1.onnx";
     if (std::filesystem::is_regular_file(besideExecutable)) return besideExecutable;
+    std::string settingsError;
+    const pfservices::Settings settings = pfservices::SettingsStore().load(settingsError);
+    if (!settings.modelPath.empty()) {
+        const std::filesystem::path configured(settings.modelPath);
+        if (std::filesystem::is_regular_file(configured)) return configured;
+    }
+    const std::filesystem::path localModels = std::filesystem::path(pfservices::SettingsStore::defaultDirectory())
+        / "models" / "yolo26m-pose-640-b1.onnx";
+    if (std::filesystem::is_regular_file(localModels)) return localModels;
     return {};
 }
 
@@ -207,9 +217,18 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         qlonglong frames = 0;
         double duration = 0.0;
         QString error;
+        std::string settingsError;
+        const pfservices::Settings settings = pfservices::SettingsStore().load(settingsError);
+        (void)settingsError;
         const auto model = findPoseModel();
         std::unique_ptr<pfgpu::PoseEstimator> pose;
-        if (!model.empty()) pose = std::make_unique<pfgpu::PoseEstimator>(model.string());
+        if (!model.empty()) {
+            pfgpu::PoseEstimatorParams poseParams;
+            if (const auto provider = pfgpu::parseProvider(settings.provider); provider.has_value()) {
+                poseParams.provider = *provider;
+            }
+            pose = std::make_unique<pfgpu::PoseEstimator>(model.string(), poseParams);
+        }
         std::vector<pfcore::MotionWindow> windows;
         for (const QString& path : paths) {
             try {
@@ -230,7 +249,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 samples.reserve(decoded.size());
                 for (const auto& item : decoded)
                     samples.push_back({item.timestampSeconds, item.width, item.height, item.rgba});
-                scenes += static_cast<int>(pfcore::SceneDetector().detect(samples).size());
+                pfcore::SceneDetector sceneDetector(settings.sceneThreshold,
+                                                    std::max<std::size_t>(1, (settings.sceneMinFrames + 4) / 5),
+                                                    settings.sceneAdaptiveMultiplier);
+                scenes += static_cast<int>(sceneDetector.detect(samples).size());
                 const QString previewStart = decoded.empty() ? QString() : savePreview(decoded.front(), QStringLiteral("%1_start.png").arg(files));
                 const QString previewEnd = decoded.empty() ? QString() : savePreview(decoded.back(), QStringLiteral("%1_end.png").arg(files));
                 if (pose) {
