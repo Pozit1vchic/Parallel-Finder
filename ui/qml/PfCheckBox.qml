@@ -21,7 +21,7 @@ CheckBox {
 
         Image {
             anchors.centerIn: parent
-            source: "qrc:/qt/qml/PfUi/assets/check.svg"
+            source: "qrc:/qt/qml/PfUi/qml/assets/check.svg"
             sourceSize.width: 13
             sourceSize.height: 13
             visible: control.checked

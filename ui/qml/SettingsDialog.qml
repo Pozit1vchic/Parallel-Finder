@@ -3,134 +3,97 @@ import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import QtQuick.Effects
 import QtQuick.Layouts
-import Qt.labs.settings
+import QtCore
 import PfUi
 import PfUiBridge
 
 Popup {
     id: root
-    property Item rootWindow
-    property string selectedToken: "accent"
-    property bool customizationMode: false
-    property string themeStatus: ""
+    property var rootWindow
     property bool userPositioned: false
+    property string themeStatus: ""
+    property var modelFiles: [
+        "yolo8n-pose.onnx", "yolo8m-pose.onnx", "yolo8s-pose.onnx", "yolo8l-pose.onnx", "yolo8x-pose.onnx",
+        "yolo11n-pose.onnx", "yolo11m-pose.onnx", "yolo11s-pose.onnx", "yolo11l-pose.onnx", "yolo11x-pose.onnx",
+        "yolo26n-pose.onnx", "yolo26m-pose.onnx", "yolo26s-pose.onnx", "yolo26m-pose-640-b1.onnx", "yolo26l-pose.onnx", "yolo26x-pose.onnx"
+    ]
+    property var modelLabels: [
+        "YOLO 8 · nano", "YOLO 8 · medium", "YOLO 8 · small", "YOLO 8 · large", "YOLO 8 · xlarge",
+        "YOLO 11 · nano", "YOLO 11 · medium", "YOLO 11 · small", "YOLO 11 · large", "YOLO 11 · xlarge",
+        "YOLO 26 · nano", "YOLO 26 · medium", "YOLO 26 · small", "YOLO 26 · medium · 640", "YOLO 26 · large", "YOLO 26 · xlarge"
+    ]
     modal: true
     focus: true
     padding: 0
-    width: Math.min(760, rootWindow ? rootWindow.width - 40 : 720)
-    height: Math.min(720, rootWindow ? rootWindow.height - 40 : 680)
+    width: Math.min(680, rootWindow ? rootWindow.width - 32 : 640)
+    height: Math.min(620, rootWindow ? rootWindow.height - 32 : 580)
     x: 0
     y: 0
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     Overlay.modal: Rectangle { color: Theme.overlayDim }
-    enter: Transition { NumberAnimation { properties: "opacity,scale"; from: 0.94; to: 1; duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
-    exit: Transition { NumberAnimation { properties: "opacity,scale"; to: 0.94; duration: Theme.motionDuration } }
     background: Rectangle {
         color: Theme.heroPanel
         radius: Theme.radiusOverlay
         border.color: Theme.hairline
         layer.enabled: true
-        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowBlur: 1.0; shadowVerticalOffset: 20 }
+        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowBlur: 1.0; shadowVerticalOffset: 18 }
     }
 
     Settings {
         id: customizationStore
         category: "ParallelFinder/customization"
-        property color accent: "#D97757"
-        property color sage: "#7C9885"
-        property string fontFamily: "Segoe UI"
-        property bool reducedMotion: false
-        property real surfaceOpacity: 1.0
-        property real radiusScale: 1.0
-        property real auraOpacity: 0.20
-        property real auraTrail: 0.34
         property string language: "ru"
+        property string fontFamily: "Segoe UI"
+        property string customFontPath: ""
+        property real surfaceOpacity: 1.0
     }
-    ColorDialog {
-        id: colorDialog
-        title: L10n.t("settings.colorDialog")
-        selectedColor: root.selectedToken === "accent" ? Theme.accent : Theme.sage
-        onAccepted: {
-            if (root.selectedToken === "accent") { Theme.accent = selectedColor; customizationStore.accent = selectedColor }
-            else { Theme.sage = selectedColor; customizationStore.sage = selectedColor }
+    FontLoader {
+        id: customFont
+        source: customizationStore.customFontPath
+        onStatusChanged: if (status === FontLoader.Ready) {
+            Theme.fontFamily = name
+            customizationStore.fontFamily = name
+            root.themeStatus = name
         }
     }
-    FileDialog { id: modelDialog; title: L10n.t("settings.modelPath"); fileMode: FileDialog.OpenFile; nameFilters: ["ONNX (*.onnx)", L10n.t("dialog.allFiles")]; onAccepted: Analysis.setModelPath(selectedFile.toLocalFile()) }
-    FolderDialog { id: cacheDialog; title: L10n.t("settings.cachePath"); onAccepted: Analysis.setCachePath(selectedFolder.toLocalFile()) }
-    FileDialog { id: exportThemeDialog; title: L10n.t("settings.exportTheme"); fileMode: FileDialog.SaveFile; nameFilters: ["Parallel Finder Theme (*.pftheme)"]; currentFile: "parallel-theme.pftheme"; onAccepted: root.themeStatus = Analysis.exportTheme(selectedFile.toLocalFile(), ({ accent: String(Theme.accent), sage: String(Theme.sage), fontFamily: Theme.fontFamily, reducedMotion: Theme.reducedMotion, surfaceOpacity: Theme.surfaceOpacity, radiusScale: Theme.radiusScale, auraOpacity: Theme.auraOpacity, auraTrail: Theme.auraTrail })) ? L10n.t("settings.profileSaveSuccess") : L10n.t("settings.profileSaveFailed") }
-    FileDialog { id: importThemeDialog; title: L10n.t("settings.importTheme"); fileMode: FileDialog.OpenFile; nameFilters: ["Parallel Finder Theme (*.pftheme)", L10n.t("dialog.allFiles")]; onAccepted: root.applyTheme(Analysis.importTheme(selectedFile.toLocalFile())) }
+    FileDialog {
+        id: fontDialog
+        title: L10n.t("settings.fontAdd")
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["Fonts (*.ttf *.otf *.woff *.woff2)", L10n.t("dialog.allFiles")]
+        onAccepted: {
+            customizationStore.customFontPath = selectedFile.toLocalFile()
+            customFont.source = customizationStore.customFontPath
+        }
+    }
 
     Component.onCompleted: {
-        Theme.accent = customizationStore.accent
-        Theme.sage = customizationStore.sage
-        Theme.fontFamily = customizationStore.fontFamily
-        Theme.reducedMotion = customizationStore.reducedMotion
-        Theme.surfaceOpacity = customizationStore.surfaceOpacity
-        Theme.radiusScale = customizationStore.radiusScale
-        Theme.auraOpacity = customizationStore.auraOpacity
-        Theme.auraTrail = customizationStore.auraTrail
         L10n.language = customizationStore.language
+        Theme.surfaceOpacity = customizationStore.surfaceOpacity
+        if (!customizationStore.customFontPath.length) Theme.fontFamily = customizationStore.fontFamily
         root.centerInWindow()
     }
     onClosed: {
-        customizationStore.accent = Theme.accent
-        customizationStore.sage = Theme.sage
-        customizationStore.fontFamily = Theme.fontFamily
-        customizationStore.reducedMotion = Theme.reducedMotion
-        customizationStore.surfaceOpacity = Theme.surfaceOpacity
-        customizationStore.radiusScale = Theme.radiusScale
-        customizationStore.auraOpacity = Theme.auraOpacity
-        customizationStore.auraTrail = Theme.auraTrail
         customizationStore.language = L10n.language
+        customizationStore.fontFamily = Theme.fontFamily
+        customizationStore.surfaceOpacity = Theme.surfaceOpacity
     }
+    onOpened: centerInWindow()
     Keys.onEscapePressed: root.close()
-
-    function resetAppearance() {
-        Theme.accent = "#D97757"
-        Theme.sage = "#7C9885"
-        Theme.fontFamily = "Segoe UI"
-        Theme.reducedMotion = false
-        Theme.surfaceOpacity = 1.0
-        Theme.radiusScale = 1.0
-        Theme.auraOpacity = 0.20
-        Theme.auraTrail = 0.34
-        customizationStore.accent = Theme.accent
-        customizationStore.sage = Theme.sage
-        customizationStore.fontFamily = Theme.fontFamily
-        customizationStore.reducedMotion = Theme.reducedMotion
-        customizationStore.surfaceOpacity = Theme.surfaceOpacity
-        customizationStore.radiusScale = Theme.radiusScale
-        customizationStore.auraOpacity = Theme.auraOpacity
-        customizationStore.auraTrail = Theme.auraTrail
-    }
-    function applyTheme(theme) {
-        if (!theme || !theme.accent || !theme.sage) { root.themeStatus = L10n.t("settings.profileNotRecognized"); return }
-        Theme.accent = String(theme.accent)
-        Theme.sage = String(theme.sage)
-        if (theme.fontFamily) Theme.fontFamily = String(theme.fontFamily)
-        if (theme.reducedMotion !== undefined) Theme.reducedMotion = Boolean(theme.reducedMotion)
-        if (theme.surfaceOpacity !== undefined) Theme.surfaceOpacity = Number(theme.surfaceOpacity)
-        if (theme.radiusScale !== undefined) Theme.radiusScale = Number(theme.radiusScale)
-        if (theme.auraOpacity !== undefined) Theme.auraOpacity = Number(theme.auraOpacity)
-        if (theme.auraTrail !== undefined) Theme.auraTrail = Number(theme.auraTrail)
-        customizationStore.accent = Theme.accent
-        customizationStore.sage = Theme.sage
-        customizationStore.fontFamily = Theme.fontFamily
-        customizationStore.reducedMotion = Theme.reducedMotion
-        customizationStore.surfaceOpacity = Theme.surfaceOpacity
-        customizationStore.radiusScale = Theme.radiusScale
-        customizationStore.auraOpacity = Theme.auraOpacity
-        customizationStore.auraTrail = Theme.auraTrail
-        root.themeStatus = L10n.t("settings.profileApplied")
-    }
 
     function centerInWindow() {
         if (!rootWindow || root.userPositioned) return
         root.x = Math.round((rootWindow.width - root.width) / 2)
         root.y = Math.round((rootWindow.height - root.height) / 2)
     }
-
-    onOpened: centerInWindow()
+    function resetAppearance() {
+        Theme.fontFamily = "Segoe UI"
+        Theme.surfaceOpacity = 1.0
+        customizationStore.fontFamily = Theme.fontFamily
+        customizationStore.customFontPath = ""
+        customizationStore.surfaceOpacity = Theme.surfaceOpacity
+        root.themeStatus = L10n.t("settings.resetDone")
+    }
 
     contentItem: Column {
         spacing: 0
@@ -140,161 +103,103 @@ Popup {
             color: Theme.surfaceRaised
             radius: Theme.radiusOverlay
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.hairline }
-            Text { anchors.left: parent.left; anchors.leftMargin: 24; anchors.verticalCenter: parent.verticalCenter; text: L10n.t("settings.windowTitle"); color: Theme.textPrimary; font.pixelSize: 13; font.weight: Font.DemiBold }
-            PfIconButton { anchors.right: parent.right; anchors.rightMargin: 14; anchors.verticalCenter: parent.verticalCenter; iconSource: "qrc:/qt/qml/PfUi/assets/x.svg"; accessibleName: L10n.t("common.close"); onClicked: root.close() }
-            MouseArea { anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.rightMargin: 58; property real pressX; property real pressY; property real startX; property real startY
+            Text { anchors.left: parent.left; anchors.leftMargin: 22; anchors.verticalCenter: parent.verticalCenter; text: L10n.t("settings.windowTitle"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 13; font.weight: Font.DemiBold }
+            PfIconButton { anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter; iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); onClicked: root.close() }
+            MouseArea {
+                anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.rightMargin: 56
+                property real pressX
+                property real pressY
+                property real startX
+                property real startY
                 cursorShape: Qt.SizeAllCursor
-                onPressed: { pressX = mouse.x; pressY = mouse.y; startX = root.x; startY = root.y }
-                onPositionChanged: if (pressed && rootWindow) { root.userPositioned = true; root.x = Math.max(12, Math.min(rootWindow.width - root.width - 12, startX + mouse.x - pressX)); root.y = Math.max(12, Math.min(rootWindow.height - root.height - 12, startY + mouse.y - pressY)) }
+                onPressed: { pressX = mouse.x; pressY = mouse.y; startX = root.x; startY = root.y; root.userPositioned = true }
+                onPositionChanged: if (pressed && rootWindow) {
+                    root.x = Math.max(12, Math.min(rootWindow.width - root.width - 12, startX + mouse.x - pressX))
+                    root.y = Math.max(12, Math.min(rootWindow.height - root.height - 12, startY + mouse.y - pressY))
+                }
             }
         }
         TabBar {
             id: tabs
             width: parent.width
-            height: 48
+            height: 46
             background: Rectangle { color: Theme.surfaceRaised; border.color: Theme.hairline }
             TabButton {
                 id: analysisTab
                 text: L10n.t("settings.tabAnalysis")
-                Accessible.name: text
                 contentItem: Text { text: analysisTab.text; color: analysisTab.checked ? Theme.textPrimary : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: analysisTab.checked ? Font.DemiBold : Font.Normal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 background: Rectangle { color: analysisTab.checked ? Theme.panelAlt : "transparent"; border.color: analysisTab.checked ? Theme.accent : "transparent"; border.width: analysisTab.checked ? 1 : 0; radius: Theme.radiusButton }
             }
             TabButton {
                 id: customizationTab
                 text: L10n.t("settings.tabAppearance")
-                Accessible.name: text
                 contentItem: Text { text: customizationTab.text; color: customizationTab.checked ? Theme.textPrimary : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: customizationTab.checked ? Font.DemiBold : Font.Normal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 background: Rectangle { color: customizationTab.checked ? Theme.panelAlt : "transparent"; border.color: customizationTab.checked ? Theme.accent : "transparent"; border.width: customizationTab.checked ? 1 : 0; radius: Theme.radiusButton }
             }
-            TabButton {
-                id: keyboardTab
-                text: L10n.t("settings.tabKeyboard")
-                Accessible.name: text
-                contentItem: Text { text: keyboardTab.text; color: keyboardTab.checked ? Theme.textPrimary : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: keyboardTab.checked ? Font.DemiBold : Font.Normal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { color: keyboardTab.checked ? Theme.panelAlt : "transparent"; border.color: keyboardTab.checked ? Theme.accent : "transparent"; border.width: keyboardTab.checked ? 1 : 0; radius: Theme.radiusButton }
-            }
         }
-        StackLayout { id: pages; width: parent.width; height: parent.height - 106; currentIndex: tabs.currentIndex
+        StackLayout { id: pages; width: parent.width; height: parent.height - 104; currentIndex: tabs.currentIndex
             Item {
-                Flickable { anchors.fill: parent; clip: true; contentWidth: width; contentHeight: analysisBody.implicitHeight + 48; boundsBehavior: Flickable.StopAtBounds; ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                    Column { id: analysisBody; width: parent.width - 48; x: 24; y: 24; spacing: 12
+                Flickable { anchors.fill: parent; anchors.margins: 22; clip: true; contentWidth: width; contentHeight: analysisBody.implicitHeight + 30; boundsBehavior: Flickable.StopAtBounds
+                    Column { id: analysisBody; width: parent.width; spacing: 12
                         Text { text: L10n.t("settings.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
-                        Text { text: L10n.t("settings.subtitle"); color: Theme.textSecondary; font.pixelSize: 12 }
+                        Text { text: L10n.t("settings.subtitle"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
                         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-                        Text { text: L10n.t("settings.environment"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Text { text: L10n.t("settings.environment"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         Row { width: parent.width; height: 36; spacing: 12
-                            Text { width: 135; text: L10n.t("settings.provider"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
+                            Text { id: providerLabel; width: 135; text: L10n.t("settings.provider"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; ToolTip.visible: providerHelp.hovered; ToolTip.text: L10n.t("settings.providerHint"); ToolTip.delay: 350 }
+                            HoverHandler { id: providerHelp }
                             PfComboBox { id: provider; width: 190; model: ["Auto", "TensorRT", "CUDA", "DirectML", "CPU"]; currentIndex: ["auto", "tensorrt", "cuda", "dml", "cpu"].indexOf(Analysis.providerChoice); Accessible.name: L10n.t("settings.provider"); onActivated: Analysis.providerChoice = ["auto", "tensorrt", "cuda", "dml", "cpu"][currentIndex] }
-                            Text { text: AppInfo.gpuSummary; color: AppInfo.backendIsGpu ? Theme.sage : Theme.textSecondary; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight; width: parent.width - 345 }
+                            Text { text: AppInfo.gpuSummary; color: AppInfo.backendIsGpu ? Theme.sage : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight; width: parent.width - 345 }
                         }
-                        Row { width: parent.width; height: 34; spacing: 12
-                            Text { width: 135; text: L10n.t("settings.language"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                            PfComboBox { width: 190; model: [L10n.t("settings.languageRussian"), L10n.t("settings.languageEnglish")]; currentIndex: L10n.language === "en" ? 1 : 0; Accessible.name: L10n.t("settings.language"); onActivated: { L10n.language = currentIndex === 1 ? "en" : "ru"; customizationStore.language = L10n.language } }
+                        Text { text: L10n.t("settings.models"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Row { width: parent.width; height: 36; spacing: 12
+                            Text { id: modelLabel; width: 135; text: L10n.t("settings.poseModel"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; ToolTip.visible: modelHelp.hovered; ToolTip.text: L10n.t("settings.modelHint"); ToolTip.delay: 350 }
+                            HoverHandler { id: modelHelp }
+                            PfComboBox { id: modelBox; width: parent.width - 147; model: root.modelLabels; currentIndex: Math.max(0, root.modelFiles.indexOf(Analysis.modelChoice)); Accessible.name: L10n.t("settings.poseModel"); onActivated: Analysis.selectModel(root.modelFiles[currentIndex]) }
                         }
-                        Row { width: parent.width; height: 34; spacing: 12
-                            Text { width: 135; text: L10n.t("settings.modelPath"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                            PfTextField { width: parent.width - 230; text: Analysis.modelPath; placeholderText: L10n.t("settings.modelPlaceholder"); Accessible.name: L10n.t("settings.modelPath"); onEditingFinished: Analysis.setModelPath(text) }
-                            PfButton { width: 80; text: L10n.t("settings.browse"); quiet: true; onClicked: modelDialog.open() }
-                        }
-                        Row { width: parent.width; height: 34; spacing: 12
-                            Text { width: 135; text: L10n.t("settings.cachePath"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                            PfTextField { width: parent.width - 230; text: Analysis.cachePath; placeholderText: L10n.t("settings.cachePlaceholder"); Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }
-                            PfButton { width: 80; text: L10n.t("settings.browse"); quiet: true; onClicked: cacheDialog.open() }
-                        }
-                        Row { width: parent.width; height: 34; spacing: 12
-                            Text { width: 135; text: L10n.t("settings.cacheLimit"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                            PfSlider { width: parent.width - 240; from: 0.25; to: 128; stepSize: 0.25; value: Analysis.cacheLimitGb; Accessible.name: L10n.t("settings.cacheLimit"); onMoved: Analysis.cacheLimitGb = value }
-                            Text { width: 80; text: Analysis.cacheLimitGb.toFixed(2); color: Theme.accent; verticalAlignment: Text.AlignVCenter; font.pixelSize: 11 }
-                        }
+                        Text { width: parent.width; text: Analysis.modelDownloading ? L10n.t("settings.modelDownloading") : (Analysis.modelStatus.length ? Analysis.modelStatus : L10n.t("settings.modelHint")); color: Analysis.modelDownloading ? Theme.accent : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
                         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-                        Text { text: L10n.t("settings.scene"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        Row { width: parent.width; height: 34; spacing: 12
-                            Text { width: 135; text: L10n.t("settings.sceneThreshold"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                            PfSlider { width: parent.width - 240; from: 1; to: 255; stepSize: 1; value: Analysis.sceneThreshold; Accessible.name: L10n.t("settings.sceneThreshold"); onMoved: Analysis.sceneThreshold = value }
-                            Text { width: 80; text: Math.round(Analysis.sceneThreshold); color: Theme.accent; verticalAlignment: Text.AlignVCenter; font.pixelSize: 11 }
+                        Text { text: L10n.t("settings.cache"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Row { width: parent.width; height: 36; spacing: 12
+                            Text { id: cacheLabel; width: 135; text: L10n.t("settings.cachePath"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; ToolTip.visible: cacheHelp.hovered; ToolTip.text: L10n.t("settings.cacheHint"); ToolTip.delay: 350 }
+                            HoverHandler { id: cacheHelp }
+                            PfTextField { width: parent.width - 147; text: Analysis.cachePath; placeholderText: L10n.t("settings.cachePlaceholder"); Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }
                         }
-                        Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-                        Text { text: L10n.t("settings.matcher"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        Text { text: L10n.t("settings.matcherHint"); color: Theme.textSecondary; font.pixelSize: 11; wrapMode: Text.WordWrap; width: parent.width }
-                        PfCheckBox { text: L10n.t("settings.reducedMotion"); checked: Theme.reducedMotion; onToggled: Theme.reducedMotion = checked }
-                        Row { width: parent.width; spacing: 8
-                            PfButton { width: (parent.width - 8) / 2; text: L10n.t("settings.reset"); quiet: true; onClicked: root.resetRequested() }
-                            PfButton { width: (parent.width - 8) / 2; text: L10n.t("settings.saved"); quiet: true; enabled: false }
+                        Row { width: parent.width; height: 32; spacing: 12
+                            Text { id: cacheLimitLabel; width: 135; text: L10n.t("settings.cacheLimit"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; ToolTip.visible: cacheLimitHelp.hovered; ToolTip.text: L10n.t("settings.cacheLimitHint"); ToolTip.delay: 350 }
+                            HoverHandler { id: cacheLimitHelp }
+                            PfSlider { width: parent.width - 220; from: 0.25; to: 128; stepSize: 0.25; value: Analysis.cacheLimitGb; Accessible.name: L10n.t("settings.cacheLimit"); onMoved: Analysis.cacheLimitGb = value }
+                            Text { width: 65; text: Analysis.cacheLimitGb.toFixed(2) + " GB"; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
                         }
+                        PfButton { width: parent.width; text: L10n.t("settings.reset"); quiet: true; onClicked: root.resetRequested() }
                     }
                 }
             }
             Item {
-                Flickable { anchors.fill: parent; clip: true; contentWidth: width; contentHeight: appearanceBody.implicitHeight + 48; boundsBehavior: Flickable.StopAtBounds; ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                    Column { id: appearanceBody; width: parent.width - 48; x: 24; y: 24; spacing: 14
+                Flickable { anchors.fill: parent; anchors.margins: 22; clip: true; contentWidth: width; contentHeight: appearanceBody.implicitHeight + 30; boundsBehavior: Flickable.StopAtBounds
+                    Column { id: appearanceBody; width: parent.width; spacing: 14
                         Text { text: L10n.t("settings.appearanceTitle"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
-                        Text { text: L10n.t("settings.appearanceSubtitle"); color: Theme.textSecondary; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
+                        Text { text: L10n.t("settings.appearanceSubtitle"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
                         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-                        Text { text: L10n.t("settings.palette"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Text { text: L10n.t("settings.language"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        PfComboBox { width: parent.width; model: [L10n.t("settings.languageRussian"), L10n.t("settings.languageEnglish")]; currentIndex: L10n.language === "en" ? 1 : 0; Accessible.name: L10n.t("settings.language"); onActivated: { L10n.language = currentIndex === 1 ? "en" : "ru"; customizationStore.language = L10n.language } }
+                        Text { text: L10n.t("settings.font"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         Row { width: parent.width; spacing: 8
-                            PfButton { width: (parent.width - 8) / 2; text: L10n.t("settings.accentAction"); quiet: root.selectedToken !== "accent"; onClicked: root.selectedToken = "accent" }
-                            PfButton { width: (parent.width - 8) / 2; text: L10n.t("settings.sageContext"); sageAction: true; quiet: root.selectedToken !== "sage"; onClicked: root.selectedToken = "sage" }
+                            PfComboBox { width: parent.width - 132; model: ["Segoe UI", "Arial", "Verdana"]; currentIndex: Math.max(0, model.indexOf(Theme.fontFamily)); Accessible.name: L10n.t("settings.font"); onActivated: { Theme.fontFamily = currentText; customizationStore.fontFamily = currentText; customizationStore.customFontPath = "" } }
+                            PfButton { width: 124; text: L10n.t("settings.fontAdd"); quiet: true; onClicked: fontDialog.open() }
                         }
-                        Rectangle { width: parent.width; height: 120; radius: Theme.radiusCard; color: Theme.well; border.width: root.customizationMode ? 2 : 1; border.color: root.customizationMode ? (root.selectedToken === "accent" ? Theme.accent : Theme.sage) : Theme.hairline
-                            Row { anchors.centerIn: parent; spacing: 12
-                                Rectangle { width: 124; height: 52; radius: 9; color: Theme.accent; Text { anchors.centerIn: parent; text: "A"; color: Theme.canvas; font.pixelSize: 16; font.weight: Font.DemiBold } }
-                                Rectangle { width: 124; height: 52; radius: 9; color: Theme.sage; Text { anchors.centerIn: parent; text: "B"; color: Theme.canvas; font.pixelSize: 16; font.weight: Font.DemiBold } }
-                            }
-                            MouseArea { anchors.fill: parent; onClicked: root.customizationMode = !root.customizationMode }
+                        Text { visible: customFont.status === FontLoader.Ready; text: L10n.t("settings.fontLoaded") + ": " + customFont.name; color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
+                        Text { text: L10n.t("settings.surfaceOpacity"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Row { width: parent.width; height: 34; spacing: 12
+                            Text { id: opacityLabel; width: 170; text: L10n.t("settings.surfaceOpacity"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; ToolTip.visible: opacityHelp.hovered; ToolTip.text: L10n.t("settings.surfaceOpacityHint"); ToolTip.delay: 350 }
+                            HoverHandler { id: opacityHelp }
+                            PfSlider { width: parent.width - 250; from: 0.72; to: 1.0; stepSize: 0.01; value: Theme.surfaceOpacity; Accessible.name: L10n.t("settings.surfaceOpacity"); onMoved: { Theme.surfaceOpacity = value; customizationStore.surfaceOpacity = value } }
+                            Text { width: 58; text: Math.round(Theme.surfaceOpacity * 100) + "%"; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
                         }
-                        Row { width: parent.width; spacing: 8
-                            PfButton { width: (parent.width - 8) / 2; text: L10n.t("settings.changeColor"); onClicked: colorDialog.open() }
-                            PfButton { width: (parent.width - 8) / 2; text: root.customizationMode ? L10n.t("settings.editEnabled") : L10n.t("settings.enableEdit"); quiet: !root.customizationMode; onClicked: root.customizationMode = !root.customizationMode }
-                        }
-                        Text { text: L10n.t("settings.font"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        PfComboBox { width: parent.width; model: ["Segoe UI", "Arial", "Verdana"]; currentIndex: model.indexOf(Theme.fontFamily); Accessible.name: L10n.t("settings.font"); onActivated: { Theme.fontFamily = currentText; customizationStore.fontFamily = currentText } }
-                        Row { width: parent.width; height: 32; spacing: 12
-                            Text { width: 170; text: L10n.t("settings.surfaceOpacity"); color: Theme.textSecondary; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
-                            PfSlider { width: parent.width - 240; from: 0.72; to: 1.0; stepSize: 0.01; value: Theme.surfaceOpacity; Accessible.name: L10n.t("settings.surfaceOpacity"); onMoved: { Theme.surfaceOpacity = value; customizationStore.surfaceOpacity = value } }
-                            Text { width: 58; text: Math.round(Theme.surfaceOpacity * 100) + "%"; color: Theme.accent; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
-                        }
-                        Row { width: parent.width; height: 32; spacing: 12
-                            Text { width: 170; text: L10n.t("settings.radiusScale"); color: Theme.textSecondary; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
-                            PfSlider { width: parent.width - 240; from: 0.7; to: 1.35; stepSize: 0.05; value: Theme.radiusScale; Accessible.name: L10n.t("settings.radiusScale"); onMoved: { Theme.radiusScale = value; customizationStore.radiusScale = value } }
-                            Text { width: 58; text: Theme.radiusScale.toFixed(2) + "×"; color: Theme.accent; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
-                        }
-                        Text { text: L10n.t("settings.motionField"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        Row { width: parent.width; height: 32; spacing: 12
-                            Text { width: 170; text: L10n.t("settings.auraOpacity"); color: Theme.textSecondary; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
-                            PfSlider { width: parent.width - 240; from: 0.04; to: 0.42; stepSize: 0.01; value: Theme.auraOpacity; Accessible.name: L10n.t("settings.auraOpacity"); onMoved: { Theme.auraOpacity = value; customizationStore.auraOpacity = value } }
-                            Text { width: 58; text: Math.round(Theme.auraOpacity * 100) + "%"; color: Theme.accent; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
-                        }
-                        Row { width: parent.width; height: 32; spacing: 12
-                            Text { width: 170; text: L10n.t("settings.auraTrail"); color: Theme.textSecondary; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
-                            PfSlider { width: parent.width - 240; from: 0.12; to: 0.58; stepSize: 0.01; value: Theme.auraTrail; Accessible.name: L10n.t("settings.auraTrail"); onMoved: { Theme.auraTrail = value; customizationStore.auraTrail = value } }
-                            Text { width: 58; text: Math.round(Theme.auraTrail * 100) + "%"; color: Theme.accent; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
-                        }
-                        PfCheckBox { text: L10n.t("settings.reducedMotion"); checked: Theme.reducedMotion; onToggled: { Theme.reducedMotion = checked; customizationStore.reducedMotion = checked } }
-                        Row { width: parent.width; spacing: 8
-                            PfButton { width: (parent.width - 8) / 2; text: L10n.t("settings.resetAppearance"); quiet: true; onClicked: root.resetAppearance() }
-                            PfButton { width: (parent.width - 8) / 2; text: L10n.t("settings.exportTheme"); quiet: true; onClicked: exportThemeDialog.open() }
-                        }
-                        Row { width: parent.width; spacing: 8
-                            PfButton { width: (parent.width - 8) / 2; text: L10n.t("settings.importTheme"); quiet: true; onClicked: importThemeDialog.open() }
-                            Text { width: (parent.width - 8) / 2; text: root.themeStatus || L10n.t("settings.profileSaved"); color: root.themeStatus ? Theme.accent : Theme.textDisabled; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap }
-                        }
+                        Rectangle { width: parent.width; height: 1; color: Theme.hairline }
+                        PfButton { width: parent.width; text: L10n.t("settings.resetAppearance"); quiet: true; onClicked: root.resetAppearance() }
+                        Text { width: parent.width; text: root.themeStatus || L10n.t("settings.profileSaved"); color: root.themeStatus ? Theme.accent : Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }
                     }
-                }
-            }
-            Item {
-                Column { anchors.fill: parent; anchors.margins: 24; spacing: 14
-                    Text { text: L10n.t("settings.a11yTitle"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
-                    Text { text: L10n.t("settings.a11ySubtitle"); color: Theme.textSecondary; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
-                    Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-                    Repeater { model: [{key: "Tab / Shift+Tab", value: L10n.t("settings.keyTab")}, {key: "↑ / ↓", value: L10n.t("settings.keyArrows")}, {key: "Enter", value: L10n.t("settings.keyEnter")}, {key: "Esc", value: L10n.t("settings.keyEscape")}]
-                        delegate: Row { width: parent.width; height: 34; spacing: 18
-                            Rectangle { width: 132; height: 28; radius: 6; color: Theme.surfaceRaised; border.color: Theme.hairline; Text { anchors.centerIn: parent; text: modelData.key; color: Theme.accent; font.pixelSize: 11; font.weight: Font.DemiBold } }
-                            Text { text: modelData.value; color: Theme.textSecondary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                        }
-                    }
-                    Item { width: 1; height: 1 }
-                    Text { text: L10n.t("settings.a11yHint"); color: Theme.textDisabled; font.pixelSize: 10; wrapMode: Text.WordWrap; width: parent.width }
                 }
             }
         }

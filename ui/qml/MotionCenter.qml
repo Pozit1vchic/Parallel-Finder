@@ -13,9 +13,9 @@ Column {
     property real timelineZoom: 1.0
     property real timelineOffset: 0.0
     property bool fullscreenTimeline: false
-    property real auraX: 0.5
-    property real auraY: 0.5
+    property bool analysisCompleted: !Analysis.busy && Analysis.progress >= 0.999 && String(Analysis.status).indexOf("Анализ ") === 0
     signal addRequested()
+    signal analyzeRequested()
 
     onSelectedRecordChanged: {
         root.timelineZoom = 1.0
@@ -62,14 +62,10 @@ Column {
                 Text { text: Analysis.busy ? Analysis.progressStage : (root.selectedRecord ? L10n.t("center.selected") : L10n.t("center.waiting")); color: Theme.textSecondary; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
             }
             Rectangle { width: parent.width; height: 5; radius: 3; color: Theme.well
-                Rectangle { width: parent.width * Analysis.progress; height: parent.height; radius: 3; color: Theme.accent; Behavior on width { NumberAnimation { duration: Theme.motionDuration } } }
+                Rectangle { width: parent.width * Analysis.progress; height: parent.height; radius: 3; color: Theme.accent }
             }
             Rectangle {
                 id: stage; width: parent.width; height: parent.height - 102; color: Theme.well; radius: Theme.radiusButton; border.color: Theme.hairline; clip: true
-                MouseArea { anchors.fill: parent; z: 0; hoverEnabled: true; acceptedButtons: Qt.NoButton
-                    onPositionChanged: { root.auraX = Math.max(0, Math.min(1, mouse.x / Math.max(1, width))); root.auraY = Math.max(0, Math.min(1, mouse.y / Math.max(1, height))) }
-                }
-                MotionAura { z: 0; anchors.fill: parent; targetX: root.auraX; targetY: root.auraY; active: !root.selectedRecord }
                 Column { anchors.fill: parent; anchors.margins: 16; spacing: 10; visible: !root.selectedRecord
                     Row { width: parent.width
                         Text { text: L10n.t("center.motionField"); color: Theme.textDisabled; font.pixelSize: 10; font.letterSpacing: 0.8 }
@@ -77,11 +73,12 @@ Column {
                         Text { text: Analysis.fileCount > 0 ? Analysis.poseDetectionCount + " " + L10n.t("center.poseCount") : L10n.t("center.noMaterial"); color: Theme.textSecondary; font.pixelSize: 10 }
                     }
                     Item { width: parent.width; height: parent.height - 72
-                        Rectangle { anchors.centerIn: parent; width: 260; height: 160; radius: 80; color: Theme.glowA; opacity: 0.10; layer.enabled: true; layer.effect: MultiEffect { blurEnabled: true; blur: 1.0 } }
                         Column { anchors.centerIn: parent; spacing: 9
-                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.sourceFiles.length > 0 ? L10n.t("center.readyTitle") : L10n.t("center.emptyTitle"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 20 }
-                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.sourceFiles.length > 0 ? L10n.t("center.readyHint") : L10n.t("center.emptyHint"); color: Theme.textSecondary; font.pixelSize: 12 }
+                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.sourceFiles.length === 0 ? L10n.t("center.emptyTitle") : root.analysisCompleted ? (Analysis.matchCount > 0 ? L10n.t("center.completedTitle") : L10n.t("center.noMatchesTitle")) : L10n.t("center.readyTitle"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 20 }
+                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.sourceFiles.length === 0 ? L10n.t("center.emptyHint") : root.analysisCompleted ? (Analysis.matchCount > 0 ? L10n.t("center.completedHint") : L10n.t("center.noMatchesHint")) : L10n.t("center.readyHint"); color: Theme.textSecondary; font.pixelSize: 12 }
                             PfButton { anchors.horizontalCenter: parent.horizontalCenter; visible: root.sourceFiles.length === 0; text: L10n.t("sources.add"); onClicked: root.addRequested() }
+                            PfButton { anchors.horizontalCenter: parent.horizontalCenter; visible: root.sourceFiles.length > 0 && !Analysis.busy; text: root.analysisCompleted ? L10n.t("search.restart") : L10n.t("search.start"); onClicked: root.analyzeRequested() }
+                            Text { anchors.horizontalCenter: parent.horizontalCenter; visible: Analysis.busy; text: Analysis.progressStage + " · " + Math.round(Analysis.progress * 100) + "%"; color: Theme.accent; font.pixelSize: 11 }
                         }
                     }
                 }
@@ -91,13 +88,13 @@ Column {
                             Row { width: parent.width
                                 Text { text: L10n.t("timeline.left"); color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 17 }
                                 Item { width: parent.width - 38; height: 1 }
-                                Text { text: root.timecode(root.selectedRecord.leftStart); color: Theme.textSecondary; font.pixelSize: 10 }
+                                Text { text: root.timecode(root.selectedRecord ? root.selectedRecord.leftStart : 0); color: Theme.textSecondary; font.pixelSize: 10 }
                             }
                             Rectangle { width: parent.width; height: parent.height - 42; color: Theme.well; radius: 6
-                                Image { anchors.fill: parent; source: root.selectedRecord.leftPreview || ""; fillMode: Image.PreserveAspectCrop; smooth: true; visible: source.length > 0 }
-                                Text { anchors.centerIn: parent; visible: root.selectedRecord.leftPreview === undefined || !root.selectedRecord.leftPreview; text: L10n.t("timeline.left"); color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 42 }
+                                Image { anchors.fill: parent; anchors.margins: 6; source: root.selectedRecord ? (root.selectedRecord.leftPreview || "") : ""; fillMode: Image.PreserveAspectFit; smooth: true; mipmap: true; visible: source.length > 0 }
+                                Text { anchors.centerIn: parent; visible: !root.selectedRecord || root.selectedRecord.leftPreview === undefined || !root.selectedRecord.leftPreview; text: L10n.t("timeline.left"); color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 42 }
                             }
-                            Text { text: root.fileName(root.selectedRecord.leftSource); color: Theme.textDisabled; font.pixelSize: 9; elide: Text.ElideMiddle; width: parent.width }
+                            Text { text: root.fileName(root.selectedRecord ? root.selectedRecord.leftSource : ""); color: Theme.textDisabled; font.pixelSize: 9; elide: Text.ElideMiddle; width: parent.width }
                         }
                     }
                     Rectangle { width: (parent.width - 10) / 2; height: parent.height; color: Theme.canvas; radius: Theme.radiusButton; border.color: Theme.sage
@@ -105,13 +102,13 @@ Column {
                             Row { width: parent.width
                                 Text { text: L10n.t("timeline.right"); color: Theme.sage; font.family: Theme.displayFont; font.pixelSize: 17 }
                                 Item { width: parent.width - 38; height: 1 }
-                                Text { text: root.timecode(root.selectedRecord.rightStart); color: Theme.textSecondary; font.pixelSize: 10 }
+                                Text { text: root.timecode(root.selectedRecord ? root.selectedRecord.rightStart : 0); color: Theme.textSecondary; font.pixelSize: 10 }
                             }
                             Rectangle { width: parent.width; height: parent.height - 42; color: Theme.well; radius: 6
-                                Image { anchors.fill: parent; source: root.selectedRecord.rightPreview || ""; fillMode: Image.PreserveAspectCrop; smooth: true; visible: source.length > 0 }
-                                Text { anchors.centerIn: parent; visible: root.selectedRecord.rightPreview === undefined || !root.selectedRecord.rightPreview; text: L10n.t("timeline.right"); color: Theme.sage; font.family: Theme.displayFont; font.pixelSize: 42 }
+                                Image { anchors.fill: parent; anchors.margins: 6; source: root.selectedRecord ? (root.selectedRecord.rightPreview || "") : ""; fillMode: Image.PreserveAspectFit; smooth: true; mipmap: true; visible: source.length > 0 }
+                                Text { anchors.centerIn: parent; visible: !root.selectedRecord || root.selectedRecord.rightPreview === undefined || !root.selectedRecord.rightPreview; text: L10n.t("timeline.right"); color: Theme.sage; font.family: Theme.displayFont; font.pixelSize: 42 }
                             }
-                            Text { text: root.fileName(root.selectedRecord.rightSource); color: Theme.textDisabled; font.pixelSize: 9; elide: Text.ElideMiddle; width: parent.width }
+                            Text { text: root.fileName(root.selectedRecord ? root.selectedRecord.rightSource : ""); color: Theme.textDisabled; font.pixelSize: 9; elide: Text.ElideMiddle; width: parent.width }
                         }
                     }
                 }
@@ -120,13 +117,13 @@ Column {
                 Text { text: L10n.t("timeline.title"); color: Theme.textDisabled; font.pixelSize: 10; font.letterSpacing: 0.8 }
                 Item { width: parent.width - 300; height: 1 }
                 Text { visible: !!root.selectedRecord; text: root.selectedRecord ? root.timecode(root.selectedRecord.duration) : L10n.t("common.empty"); color: Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
-                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/assets/minus.svg"; accessibleName: L10n.t("timeline.zoomOut"); enabled: !!root.selectedRecord && root.timelineZoom > 1; onClicked: root.setZoom(root.timelineZoom - 1) }
-                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/assets/plus.svg"; accessibleName: L10n.t("timeline.zoomIn"); enabled: !!root.selectedRecord && root.timelineZoom < 8; onClicked: root.setZoom(root.timelineZoom + 1) }
-                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/assets/maximize.svg"; accessibleName: L10n.t("timeline.fullscreen"); enabled: !!root.selectedRecord; onClicked: { root.fullscreenTimeline = true; root.forceActiveFocus() } }
+                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/qml/assets/minus.svg"; accessibleName: L10n.t("timeline.zoomOut"); enabled: !!root.selectedRecord && root.timelineZoom > 1; onClicked: root.setZoom(root.timelineZoom - 1) }
+                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/qml/assets/plus.svg"; accessibleName: L10n.t("timeline.zoomIn"); enabled: !!root.selectedRecord && root.timelineZoom < 8; onClicked: root.setZoom(root.timelineZoom + 1) }
+                PfIconButton { width: 24; height: 24; iconSource: "qrc:/qt/qml/PfUi/qml/assets/maximize.svg"; accessibleName: L10n.t("timeline.fullscreen"); enabled: !!root.selectedRecord; onClicked: { root.fullscreenTimeline = true; root.forceActiveFocus() } }
             }
             Rectangle { id: timelineTrack; width: parent.width; height: 42; color: Theme.surfaceRaised; radius: 5; border.color: Theme.border; clip: true
                 Item { id: timelineContent; x: -root.timelineOffset * Math.max(0, width * root.timelineZoom - timelineTrack.width); width: timelineTrack.width * root.timelineZoom; height: parent.height
-                    Rectangle { x: 8; y: 13; width: Math.max(20, parent.width * 0.18); height: 16; radius: 3; color: Theme.sageMuted }
+                    Rectangle { x: 8; y: 20; width: Math.max(20, parent.width - 16); height: 2; radius: 1; color: Theme.panelAlt }
                     Repeater { model: root.selectedRecord ? root.selectedRecord.markers : []; delegate: Rectangle { x: root.markerX(modelData, timelineTrack.width); y: 7; width: 2; height: 28; color: index < 2 ? Theme.accent : Theme.sage; layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: index < 2 ? Theme.accent : Theme.sage; shadowBlur: 0.55 } } }
                     MouseArea { anchors.fill: parent; enabled: root.timelineZoom > 1; cursorShape: Qt.OpenHandCursor; property real pressX; property real initialOffset
                         onPressed: { pressX = mouse.x; initialOffset = root.timelineOffset; cursorShape = Qt.ClosedHandCursor }
@@ -144,16 +141,16 @@ Column {
             Row { width: parent.width; height: 34
                 Text { text: L10n.t("center.comparison"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 22; verticalAlignment: Text.AlignVCenter }
                 Item { width: parent.width - 80; height: 1 }
-                PfIconButton { iconSource: "qrc:/qt/qml/PfUi/assets/x.svg"; accessibleName: L10n.t("common.close"); onClicked: root.fullscreenTimeline = false }
+                PfIconButton { iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); onClicked: root.fullscreenTimeline = false }
             }
             Row { width: parent.width; height: parent.height - 112; spacing: 14
                 Rectangle { width: (parent.width - 14) / 2; height: parent.height; color: Theme.well; radius: Theme.radiusButton; border.color: Theme.accent
-                    Image { anchors.fill: parent; anchors.margins: 10; source: root.selectedRecord.leftPreview || ""; fillMode: Image.PreserveAspectFit; smooth: true }
-                    Text { anchors.centerIn: parent; visible: !root.selectedRecord.leftPreview; text: L10n.t("timeline.left"); color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 48 }
+                    Image { anchors.fill: parent; anchors.margins: 10; source: root.selectedRecord ? (root.selectedRecord.leftPreview || "") : ""; fillMode: Image.PreserveAspectFit; smooth: true }
+                    Text { anchors.centerIn: parent; visible: !root.selectedRecord || !root.selectedRecord.leftPreview; text: L10n.t("timeline.left"); color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 48 }
                 }
                 Rectangle { width: (parent.width - 14) / 2; height: parent.height; color: Theme.well; radius: Theme.radiusButton; border.color: Theme.sage
-                    Image { anchors.fill: parent; anchors.margins: 10; source: root.selectedRecord.rightPreview || ""; fillMode: Image.PreserveAspectFit; smooth: true }
-                    Text { anchors.centerIn: parent; visible: !root.selectedRecord.rightPreview; text: L10n.t("timeline.right"); color: Theme.sage; font.family: Theme.displayFont; font.pixelSize: 48 }
+                    Image { anchors.fill: parent; anchors.margins: 10; source: root.selectedRecord ? (root.selectedRecord.rightPreview || "") : ""; fillMode: Image.PreserveAspectFit; smooth: true }
+                    Text { anchors.centerIn: parent; visible: !root.selectedRecord || !root.selectedRecord.rightPreview; text: L10n.t("timeline.right"); color: Theme.sage; font.family: Theme.displayFont; font.pixelSize: 48 }
                 }
             }
             Rectangle { width: parent.width; height: 44; color: Theme.surfaceRaised; radius: 6; border.color: Theme.border; clip: true

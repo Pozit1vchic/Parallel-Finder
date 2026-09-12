@@ -12,7 +12,6 @@ Slider {
     ToolTip.visible: control.hovered && control.tooltipText.length > 0
     ToolTip.delay: 650
     ToolTip.text: control.tooltipText
-
     background: Rectangle {
         x: 0
         y: Math.round(control.height / 2 - height / 2)

@@ -27,7 +27,7 @@ ComboBox {
         y: Math.round((control.height - height) / 2)
         width: 12
         height: 12
-        source: "qrc:/qt/qml/PfUi/assets/chevron-right.svg"
+        source: "qrc:/qt/qml/PfUi/qml/assets/chevron-right.svg"
         rotation: 90
         opacity: control.enabled ? (control.hovered || control.activeFocus ? 0.95 : 0.65) : 0.3
     }

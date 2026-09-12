@@ -11,10 +11,10 @@ Parallel Finder is an editorial motion-analysis workstation, not a generic
 dashboard. It should feel like a quiet, precise film tool: the video and its
 motion traces are the visual event; chrome is supporting equipment.
 
-One memorable visual per screen is enough. In the main empty state it is a
-restrained **motion field** — a few luminous trajectory strokes, not a logo,
-spinner, radar, or decorative target. In the analysis state it is the selected
-A/B pair and its four linked timeline markers.
+One memorable visual per screen is enough. In the analysis state it is the
+selected A/B pair and its four linked timeline markers. The empty state stays
+quiet and action-first: no aura, particle field, radar rings, fake target or
+perpetual decorative animation.
 
 ## Visual tokens
 
@@ -93,9 +93,9 @@ of duplicated labels:
 ### Empty analysis state
 
 Explain the next action in one sentence: `Добавьте видео, чтобы начать`.
-The background motion field is quiet and noninteractive. It disappears once a
-pair is selected. Do not use rings, radar imagery, placeholder letters, or a
-progress spinner as the hero art.
+Keep the video well clean and readable, with the primary action button close
+to the explanation. Do not use rings, radar imagery, placeholder letters,
+particle aura, motion blur or a progress spinner as hero art.
 
 ### Selected pair
 
@@ -116,16 +116,17 @@ is inactive until at least one checkbox is selected.
 
 Settings and export are custom movable overlays, not native Qt dialogs. They
 have a deliberate header, 14–16px corner radius, a dark overlay, deep shadow,
-keyboard close, and no platform chrome. Settings contain backend mode, cache
-path and limit, theme, language and model location. Export contains format,
+keyboard close, and no platform chrome. Settings are split into two focused
+tabs: Analysis (provider, ready model list, cache path and limit) and
+Appearance (language, bundled/custom font, panel transparency and reset).
+Scene/matcher controls remain in the main workspace. Export contains format,
 numbering, cut mode, output folder and prefix.
 
 ## Interaction / motion
 
-Motion explains state changes: selected result fades into A/B comparison;
-timeline markers slide only when a new pair is selected; popup opens with a
-small opacity/scale transition. No perpetual floating cards, pulsing status
-dots, rainbow glows, or repeated entrance animations.
+The interface is intentionally static. State changes replace content directly
+so analysis remains legible and deterministic. There are no perpetual floating
+cards, pulsing status dots, rainbow glows, motion blur or entrance animations.
 
 ## Explicit rejections
 

@@ -6,7 +6,6 @@ target_compile_features(pfui PUBLIC cxx_std_23)
 set(PFUI_QML_FILES
     qml/Theme.qml
     qml/L10n.qml
-    qml/Splash.qml
     qml/Main.qml
     qml/PfSlider.qml
     qml/PfComboBox.qml
@@ -18,7 +17,6 @@ set(PFUI_QML_FILES
     qml/StatsStrip.qml
     qml/SourcesRail.qml
     qml/MotionCenter.qml
-    qml/MotionAura.qml
     qml/ResultsRail.qml
     qml/SettingsDialog.qml
     qml/ExportDialog.qml

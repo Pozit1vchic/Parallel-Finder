@@ -36,6 +36,15 @@
 namespace pfui {
 namespace {
 
+constexpr auto kModelReleaseBase = "https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/";
+
+bool isSafeModelFilename(const QString& filename)
+{
+    return !filename.isEmpty() && filename.endsWith(QStringLiteral(".onnx"), Qt::CaseInsensitive)
+        && !filename.contains(QStringLiteral(".."))
+        && !filename.contains(QLatin1Char('/')) && !filename.contains(QLatin1Char('\\'));
+}
+
 QString localPathFromInput(const QString& value)
 {
     QString path = value.trimmed();
@@ -72,7 +81,10 @@ QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
     QDir().mkpath(directory);
     const QString path = directory + QLatin1Char('/') + name;
     QImage image(frame.rgba.data(), frame.width, frame.height, QImage::Format_RGBA8888);
-    return image.copy().save(path, "PNG") ? path : QString();
+    if (!image.copy().save(path, "PNG")) return {};
+    // Image.source is a URL in QML.  A bare Windows path such as C:/tmp/a.png
+    // may be parsed as a URL with the scheme "c" and fail silently.
+    return QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
 }
 
 QString savePreviewAt(const std::string& source, double timestamp, const QString& name)
@@ -203,6 +215,15 @@ std::filesystem::path findPoseModel()
     if (!settings.modelPath.empty()) {
         const std::filesystem::path configured(settings.modelPath);
         if (std::filesystem::is_regular_file(configured)) return configured;
+        const auto requestedName = configured.filename();
+        if (!requestedName.empty()) {
+            const auto executableModels = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) / "models";
+            const auto localModelsRoot = std::filesystem::path(pfservices::SettingsStore::defaultDirectory()) / "models";
+            for (const auto& root : {executableModels, localModelsRoot}) {
+                const auto candidate = root / requestedName;
+                if (std::filesystem::is_regular_file(candidate)) return candidate;
+            }
+        }
     }
     const std::filesystem::path localModels = std::filesystem::path(pfservices::SettingsStore::defaultDirectory())
         / "models" / "yolo26m-pose-640-b1.onnx";
@@ -263,6 +284,8 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     normalizeSize_ = settings.normalizeSize;
     mirrorPoses_ = settings.mirrorPoses;
     modelPath_ = QString::fromStdString(settings.modelPath);
+    modelChoice_ = QFileInfo(modelPath_).fileName();
+    if (modelChoice_.isEmpty()) modelChoice_ = QStringLiteral("yolo26m-pose-640-b1.onnx");
     cachePath_ = QString::fromStdString(settings.cachePath);
     cacheLimitGb_ = static_cast<double>(settings.cacheLimitBytes) / (1024.0 * 1024.0 * 1024.0);
     sceneThreshold_ = settings.sceneThreshold;
@@ -451,6 +474,53 @@ void AnalysisController::setModelPath(const QString& value)
     emit settingsChanged();
 }
 
+void AnalysisController::selectModel(const QString& filename)
+{
+    const QString requested = QFileInfo(filename.trimmed()).fileName();
+    if (!isSafeModelFilename(requested)) return;
+    modelChoice_ = requested;
+    emit settingsChanged();
+
+    const auto modelsRoot = std::filesystem::path(pfservices::SettingsStore::defaultDirectory()) / "models";
+    const auto destination = modelsRoot / requested.toStdWString();
+    std::error_code filesystemError;
+    if (std::filesystem::is_regular_file(destination, filesystemError)) {
+        modelPath_ = QString::fromStdWString(destination.wstring());
+        modelStatus_ = QStringLiteral("Модель готова к анализу");
+        saveSettings();
+        emit settingsChanged();
+        emit modelStatusChanged();
+        return;
+    }
+    if (modelDownloading_) return;
+
+    modelDownloading_ = true;
+    modelStatus_ = QStringLiteral("Скачиваем модель с GitHub Releases…");
+    emit modelStatusChanged();
+    QThread* thread = QThread::create([this, requested, destination] {
+        pfservices::ModelAsset asset;
+        asset.filename = requested.toStdString();
+        asset.downloadUrl = std::string(kModelReleaseBase) + asset.filename;
+        std::string error;
+        const bool ok = pfservices::ModelStore::download(asset, destination, {}, error);
+        const QString message = ok
+            ? QStringLiteral("Модель скачана и готова")
+            : QStringLiteral("Не удалось скачать модель: ") + QString::fromStdString(error);
+        QMetaObject::invokeMethod(this, [this, ok, destination, message] {
+            modelDownloading_ = false;
+            modelStatus_ = message;
+            if (ok) {
+                modelPath_ = QString::fromStdWString(destination.wstring());
+                saveSettings();
+                emit settingsChanged();
+            }
+            emit modelStatusChanged();
+        }, Qt::QueuedConnection);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
 void AnalysisController::setCachePath(const QString& value)
 {
     const QString normalized = value.trimmed();
@@ -556,6 +626,7 @@ void AnalysisController::inspectFiles(const QStringList& paths)
 {
     if (busy_) return;
     const QStringList normalized = normalizedPaths(paths);
+    deferredAnalyzePaths_.clear();
     results_.clear();
     matches_.clear();
     matchCount_ = 0;
@@ -593,6 +664,13 @@ void AnalysisController::inspectFiles(const QStringList& paths)
             setProgress(1.0, error.isEmpty() ? QStringLiteral("Файлы готовы") : QStringLiteral("Ошибка чтения"), 0, 0);
             setStatus(error.isEmpty() ? QStringLiteral("Файлы готовы к анализу")
                                       : QStringLiteral("Не удалось открыть файл: ") + error);
+            if (error.isEmpty() && !deferredAnalyzePaths_.isEmpty()) {
+                const QStringList queuedPaths = deferredAnalyzePaths_;
+                deferredAnalyzePaths_.clear();
+                QMetaObject::invokeMethod(this, [this, queuedPaths] {
+                    analyzeFiles(queuedPaths);
+                }, Qt::QueuedConnection);
+            }
         }, Qt::QueuedConnection);
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
@@ -612,8 +690,11 @@ QStringList AnalysisController::filesInFolder(const QString& folder) const
 
 void AnalysisController::analyzeFiles(const QStringList& paths)
 {
-    if (busy_) return;
     const QStringList normalized = normalizedPaths(paths);
+    if (busy_) {
+        if (!normalized.isEmpty()) deferredAnalyzePaths_ = normalized;
+        return;
+    }
     results_.clear();
     matches_.clear();
     matchCount_ = 0;
@@ -640,6 +721,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
                                         maxUniqueResults, timeWeight, providerChoice,
                                         qualityProfile, normalizeSize, mirrorPoses] {
+        try {
         int files = 0;
         int scenes = 0;
         int poseDetections = 0;
@@ -912,11 +994,14 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert(QStringLiteral("leftEnd"), item.leftEndSeconds);
                 record.insert(QStringLiteral("rightStart"), item.rightStartSeconds);
                 record.insert(QStringLiteral("rightEnd"), item.rightEndSeconds);
-                record.insert(QStringLiteral("duration"), item.durationSeconds);
+                const double timelineDuration = std::max({item.leftStartSeconds, item.leftEndSeconds,
+                                                           item.rightStartSeconds, item.rightEndSeconds,
+                                                           0.001});
+                record.insert(QStringLiteral("duration"), timelineDuration);
                 record.insert(QStringLiteral("rankScore"), item.rankScore);
                 QVariantList markers;
-                markers << 0.0 << std::max(0.0, item.leftEndSeconds - item.leftStartSeconds)
-                        << 0.0 << std::max(0.0, item.rightEndSeconds - item.rightStartSeconds);
+                markers << item.leftStartSeconds << item.leftEndSeconds
+                        << item.rightStartSeconds << item.rightEndSeconds;
                 record.insert(QStringLiteral("markers"), markers);
                 resultRecords.push_back(record);
                 const QString exactA = savePreviewAt(item.leftSourceId, item.leftStartSeconds,
@@ -946,6 +1031,22 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             setStatus(error.isEmpty() ? QStringLiteral("Анализ сцен завершён")
                                       : QStringLiteral("Анализ остановлен: ") + error);
         }, Qt::QueuedConnection);
+        } catch (const std::exception& exception) {
+            const QString message = QString::fromUtf8(exception.what());
+            QMetaObject::invokeMethod(this, [this, message] {
+                busy_ = false;
+                emit busyChanged();
+                setProgress(0.0, QStringLiteral("Ошибка анализа"), 0, 0);
+                setStatus(QStringLiteral("Анализ не запущен: ") + message);
+            }, Qt::QueuedConnection);
+        } catch (...) {
+            QMetaObject::invokeMethod(this, [this] {
+                busy_ = false;
+                emit busyChanged();
+                setProgress(0.0, QStringLiteral("Ошибка анализа"), 0, 0);
+                setStatus(QStringLiteral("Анализ не запущен: неизвестная ошибка"));
+            }, Qt::QueuedConnection);
+        }
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();

@@ -56,9 +56,9 @@ Rectangle {
             Text { text: root.results.length; color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 20 }
         }
         Row { width: parent.width; spacing: 6
-            PfIconButton { width: 28; height: 28; iconSource: "qrc:/qt/qml/PfUi/assets/chevron-left.svg"; accessibleName: L10n.t("results.previous"); enabled: root.visibleResults.length > 0; onClicked: root.selectPrevious() }
+            PfIconButton { width: 28; height: 28; iconSource: "qrc:/qt/qml/PfUi/qml/assets/chevron-left.svg"; accessibleName: L10n.t("results.previous"); enabled: root.visibleResults.length > 0; onClicked: root.selectPrevious() }
             Text { width: parent.width - 68; text: root.results.length > 0 ? L10n.t("results.selectPair") : L10n.t("common.empty"); color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 }
-            PfIconButton { width: 28; height: 28; iconSource: "qrc:/qt/qml/PfUi/assets/chevron-right.svg"; accessibleName: L10n.t("results.next"); enabled: root.visibleResults.length > 0; onClicked: root.selectNext() }
+            PfIconButton { width: 28; height: 28; iconSource: "qrc:/qt/qml/PfUi/qml/assets/chevron-right.svg"; accessibleName: L10n.t("results.next"); enabled: root.visibleResults.length > 0; onClicked: root.selectNext() }
         }
         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
         Row { width: parent.width; spacing: 6
@@ -79,7 +79,7 @@ Rectangle {
             Keys.onReturnPressed: if (root.visibleResults.length > 0) root.resultSelected(root.selectedIndex < 0 ? Number(root.visibleResults[0].id) : root.selectedIndex)
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             delegate: Rectangle {
-                width: resultList.width - 8; height: Theme.resultRowHeight + 12; radius: 7; color: root.selectedRows[modelData.id] ? Theme.accentMuted : Theme.surfaceRaised; border.color: index === root.selectedIndex ? Theme.accent : Theme.border; Accessible.name: String(modelData.direction || "") + " " + Math.round(Number(modelData.similarity) * 100) + "%"; Accessible.role: Accessible.ListItem
+                width: resultList.width - 8; height: Theme.resultRowHeight + 12; radius: 7; color: root.selectedRows[modelData.id] ? Theme.accentMuted : Theme.surfaceRaised; border.color: Number(modelData.id) === root.selectedIndex ? Theme.accent : Theme.border; Accessible.name: String(modelData.direction || "") + " " + Math.round(Number(modelData.similarity) * 100) + "%"; Accessible.role: Accessible.ListItem
                 MouseArea { anchors.fill: parent; onClicked: root.resultSelected(modelData.id) }
                 Row { anchors.fill: parent; anchors.margins: 7; spacing: 8
                     PfCheckBox { id: exportCheck; width: 18; text: ""; checked: root.selectedRows[modelData.id] === true; Accessible.name: L10n.t("results.export") + " " + (modelData.id + 1); onToggled: { const next = Object.assign({}, root.selectedRows); if (checked) next[modelData.id] = true; else delete next[modelData.id]; root.exportSelectionChanged(next) } }

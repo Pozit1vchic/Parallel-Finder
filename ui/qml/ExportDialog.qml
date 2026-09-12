@@ -7,7 +7,7 @@ import PfUiBridge
 
 Popup {
     id: root
-    property Item rootWindow
+    property var rootWindow
     property var selectedRows: ({})
     property string outputFolder: ""
     property string exportStatus: ""
@@ -22,12 +22,12 @@ Popup {
     Connections { target: Analysis; function onExportFinished(success, message) { root.exportStatus = message; if (success) root.close() } }
     function selectedIndexes() { return Object.keys(root.selectedRows).map(function (key) { return Number(key) }) }
     contentItem: Column { anchors.fill: parent; anchors.margins: 24; spacing: 14
-        Row { width: parent.width; height: 38
-            Column { width: parent.width - 42; spacing: 4
+        Item { width: parent.width; height: 38
+            Column { anchors.left: parent.left; anchors.top: parent.top; width: parent.width - 42; spacing: 4
                 Text { text: L10n.t("export.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 25 }
                 Text { text: Object.keys(root.selectedRows).length + " " + L10n.t("export.selected"); color: Theme.textSecondary; font.pixelSize: 12 }
             }
-            PfIconButton { iconSource: "qrc:/qt/qml/PfUi/assets/x.svg"; accessibleName: L10n.t("common.close"); onClicked: root.close() }
+            PfIconButton { anchors.right: parent.right; anchors.top: parent.top; iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); onClicked: root.close() }
             MouseArea {
                 anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.rightMargin: 42
                 property real pressX

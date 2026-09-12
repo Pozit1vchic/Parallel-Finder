@@ -22,6 +22,7 @@ ApplicationWindow {
     property var selectedRecord: null
 
     function addFiles(urls) {
+        const next = root.sourceFiles.slice()
         for (const url of urls || []) {
             const text = url.toString()
             let path = text
@@ -29,9 +30,9 @@ ApplicationWindow {
                 path = url.toLocalFile ? url.toLocalFile() : decodeURIComponent(text.replace(/^file:\/\//, ""))
             }
             if (path.match(/^\/[A-Za-z]:/)) path = path.slice(1)
-            if (root.sourceFiles.indexOf(path) < 0) root.sourceFiles.push(path)
+            if (next.indexOf(path) < 0) next.push(path)
         }
-        root.sourceFilesChanged()
+        root.sourceFiles = next
         Analysis.inspectFiles(root.sourceFiles)
     }
     function addFolder(url) {
@@ -51,16 +52,18 @@ ApplicationWindow {
         root.selectedResultIndex = index
         root.selectedRecord = index >= 0 && index < Analysis.results.length ? Analysis.results[index] : null
     }
-    function clearResultsSelection() { root.selectedExportRows = ({}); root.selectResult(-1) }
+    function syncResultsSelection() {
+        root.selectedExportRows = ({})
+        if (Analysis.results.length > 0) root.selectResult(Number(Analysis.results[0].id))
+        else root.selectResult(-1)
+    }
 
     FileDialog { id: fileDialog; title: L10n.t("dialog.chooseVideos"); fileMode: FileDialog.OpenFiles; nameFilters: [L10n.t("dialog.videoFilter"), L10n.t("dialog.allFiles")]; onAccepted: root.addFiles(selectedFiles) }
     FolderDialog { id: folderDialog; title: L10n.t("dialog.chooseFolder"); onAccepted: root.addFolder(selectedFolder) }
     SettingsDialog { id: settingsDialog; rootWindow: root; onResetRequested: root.resetMatcherSettings() }
     ExportDialog { id: exportDialog; rootWindow: root; selectedRows: root.selectedExportRows }
-    Loader { id: splashLoader; anchors.fill: parent; active: true; sourceComponent: Splash {} }
-    Timer { interval: 1100; running: splashLoader.active; onTriggered: splashLoader.active = false }
 
-    Connections { target: Analysis; function onResultsChanged() { root.clearResultsSelection() } }
+    Connections { target: Analysis; function onResultsChanged() { root.syncResultsSelection() } }
 
     Rectangle { anchors.fill: parent; color: Theme.canvas
         Column { anchors.fill: parent; spacing: 0
@@ -74,13 +77,13 @@ ApplicationWindow {
                     id: sourcesRail; width: root.railWidth; height: parent.height; sourceFiles: root.sourceFiles
                     onFilesRequested: function(urls) { if (urls && urls.length > 0) root.addFiles(urls); else fileDialog.open() }
                     onFolderRequested: folderDialog.open()
-                    onClearRequested: { root.sourceFiles = []; root.clearResultsSelection(); Analysis.inspectFiles([]) }
+                    onClearRequested: { root.sourceFiles = []; root.syncResultsSelection(); Analysis.inspectFiles([]) }
                     onRemoveRequested: root.removeSource(index)
                     onAnalyzeRequested: Analysis.analyzeFiles(root.sourceFiles)
                 }
                 MotionCenter {
                     id: motionCenter; width: parent.width - root.railWidth * 2 - 28; height: parent.height
-                    sourceFiles: root.sourceFiles; selectedRecord: root.selectedRecord; onAddRequested: fileDialog.open()
+                    sourceFiles: root.sourceFiles; selectedRecord: root.selectedRecord; onAddRequested: fileDialog.open(); onAnalyzeRequested: Analysis.analyzeFiles(root.sourceFiles)
                 }
                 ResultsRail {
                     id: resultsRail; width: root.railWidth; height: parent.height

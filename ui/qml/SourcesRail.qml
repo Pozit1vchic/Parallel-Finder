@@ -41,7 +41,7 @@ Rectangle {
                 onDropped: if (drop.hasUrls) root.filesRequested(drop.urls)
                 Rectangle { anchors.fill: parent; radius: Theme.radiusButton; color: parent.containsDrag ? Theme.accentMuted : Theme.well; border.width: 1; border.color: parent.containsDrag ? Theme.accent : Theme.hairlineStrong
                     Column { anchors.centerIn: parent; spacing: 7
-                        Image { anchors.horizontalCenter: parent.horizontalCenter; source: "qrc:/qt/qml/PfUi/assets/plus.svg"; sourceSize.width: 20; sourceSize.height: 20; smooth: true }
+                        Image { anchors.horizontalCenter: parent.horizontalCenter; source: "qrc:/qt/qml/PfUi/qml/assets/plus.svg"; sourceSize.width: 20; sourceSize.height: 20; smooth: true }
                         Text { anchors.horizontalCenter: parent.horizontalCenter; text: L10n.t("sources.dropTitle"); color: Theme.textPrimary; font.pixelSize: 12 }
                         Text { anchors.horizontalCenter: parent.horizontalCenter; text: L10n.t("sources.dropHint"); color: Theme.textSecondary; font.pixelSize: 10 }
                     }

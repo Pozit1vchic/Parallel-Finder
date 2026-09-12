@@ -1,12 +1,16 @@
-// ParallelFinder — thin entry point (spec section 2: init → Splash → Main).
+// ParallelFinder — thin entry point (init → Main).
 #include <QGuiApplication>
+#include <QDebug>
+#include <QEventLoop>
 #include <QQmlApplicationEngine>
+#include <QTimer>
 #include <QString>
 #include <QUrl>
 
 #include <pfgpu/DeviceInfo.hpp>
 
 #include <AppInfo.h>
+#include <AnalysisController.h>
 #include <cstdio>
 
 namespace {
@@ -77,8 +81,39 @@ int main(int argc, char* argv[])
     if (args.contains(QStringLiteral("--pf-smoke"))) {
         return runSmoke();
     }
+    const int analysisSmokeIndex = args.indexOf(QStringLiteral("--pf-analysis-smoke"));
+    if (analysisSmokeIndex >= 0) {
+        const QStringList paths = args.mid(analysisSmokeIndex + 1);
+        if (paths.isEmpty()) {
+            std::fprintf(stderr, "--pf-analysis-smoke requires at least one video path\n");
+            return 2;
+        }
+        auto* analysis = pfui::AnalysisController::instance();
+        QEventLoop loop;
+        QTimer timeout;
+        timeout.setSingleShot(true);
+        timeout.setInterval(120000);
+        QObject::connect(analysis, &pfui::AnalysisController::busyChanged, &loop, [&] {
+            if (!analysis->busy()) loop.quit();
+        });
+        QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+        timeout.start();
+        analysis->analyzeFiles(paths);
+        loop.exec();
+        std::printf("ParallelFinder analysis smoke %s\n", analysis->busy() ? "timeout" : "ok");
+        std::printf("  status : %s\n", qPrintable(analysis->status()));
+        std::printf("  files  : %d\n", analysis->fileCount());
+        std::printf("  frames : %lld\n", static_cast<long long>(analysis->frameCount()));
+        std::printf("  pairs  : %d\n", analysis->matchCount());
+        return analysis->busy() ? 1 : 0;
+    }
 
     QQmlApplicationEngine engine;
+    QObject::connect(&engine, &QQmlApplicationEngine::warnings, [](const QList<QQmlError>& warnings) {
+        for (const QQmlError& warning : warnings) {
+            std::fprintf(stderr, "QML: %s\n", qPrintable(warning.toString()));
+        }
+    });
     // Static QML module resources live under :/qt/qml (QTP0001); make the
     // import path explicit so `import PfUi` resolves regardless of Qt defaults.
     engine.addImportPath(QStringLiteral("qrc:/qt/qml"));

@@ -31,6 +31,9 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(bool normalizeSize READ normalizeSize WRITE setNormalizeSize NOTIFY settingsChanged)
     Q_PROPERTY(bool mirrorPoses READ mirrorPoses WRITE setMirrorPoses NOTIFY settingsChanged)
     Q_PROPERTY(QString modelPath READ modelPath NOTIFY settingsChanged)
+    Q_PROPERTY(QString modelChoice READ modelChoice NOTIFY settingsChanged)
+    Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY modelStatusChanged)
+    Q_PROPERTY(bool modelDownloading READ modelDownloading NOTIFY modelStatusChanged)
     Q_PROPERTY(QString cachePath READ cachePath NOTIFY settingsChanged)
     Q_PROPERTY(double cacheLimitGb READ cacheLimitGb NOTIFY settingsChanged)
     Q_PROPERTY(double sceneThreshold READ sceneThreshold NOTIFY settingsChanged)
@@ -64,6 +67,9 @@ public:
     bool normalizeSize() const noexcept { return normalizeSize_; }
     bool mirrorPoses() const noexcept { return mirrorPoses_; }
     QString modelPath() const { return modelPath_; }
+    QString modelChoice() const { return modelChoice_; }
+    QString modelStatus() const { return modelStatus_; }
+    bool modelDownloading() const noexcept { return modelDownloading_; }
     QString cachePath() const { return cachePath_; }
     double cacheLimitGb() const noexcept { return cacheLimitGb_; }
     double sceneThreshold() const noexcept { return sceneThreshold_; }
@@ -91,6 +97,7 @@ public:
     void setMirrorPoses(bool value);
 
     Q_INVOKABLE void setModelPath(const QString& value);
+    Q_INVOKABLE void selectModel(const QString& filename);
     Q_INVOKABLE void setCachePath(const QString& value);
     Q_INVOKABLE void setCacheLimitGb(double value);
     Q_INVOKABLE void setSceneThreshold(double value);
@@ -115,6 +122,7 @@ signals:
     void busyChanged();
     void matcherParamsChanged();
     void settingsChanged();
+    void modelStatusChanged();
     void exportFinished(bool success, const QString& message);
 
 private:
@@ -143,6 +151,10 @@ private:
     bool normalizeSize_ = true;
     bool mirrorPoses_ = true;
     QString modelPath_;
+    QString modelChoice_;
+    QString modelStatus_;
+    bool modelDownloading_ = false;
+    QStringList deferredAnalyzePaths_;
     QString cachePath_;
     double cacheLimitGb_ = 8.0;
     double sceneThreshold_ = 27.0;

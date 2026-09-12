@@ -39,12 +39,10 @@ QtObject {
     readonly property int fontSizeBody: 13
     readonly property int fontSizeTitle: 18
 
-    // Radii: buttons 8-10, cards 10-12, splash 16
-    property real radiusScale: 1.0
-    readonly property int radiusButton: Math.round(8 * radiusScale)
-    readonly property int radiusCard: Math.round(12 * radiusScale)
-    readonly property int radiusSplash: Math.round(16 * radiusScale)
-    readonly property int radiusOverlay: Math.round(16 * radiusScale)
+    // Radii: buttons 8-10, cards 10-12, overlays 16
+    readonly property int radiusButton: 8
+    readonly property int radiusCard: 12
+    readonly property int radiusOverlay: 16
 
     // Shadows: blur 14-24, opacity 0.08-0.35
     readonly property int shadowBlurPanel: 16
@@ -62,10 +60,4 @@ QtObject {
     readonly property int sidePanelWidth: 286
     readonly property int resultRowHeight: 32 // virtualized rows
     readonly property int margins: 12
-    property bool reducedMotion: false
-    // The empty-state field is an accent, not a second background. Keep the
-    // defaults deliberately restrained; both values are user-customizable.
-    property real auraOpacity: 0.20
-    property real auraTrail: 0.34
-    readonly property int motionDuration: reducedMotion ? 0 : 160
 }
