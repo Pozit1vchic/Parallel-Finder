@@ -14,6 +14,7 @@ add_executable(pf_tests
     core/test_exporters.cpp
     core/test_settings_store.cpp
     core/test_model_store.cpp
+    core/test_cut_service.cpp
     core/test_dominant_person.cpp
     gpu/test_device_info.cpp
     gpu/test_provider.cpp

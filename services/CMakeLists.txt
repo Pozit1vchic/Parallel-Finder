@@ -2,6 +2,7 @@ add_library(pfservices STATIC
     src/ThumbnailCache.cpp
     src/SettingsStore.cpp
     src/ModelStore.cpp
+    src/CutService.cpp
 )
 add_library(pf::services ALIAS pfservices)
 set_target_properties(pfservices PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
