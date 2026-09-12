@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <pfcore/JobManager.hpp>
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -20,4 +21,29 @@ TEST(JobManager, AppliesQueueBackpressure)
     auto second = manager.submit("b", [] {});
     EXPECT_THROW(manager.submit("c", [] {}), std::overflow_error);
     gate.set_value(); first.get(); second.get();
+}
+
+TEST(JobManager, SerializesJobsWithTheSameSourceButAllowsDifferentSources)
+{
+    pfcore::JobManager manager(8, 2);
+    std::promise<void> gate;
+    auto hold = gate.get_future().share();
+    std::atomic<int> activeA = 0;
+    std::atomic<int> maxActiveA = 0;
+    auto first = manager.submit("same", [hold, &activeA, &maxActiveA] {
+        const int now = ++activeA;
+        maxActiveA.store(std::max(maxActiveA.load(), now));
+        hold.wait();
+        --activeA;
+    });
+    auto second = manager.submit("same", [&activeA, &maxActiveA] {
+        const int now = ++activeA;
+        maxActiveA.store(std::max(maxActiveA.load(), now));
+        --activeA;
+    });
+    auto different = manager.submit("other", [] {});
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    EXPECT_EQ(maxActiveA.load(), 1);
+    gate.set_value();
+    first.get(); second.get(); different.get();
 }

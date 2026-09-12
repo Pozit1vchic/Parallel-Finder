@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <cstdlib>
 #include <filesystem>
 #include <vector>
@@ -18,10 +19,12 @@
 #include "pfcore/VideoDecoder.hpp"
 #include "pfcore/SceneDetector.hpp"
 #include "pfcore/MotionMatcher.hpp"
+#include "pfcore/MotionRanker.hpp"
 #include "pfcore/DominantPerson.hpp"
 #include "pfgpu/PoseEstimator.hpp"
 #include "pfservices/SettingsStore.hpp"
 #include "pfservices/ModelStore.hpp"
+#include "pfservices/PfCache.hpp"
 
 namespace pfui {
 namespace {
@@ -58,6 +61,81 @@ std::vector<std::uint8_t> sceneThumbnail(const pfcore::DecodedFrame& frame,
         }
     }
     return result;
+}
+
+template <typename T>
+void appendBytes(std::vector<std::uint8_t>& output, const T& value)
+{
+    const auto* begin = reinterpret_cast<const std::uint8_t*>(&value);
+    output.insert(output.end(), begin, begin + sizeof(T));
+}
+
+template <typename T>
+bool readBytes(const std::vector<std::uint8_t>& input, std::size_t& offset, T& value)
+{
+    if (offset + sizeof(T) > input.size()) return false;
+    std::memcpy(&value, input.data() + offset, sizeof(T));
+    offset += sizeof(T);
+    return true;
+}
+
+std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::MotionWindow>& windows)
+{
+    std::vector<std::uint8_t> output;
+    const std::uint32_t version = 1;
+    appendBytes(output, version);
+    appendBytes(output, static_cast<std::uint32_t>(windows.size()));
+    for (const auto& window : windows) {
+        appendBytes(output, static_cast<std::uint32_t>(window.sourceId.size()));
+        output.insert(output.end(), window.sourceId.begin(), window.sourceId.end());
+        appendBytes(output, static_cast<std::uint32_t>(window.frames.size()));
+        for (const auto& frame : window.frames) {
+            appendBytes(output, frame.timestampSeconds);
+            appendBytes(output, static_cast<std::uint32_t>(frame.keypoints.size()));
+            for (const auto& point : frame.keypoints) {
+                appendBytes(output, point.x);
+                appendBytes(output, point.y);
+                appendBytes(output, point.confidence);
+            }
+        }
+    }
+    return output;
+}
+
+bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
+                              std::vector<pfcore::MotionWindow>& windows)
+{
+    std::size_t offset = 0;
+    std::uint32_t version = 0, windowCount = 0;
+    if (!readBytes(input, offset, version) || version != 1
+        || !readBytes(input, offset, windowCount) || windowCount > 1'000'000U) return false;
+    windows.clear();
+    windows.reserve(windowCount);
+    for (std::uint32_t windowIndex = 0; windowIndex < windowCount; ++windowIndex) {
+        std::uint32_t sourceSize = 0;
+        if (!readBytes(input, offset, sourceSize) || sourceSize > 16U * 1024U
+            || offset + sourceSize > input.size()) return false;
+        pfcore::MotionWindow window;
+        window.sourceId.assign(reinterpret_cast<const char*>(input.data() + offset), sourceSize);
+        offset += sourceSize;
+        std::uint32_t frameCount = 0;
+        if (!readBytes(input, offset, frameCount) || frameCount > 100'000U) return false;
+        window.frames.reserve(frameCount);
+        for (std::uint32_t frameIndex = 0; frameIndex < frameCount; ++frameIndex) {
+            pfcore::PoseFrame frame;
+            std::uint32_t pointCount = 0;
+            if (!readBytes(input, offset, frame.timestampSeconds)
+                || !readBytes(input, offset, pointCount) || pointCount > 128U) return false;
+            frame.keypoints.resize(pointCount);
+            for (auto& point : frame.keypoints) {
+                if (!readBytes(input, offset, point.x) || !readBytes(input, offset, point.y)
+                    || !readBytes(input, offset, point.confidence)) return false;
+            }
+            window.frames.push_back(std::move(frame));
+        }
+        windows.push_back(std::move(window));
+    }
+    return offset == input.size();
 }
 
 std::filesystem::path findPoseModel()
@@ -276,6 +354,16 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             }, Qt::QueuedConnection);
             return;
         }
+        std::unique_ptr<pfservices::PfCache> analysisCache;
+        try {
+            const std::filesystem::path cacheRoot = settings.cachePath.empty()
+                ? std::filesystem::path(pfservices::SettingsStore::defaultDirectory()) / "cache"
+                : std::filesystem::path(settings.cachePath);
+            analysisCache = std::make_unique<pfservices::PfCache>(cacheRoot, settings.cacheLimitBytes);
+        } catch (const std::exception&) {
+            // Cache is an optimization; analysis remains usable when its path
+            // is unavailable or malformed.
+        }
         std::unique_ptr<pfgpu::PoseEstimator> pose;
         {
             pfgpu::PoseEstimatorParams poseParams;
@@ -290,6 +378,18 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 pfcore::VideoDecoder decoder;
                 decoder.open(path.toStdString());
                 const auto info = decoder.info();
+                std::vector<pfcore::MotionWindow> cachedWindows;
+                bool cacheHit = false;
+                std::string cacheKey = "motion-v1|" + model.string() + "|" + path.toStdString();
+                std::error_code cacheFileError;
+                const auto cacheFileSize = std::filesystem::file_size(path.toStdString(), cacheFileError);
+                const auto cacheWriteTime = std::filesystem::last_write_time(path.toStdString(), cacheFileError);
+                cacheKey += "|" + std::to_string(cacheFileSize) + "|"
+                    + std::to_string(cacheWriteTime.time_since_epoch().count());
+                if (analysisCache) {
+                    if (const auto cached = analysisCache->get(cacheKey))
+                        cacheHit = deserializeMotionWindows(*cached, cachedWindows);
+                }
                 ++files;
                 duration += info.durationSeconds;
                 frames += static_cast<qlonglong>(std::max(0.0, info.durationSeconds * info.frameRate));
@@ -312,7 +412,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         do { nextSceneSample += 1.0; }
                         while (nextSceneSample <= frame.timestampSeconds + 1e-9);
                     }
-                    if (pose && (index++ % 5U) == 0U) {
+                    if (pose && !cacheHit && (index++ % 5U) == 0U) {
                         pfgpu::PoseImage image{frame.width, frame.height, frame.rgba.data()};
                         const auto detections = pose->infer(image);
                         poseDetections += static_cast<int>(detections.size());
@@ -354,7 +454,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 scenes += static_cast<int>(sceneBoundaries.size());
                 const QString previewStart = firstFrame.rgba.empty() ? QString() : savePreview(firstFrame, QStringLiteral("%1_start.png").arg(files));
                 const QString previewEnd = lastFrame.rgba.empty() ? QString() : savePreview(lastFrame, QStringLiteral("%1_end.png").arg(files));
-                if (pose) {
+                if (cacheHit) {
+                    for (auto& cached : cachedWindows) {
+                        windows.push_back(std::move(cached));
+                        previewA.push_back(previewStart);
+                        previewB.push_back(previewEnd);
+                    }
+                } else if (pose) {
                     const auto dominant = tracker.dominant();
                     // Keep scene boundaries in the motion index: a candidate
                     // never crosses a shot change, and a clip can end only at
@@ -416,6 +522,18 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             start = next;
                         }
                     }
+                    if (analysisCache) {
+                        std::vector<pfcore::MotionWindow> fileWindows;
+                        const std::size_t firstWindow = windows.size();
+                        (void)firstWindow;
+                        // Only entries from this source are serialized, so a
+                        // later run can skip pose inference for the same file.
+                        for (const auto& candidate : windows) {
+                            if (candidate.sourceId == path.toStdString()) fileWindows.push_back(candidate);
+                        }
+                        std::string cacheError;
+                        analysisCache->put(cacheKey, serializeMotionWindows(fileWindows), cacheError);
+                    }
                 }
             } catch (const std::exception& exception) {
                 error = QString::fromUtf8(exception.what());
@@ -433,7 +551,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.noiseFactor = noiseFactor;
             params.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults);
             params.timeWeight = timeWeight;
-            const auto found = pfcore::MotionMatcher(params).findAllPairs(windows);
+            auto found = pfcore::MotionMatcher(params).findAllPairs(windows);
+            pfcore::MotionRanker::rank(found, windows);
             matches = static_cast<int>(found.size());
             const QStringList windowPreviewA = previewA;
             const QStringList windowPreviewB = previewB;
@@ -441,9 +560,11 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             previewB.clear();
             for (std::size_t i = 0; i < found.size(); ++i) {
                 const auto& item = found[i];
-                resultItems.push_back(QStringLiteral("Пара %1  ·  %2%  ·  %3 с / %4 с")
+                resultItems.push_back(QStringLiteral("Пара %1  ·  %2%  ·  %3  ·  %4  ·  %5 с / %6 с")
                     .arg(static_cast<int>(i + 1), 2, 10, QLatin1Char('0'))
                     .arg(static_cast<int>(item.similarity * 100.0))
+                    .arg(QString::fromStdString(item.directionLabel))
+                    .arg(QString::fromStdString(item.gestureLabel))
                     .arg(QString::number(item.leftStartSeconds, 'f', 1))
                     .arg(QString::number(item.rightStartSeconds, 'f', 1)));
                 previewA.push_back(item.leftIndex < static_cast<std::size_t>(windowPreviewA.size()) ? windowPreviewA.at(static_cast<int>(item.leftIndex)) : QString());

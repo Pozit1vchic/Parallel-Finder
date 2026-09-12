@@ -8,7 +8,8 @@ namespace pfcore {
 class JobManager {
 public:
     using Job = std::function<void()>;
-    explicit JobManager(std::size_t maxQueued = 16);
+    explicit JobManager(std::size_t maxQueued = 16,
+                        std::size_t workerCount = 1);
     ~JobManager();
     JobManager(const JobManager&) = delete;
     JobManager& operator=(const JobManager&) = delete;

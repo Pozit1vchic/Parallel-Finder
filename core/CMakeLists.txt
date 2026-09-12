@@ -5,6 +5,8 @@ add_library(pfcore STATIC
     src/MotionIndex.cpp
     src/DominantPerson.cpp
     src/JobManager.cpp
+    src/MovementClassifier.cpp
+    src/MotionRanker.cpp
 )
 add_library(pf::core ALIAS pfcore)
 set_target_properties(pfcore PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
@@ -26,6 +28,10 @@ set(PF_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/DominantPerson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/JobManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/JobManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/MovementClassifier.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/MovementClassifier.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/MotionRanker.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/MotionRanker.cpp
 )
 
 find_path(PF_FFMPEG_INCLUDE_DIR NAMES libavformat/avformat.h REQUIRED)

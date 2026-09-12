@@ -55,3 +55,10 @@ Backend performance note:
   normalized Sakoe–Chiba DTW, and applies the cross-file gap constraint. The
   production window builder uses a 1.0 s window and 0.25 s stride on decoded
   timestamps, so VFR material is not silently converted to guessed counts.
+- Stage 3c adds a transparent pose-only `MovementClassifier` (direction plus
+  gesture heuristics), `MotionRanker`, and versioned `PFCACHE1` disk entries.
+  Cache records are keyed by source/model/file metadata, written atomically,
+  hash-named, size-limited and evicted by least-recent access. `JobManager`
+  now supports multiple workers while preventing two jobs for the same source
+  path from running concurrently; unrelated paths can use the available
+  workers, and queue overflow remains explicit backpressure.

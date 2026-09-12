@@ -10,6 +10,8 @@ add_executable(pf_tests
     core/test_motion_matcher.cpp
     core/test_motion_index.cpp
     core/test_job_manager.cpp
+    core/test_movement_classifier.cpp
+    core/test_pf_cache.cpp
     core/test_thumbnail_cache.cpp
     core/test_exporters.cpp
     core/test_settings_store.cpp

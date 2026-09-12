@@ -103,6 +103,9 @@ std::string jsonResults(const std::vector<pfcore::MotionMatch>& matches)
                << "      \"similarity\": " << std::setprecision(8) << item.similarity << ",\n"
                << "      \"dtwDistance\": " << item.dtwDistance << ",\n"
                << "      \"durationSeconds\": " << item.durationSeconds << ",\n"
+               << "      \"direction\": \"" << jsonEscape(item.directionLabel) << "\",\n"
+               << "      \"gesture\": \"" << jsonEscape(item.gestureLabel) << "\",\n"
+               << "      \"rankScore\": " << item.rankScore << ",\n"
                << "      \"left\": {\"source\": \"" << jsonEscape(item.leftSourceId)
                << "\", \"start\": " << item.leftStartSeconds << ", \"end\": " << item.leftEndSeconds << "},\n"
                << "      \"right\": {\"source\": \"" << jsonEscape(item.rightSourceId)
@@ -116,11 +119,12 @@ std::string jsonResults(const std::vector<pfcore::MotionMatch>& matches)
 std::string csvResults(const std::vector<pfcore::MotionMatch>& matches)
 {
     std::ostringstream output;
-    output << "index,similarity,dtw_distance,duration_seconds,left_source,left_start,left_end,right_source,right_start,right_end\n";
+    output << "index,similarity,rank_score,direction,gesture,dtw_distance,duration_seconds,left_source,left_start,left_end,right_source,right_start,right_end\n";
     for (std::size_t i = 0; i < matches.size(); ++i) {
         const auto& item = matches[i];
         output << (i + 1) << ',' << std::setprecision(8) << item.similarity << ','
-               << item.dtwDistance << ',' << item.durationSeconds << ','
+               << item.rankScore << ',' << csvEscape(item.directionLabel) << ','
+               << csvEscape(item.gestureLabel) << ',' << item.dtwDistance << ',' << item.durationSeconds << ','
                << csvEscape(item.leftSourceId) << ',' << item.leftStartSeconds << ',' << item.leftEndSeconds << ','
                << csvEscape(item.rightSourceId) << ',' << item.rightStartSeconds << ',' << item.rightEndSeconds << '\n';
     }

@@ -51,6 +51,9 @@ struct MotionMatch {
     double leftEndSeconds = 0.0;
     double rightStartSeconds = 0.0;
     double rightEndSeconds = 0.0;
+    std::string directionLabel;
+    std::string gestureLabel;
+    double rankScore = 0.0;
 };
 
 class MotionMatcher {
