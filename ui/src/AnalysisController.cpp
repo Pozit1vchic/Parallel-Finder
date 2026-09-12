@@ -19,6 +19,7 @@
 #include "pfcore/MotionMatcher.hpp"
 #include "pfgpu/PoseEstimator.hpp"
 #include "pfservices/SettingsStore.hpp"
+#include "pfservices/ModelStore.hpp"
 
 namespace pfui {
 namespace {
@@ -53,6 +54,13 @@ std::filesystem::path findPoseModel()
     const std::filesystem::path localModels = std::filesystem::path(pfservices::SettingsStore::defaultDirectory())
         / "models" / "yolo26m-pose-640-b1.onnx";
     if (std::filesystem::is_regular_file(localModels)) return localModels;
+    std::string modelError;
+    const pfservices::ModelAsset asset;
+    if (const auto resolved = pfservices::ModelStore::resolve(
+            asset, std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()), modelError)) {
+        return *resolved;
+    }
+    (void)modelError;
     return {};
 }
 
