@@ -20,6 +20,7 @@ add_executable(pf_tests
     gpu/test_provider.cpp
     gpu/test_provider_factory.cpp
     gpu/test_session_cache.cpp
+    gpu/test_pose_estimator.cpp
 )
 set_target_properties(pf_tests PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_compile_definitions(pf_tests PRIVATE PF_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")

@@ -15,6 +15,8 @@
   },
   "opset": 17,
   "nms": false,
+  "outputMode": "auto",
+  "sizeBytes": 86529329,
   "sha256": "045318a5e73f96fb0940827957fca5a2bc065dbff01b959780a230bacc55fd90",
   "license": "AGPL-3.0",
   "source": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-pose.pt",

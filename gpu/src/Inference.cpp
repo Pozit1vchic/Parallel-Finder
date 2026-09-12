@@ -6,6 +6,45 @@
 
 namespace pfgpu {
 
+namespace {
+
+bool readTensorSpec(const OrtApi& api, const OrtTypeInfo* typeInfo,
+                    TensorSpec& destination, std::string& error)
+{
+    const OrtTensorTypeAndShapeInfo* tensorInfo = nullptr;
+    if (!checkStatus(api, api.CastTypeInfoToTensorInfo(typeInfo, &tensorInfo), error)) return false;
+    std::size_t rank = 0;
+    if (!checkStatus(api, api.GetDimensionsCount(tensorInfo, &rank), error)) return false;
+    destination.shape.resize(rank);
+    return checkStatus(api, api.GetDimensions(tensorInfo, destination.shape.data(), rank), error);
+}
+
+} // namespace
+
+SessionSpec describeSession(const SessionHandle& session)
+{
+    SessionSpec result;
+    const OrtApi* api = ortApi();
+    if (!api || !session.session) { result.error = "ONNX Runtime session is not available"; return result; }
+    OrtTypeInfo* inputInfo = nullptr;
+    if (!checkStatus(*api, api->SessionGetInputTypeInfo(session.session, 0, &inputInfo), result.error)) return result;
+    const bool inputOk = readTensorSpec(*api, inputInfo, result.input, result.error);
+    api->ReleaseTypeInfo(inputInfo);
+    if (!inputOk) return result;
+    std::size_t outputCount = 0;
+    if (!checkStatus(*api, api->SessionGetOutputCount(session.session, &outputCount), result.error)) return result;
+    result.outputs.resize(outputCount);
+    for (std::size_t i = 0; i < outputCount; ++i) {
+        OrtTypeInfo* outputInfo = nullptr;
+        if (!checkStatus(*api, api->SessionGetOutputTypeInfo(session.session, i, &outputInfo), result.error)) return result;
+        const bool outputOk = readTensorSpec(*api, outputInfo, result.outputs[i], result.error);
+        api->ReleaseTypeInfo(outputInfo);
+        if (!outputOk) return result;
+    }
+    result.ok = true;
+    return result;
+}
+
 InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
 {
     InferenceResult result;

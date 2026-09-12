@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -24,13 +25,22 @@ struct PoseDetection {
     std::vector<float> keypoints; // x, y, confidence triplets in source pixels
 };
 
+enum class PoseOutputMode {
+    Auto,
+    EndToEnd,
+    ExternalNms,
+};
+
 struct PoseEstimatorParams {
     int inputWidth = 640;
     int inputHeight = 640;
     std::size_t keypointCount = 17;
     float confidenceThreshold = 0.25F;
+    float nmsIouThreshold = 0.70F;
     Provider provider = Provider::Auto;
     std::string profile = "b1";
+    std::size_t batchSize = 0; // 0 = infer from profile (b1/b8/b16)
+    PoseOutputMode outputMode = PoseOutputMode::Auto;
 };
 
 class PoseEstimator {
@@ -38,6 +48,7 @@ public:
     PoseEstimator(std::string modelPath, PoseEstimatorParams params = {});
 
     std::vector<PoseDetection> infer(const PoseImage& image);
+    std::vector<std::vector<PoseDetection>> inferBatch(const std::vector<PoseImage>& images);
     const std::string& modelPath() const noexcept { return modelPath_; }
     const PoseEstimatorParams& params() const noexcept { return params_; }
 
@@ -45,6 +56,7 @@ private:
     std::string modelPath_;
     PoseEstimatorParams params_;
     SessionCache sessions_;
+    std::optional<SessionSpec> sessionSpec_;
 };
 
 } // namespace pfgpu

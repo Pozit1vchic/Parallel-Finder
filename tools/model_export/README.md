@@ -18,3 +18,14 @@ graph without embedded NMS. The resulting file is
 
 The checkpoint and ONNX asset are AGPL-3.0 material and therefore stay outside
 the Git repository.
+
+For the GPU tier, export the fixed batch-8 asset with the same script:
+
+```powershell
+$env:PF_MODEL_BATCH = '8'
+& 'C:\Users\<user>\AppData\Local\Programs\Python\Python310\python.exe' `
+  tools\model_export\export_yolo26m_pose.py
+```
+
+The runtime profile name must match the asset (`b1`, `b8`, or `b16`). The
+script prints the exact size and SHA-256 values for the release manifest.
