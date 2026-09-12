@@ -42,7 +42,7 @@ ApplicationWindow {
     Popup {
         id: settingsDialog
         modal: true
-        width: 520; height: 390; padding: 0
+        width: 640; height: 520; padding: 0
         x: Math.round((root.width - width) / 2); y: Math.round((root.height - height) / 2)
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle { color: Theme.heroPanel; radius: 14; border.color: Theme.hairline; layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Qt.rgba(0,0,0,0.72); shadowBlur: 1.0; shadowVerticalOffset: 18 } }
@@ -62,31 +62,79 @@ ApplicationWindow {
                     onClicked: if (Math.abs(mouse.x - sx) < 3 && Math.abs(mouse.y - sy) < 3) settingsDialog.close()
                 }
             }
-            Column { anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 24; spacing: 15
-                Text { text: "Настройки анализа"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 24 }
+            Column { anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 24; spacing: 13
+                Text { text: "Настройки анализа"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 25 }
                 Text { text: "Параметры сохраняются для следующих запусков."; color: Theme.textSecondary; font.pixelSize: 12 }
                 Rectangle { width: parent.width; height: 1; color: Theme.border }
+                Text { text: "Среда анализа"; color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
                 Row {
                     width: parent.width
                     Text { text: "Провайдер"; color: Theme.textPrimary; font.pixelSize: 12 }
-                    Item { width: parent.width - 180; height: 1 }
-                    Text { text: AppInfo.gpuBackend; color: Theme.sage; font.pixelSize: 12 }
+                    Item { width: parent.width - 230; height: 1 }
+                    ComboBox { width: 190; height: 28; model: ["Auto", "TensorRT", "CUDA", "DirectML", "CPU"]; currentIndex: 0 }
                 }
                 Row {
                     width: parent.width
                     Text { text: "Тема"; color: Theme.textPrimary; font.pixelSize: 12 }
-                    Item { width: parent.width - 180; height: 1 }
+                    Item { width: parent.width - 230; height: 1 }
                     Text { text: "Parallel / dark"; color: Theme.textSecondary; font.pixelSize: 12 }
                 }
                 Row {
                     width: parent.width
+                    Text { text: "Язык"; color: Theme.textPrimary; font.pixelSize: 12 }
+                    Item { width: parent.width - 230; height: 1 }
+                    Text { text: "Русский"; color: Theme.textSecondary; font.pixelSize: 12 }
+                }
+                Rectangle { width: parent.width; height: 1; color: Theme.border }
+                Text { text: "Модели и кэш"; color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                Row {
+                    width: parent.width
+                    Text { text: "Модель поз"; color: Theme.textPrimary; font.pixelSize: 12 }
+                    Item { width: parent.width - 230; height: 1 }
+                    Text { text: "models / yolo26m-pose"; color: Theme.textSecondary; font.pixelSize: 12; elide: Text.ElideMiddle }
+                }
+                Row {
+                    width: parent.width
                     Text { text: "Кэш"; color: Theme.textPrimary; font.pixelSize: 12 }
-                    Item { width: parent.width - 180; height: 1 }
+                    Item { width: parent.width - 230; height: 1 }
                     Text { text: "8 ГБ · LocalAppData"; color: Theme.textSecondary; font.pixelSize: 12 }
+                }
+                Row {
+                    width: parent.width
+                    Text { text: "Путь кэша"; color: Theme.textPrimary; font.pixelSize: 12 }
+                    Item { width: parent.width - 230; height: 1 }
+                    Text { text: "%LocalAppData%\\ParallelFinder\\cache"; color: Theme.textSecondary; font.pixelSize: 11; elide: Text.ElideMiddle }
+                }
+                Rectangle { width: parent.width; height: 1; color: Theme.border }
+                Text { text: "Обработка"; color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                Row {
+                    width: parent.width
+                    Text { text: "Детектор сцен"; color: Theme.textPrimary; font.pixelSize: 12 }
+                    Item { width: parent.width - 230; height: 1 }
+                    Text { text: "HSV · порог 27 · 8 кадров"; color: Theme.textSecondary; font.pixelSize: 11 }
+                }
+                Row {
+                    width: parent.width
+                    Text { text: "Демо-режим"; color: Theme.textPrimary; font.pixelSize: 12 }
+                    Item { width: parent.width - 230; height: 1 }
+                    Button { width: 190; height: 28; text: "Открыть настройку UI"
+                        contentItem: Text { text: parent.text; color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 11 }
+                        background: Rectangle { radius: 7; color: Theme.panelAlt; border.color: Theme.border }
+                    }
                 }
                 Rectangle { width: parent.width; height: 40; radius: 8; color: Theme.panelAlt; border.color: Theme.border
                     Text { anchors.centerIn: parent; text: "Сбросить параметры анализа"; color: Theme.textSecondary; font.pixelSize: 12 }
-                    MouseArea { anchors.fill: parent; onClicked: { similarity.value = 0.85; candidate.value = 0.55 } }
+                    MouseArea { anchors.fill: parent; onClicked: {
+                        Analysis.similarityThreshold = 0.85
+                        Analysis.candidateThreshold = 0.55
+                        Analysis.repeatGap = 6.0
+                        Analysis.sameFileGap = 2.0
+                        Analysis.crossFileGap = 0.0
+                        Analysis.duplicateWindow = 1.5
+                        Analysis.noiseFactor = 1.0
+                        Analysis.maxUniqueResults = 100
+                        Analysis.timeWeight = 0.25
+                    } }
                 }
             }
         }
@@ -125,7 +173,7 @@ ApplicationWindow {
             Row { anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 12
                 Button { text: "Настройки"; onClicked: settingsDialog.open()
                     contentItem: Text { text: parent.text; color: Theme.textSecondary; font.pixelSize: 11 }
-                    background: Rectangle { color: "transparent" }
+                    background: Rectangle { radius: 7; color: parent.down ? Theme.accentMuted : (parent.hovered ? Theme.panelAlt : "transparent") }
                 }
                 Text { text: Analysis.busy ? "Анализируем" : "Готово к работе"; color: Theme.textSecondary; font.pixelSize: 11 }
                 Rectangle { width: gpuLabel.implicitWidth + 18; height: 26; radius: 13; color: AppInfo.backendIsGpu ? Theme.sageMuted : Theme.panelAlt
@@ -185,10 +233,10 @@ ApplicationWindow {
                         }
                     }
                     Button { width: parent.width; height: 28; text: "Удалить выбранное"; enabled: root.sourceFiles.length > 0
-                        contentItem: Text { text: parent.text; color: Theme.textDisabled; horizontalAlignment: Text.AlignLeft; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 }
-                        background: Rectangle { color: "transparent" }
+                        contentItem: Text { text: parent.text; color: parent.enabled ? Theme.textSecondary : Theme.textDisabled; horizontalAlignment: Text.AlignLeft; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 }
+                        background: Rectangle { radius: 6; color: parent.hovered ? Theme.panelAlt : "transparent"; border.color: parent.hovered ? Theme.border : "transparent" }
                     }
-                    CheckBox { text: "Найти человека по фото"; checked: false; contentItem: Text { text: parent.text; color: Theme.textSecondary; leftPadding: 24; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 } }
+                    PfCheckBox { text: "Найти человека по фото"; checked: false }
                     ListView {
                         width: parent.width
                         height: 130
@@ -211,6 +259,8 @@ ApplicationWindow {
                         Item { width: parent.width - 42; height: 1 }
                     }
                     PfSlider { id: candidate; width: parent.width; from: 0.1; to: 0.95; value: Analysis.candidateThreshold; onValueChanged: if (Math.abs(Analysis.candidateThreshold - value) > 0.001) Analysis.candidateThreshold = value }
+                    Text { text: "Время и дубликаты"; color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                    Rectangle { width: parent.width; height: 1; color: Theme.border }
                     Text { text: "Минимальный зазор повторов"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; Text { text: Analysis.repeatGap.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
                     PfSlider { width: parent.width; from: 0; to: 30; stepSize: 0.5; value: Analysis.repeatGap; onValueChanged: if (Math.abs(Analysis.repeatGap - value) > 0.001) Analysis.repeatGap = value }
@@ -223,6 +273,8 @@ ApplicationWindow {
                     Text { text: "Окно дубликатов"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; Text { text: Analysis.duplicateWindow.toFixed(1) + " с"; color: Theme.accent; font.pixelSize: 12 } }
                     PfSlider { width: parent.width; from: 0.25; to: 8; stepSize: 0.25; value: Analysis.duplicateWindow; onValueChanged: if (Math.abs(Analysis.duplicateWindow - value) > 0.001) Analysis.duplicateWindow = value }
+                    Text { text: "Шум и объём результатов"; color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                    Rectangle { width: parent.width; height: 1; color: Theme.border }
                     Text { text: "Коэффициент шума"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; Text { text: Analysis.noiseFactor.toFixed(2); color: Theme.accent; font.pixelSize: 12 } }
                     PfSlider { width: parent.width; from: 0; to: 2; stepSize: 0.05; value: Analysis.noiseFactor; onValueChanged: if (Math.abs(Analysis.noiseFactor - value) > 0.001) Analysis.noiseFactor = value }
@@ -232,6 +284,8 @@ ApplicationWindow {
                     Text { text: "Вес времени"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; Text { text: Math.round(Analysis.timeWeight * 100) + "%"; color: Theme.accent; font.pixelSize: 12 } }
                     PfSlider { width: parent.width; from: 0; to: 1; stepSize: 0.05; value: Analysis.timeWeight; onValueChanged: if (Math.abs(Analysis.timeWeight - value) > 0.001) Analysis.timeWeight = value }
+                    Text { text: "Качество и опции"; color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                    Rectangle { width: parent.width; height: 1; color: Theme.border }
                     Text { text: "Качество анализа"; color: Theme.textSecondary; font.pixelSize: 11 }
                     Row { width: parent.width; spacing: 4
                         property int selectedQuality: 2
@@ -243,8 +297,8 @@ ApplicationWindow {
                         }
                     }
                     Text { text: "Опции"; color: Theme.textSecondary; font.pixelSize: 11 }
-                    CheckBox { text: "Нормализация размера"; checked: true; contentItem: Text { text: parent.text; color: Theme.textSecondary; leftPadding: 24; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 } }
-                    CheckBox { text: "Зеркальные позы"; checked: true; contentItem: Text { text: parent.text; color: Theme.textSecondary; leftPadding: 24; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 } }
+                    PfCheckBox { text: "Нормализация размера"; checked: true }
+                    PfCheckBox { text: "Зеркальные позы"; checked: true }
                     Item { width: 1; height: 1 }
                     Button {
                         width: parent.width
@@ -325,18 +379,28 @@ ApplicationWindow {
                             radius: 10
                             border.color: Theme.hairline
                             Column { anchors.centerIn: parent; spacing: 16; visible: root.selectedResultIndex < 0
-                                Item { anchors.horizontalCenter: parent.horizontalCenter; width: 340; height: 116
-                                    Rectangle { x: 20; y: 56; width: 300; height: 1; color: Theme.hairline; opacity: 0.7 }
-                                    Rectangle { x: 48; y: 35; width: 232; height: 1; rotation: -10; color: Theme.accent; opacity: 0.72
-                                        layer.enabled: true
-                                        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.glowA; shadowBlur: 0.9; shadowVerticalOffset: 0 }
+                                Item { anchors.horizontalCenter: parent.horizontalCenter; width: 380; height: 132
+                                    Canvas {
+                                        id: motionField
+                                        anchors.fill: parent
+                                        onPaint: {
+                                            const ctx = getContext("2d")
+                                            ctx.clearRect(0, 0, width, height)
+                                            ctx.lineWidth = 1
+                                            ctx.globalAlpha = 0.22
+                                            ctx.strokeStyle = Theme.hairline
+                                            ctx.beginPath(); ctx.moveTo(14, 72); ctx.lineTo(width - 14, 72); ctx.stroke()
+                                            ctx.globalAlpha = 0.78
+                                            ctx.strokeStyle = Theme.accent
+                                            ctx.beginPath(); ctx.moveTo(24, 82); ctx.bezierCurveTo(84, 22, 156, 104, 344, 38); ctx.stroke()
+                                            ctx.globalAlpha = 0.68
+                                            ctx.strokeStyle = Theme.sage
+                                            ctx.beginPath(); ctx.moveTo(38, 42); ctx.bezierCurveTo(112, 110, 190, 28, 330, 94); ctx.stroke()
+                                            ctx.globalAlpha = 0.95
+                                            ctx.fillStyle = Theme.accent; ctx.beginPath(); ctx.arc(24, 82, 3, 0, Math.PI * 2); ctx.fill()
+                                            ctx.fillStyle = Theme.sage; ctx.beginPath(); ctx.arc(330, 94, 3, 0, Math.PI * 2); ctx.fill()
+                                        }
                                     }
-                                    Rectangle { x: 74; y: 78; width: 205; height: 1; rotation: 8; color: Theme.sage; opacity: 0.65
-                                        layer.enabled: true
-                                        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.glowB; shadowBlur: 0.9; shadowVerticalOffset: 0 }
-                                    }
-                                    Rectangle { x: 42; y: 51; width: 5; height: 5; radius: 2.5; color: Theme.accent }
-                                    Rectangle { x: 286; y: 51; width: 5; height: 5; radius: 2.5; color: Theme.sage }
                                     Image { anchors.centerIn: parent; width: 28; height: 28; source: "qrc:/qt/qml/PfUi/assets/film.svg" }
                                 }
                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: Analysis.fileCount > 0 ? "Движение готово к сравнению" : "Добавьте видео для поиска повторений"; color: Theme.textPrimary; font.family: "Georgia"; font.pixelSize: 18 }

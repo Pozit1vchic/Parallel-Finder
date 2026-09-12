@@ -9,6 +9,7 @@ set(PFUI_QML_FILES
     qml/Splash.qml
     qml/Main.qml
     qml/PfSlider.qml
+    qml/PfCheckBox.qml
 )
 set_source_files_properties(qml/Theme.qml qml/L10n.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE
