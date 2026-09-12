@@ -28,7 +28,7 @@ void UiSmokeTests::mainQmlLoadsFromResources()
     QVERIFY2(!engine.rootObjects().isEmpty(), "PfUi.Main failed to load");
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst());
     QVERIFY(window != nullptr);
-    QCOMPARE(window->color().name(), QStringLiteral("#0a0b0a"));
+    QCOMPARE(window->color().name(), QStringLiteral("#0c0d0b"));
 }
 
 namespace {
@@ -59,7 +59,7 @@ void UiSmokeTests::themeSingletonResolves()
     QVERIFY2(!component.isError(), qPrintable(component.errorString()));
     auto* item = component.create();
     QVERIFY(item != nullptr);
-    QCOMPARE(item->property("bg").value<QColor>().name(), QStringLiteral("#10110f"));
+    QCOMPARE(item->property("bg").value<QColor>().name(), QStringLiteral("#0c0d0b"));
     QCOMPARE(item->property("radius").toReal(), 12.0);
     delete item;
 }

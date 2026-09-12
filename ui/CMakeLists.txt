@@ -10,6 +10,8 @@ set(PFUI_QML_FILES
     qml/Main.qml
     qml/PfSlider.qml
     qml/PfCheckBox.qml
+    qml/PfButton.qml
+    qml/PfIconButton.qml
 )
 set_source_files_properties(qml/Theme.qml qml/L10n.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE
@@ -23,6 +25,14 @@ qt_add_qml_module(pfui
     RESOURCES
         qml/pf_logo.png
         qml/assets/film.svg
+        qml/assets/plus.svg
+        qml/assets/folder-plus.svg
+        qml/assets/settings.svg
+        qml/assets/chevron-left.svg
+        qml/assets/chevron-right.svg
+        qml/assets/x.svg
+        qml/assets/play.svg
+        qml/assets/download.svg
 )
 
 # C++ bridge is part of the pfui library but NOT part of the QML module:

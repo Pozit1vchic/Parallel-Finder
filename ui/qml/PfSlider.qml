@@ -1,22 +1,23 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Effects
 import PfUi
 
 Slider {
     id: control
-    implicitHeight: 22
-    height: 22
+    implicitHeight: 18
+    height: 18
 
     background: Rectangle {
         x: 0
         y: Math.round(control.height / 2 - height / 2)
         width: control.width
-        height: 4
+        height: 3
         radius: 2
         color: Theme.panelAlt
 
         Rectangle {
-            width: control.visualPosition * parent.width
+            width: Math.max(0, control.visualPosition * parent.width)
             height: parent.height
             radius: 2
             color: Theme.accent
@@ -26,12 +27,18 @@ Slider {
     handle: Rectangle {
         x: control.visualPosition * (control.width - width)
         y: Math.round(control.height / 2 - height / 2)
-        width: 14
-        height: 14
+        width: 12
+        height: 12
         radius: 7
         color: Theme.canvas
         border.color: control.pressed ? Theme.textPrimary : Theme.accent
         border.width: 1
-        layer.enabled: control.pressed
+        layer.enabled: control.pressed || control.hovered
+        layer.effect: MultiEffect {
+            shadowEnabled: control.pressed || control.hovered
+            shadowColor: Theme.glowA
+            shadowBlur: 0.55
+            shadowVerticalOffset: 0
+        }
     }
 }

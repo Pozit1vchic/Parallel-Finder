@@ -1,42 +1,28 @@
-// Localization dictionary (spec section 5: строки только через словарь).
-// Stage 0: minimal seed set; full UI strings arrive with stage 5.
+// Central UI vocabulary. Keep product copy here so QML layout stays readable.
 pragma Singleton
 import QtQuick
 
 QtObject {
     readonly property string language: "ru"
-
     readonly property var _dict: ({
         ru: {
-            "app.title": "Parallel Finder",
-            "app.stage": "стадия 1 — GPU и провайдеры",
-            "splash.loading": "Инициализация…",
-            "top.gpu": "GPU: %1",
-            "top.gpu.tooltip": "Провайдер вывода: %1 · ONNX Runtime: %2",
-            "panel.sources": "Источники",
-            "panel.sliders": "Параметры поиска",
-            "panel.results": "Результаты",
-            "center.preview": "Превью",
-            "center.empty": "Загрузите видео, чтобы начать",
-            "status.ready": "Готово",
+            "app.title": "Parallel Finder", "app.stage": "локальный анализ движения", "splash.loading": "Подготавливаем рабочее пространство…",
+            "top.workspace": "рабочее пространство", "top.analyzing": "Анализируем", "top.ready": "Готово к работе", "top.settings": "Открыть настройки",
+            "dialog.chooseVideos": "Выберите видеофайлы", "dialog.chooseFolder": "Выберите папку с видео", "dialog.videoFilter": "Видео (*.mp4 *.mov *.mkv *.avi *.webm)", "dialog.allFiles": "Все файлы (*)", "common.close": "Закрыть",
+            "sources.title": "Источники", "sources.subtitle": "Добавьте материал для сравнения", "sources.loaded": "видео добавлено", "sources.dropTitle": "Перетащите видео сюда", "sources.dropHint": "или выберите файлы ниже", "sources.add": "Добавить видео", "sources.folder": "Выбрать папку", "sources.clear": "Очистить", "sources.remove": "Удалить", "sources.empty": "Список пока пуст",
+            "search.similarityGroup": "Точность совпадения", "search.similarity": "Порог схожести", "search.candidate": "Порог кандидата", "search.spacingGroup": "Временные зазоры", "search.repeatGap": "Минимальный зазор повторов", "search.sameFileGap": "Зазор в одном видео", "search.crossFileGap": "Зазор между видео", "search.duplicateWindow": "Окно дубликатов", "search.rankingGroup": "Шум и ранжирование", "search.noise": "Коэффициент шума", "search.maxResults": "Максимум уникальных", "search.timeWeight": "Вес времени", "search.quality": "Качество анализа", "search.fast": "Быстро", "search.medium": "Средне", "search.maximum": "Максимум", "search.normalize": "Нормализовать размер", "search.mirror": "Учитывать зеркальные позы", "search.start": "Запустить анализ", "search.running": "Идёт анализ…",
+            "stats.files": "Файлы", "stats.frames": "Кадры", "stats.scenes": "Сцены", "stats.pairs": "Пары", "stats.duration": "Длительность", "stats.status": "Состояние",
+            "center.comparison": "Сравнение", "center.processing": "обрабатываем материал", "center.selected": "выбрана пара", "center.waiting": "ожидание материала", "center.motionField": "поле движения", "center.poseCount": "поз найдено", "center.noMaterial": "материал не выбран", "center.emptyTitle": "Добавьте видео для поиска повторений", "center.emptyHint": "Начните с одного или нескольких файлов", "center.readyTitle": "Движение готово к сравнению", "center.readyHint": "Запустите анализ, чтобы увидеть пары",
+            "timeline.title": "ТАЙМЛАЙН", "timeline.play": "Воспроизвести выбранную пару",
+            "results.title": "Результаты", "results.found": "найдено", "results.emptyHint": "Результаты появятся здесь", "results.emptyBody": "Когда анализ закончится, здесь появятся пары повторяющихся движений.", "results.previous": "Предыдущая пара", "results.next": "Следующая пара", "results.sort": "Сортировка", "results.export": "Экспорт", "results.filters": "Категории движения", "results.all": "Все", "results.forward": "К камере", "results.side": "В сторону", "results.selectPair": "выбрать пару",
+            "settings.windowTitle": "Настройки Parallel Finder", "settings.title": "Настройки анализа", "settings.subtitle": "Параметры сохраняются для следующих запусков.", "settings.environment": "Среда анализа", "settings.provider": "Провайдер", "settings.theme": "Тема", "settings.themeValue": "Parallel / dark", "settings.language": "Язык", "settings.languageValue": "Русский", "settings.models": "Модели и кэш", "settings.poseModel": "Модель поз", "settings.cache": "Кэш", "settings.scene": "Детектор сцен", "settings.matcher": "Параметры матчера", "settings.matcherHint": "Девять параметров слева управляют поиском всех пар и сохраняются автоматически.", "settings.reset": "Сбросить параметры анализа",
+            "export.title": "Подготовить результаты", "export.selected": "пара выбрана для экспорта", "export.format": "Формат", "export.numbering": "Нумерация", "export.asVideo": "Как в видео", "export.bySort": "По сортировке", "export.cutMode": "Нарезка", "export.exact": "Точно", "export.fast": "Быстро", "export.hint": "EDL, FCPXML и AEP используют FPS исходного материала. Файлы сохраняются в выбранную папку.", "export.prepare": "Подготовить экспорт"
         },
-        en: {
-            "app.title": "Parallel Finder",
-            "app.stage": "stage 1 — GPU & providers",
-            "splash.loading": "Initializing…",
-            "top.gpu": "GPU: %1",
-            "top.gpu.tooltip": "Inference provider: %1 · ONNX Runtime: %2",
-            "panel.sources": "Sources",
-            "panel.sliders": "Search parameters",
-            "panel.results": "Results",
-            "center.preview": "Preview",
-            "center.empty": "Load a video to begin",
-            "status.ready": "Ready",
-        }
+        en: { "app.title": "Parallel Finder", "app.stage": "local motion analysis", "splash.loading": "Preparing the workspace…", "top.workspace": "workspace", "top.analyzing": "Analyzing", "top.ready": "Ready to work", "top.settings": "Open settings", "sources.add": "Add video", "center.emptyTitle": "Add video to find repetitions", "center.emptyHint": "Start with one or more files", "results.title": "Results", "settings.title": "Analysis settings", "export.title": "Prepare results" }
     })
 
     function t(key) {
-        var lang = _dict[language] || _dict["en"];
-        return (key in lang) ? lang[key] : key;
+        const lang = _dict[language] || _dict.en
+        return (key in lang) ? lang[key] : key
     }
 }
