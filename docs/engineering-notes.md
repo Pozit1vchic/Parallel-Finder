@@ -45,3 +45,7 @@ Backend performance note:
   SHA-256 are checked, and only then is the file installed under the local
   models directory. A missing network or manifest leaves the explicit local
   model path usable.
+- `pfgpu::PoseEstimator` validates the loaded static input shape before the
+  first frame. The profile controls fixed batch (`b1`, `b8`, `b16`), short final
+  batches repeat their last frame, and the decoder accepts both end-to-end
+  `[B,N,57]` pose output and raw `[B,56,8400]` output with C++ IoU-NMS.
