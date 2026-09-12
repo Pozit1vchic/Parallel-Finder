@@ -1,0 +1,23 @@
+{
+  "name": "yolo26m-pose",
+  "format": "onnx",
+  "input": {
+    "name": "images",
+    "shape": [8, 3, 640, 640],
+    "layout": "NCHW",
+    "batch": 8
+  },
+  "output": {
+    "name": "output0",
+    "shape": [8, 300, 57],
+    "layout": "NMS_XYXY_SCORE_CLASS_KEYPOINTS",
+    "keypoints": 17
+  },
+  "opset": 17,
+  "nms": false,
+  "outputMode": "auto",
+  "sizeBytes": 86529386,
+  "sha256": "812734d6b28364291af8354d243717ff311ae5d7820a825b7c772baa167dfa9c",
+  "license": "AGPL-3.0",
+  "asset": "D:/PF_CUDA/models/yolo26m-pose-640-b8.onnx"
+}

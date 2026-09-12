@@ -48,3 +48,22 @@ TEST(PoseEstimator, DescribesPinnedStaticShapes)
     EXPECT_TRUE(endToEnd || externalNms)
         << "unexpected pinned pose output shape";
 }
+
+TEST(PoseEstimator, RunsFixedBatchEightAssetWithTailPaddingWhenAvailable)
+{
+    const std::filesystem::path model = R"(D:\PF_CUDA\models\yolo26m-pose-640-b8.onnx)";
+    if (!std::filesystem::is_regular_file(model))
+        GTEST_SKIP() << "external b8 model bundle is not installed";
+
+    std::vector<std::uint8_t> rgba(640U * 640U * 4U, 0U);
+    for (std::size_t pixel = 3; pixel < rgba.size(); pixel += 4) rgba[pixel] = 255U;
+    pfgpu::PoseEstimatorParams params;
+    params.provider = pfgpu::Provider::Cpu;
+    params.profile = "b8";
+    pfgpu::PoseEstimator estimator(model.string(), params);
+    const pfgpu::PoseImage image{640, 640, rgba.data()};
+    EXPECT_NO_THROW({
+        const auto detections = estimator.inferBatch({image, image});
+        EXPECT_EQ(detections.size(), 2U);
+    });
+}
