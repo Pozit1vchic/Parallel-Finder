@@ -281,6 +281,17 @@ void SessionCache::setMaxEntries(std::size_t maxEntries)
     Impl& impl = *impl_;
     const std::lock_guard<std::mutex> lock(impl.mutex);
     impl.maxEntries = maxEntries;
+    while (impl.sessions.size() > impl.maxEntries) {
+        auto victim = impl.sessions.end();
+        for (auto it = impl.sessions.begin(); it != impl.sessions.end(); ++it) {
+            if (victim == impl.sessions.end() || it->second.stamp < victim->second.stamp) {
+                victim = it;
+            }
+        }
+        if (victim == impl.sessions.end()) break;
+        impl.sessions.erase(victim);
+        impl.stats.evictions += 1;
+    }
 }
 
 } // namespace pfgpu

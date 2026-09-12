@@ -241,4 +241,14 @@ TEST(SessionCacheStandalone, RejectsZeroCapacity)
     EXPECT_EQ(cache.maxEntries(), 8u);
 }
 
+TEST_F(SessionCacheTest, ShrinkingCapacityEvictsImmediately)
+{
+    pfgpu::SessionCache cache(3);
+    ASSERT_TRUE(cache.getOrCreate(probeModel(), {pfgpu::Provider::Auto, 0, "one"}).ok);
+    ASSERT_TRUE(cache.getOrCreate(probeModel(), {pfgpu::Provider::Auto, 0, "two"}).ok);
+    ASSERT_TRUE(cache.getOrCreate(probeModel(), {pfgpu::Provider::Auto, 0, "three"}).ok);
+    cache.setMaxEntries(1);
+    EXPECT_EQ(cache.stats().live, 1U);
+}
+
 } // namespace
