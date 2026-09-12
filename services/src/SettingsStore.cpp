@@ -17,6 +17,7 @@ namespace {
 QJsonObject toJson(const Settings& settings)
 {
     QJsonObject json;
+    json[QStringLiteral("schemaVersion")] = 2;
     json[QStringLiteral("provider")] = QString::fromStdString(settings.provider);
     json[QStringLiteral("language")] = QString::fromStdString(settings.language);
     json[QStringLiteral("theme")] = QString::fromStdString(settings.theme);
@@ -69,6 +70,8 @@ Settings SettingsStore::load(std::string& error) const
         return settings;
     }
     const QJsonObject json = document.object();
+    const auto schemaVersion = json.value(QStringLiteral("schemaVersion"));
+    const bool legacySceneScale = !schemaVersion.isDouble() || schemaVersion.toInteger() < 2;
     readString(json, "provider", settings.provider);
     readString(json, "language", settings.language);
     readString(json, "theme", settings.theme);
@@ -78,8 +81,13 @@ Settings SettingsStore::load(std::string& error) const
     if (cacheLimit.isDouble() && cacheLimit.toInteger() > 0)
         settings.cacheLimitBytes = static_cast<std::size_t>(cacheLimit.toInteger());
     const auto sceneThreshold = json.value(QStringLiteral("sceneThreshold"));
-    if (sceneThreshold.isDouble() && sceneThreshold.toDouble() > 0.0)
+    if (sceneThreshold.isDouble() && sceneThreshold.toDouble() > 0.0) {
         settings.sceneThreshold = sceneThreshold.toDouble();
+        // Stage-2 originally stored a normalized histogram threshold (0..1).
+        // The HSV detector now uses the documented 0..255 content scale.
+        if (legacySceneScale && settings.sceneThreshold <= 1.0)
+            settings.sceneThreshold = 27.0;
+    }
     const auto minFrames = json.value(QStringLiteral("sceneMinFrames"));
     if (minFrames.isDouble() && minFrames.toInteger() > 0)
         settings.sceneMinFrames = static_cast<std::size_t>(minFrames.toInteger());

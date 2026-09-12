@@ -21,15 +21,15 @@ struct SceneSample {
     std::span<const std::uint8_t> rgba;
 };
 
-// Scene change detector (stage 2b).  The current implementation uses a
-// normalized compact color histogram plus a short adaptive baseline.  FFmpeg
-// frame reduction and fade/dissolve-specific passes remain separate concerns
-// for the decoder pipeline.
+// Scene change detector (stage 2b). Frames are compared in compact HSV space
+// with an adaptive short baseline. Hard cuts and slow fade/dissolve transitions
+// are treated separately; a person briefly leaving the frame is not a scene.
 class SceneDetector {
 public:
-    // Histogram distance is normalized to [0, 1.5].  The adaptive multiplier
-    // rejects isolated camera-motion spikes while still allowing hard cuts.
-    static constexpr double kDefaultThreshold = 0.30;
+    // HSV content delta is measured on a 0..255 scale, matching the documented
+    // ContentDetector-style threshold. The returned boundary score is normalized
+    // to 0..1+ for UI/export consumers.
+    static constexpr double kDefaultThreshold = 27.0;
     static constexpr std::size_t kDefaultMinSceneFrames = 8;
     static constexpr double kDefaultAdaptiveMultiplier = 3.0;
 
