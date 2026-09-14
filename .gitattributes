@@ -4,9 +4,14 @@
 *.h text
 *.cmake text
 CMakeLists.txt text
+*.py text
+*.ps1 text
+*.sh text
+*.txt text
 *.json text
 *.qml text
 *.yml text
+*.yaml text
 *.md text
 *.png binary
 *.ico binary

@@ -1,110 +1,250 @@
-# Parallel-Finder
+# Parallel Finder
 
-Поиск параллельных движений в видео: находит пары клипов/моментов `A[t0,t1] ↔ B[t2,t3]`,
-где один и тот же персонаж выполняет визуально то же движение. All-pairs сравнение
-окон движения (HNSW-префильтр → DTW с полосой Сакое-Чиба), GPU-инференс через
-ONNX Runtime.
+**Локальный инструмент для поиска повторяющихся движений в видео.**
 
-## Лицензия
+Parallel Finder сравнивает временные фрагменты двух источников, учитывает
+траекторию позы, движение, временной контекст и, при наличии модели, внешний
+вид человека. Результат — реальные пары `A[t₀…t₁] ↔ B[t₂…t₃]` с кадрами,
+таймкодами, оценкой схожести и экспортом.
 
-- **Код проекта — [AGPL-3.0](LICENSE).**
-- **Веса моделей (.pt/.onnx) не коммитятся в репозиторий** — весов YOLO-pose
-  (Ultralytics, AGPL-3.0) нет в дереве исходников; `.pt` экспортируются в
-  release-пакет, а отсутствующий `.onnx` скачивается по выбору из GitHub
-  Releases с прогрессом и проверкой manifest.
-- **FFmpeg**: используется сборка MSYS2 UCRT64 (ffmpeg 9.x), конфигурация
-  содержит `--enable-gpl --enable-version3` — это **GPLv3-сборка** (x264/x265/xvid).
-  Это зафиксировано в релизе и в About-окне.
-- Прочие сторонние компоненты: Qt6 (LGPLv3, динамическая линковка), ONNX Runtime
-  (MIT), Google Test (BSD-3).
+[![CI](https://github.com/Pozit1vchic/Parallel-Finder/actions/workflows/ci.yml/badge.svg)](https://github.com/Pozit1vchic/Parallel-Finder/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-orange.svg)](LICENSE)
+[![Qt](https://img.shields.io/badge/Qt-6.5%2B-41CD52.svg)](https://www.qt.io/)
+[![C%2B%2B](https://img.shields.io/badge/C%2B%2B-23-00599C.svg)](https://en.cppreference.com/w/cpp/23)
 
-## Технологический стек
+> **Честный статус.** Проект находится на стадии рабочего прототипа и
+> подготовки релиза. Локальные unit/UI/smoke-проверки проходят, но это не
+> доказывает работу на каждой видеокарте, реальном GitHub Release или любой
+> ONNX-модели. Эти границы описаны ниже.
 
-| Компонент | Выбор |
-|---|---|
-| Язык | C / C++23 |
-| UI | Qt6 QML + C++ bridge |
-| Сборка | CMake ≥ 3.25 + Ninja, MSYS2 UCRT64 (GCC) |
-| GPU-инференс | ONNX Runtime, готовые прекомпилированные EP: TensorRT → CUDA → DirectML → CPU (fallback-цепочка, автоопределение + ручной выбор `auto/cuda/dml/cpu`) |
-| Самописные CUDA-ядра | **Не в v1** (nvcc не поддерживает GCC/MinGW host-компилятор) |
-| Релиз | Портативная папка (exe + DLL + models/), без автообновлений в v1 |
+## Что уже есть
 
-## Структура (модули = CMake-таргеты, ядро без Qt)
+- Qt 6 / QML-интерфейс с тремя рабочими зонами: источники, сравнение, результаты.
+- Реальные источники видео, выбор папки, предпросмотр A/B и таймкоды.
+- Трекинг всех обнаруженных людей, а не только одного «главного» персонажа.
+- Фильтр самосравнений, статики, коротких совпадений и перекрывающихся результатов.
+- HNSW-style prefilter → ограниченный DTW → ранжирование.
+- Опциональный body-ReID для отсечения совпадений разных людей.
+- ONNX Runtime с `auto`, DirectML, CUDA, TensorRT и CPU-провайдерами.
+- Кэш признаков `PFCACHE1`, настройки, экспорт JSON/CSV/TXT/EDL/FCPXML/AEP.
+- Автоматическое скачивание отсутствующих ONNX-моделей из GitHub Releases.
 
+## Что проект не обещает
+
+- `.pt`-файлы не запускаются напрямую: нужен ONNX-экспорт.
+- CUDA и TensorRT не появятся от одного выбора в меню: нужны совместимые
+  runtime/DLL и драйверы на машине пользователя.
+- Body-ReID не распознаёт личность по лицу. Без OSNet/FastReID ONNX работает
+  прозрачный режим `pose-only`.
+- Наличие unit-теста не заменяет проверку на настоящем видео и конкретном GPU.
+- В репозитории пока нет опубликованного GitHub Release с моделями; поэтому
+  сетевое скачивание станет работоспособным после загрузки release assets.
+
+## Как устроен проект
+
+```text
+video files
+    │
+    ▼
+VideoDecoder → SceneDetector → PoseEstimator → PersonTracker
+                                               │
+                         optional Body-ReID ──┘
+    │
+    ▼
+Motion windows → prefilter → temporal checks → DTW → NMS/ranking
+    │                                      │
+    ├── PFCACHE1                           ├── QML comparison view
+    └── exporters                           └── JSON/CSV/TXT/EDL/FCPXML/AEP
 ```
-app/            ParallelFinder (thin: init → Main)
-gpu/    pfgpu        getDeviceInfo, ORT-сессии (модель|провайдер), auto/cuda/dml/cpu
-core/   pfcore       VideoDecoder, SceneDetector, DominantPerson, MovementClassifier, MotionMatcher, MotionRanker, JobManager
-services/ pfservices PFCACHE1 disk cache, ThumbnailCache LRU64, CutService (ffmpeg QProcess), SettingsStore, ModelStore
-exporters/ pfexporters JSON/CSV/TXT/EDL/FCPXML/AEP(.jsx + json)
-ui/     pfui         QML Main/Settings/Export + C++ bridge
-tests/  gtest + qtest
-models/ *.onnx (gitignore) — не коммитятся
-```
 
-`pfcore` и `pfexporters` не содержат Qt (guard-таргет `pfcore_qt_ban` проверяет это
-на каждой сборке). Новый GPU-провайдер добавляется через абстрактную фабрику в
-`pfgpu`, без правок `pfcore`. ORT загружается версионно-агностично:
-`LoadLibraryW("onnxruntime.dll")` + `OrtGetApiBase()`, линковка не требуется.
+| Каталог | Ответственность |
+| --- | --- |
+| `app/` | Тонкая точка входа Windows-приложения |
+| `core/` | Декодирование, сцены, трекинг, matcher, ranking, jobs |
+| `gpu/` | ONNX Runtime, провайдеры, pose и body-ReID |
+| `services/` | ModelStore, PFCACHE1, settings, thumbnails, ffmpeg cuts |
+| `exporters/` | JSON, CSV, TXT, EDL, FCPXML, AEP/JSX |
+| `ui/` | QML-компоненты и C++ bridge |
+| `tests/` | GoogleTest, QTest и smoke-проверки |
+| `tools/model_export/` | Экспорт `.pt` → ONNX и генерация release manifest |
+| `docs/` | Контракты, решения, аудит и release-инструкции |
 
-## Сборка (MSYS2 UCRT64)
+`core/` и `exporters/` не зависят от Qt. Это проверяется отдельным
+`pfcore_qt_ban`-guard при сборке.
+
+## Быстрый старт для разработки
+
+### Требования
+
+- Windows 10/11;
+- MSYS2 **UCRT64** — не MINGW64 и не CLANG64;
+- CMake 3.25+, Ninja, GCC;
+- Qt 6.5+ (`base`, `declarative`, `shadertools`);
+- FFmpeg;
+- ONNX Runtime;
+- GoogleTest для тестов.
+
+Установить базовые пакеты в MSYS2 UCRT64:
 
 ```bash
-pacman -S mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja \
-          mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-qt6-base \
-          mingw-w64-ucrt-x86_64-qt6-declarative mingw-w64-ucrt-x86_64-qt6-shadertools \
-          mingw-w64-ucrt-x86_64-gtest mingw-w64-ucrt-x86_64-ffmpeg \
-          mingw-w64-ucrt-x86_64-onnxruntime
+pacman -S --needed \
+  mingw-w64-ucrt-x86_64-cmake \
+  mingw-w64-ucrt-x86_64-ninja \
+  mingw-w64-ucrt-x86_64-gcc \
+  mingw-w64-ucrt-x86_64-qt6-base \
+  mingw-w64-ucrt-x86_64-qt6-declarative \
+  mingw-w64-ucrt-x86_64-qt6-shadertools \
+  mingw-w64-ucrt-x86_64-gtest \
+  mingw-w64-ucrt-x86_64-ffmpeg \
+  mingw-w64-ucrt-x86_64-onnxruntime
+```
 
+### Сборка и проверки
+
+Из корня репозитория:
+
+```bash
+cmake --preset ucrt64-release
+cmake --build --preset ucrt64-release
+ctest --preset ucrt64-release --output-on-failure
+```
+
+Debug-вариант:
+
+```bash
 cmake --preset ucrt64-debug
 cmake --build --preset ucrt64-debug
-ctest --preset ucrt64-debug
+ctest --preset ucrt64-debug --output-on-failure
 ```
 
-Тесты автоматически используют `QT_QPA_PLATFORM=offscreen` там, где нужно окно.
+Запуск собранного приложения:
 
-### Только из окружения UCRT64
-
-Сборка должна запускаться с `MSYSTEM=UCRT64` (ярлык «MSYS2 UCRT64»), а не из
-MINGW64/CLANG64: если в `PATH` раньше окажется `/mingw64/bin`, сканер QML-импортов
-подхватит чужую Qt и конфигурация упадёт с `0xc0000139`
-(`STATUS_ENTRYPOINT_NOT_FOUND`) на `qt6_import_qml_plugins`. Проверить и вылечить
-в текущей оболочке:
-
-```bash
-echo $MSYSTEM   # должно быть UCRT64
-export PATH="/d/msys2/ucrt64/bin:$(echo "$PATH" | tr ':' '\n' \
-  | grep -v -E '^/(mingw64|clang64|mingw32|clangarm64)/bin$' | paste -sd:)"
+```text
+build/ucrt64-release/ParallelFinder.exe
 ```
 
-## Тяжёлые GPU-зависимости
+`QT_QPA_PLATFORM=offscreen` используется только тестами. Такой тест проверяет
+загрузку QML и базовый жизненный цикл, но не заменяет просмотр интерфейса на
+целевом мониторе.
 
-ORT-GPU / CUDA / TensorRT / DML-redist при сборке размещаются **только в
-`D:\PF_CUDA`** — отдельно от репозитория и от диска C. В репозиторий не попадают.
+## Модели: от ваших `.pt` до автоматической загрузки
 
-## Документы
+Ваш исходный каталог:
 
-- [`docs/decisions.md`](docs/decisions.md) — зафиксированные решения по ТЗ п.10 (batch при
-  экспорте модели, метод и пороги SceneDetector, тай-брейк доминантного персонажа,
-  appearance-компонент, fetch-механизм .onnx, лимит кэша) и полная таблица 9 слайдеров →
-  `MotionMatcherParams`. Обязательный вход в стадии 3a–4.
-- [`docs/models.md`](docs/models.md) — каталог моделей, release workflow и порядок
-  поиска локальных файлов.
-- [`docs/model-audit.md`](docs/model-audit.md) — аудит несовместимостей модели,
-  провайдера, batch-профиля, кэша и оставшаяся проверка на опубликованном release.
-- [`docs/full-audit.md`](docs/full-audit.md) — сводный аудит matcher, UI/UX,
-  provider/model pipeline, cache и фактических проверок сборки.
+```text
+D:\YOLO_Download_Project\models
+```
 
-## Стадии
+Исходные `.pt` нужны только для подготовки release. В корне проекта есть
+скрипт, который экспортирует все `*pose*.pt` в статический batch-1 ONNX
+640×640, считает SHA-256 и создаёт `manifest.json`:
 
-0. ✅ Скелет: CMake-пресеты, все таргеты, ctest зелёный, CI
-1. ✅ pfgpu: проба провайдеров (TensorRT → CUDA → DML → CPU по факту создания сессии), EP-device API
-   с ORT ≥ 1.22 и фолбэком на классические экспорты для 1.12–1.21, кэш сессий с LRU, живой GPU-бейдж;
-   `--pf-smoke` печатает всю цепочку с причинами недоступности
-2. ✅ VideoDecoder (DISPLAYMATRIX/SAR/VFR/RAII) · 2b. ✅ SceneDetector
-3a. ✅ Модель+инференс (статические b1/b8-профили, end2end/raw decoder, C++ NMS)
-3b. ✅ Треки + дескрипторы движения + all-pairs HNSW-prefilter + band-constrained DTW
-3c. ✅ Классификатор направления/жеста · ранжирование · JobManager · PFCACHE1
-4. ✅ Экспорт + сервисы (CutService, ThumbnailCache, settings.json)
-5. UI (Main/Settings/Export) · 5b. Qt-деплой
-6. GPU-бандл + перф-валидация + финальный аудит
+```powershell
+$env:PYTHONPATH = 'D:\PythonLibs'
+
+python D:\Parallel-Finder\tools\model_export\export_pose_release.py `
+  --input-dir 'D:\YOLO_Download_Project\models' `
+  --output-dir 'D:\Parallel-Finder\release-models'
+```
+
+Затем создайте GitHub Release в
+`https://github.com/Pozit1vchic/Parallel-Finder/releases` и загрузите **все**
+файлы из `release-models/` как assets одного релиза:
+
+```text
+yolov8*-pose.onnx
+yolo11*-pose.onnx
+yolo26*-pose.onnx
+manifest.json
+```
+
+Приложение получает manifest по адресу:
+
+```text
+https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/manifest.json
+```
+
+При выборе отсутствующей модели UI показывает `↓ скачать`, загрузка идёт с
+прогрессом, а готовый файл устанавливается в:
+
+```text
+%LocalAppData%\ParallelFinder\models
+```
+
+Класть модель рядом с exe не нужно. Для локальной разработки можно использовать:
+
+```powershell
+$env:PF_MODEL_ROOT = 'D:\PF_CUDA\models'
+$env:PF_MODEL_PATH = 'D:\PF_CUDA\models\yolo26m-pose-640-b1.onnx'
+```
+
+Полная спецификация: [`docs/models.md`](docs/models.md) и
+[`tools/model_export/README.md`](tools/model_export/README.md).
+
+## Провайдеры вычислений
+
+| Выбор | Для чего | Условие |
+| --- | --- | --- |
+| `auto` | Выбрать лучший доступный backend | Probe ONNX Runtime |
+| `dml` | DirectML для AMD/Intel/NVIDIA | DirectML EP и совместимый runtime |
+| `cuda` | CUDA для NVIDIA | CUDA EP, DLL и драйвер |
+| `tensorrt` | TensorRT для NVIDIA | TensorRT + CUDA + совместимый engine/runtime |
+| `cpu` | Универсальный fallback | Только ONNX Runtime CPU |
+
+При ручном выборе недоступного backend анализ останавливается с причиной.
+Тихого переключения на CPU нет.
+
+## Как matcher отсекает мусор
+
+Одиночное похожее изображение не считается параллелью. Перед финальным score:
+
+1. окно должно иметь достаточную длину;
+2. должна быть непрерывная серия похожих кадров;
+3. обе стороны должны иметь реальное движение, а не только detector jitter;
+4. самосравнение, близкие интервалы и та же сцена отбрасываются;
+5. внутри одного исходника проверяется одинаковый `trackId`;
+6. перекрывающиеся результаты проходят deduplication/NMS;
+7. при доступном ReID применяется дополнительная проверка внешнего вида.
+
+Пороговые значения можно менять в Advanced-настройках основного окна.
+
+## Что именно проверяют тесты
+
+| Проверка | Покрывает | Не доказывает |
+| --- | --- | --- |
+| `pf_tests` | core, services, cache, exporter, matcher | качество на любом реальном фильме |
+| `pfui_tests` | загрузку QML-модуля и bridge | визуальную полировку на каждом DPI |
+| `app_smoke` | старт приложения в тестовом окружении | полный Windows portable bundle |
+| CI | Debug/Release сборку в MSYS2 UCRT64 | CUDA/TensorRT на вашей машине |
+
+Реальный release-чеклист:
+
+- [ ] опубликован GitHub Release с ONNX и `manifest.json`;
+- [ ] отсутствующая модель скачивается до 100%;
+- [ ] повторный выбор использует локальный файл без сети;
+- [ ] повреждённый файл отклоняется по SHA-256;
+- [ ] проверены `dml`, `cuda`, `tensorrt`, `cpu` на целевых системах;
+- [ ] проверено хотя бы одно короткое и одно длинное видео;
+- [ ] body-ReID проверен с реальной OSNet/FastReID ONNX-моделью;
+- [ ] собрана portable-папка с Qt/FFmpeg/ORT DLL.
+
+## Документация
+
+- [`docs/design.md`](docs/design.md) — визуальный контракт интерфейса.
+- [`docs/ui-audit.md`](docs/ui-audit.md) — аудит QML и остаточные UI-ограничения.
+- [`docs/decisions.md`](docs/decisions.md) — архитектурные решения и параметры.
+- [`docs/models.md`](docs/models.md) — каталог моделей и GitHub Release workflow.
+- [`docs/full-audit.md`](docs/full-audit.md) — сводный технический аудит.
+- [`docs/model-audit.md`](docs/model-audit.md) — аудит model/provider/cache pipeline.
+- [`docs/engineering-notes.md`](docs/engineering-notes.md) — инженерные правила.
+
+## Лицензирование
+
+- Код проекта: [AGPL-3.0](LICENSE).
+- YOLO-pose веса: не входят в Git и должны распространяться с соблюдением их
+  лицензии и условий исходного проекта.
+- Qt: динамическая линковка по LGPL-варианту поставки Qt.
+- ONNX Runtime: MIT.
+- FFmpeg-сборка может включать GPL-компоненты (`x264`, `x265`, `xvid`).
+
+Перед распространением portable-релиза проверьте состав DLL и лицензий.

@@ -1,24 +1,83 @@
-# Build directories
-build/
-out/
-cmake-build-*/
+# Build output
+/build/
+/out/
+/release/
+/release-models/
+/cmake-build-*/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/CTestTestfile.cmake
+**/build.ninja
+**/.ninja_deps
+**/.ninja_log
+**/Makefile
+*_autogen/
+.qt/
 
-# Models are never committed (AGPL-3.0 weights, fetched at first run / release)
+# Compiled artifacts and generated bundles
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.o
+*.a
+*.lib
+*.exp
+*.so
+*.dylib
+*.dSYM/
+*.user
+*.user.*
+
+# Model weights and exported runtime assets.
+# The checked-in models/*.json metadata remains tracked.
 models/*.onnx
 models/*.pt
 models/*.engine
 models/*.trt
+models/*.plan
+models/*.safetensors
+models/*.part
+*.onnx.part
 
-# Cache
-cache/
+# Developer-only model/source bundles
+/PF_CUDA/
+/YOLO_Download_Project/
+/models-cache/
 
-# IDE / tooling
+# Runtime state, caches, previews and logs
+/cache/
+/previews/
+*.log
+*.dmp
+settings.json
+settings.local.json
+.parallel-finder/
+
+# IDE / compiler tooling
 .vs/
 .vscode/
 .idea/
 compile_commands.json
 .clangd/
+.cache/
+.coverage/
+coverage/
+
+# Python tooling
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
 
 # OS noise
 Thumbs.db
 desktop.ini
+.DS_Store
+$RECYCLE.BIN/
