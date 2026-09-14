@@ -25,6 +25,10 @@ struct PersonDetection {
     double confidence = 0.0;
     double keypointConfidence = 0.0;
     std::vector<Keypoint> keypoints;
+    // Optional appearance embedding from the body-ReID model.  It is kept on
+    // the observation so a track prototype can be built after association.
+    std::vector<float> appearanceEmbedding;
+    double appearanceConfidence = 0.0;
 };
 
 struct PersonTrack {

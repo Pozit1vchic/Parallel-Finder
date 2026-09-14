@@ -143,7 +143,7 @@ std::string frameDuration(double fps)
 std::string jsonResults(const std::vector<pfcore::MotionMatch>& matches)
 {
     std::ostringstream output;
-    output << "{\n  \"version\": 1,\n  \"matches\": [\n";
+    output << "{\n  \"version\": 2,\n  \"matches\": [\n";
     for (std::size_t i = 0; i < matches.size(); ++i) {
         const auto& item = matches[i];
         output << "    {\n"
@@ -154,6 +154,8 @@ std::string jsonResults(const std::vector<pfcore::MotionMatch>& matches)
                << "      \"direction\": \"" << jsonEscape(item.directionLabel) << "\",\n"
                << "      \"gesture\": \"" << jsonEscape(item.gestureLabel) << "\",\n"
                << "      \"rankScore\": " << item.rankScore << ",\n"
+               << "      \"appearanceSimilarity\": " << item.appearanceSimilarity << ",\n"
+               << "      \"identityVerified\": " << (item.appearanceVerified ? "true" : "false") << ",\n"
                << "      \"left\": {\"source\": \"" << jsonEscape(item.leftSourceId)
                << "\", \"start\": " << item.leftStartSeconds << ", \"end\": " << item.leftEndSeconds << "},\n"
                << "      \"right\": {\"source\": \"" << jsonEscape(item.rightSourceId)
@@ -167,11 +169,13 @@ std::string jsonResults(const std::vector<pfcore::MotionMatch>& matches)
 std::string csvResults(const std::vector<pfcore::MotionMatch>& matches)
 {
     std::ostringstream output;
-    output << "index,similarity,rank_score,direction,gesture,dtw_distance,duration_seconds,left_source,left_start,left_end,right_source,right_start,right_end\n";
+    output << "index,similarity,rank_score,appearance_similarity,identity_verified,direction,gesture,dtw_distance,duration_seconds,left_source,left_start,left_end,right_source,right_start,right_end\n";
     for (std::size_t i = 0; i < matches.size(); ++i) {
         const auto& item = matches[i];
         output << (i + 1) << ',' << std::setprecision(8) << item.similarity << ','
-               << item.rankScore << ',' << csvEscape(item.directionLabel) << ','
+               << item.rankScore << ',' << item.appearanceSimilarity << ','
+               << (item.appearanceVerified ? "true" : "false") << ','
+               << csvEscape(item.directionLabel) << ','
                << csvEscape(item.gestureLabel) << ',' << item.dtwDistance << ',' << item.durationSeconds << ','
                << csvEscape(item.leftSourceId) << ',' << item.leftStartSeconds << ',' << item.leftEndSeconds << ','
                << csvEscape(item.rightSourceId) << ',' << item.rightStartSeconds << ',' << item.rightEndSeconds << '\n';
@@ -186,6 +190,8 @@ std::string textResults(const std::vector<pfcore::MotionMatch>& matches)
         const auto& item = matches[i];
         output << "#" << (i + 1) << "  " << std::fixed << std::setprecision(1)
                << item.similarity * 100.0 << "%\n"
+               << "  Identity: " << (item.appearanceVerified ? "verified" : "pose-only")
+               << " (" << std::setprecision(3) << item.appearanceSimilarity << ")\n"
                << "  A: " << item.leftSourceId << "  " << item.leftStartSeconds << "–" << item.leftEndSeconds << " s\n"
                << "  B: " << item.rightSourceId << "  " << item.rightStartSeconds << "–" << item.rightEndSeconds << " s\n\n";
     }

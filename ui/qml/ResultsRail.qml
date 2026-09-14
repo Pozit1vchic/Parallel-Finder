@@ -86,6 +86,15 @@ Rectangle {
                             font.pixelSize: 8
                             elide: Text.ElideRight
                         }
+                        Text {
+                            width: parent.width
+                            text: modelData.identityVerified === true
+                                ? "ReID · один человек подтверждён"
+                                : "ReID не применён · pose-only"
+                            color: modelData.identityVerified === true ? Theme.sage : Theme.textDisabled
+                            font.pixelSize: 8
+                            elide: Text.ElideRight
+                        }
                     }
                 }
             }

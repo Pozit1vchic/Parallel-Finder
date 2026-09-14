@@ -17,6 +17,7 @@
 #include <QVariantMap>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -30,6 +31,7 @@
 #include "pfcore/MotionRanker.hpp"
 #include "pfcore/DominantPerson.hpp"
 #include "pfgpu/PoseEstimator.hpp"
+#include "pfgpu/ReIdEstimator.hpp"
 #include "pfgpu/DeviceInfo.hpp"
 #include "pfservices/SettingsStore.hpp"
 #include "pfservices/ModelStore.hpp"
@@ -156,7 +158,7 @@ bool readBytes(const std::vector<std::uint8_t>& input, std::size_t& offset, T& v
 std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::MotionWindow>& windows)
 {
     std::vector<std::uint8_t> output;
-    const std::uint32_t version = 3;
+    const std::uint32_t version = 4;
     appendBytes(output, version);
     appendBytes(output, static_cast<std::uint32_t>(windows.size()));
     for (const auto& window : windows) {
@@ -165,6 +167,9 @@ std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::Motio
         appendBytes(output, static_cast<std::uint64_t>(window.trackId));
         appendBytes(output, static_cast<std::uint64_t>(window.sceneIndex));
         appendBytes(output, static_cast<std::uint8_t>(window.hasSceneIndex ? 1 : 0));
+        appendBytes(output, window.appearanceConfidence);
+        appendBytes(output, static_cast<std::uint32_t>(window.appearanceEmbedding.size()));
+        for (const float value : window.appearanceEmbedding) appendBytes(output, value);
         appendBytes(output, static_cast<std::uint32_t>(window.frames.size()));
         for (const auto& frame : window.frames) {
             appendBytes(output, frame.timestampSeconds);
@@ -184,7 +189,7 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
 {
     std::size_t offset = 0;
     std::uint32_t version = 0, windowCount = 0;
-    if (!readBytes(input, offset, version) || version != 3
+    if (!readBytes(input, offset, version) || version != 4
         || !readBytes(input, offset, windowCount) || windowCount > 1'000'000U) return false;
     windows.clear();
     windows.reserve(windowCount);
@@ -202,6 +207,14 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
         window.trackId = static_cast<std::size_t>(trackId);
         window.sceneIndex = static_cast<std::size_t>(sceneIndex);
         window.hasSceneIndex = hasSceneIndex != 0;
+        std::uint32_t embeddingSize = 0;
+        if (!readBytes(input, offset, window.appearanceConfidence)
+            || !readBytes(input, offset, embeddingSize)
+            || embeddingSize > 4096U) return false;
+        window.appearanceEmbedding.resize(embeddingSize);
+        for (float& value : window.appearanceEmbedding) {
+            if (!readBytes(input, offset, value) || !std::isfinite(value)) return false;
+        }
         std::uint32_t frameCount = 0;
         if (!readBytes(input, offset, frameCount) || frameCount > 100'000U) return false;
         window.frames.reserve(frameCount);
@@ -274,6 +287,102 @@ std::filesystem::path findPoseModel()
     }
     (void)modelError;
     return {};
+}
+
+std::filesystem::path findBodyReIdModel()
+{
+    if (const char* configured = std::getenv("PF_REID_MODEL_PATH"); configured && *configured) {
+        const std::filesystem::path path(configured);
+        if (std::filesystem::is_regular_file(path)) return path;
+    }
+    const auto executableModels = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) / "models";
+    const auto localModels = std::filesystem::path(pfservices::SettingsStore::defaultDirectory()) / "models";
+    std::vector<std::filesystem::path> roots {executableModels, localModels};
+    if (const char* root = std::getenv("PF_MODEL_ROOT"); root && *root)
+        roots.emplace_back(root);
+    roots.emplace_back(R"(D:\PF_CUDA\models)");
+    const std::vector<std::string> preferred {
+        "person-reid-osnet.onnx", "osnet_x1_0.onnx", "osnet.onnx",
+        "body-reid.onnx", "person-reid.onnx"
+    };
+    for (const auto& root : roots) {
+        for (const auto& name : preferred) {
+            const auto candidate = root / name;
+            if (std::filesystem::is_regular_file(candidate)) return candidate;
+        }
+    }
+    // A release may publish the optional ReID asset in the same manifest as
+    // pose models. Download only when the manifest explicitly describes the
+    // file (URL/hash/size validation remains ModelStore's responsibility).
+    const auto localManifest = localModels / "manifest.json";
+    const auto executableManifest = executableModels / "manifest.json";
+    for (const auto& name : preferred) {
+        for (const auto& manifest : {executableManifest, localManifest}) {
+            std::string manifestError;
+            const auto asset = pfservices::ModelStore::readManifest(manifest, name, manifestError);
+            if (!asset.has_value()) continue;
+            std::string downloadError;
+            const auto destination = localModels / name;
+            if (pfservices::ModelStore::download(*asset, destination, {}, downloadError))
+                return destination;
+        }
+    }
+    // Accept custom release names as long as they clearly identify a ReID
+    // export.  Never scan outside explicitly supported model roots.
+    for (const auto& root : roots) {
+        std::error_code error;
+        if (!std::filesystem::is_directory(root, error)) continue;
+        for (const auto& entry : std::filesystem::directory_iterator(root, error)) {
+            if (error || !entry.is_regular_file(error)) continue;
+            const auto extension = entry.path().extension().string();
+            std::string name = entry.path().filename().string();
+            std::transform(name.begin(), name.end(), name.begin(), [](unsigned char value) {
+                return static_cast<char>(std::tolower(value));
+            });
+            if (extension == ".onnx"
+                && (name.find("reid") != std::string::npos
+                    || name.find("osnet") != std::string::npos)) {
+                return entry.path();
+            }
+        }
+    }
+    return {};
+}
+
+struct AppearancePrototype {
+    std::vector<float> embedding;
+    double confidence = 0.0;
+};
+
+AppearancePrototype averageAppearance(const pfcore::PersonTrack& track,
+                                      double startSeconds,
+                                      double endSeconds)
+{
+    std::vector<float> sum;
+    std::size_t samples = 0;
+    std::size_t observations = 0;
+    for (const auto& observation : track.observations) {
+        if (observation.timestampSeconds < startSeconds
+            || observation.timestampSeconds >= endSeconds) continue;
+        ++observations;
+        if (observation.appearanceEmbedding.empty()) continue;
+        if (sum.empty()) sum.assign(observation.appearanceEmbedding.size(), 0.0F);
+        if (sum.size() != observation.appearanceEmbedding.size()) continue;
+        for (std::size_t index = 0; index < sum.size(); ++index)
+            sum[index] += observation.appearanceEmbedding[index];
+        ++samples;
+    }
+    if (samples == 0 || sum.empty()) return {};
+    double norm = 0.0;
+    for (float& value : sum) {
+        value /= static_cast<float>(samples);
+        norm += static_cast<double>(value) * value;
+    }
+    if (!(norm > 1e-12)) return {};
+    norm = std::sqrt(norm);
+    for (float& value : sum) value = static_cast<float>(value / norm);
+    return {std::move(sum), static_cast<double>(samples)
+        / static_cast<double>(std::max<std::size_t>(1, observations))};
 }
 
 } // namespace
@@ -895,6 +1004,23 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             poseParams.intraOpThreads = settings.processingThreads;
             pose = std::make_unique<pfgpu::PoseEstimator>(model.string(), poseParams);
         }
+        const auto reidModel = findBodyReIdModel();
+        const bool reidModelPresent = !reidModel.empty();
+        bool reidReady = false;
+        QString reidFailure;
+        std::unique_ptr<pfgpu::ReIdEstimator> reid;
+        if (reidModelPresent) {
+            try {
+                pfgpu::ReIdEstimatorParams reidParams;
+                if (const auto provider = pfgpu::parseProvider(providerChoice.toStdString()); provider.has_value())
+                    reidParams.provider = *provider;
+                reidParams.intraOpThreads = settings.processingThreads;
+                reid = std::make_unique<pfgpu::ReIdEstimator>(reidModel.string(), reidParams);
+                reidReady = true;
+            } catch (const std::exception& exception) {
+                reidFailure = QString::fromUtf8(exception.what());
+            }
+        }
         std::vector<pfcore::MotionWindow> windows;
         for (const QString& path : paths) {
             try {
@@ -903,8 +1029,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 const auto info = decoder.info();
                 std::vector<pfcore::MotionWindow> cachedWindows;
                 bool cacheHit = false;
-                std::string cacheKey = "motion-v3|" + model.string() + "|"
-                    + providerChoice.toStdString() + "|" + path.toStdString();
+                std::string cacheKey = "motion-v4|" + model.string() + "|"
+                    + providerChoice.toStdString() + "|reid="
+                    + (reidModelPresent ? reidModel.string() : std::string("none")) + "|"
+                    + path.toStdString();
                 std::error_code cacheFileError;
                 const auto cacheFileSize = std::filesystem::file_size(path.toStdString(), cacheFileError);
                 const auto cacheWriteTime = std::filesystem::last_write_time(path.toStdString(), cacheFileError);
@@ -926,13 +1054,18 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 pfcore::DecodedFrame firstFrame;
                 pfcore::DecodedFrame lastFrame;
                 pfcore::DecodedFrame frame;
-                std::size_t index = 0;
+                std::size_t poseSampleIndex = 0;
                 double nextSceneSample = 0.0;
                 double previousPoseTimestamp = -1.0;
                 // The profile names are user-facing contracts: fast samples
                 // every fifth frame, medium every third, maximum every frame.
                 const std::size_t poseStride = qualityProfile == QStringLiteral("fast") ? 5U
                     : qualityProfile == QStringLiteral("medium") ? 3U : 1U;
+                // Appearance is more stable than frame-to-frame pose and does
+                // not need to run at the full detector cadence. This keeps the
+                // optional model affordable while providing several samples per
+                // one-second temporal window.
+                const std::size_t reidStride = qualityProfile == QStringLiteral("fast") ? 3U : 2U;
                 while (decoder.readNext(frame)) {
                     ++processedFrames;
                     if (processedFrames % 10 == 0 || processedFrames == totalFramesEstimate) {
@@ -950,12 +1083,15 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         do { nextSceneSample += 1.0; }
                         while (nextSceneSample <= frame.timestampSeconds + 1e-9);
                     }
-                    if (pose && !cacheHit && (index++ % poseStride) == 0U) {
+                    if (pose && !cacheHit && (poseSampleIndex++ % poseStride) == 0U) {
                         pfgpu::PoseImage image{frame.width, frame.height, frame.rgba.data()};
                         const auto detections = pose->infer(image);
                         poseDetections += static_cast<int>(detections.size());
                         std::vector<pfcore::PersonDetection> frameDetections;
                         frameDetections.reserve(detections.size());
+                        const bool sampleAppearance = reid && ((poseSampleIndex - 1U) % reidStride == 0U);
+                        std::vector<pfgpu::ReIdImage> reidImages;
+                        if (sampleAppearance) reidImages.reserve(detections.size());
                         for (const auto& detection : detections) {
                             pfcore::PersonDetection person;
                             person.timestampSeconds = frame.timestampSeconds;
@@ -972,6 +1108,26 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                 for (auto& point : person.keypoints) point.x = 1.0 - point.x;
                             }
                             frameDetections.push_back(std::move(person));
+                            if (sampleAppearance) {
+                                reidImages.push_back({frame.width, frame.height, frame.rgba.data(),
+                                                      detection.left, detection.top,
+                                                      detection.right, detection.bottom});
+                            }
+                        }
+                        if (sampleAppearance && !reidImages.empty()) {
+                            try {
+                                const auto embeddings = reid->inferBatch(reidImages);
+                                for (std::size_t detection = 0;
+                                     detection < std::min(embeddings.size(), frameDetections.size());
+                                     ++detection) {
+                                    frameDetections[detection].appearanceEmbedding = embeddings[detection];
+                                    frameDetections[detection].appearanceConfidence = embeddings[detection].empty() ? 0.0 : 1.0;
+                                }
+                            } catch (const std::exception& exception) {
+                                reidFailure = QString::fromUtf8(exception.what());
+                                reid.reset();
+                                reidReady = false;
+                            }
                         }
                         const double frameDuration = previousPoseTimestamp >= 0.0
                             ? std::max(0.0, frame.timestampSeconds - previousPoseTimestamp)
@@ -1027,6 +1183,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             window.trackId = track.id;
                             window.sceneIndex = sceneIndex;
                             window.hasSceneIndex = true;
+                            const auto appearance = averageAppearance(track, sceneStart, sceneEnd);
+                            window.appearanceEmbedding = appearance.embedding;
+                            window.appearanceConfidence = appearance.confidence;
                             for (const auto& observation : track.observations) {
                                 if (observation.timestampSeconds >= sceneStart
                                     && observation.timestampSeconds < sceneEnd) {
@@ -1058,6 +1217,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                     chunk.trackId = window.trackId;
                                     chunk.sceneIndex = window.sceneIndex;
                                     chunk.hasSceneIndex = window.hasSceneIndex;
+                                    chunk.appearanceEmbedding = window.appearanceEmbedding;
+                                    chunk.appearanceConfidence = window.appearanceConfidence;
                                     chunk.frames.assign(window.frames.begin()
                                                             + static_cast<std::ptrdiff_t>(start),
                                                         window.frames.begin()
@@ -1104,6 +1265,11 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults);
             params.timeWeight = timeWeight;
             params.normalizeSize = normalizeSize;
+            const bool appearanceReady = reidReady && std::any_of(windows.begin(), windows.end(),
+                [](const auto& window) { return !window.appearanceEmbedding.empty(); });
+            params.requireAppearance = appearanceReady;
+            params.minAppearanceSimilarity = 0.55;
+            params.appearanceWeight = 0.20;
             foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows);
             pfcore::MotionRanker::rank(foundMatches, windows);
             matches = static_cast<int>(foundMatches.size());
@@ -1120,6 +1286,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert(QStringLiteral("gesture"), QString::fromStdString(item.gestureLabel));
                 record.insert(QStringLiteral("leftSource"), QString::fromStdString(item.leftSourceId));
                 record.insert(QStringLiteral("rightSource"), QString::fromStdString(item.rightSourceId));
+                record.insert(QStringLiteral("appearanceSimilarity"), item.appearanceSimilarity);
+                record.insert(QStringLiteral("identityVerified"), item.appearanceVerified);
                 if (item.leftIndex < windows.size())
                     record.insert(QStringLiteral("leftTrackId"), static_cast<qulonglong>(windows[item.leftIndex].trackId));
                 if (item.rightIndex < windows.size())
@@ -1151,7 +1319,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 resultRecords.back() = record;
             }
         }
-        QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, matches, resultRecords, foundMatches, error, processedFrames, totalFramesEstimate, sourceFps] {
+        const QString reidStatus = reidReady
+            ? QStringLiteral("ReID: включён")
+            : (reidModelPresent
+                ? QStringLiteral("ReID: отключён (%1)").arg(reidFailure.isEmpty()
+                    ? QStringLiteral("ошибка модели") : reidFailure)
+                : QStringLiteral("ReID: модель не найдена, pose-only режим"));
+        QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, matches, resultRecords, foundMatches, error, processedFrames, totalFramesEstimate, sourceFps, reidStatus] {
             fileCount_ = files; frameCount_ = frames; durationSeconds_ = duration; sceneCount_ = scenes;
             poseDetectionCount_ = poseDetections;
             matchCount_ = matches;
@@ -1164,7 +1338,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             emit analysisStateChanged();
             setProgress(1.0, error.isEmpty() ? QStringLiteral("Анализ завершён") : QStringLiteral("Анализ остановлен"), processedFrames, totalFramesEstimate);
             busy_ = false; emit busyChanged();
-            setStatus(error.isEmpty() ? QStringLiteral("Анализ сцен завершён")
+            setStatus(error.isEmpty() ? QStringLiteral("Анализ сцен завершён · ") + reidStatus
                                       : QStringLiteral("Анализ остановлен: ") + error);
         }, Qt::QueuedConnection);
         } catch (const std::exception& exception) {

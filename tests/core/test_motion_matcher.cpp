@@ -139,6 +139,38 @@ TEST(MotionMatcher, RejectsDifferentTracksWithinOneSource)
     EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(left, right).similarity, 0.0);
 }
 
+TEST(MotionMatcher, AppearanceGateRejectsDifferentPeople)
+{
+    pfcore::MotionMatcherParams params;
+    params.candidateThreshold = 0.0;
+    params.similarityThreshold = 0.1;
+    params.crossFileGapSec = 0.0;
+    params.maxUniqueResults = 10;
+    params.requireAppearance = true;
+    params.minAppearanceSimilarity = 0.80;
+    auto left = window("left", 0.0);
+    auto right = window("right", 4.0);
+    left.appearanceEmbedding = {1.0F, 0.0F, 0.0F};
+    right.appearanceEmbedding = {0.0F, 1.0F, 0.0F};
+    EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs({left, right}).empty());
+}
+
+TEST(MotionMatcher, AppearanceGateAcceptsSamePerson)
+{
+    pfcore::MotionMatcherParams params;
+    params.candidateThreshold = 0.0;
+    params.similarityThreshold = 0.1;
+    params.crossFileGapSec = 0.0;
+    params.maxUniqueResults = 10;
+    params.requireAppearance = true;
+    params.minAppearanceSimilarity = 0.80;
+    auto left = window("left", 0.0);
+    auto right = window("right", 4.0);
+    left.appearanceEmbedding = {1.0F, 0.0F, 0.0F};
+    right.appearanceEmbedding = {0.98F, 0.12F, 0.0F};
+    EXPECT_FALSE(pfcore::MotionMatcher(params).findAllPairs({left, right}).empty());
+}
+
 TEST(MotionMatcher, SyntheticAcceptanceF1RemainsAboveThreshold)
 {
     pfcore::MotionMatcherParams params;

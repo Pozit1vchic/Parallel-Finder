@@ -16,6 +16,23 @@ using Descriptor = std::vector<double>;
 
 using NormalizedPose = std::vector<std::pair<double, double>>;
 
+double appearanceCosine(const std::vector<float>& left,
+                         const std::vector<float>& right)
+{
+    if (left.empty() || right.empty() || left.size() != right.size()) return 0.0;
+    double dot = 0.0;
+    double leftNorm = 0.0;
+    double rightNorm = 0.0;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        if (!std::isfinite(left[index]) || !std::isfinite(right[index])) return 0.0;
+        dot += static_cast<double>(left[index]) * right[index];
+        leftNorm += static_cast<double>(left[index]) * left[index];
+        rightNorm += static_cast<double>(right[index]) * right[index];
+    }
+    if (leftNorm <= 1e-12 || rightNorm <= 1e-12) return 0.0;
+    return std::clamp(dot / std::sqrt(leftNorm * rightNorm), -1.0, 1.0);
+}
+
 std::vector<NormalizedPose> normalizePoses(const MotionWindow& window,
                                            bool normalizeSize)
 {
@@ -400,6 +417,21 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         result.similarity = 0.0;
         return result;
     }
+    const bool hasAppearance = !left.appearanceEmbedding.empty()
+        && !right.appearanceEmbedding.empty();
+    if (params.requireAppearance && !hasAppearance) {
+        result.similarity = 0.0;
+        return result;
+    }
+    if (hasAppearance) {
+        result.appearanceSimilarity = appearanceCosine(left.appearanceEmbedding,
+                                                       right.appearanceEmbedding);
+        result.appearanceVerified = result.appearanceSimilarity >= params.minAppearanceSimilarity;
+        if (params.requireAppearance && !result.appearanceVerified) {
+            result.similarity = 0.0;
+            return result;
+        }
+    }
     if (left.sourceId == right.sourceId
         && std::abs(result.leftStartSeconds - result.rightStartSeconds)
             < std::max({params.sameSourceGapFloorSec, params.sameFileGapSec,
@@ -469,8 +501,14 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     // and anatomyScore prevents different skeleton topology/proportions from
     // receiving a near-perfect score.  Keep a headroom below 100% so exact
     // duplicate frames cannot be presented as mathematically perfect proof.
-    double calibrated = 0.50 * dtwScore + 0.30 * temporalScore
-        + 0.20 * anatomyScore - timePenalty;
+    const double motionScore = 0.50 * dtwScore + 0.30 * temporalScore
+        + 0.20 * anatomyScore;
+    double calibrated = motionScore;
+    if (result.appearanceVerified) {
+        calibrated = (1.0 - params.appearanceWeight) * motionScore
+            + params.appearanceWeight * result.appearanceSimilarity;
+    }
+    calibrated -= timePenalty;
     // Reserve the 95%+ band for agreement across all three signals.  A pair
     // with a good average but a weak temporal or anatomical component is a
     // candidate, never an "almost identical" movement.
@@ -507,6 +545,10 @@ void MotionMatcher::setParams(MotionMatcherParams params)
         || params.sameSourceGapFloorSec < 0.0
         || !(params.nmsOverlapThreshold >= 0.0 && params.nmsOverlapThreshold <= 1.0))
         throw std::invalid_argument("MotionMatcher: invalid temporal parameters");
+    if (!(params.minAppearanceSimilarity >= -1.0
+          && params.minAppearanceSimilarity <= 1.0)
+        || !(params.appearanceWeight >= 0.0 && params.appearanceWeight <= 1.0))
+        throw std::invalid_argument("MotionMatcher: invalid appearance parameters");
     params_ = params;
 }
 

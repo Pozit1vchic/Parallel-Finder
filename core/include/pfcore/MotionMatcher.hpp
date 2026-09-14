@@ -25,6 +25,10 @@ struct MotionWindow {
     std::size_t sceneIndex = 0;
     bool hasSceneIndex = false;
     std::vector<PoseFrame> frames;
+    // L2-normalized body-ReID prototype for this temporal window. Empty means
+    // the optional ReID model was unavailable and the result is pose-only.
+    std::vector<float> appearanceEmbedding;
+    double appearanceConfidence = 0.0;
 };
 
 struct MotionMatcherParams {
@@ -77,6 +81,9 @@ struct MotionMatcherParams {
     // to a visually similar pose from person B.  Cross-file IDs are not
     // comparable and are therefore intentionally ignored.
     bool requireSameTrackWithinSource = true;
+    bool requireAppearance = false;
+    double minAppearanceSimilarity = 0.55;
+    double appearanceWeight = 0.20;
 };
 
 struct MotionMatch {
@@ -94,6 +101,8 @@ struct MotionMatch {
     std::string directionLabel;
     std::string gestureLabel;
     double rankScore = 0.0;
+    double appearanceSimilarity = 0.0;
+    bool appearanceVerified = false;
 };
 
 class MotionMatcher {
