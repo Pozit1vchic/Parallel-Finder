@@ -78,6 +78,14 @@ Rectangle {
                         Text { width: parent.width; text: Math.round(Number(modelData.similarity) * 100) + "%  ·  " + String(modelData.direction || "") + "  ·  " + String(modelData.gesture || ""); color: Theme.textPrimary; font.pixelSize: 10; wrapMode: Text.WordWrap; maximumLineCount: 2; clip: true }
                         Text { width: parent.width; text: String(modelData.leftSource || "").split(/[\\/]/).pop() + "  ↔  " + String(modelData.rightSource || "").split(/[\\/]/).pop(); color: Theme.textSecondary; font.pixelSize: 9; elide: Text.ElideMiddle; clip: true }
                         Text { width: parent.width; text: root.formatTime(modelData.leftStart) + "  /  " + root.formatTime(modelData.rightStart); color: Theme.textDisabled; font.pixelSize: 9; elide: Text.ElideRight }
+                        Text {
+                            width: parent.width
+                            visible: modelData.leftTrackId !== undefined || modelData.rightTrackId !== undefined
+                            text: "трек A #" + String(modelData.leftTrackId || "?") + "  ·  трек B #" + String(modelData.rightTrackId || "?")
+                            color: Theme.textDisabled
+                            font.pixelSize: 8
+                            elide: Text.ElideRight
+                        }
                     }
                 }
             }

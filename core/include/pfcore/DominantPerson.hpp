@@ -56,4 +56,9 @@ private:
     std::vector<PersonTrack> tracks_;
 };
 
+// New code should use the neutral name: the tracker maintains every active
+// person track.  Keep the historical type name as the implementation/API
+// compatibility surface for existing integrations.
+using PersonTracker = DominantPersonTracker;
+
 } // namespace pfcore

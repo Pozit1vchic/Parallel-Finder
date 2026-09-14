@@ -394,6 +394,13 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         return result;
     }
     if (left.sourceId == right.sourceId
+        && params.requireSameTrackWithinSource
+        && left.trackId != 0 && right.trackId != 0
+        && left.trackId != right.trackId) {
+        result.similarity = 0.0;
+        return result;
+    }
+    if (left.sourceId == right.sourceId
         && std::abs(result.leftStartSeconds - result.rightStartSeconds)
             < std::max({params.sameSourceGapFloorSec, params.sameFileGapSec,
                         params.minRepeatGapSec})) {
@@ -577,6 +584,11 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         const std::size_t j = static_cast<std::size_t>(key & 0xffffffffULL);
         if (i >= windows.size() || j >= windows.size() || i >= j) continue;
         const bool sameSource = windows[i].sourceId == windows[j].sourceId;
+        if (sameSource && params_.requireSameTrackWithinSource
+            && windows[i].trackId != 0 && windows[j].trackId != 0
+            && windows[i].trackId != windows[j].trackId) {
+            continue;
+        }
         if (sameSource && windows[i].hasSceneIndex && windows[j].hasSceneIndex
             && windows[i].sceneIndex == windows[j].sceneIndex) {
             continue;

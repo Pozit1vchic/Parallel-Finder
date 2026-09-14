@@ -72,6 +72,11 @@ struct MotionMatcherParams {
     // static shot from being paired with a nearby overlapping crop.
     double sameSourceGapFloorSec = 5.0;
     double nmsOverlapThreshold = 0.35;
+    // Track IDs are local to a source file.  When both windows come from one
+    // file, requiring the same ID prevents a pose from person A being matched
+    // to a visually similar pose from person B.  Cross-file IDs are not
+    // comparable and are therefore intentionally ignored.
+    bool requireSameTrackWithinSource = true;
 };
 
 struct MotionMatch {

@@ -24,6 +24,47 @@ double BoundingBox::iou(const BoundingBox& other) const noexcept
     return unionArea <= 1e-12 ? 0.0 : intersection / unionArea;
 }
 
+namespace {
+
+double centerDistanceScore(const BoundingBox& left, const BoundingBox& right) noexcept
+{
+    const double leftWidth = std::max(1e-9, left.right - left.left);
+    const double leftHeight = std::max(1e-9, left.bottom - left.top);
+    const double rightWidth = std::max(1e-9, right.right - right.left);
+    const double rightHeight = std::max(1e-9, right.bottom - right.top);
+    const double leftCenterX = (left.left + left.right) * 0.5;
+    const double leftCenterY = (left.top + left.bottom) * 0.5;
+    const double rightCenterX = (right.left + right.right) * 0.5;
+    const double rightCenterY = (right.top + right.bottom) * 0.5;
+    const double scale = std::max(1e-9, std::sqrt(leftWidth * leftHeight)
+        + std::sqrt(rightWidth * rightHeight)) * 0.5;
+    const double distance = std::hypot(leftCenterX - rightCenterX,
+                                       leftCenterY - rightCenterY) / scale;
+    return std::exp(-2.5 * distance);
+}
+
+double keypointScore(const PersonDetection& left, const PersonDetection& right) noexcept
+{
+    const std::size_t count = std::min(left.keypoints.size(), right.keypoints.size());
+    if (count == 0) return 0.5;
+    const double scale = std::max(1e-9, std::sqrt(left.box.area())
+        + std::sqrt(right.box.area())) * 0.5;
+    double weightedDistance = 0.0;
+    double weight = 0.0;
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto& a = left.keypoints[index];
+        const auto& b = right.keypoints[index];
+        const double confidence = std::clamp(std::min(a.confidence, b.confidence), 0.0, 1.0);
+        if (confidence <= 1e-6) continue;
+        weightedDistance += confidence * std::hypot(a.x - b.x, a.y - b.y) / scale;
+        weight += confidence;
+    }
+    if (weight <= 1e-9) return 0.5;
+    return std::exp(-4.0 * (weightedDistance / weight));
+}
+
+} // namespace
+
 double PersonTrack::totalTimeSeconds() const noexcept
 {
     double total = 0.0;
@@ -93,8 +134,18 @@ void DominantPersonTracker::update(double timestampSeconds,
             const auto& last = tracks_[track].observations.back();
             if (timestampSeconds < last.timestampSeconds
                 || timestampSeconds - last.timestampSeconds > maxGapSeconds_) continue;
-            const double score = last.box.iou(detections[detection].box);
-            if (score >= iouThreshold_) candidates.push_back({score, track, detection});
+            const double iou = last.box.iou(detections[detection].box);
+            const double center = centerDistanceScore(last.box, detections[detection].box);
+            const double keypoints = keypointScore(last, detections[detection]);
+            // IoU is still the strongest signal, but center/keypoint continuity
+            // keeps an ID stable when a person turns or the detector jitters.
+            // The gate prevents a stale track from stealing a new person merely
+            // because their boxes overlap for one frame.
+            const bool gated = iou >= iouThreshold_
+                || (center >= 0.42 && keypoints >= 0.38);
+            if (!gated) continue;
+            const double score = 0.55 * iou + 0.25 * center + 0.20 * keypoints;
+            candidates.push_back({score, track, detection});
         }
     }
     std::sort(candidates.begin(), candidates.end(), [](const Candidate& left, const Candidate& right) {

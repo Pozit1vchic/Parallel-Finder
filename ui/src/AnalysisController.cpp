@@ -156,7 +156,7 @@ bool readBytes(const std::vector<std::uint8_t>& input, std::size_t& offset, T& v
 std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::MotionWindow>& windows)
 {
     std::vector<std::uint8_t> output;
-    const std::uint32_t version = 2;
+    const std::uint32_t version = 3;
     appendBytes(output, version);
     appendBytes(output, static_cast<std::uint32_t>(windows.size()));
     for (const auto& window : windows) {
@@ -184,7 +184,7 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
 {
     std::size_t offset = 0;
     std::uint32_t version = 0, windowCount = 0;
-    if (!readBytes(input, offset, version) || version != 2
+    if (!readBytes(input, offset, version) || version != 3
         || !readBytes(input, offset, windowCount) || windowCount > 1'000'000U) return false;
     windows.clear();
     windows.reserve(windowCount);
@@ -903,7 +903,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 const auto info = decoder.info();
                 std::vector<pfcore::MotionWindow> cachedWindows;
                 bool cacheHit = false;
-                std::string cacheKey = "motion-v2|" + model.string() + "|"
+                std::string cacheKey = "motion-v3|" + model.string() + "|"
                     + providerChoice.toStdString() + "|" + path.toStdString();
                 std::error_code cacheFileError;
                 const auto cacheFileSize = std::filesystem::file_size(path.toStdString(), cacheFileError);
@@ -922,7 +922,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 std::vector<double> sceneTimestamps;
                 sceneBuffers.reserve(static_cast<std::size_t>(std::max(1.0, info.durationSeconds)) + 1U);
                 sceneTimestamps.reserve(sceneBuffers.capacity());
-                pfcore::DominantPersonTracker tracker;
+                pfcore::PersonTracker tracker;
                 pfcore::DecodedFrame firstFrame;
                 pfcore::DecodedFrame lastFrame;
                 pfcore::DecodedFrame frame;
@@ -1006,7 +1006,6 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         previewB.push_back(previewEnd);
                     }
                 } else if (pose) {
-                    const auto dominant = tracker.dominant();
                     // Keep scene boundaries in the motion index: a candidate
                     // never crosses a shot change, and a clip can end only at
                     // the end of its scene rather than when a person briefly
@@ -1018,65 +1017,67 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         const double sceneStart = sceneStarts[sceneIndex];
                         const double sceneEnd = sceneIndex + 1 < sceneStarts.size()
                             ? sceneStarts[sceneIndex + 1] : std::max(info.durationSeconds, lastTimestamp + 0.001);
-                        pfcore::MotionWindow window;
-                        window.sourceId = path.toStdString();
-                        window.sceneIndex = sceneIndex;
-                        window.hasSceneIndex = true;
-                        if (dominant.has_value()) {
-                            window.trackId = dominant->id;
-                            for (const auto& observation : dominant->observations) {
+                        // Keep every sufficiently long person track.  The old
+                        // pipeline selected tracker.dominant(), which silently
+                        // discarded all other people and made the result set
+                        // look like one person was present in the whole clip.
+                        for (const auto& track : tracker.tracks()) {
+                            pfcore::MotionWindow window;
+                            window.sourceId = path.toStdString();
+                            window.trackId = track.id;
+                            window.sceneIndex = sceneIndex;
+                            window.hasSceneIndex = true;
+                            for (const auto& observation : track.observations) {
                                 if (observation.timestampSeconds >= sceneStart
                                     && observation.timestampSeconds < sceneEnd) {
                                     window.frames.push_back({observation.timestampSeconds, observation.keypoints});
                                 }
                             }
-                        }
-                        // Compare overlapping motion windows rather than one
-                        // aggregate window per scene. The durations and stride
-                        // are the documented 3b contract, measured on actual
-                        // timestamps rather than guessed frame counts.
-                        constexpr double windowSeconds = 1.5;
-                        constexpr double strideSeconds = 0.25;
-                        constexpr double minimumWindowSeconds = 1.1;
-                        std::size_t start = 0;
-                        while (start < window.frames.size()) {
-                            const double startTime = window.frames[start].timestampSeconds;
-                            if (startTime + minimumWindowSeconds > sceneEnd + 1e-9) break;
-                            std::size_t end = start;
-                            while (end + 1 < window.frames.size()
-                                   && window.frames[end + 1].timestampSeconds
-                                       <= startTime + windowSeconds + 1e-9) {
-                                ++end;
+                            // Compare overlapping motion windows rather than one
+                            // aggregate window per scene. The durations and stride
+                            // are the documented 3b contract, measured on actual
+                            // timestamps rather than guessed frame counts.
+                            constexpr double windowSeconds = 1.5;
+                            constexpr double strideSeconds = 0.25;
+                            constexpr double minimumWindowSeconds = 1.1;
+                            std::size_t start = 0;
+                            while (start < window.frames.size()) {
+                                const double startTime = window.frames[start].timestampSeconds;
+                                if (startTime + minimumWindowSeconds > sceneEnd + 1e-9) break;
+                                std::size_t end = start;
+                                while (end + 1 < window.frames.size()
+                                       && window.frames[end + 1].timestampSeconds
+                                           <= startTime + windowSeconds + 1e-9) {
+                                    ++end;
+                                }
+                                if (end > start
+                                    && window.frames[end].timestampSeconds - startTime
+                                        >= minimumWindowSeconds) {
+                                    pfcore::MotionWindow chunk;
+                                    chunk.sourceId = window.sourceId;
+                                    chunk.trackId = window.trackId;
+                                    chunk.sceneIndex = window.sceneIndex;
+                                    chunk.hasSceneIndex = window.hasSceneIndex;
+                                    chunk.frames.assign(window.frames.begin()
+                                                            + static_cast<std::ptrdiff_t>(start),
+                                                        window.frames.begin()
+                                                            + static_cast<std::ptrdiff_t>(end + 1));
+                                    windows.push_back(std::move(chunk));
+                                    previewA.push_back(previewStart);
+                                    previewB.push_back(previewEnd);
+                                }
+                                const double nextTime = startTime + strideSeconds;
+                                std::size_t next = start + 1;
+                                while (next < window.frames.size()
+                                       && window.frames[next].timestampSeconds < nextTime) {
+                                    ++next;
+                                }
+                                start = next;
                             }
-                            if (end > start
-                                && window.frames[end].timestampSeconds - startTime
-                                    >= minimumWindowSeconds) {
-                                pfcore::MotionWindow chunk;
-                                chunk.sourceId = window.sourceId;
-                                chunk.trackId = window.trackId;
-                                chunk.sceneIndex = window.sceneIndex;
-                                chunk.hasSceneIndex = window.hasSceneIndex;
-                                chunk.frames.assign(window.frames.begin()
-                                                        + static_cast<std::ptrdiff_t>(start),
-                                                    window.frames.begin()
-                                                        + static_cast<std::ptrdiff_t>(end + 1));
-                                windows.push_back(std::move(chunk));
-                                previewA.push_back(previewStart);
-                                previewB.push_back(previewEnd);
-                            }
-                            const double nextTime = startTime + strideSeconds;
-                            std::size_t next = start + 1;
-                            while (next < window.frames.size()
-                                   && window.frames[next].timestampSeconds < nextTime) {
-                                ++next;
-                            }
-                            start = next;
                         }
                     }
                     if (analysisCache) {
                         std::vector<pfcore::MotionWindow> fileWindows;
-                        const std::size_t firstWindow = windows.size();
-                        (void)firstWindow;
                         // Only entries from this source are serialized, so a
                         // later run can skip pose inference for the same file.
                         for (const auto& candidate : windows) {
@@ -1119,6 +1120,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert(QStringLiteral("gesture"), QString::fromStdString(item.gestureLabel));
                 record.insert(QStringLiteral("leftSource"), QString::fromStdString(item.leftSourceId));
                 record.insert(QStringLiteral("rightSource"), QString::fromStdString(item.rightSourceId));
+                if (item.leftIndex < windows.size())
+                    record.insert(QStringLiteral("leftTrackId"), static_cast<qulonglong>(windows[item.leftIndex].trackId));
+                if (item.rightIndex < windows.size())
+                    record.insert(QStringLiteral("rightTrackId"), static_cast<qulonglong>(windows[item.rightIndex].trackId));
                 record.insert(QStringLiteral("leftStart"), item.leftStartSeconds);
                 record.insert(QStringLiteral("leftEnd"), item.leftEndSeconds);
                 record.insert(QStringLiteral("rightStart"), item.rightStartSeconds);

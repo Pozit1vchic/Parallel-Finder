@@ -120,6 +120,25 @@ TEST(MotionMatcher, EnforcesHardSameSourceGap)
     EXPECT_FALSE(pfcore::MotionMatcher(params).findAllPairs({left, far}).empty());
 }
 
+TEST(MotionMatcher, RejectsDifferentTracksWithinOneSource)
+{
+    pfcore::MotionMatcherParams params;
+    params.candidateThreshold = 0.0;
+    params.similarityThreshold = 0.1;
+    params.minRepeatGapSec = 0.0;
+    params.sameFileGapSec = 0.0;
+    params.maxUniqueResults = 10;
+    auto left = window("same", 0.0);
+    auto right = window("same", 8.0);
+    left.trackId = 11;
+    right.trackId = 12;
+    left.hasSceneIndex = right.hasSceneIndex = true;
+    left.sceneIndex = 1;
+    right.sceneIndex = 2;
+    EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs({left, right}).empty());
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(left, right).similarity, 0.0);
+}
+
 TEST(MotionMatcher, SyntheticAcceptanceF1RemainsAboveThreshold)
 {
     pfcore::MotionMatcherParams params;
