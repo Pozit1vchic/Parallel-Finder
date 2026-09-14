@@ -26,13 +26,14 @@ Rectangle {
         // list when a record was produced by another locale/version.
         if (activeFilter === "forward") {
             return direction.indexOf("toward") >= 0
-                || direction.indexOf("camera") >= 0
                 || direction.indexOf("к камер") >= 0
         }
         if (activeFilter === "side") {
             return direction === "left" || direction === "right"
                 || direction.indexOf("left") >= 0 || direction.indexOf("right") >= 0
+                || direction.indexOf("away") >= 0
                 || direction.indexOf("влево") >= 0 || direction.indexOf("вправо") >= 0
+                || direction.indexOf("от камер") >= 0
                 || direction.indexOf("сторон") >= 0
         }
         return true
