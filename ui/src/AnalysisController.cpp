@@ -42,12 +42,89 @@ namespace pfui {
 namespace {
 
 constexpr auto kModelReleaseBase = "https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/";
+constexpr auto kModelManifestUrl = "https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/manifest.json";
 
 bool isSafeModelFilename(const QString& filename)
 {
     return !filename.isEmpty() && filename.endsWith(QStringLiteral(".onnx"), Qt::CaseInsensitive)
         && !filename.contains(QStringLiteral(".."))
         && !filename.contains(QLatin1Char('/')) && !filename.contains(QLatin1Char('\\'));
+}
+
+std::filesystem::path userModelsRoot()
+{
+    return std::filesystem::path(pfservices::SettingsStore::defaultDirectory()) / "models";
+}
+
+std::vector<std::filesystem::path> modelRoots()
+{
+    std::vector<std::filesystem::path> roots;
+    roots.emplace_back(std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) / "models");
+    roots.emplace_back(userModelsRoot());
+    if (const char* root = std::getenv("PF_MODEL_ROOT"); root && *root)
+        roots.emplace_back(root);
+    roots.emplace_back(R"(D:\PF_CUDA\models)");
+    return roots;
+}
+
+std::optional<std::filesystem::path> findLocalModelFile(const QString& filename)
+{
+    if (!isSafeModelFilename(filename)) return std::nullopt;
+    if (const char* configured = std::getenv("PF_MODEL_PATH"); configured && *configured) {
+        const std::filesystem::path path(configured);
+        if (QFileInfo(QString::fromLocal8Bit(configured)).fileName() == filename) {
+            std::error_code error;
+            if (std::filesystem::is_regular_file(path, error)) return path;
+        }
+    }
+    std::string settingsError;
+    const auto settings = pfservices::SettingsStore().load(settingsError);
+    if (!settings.modelPath.empty()) {
+        const std::filesystem::path path(settings.modelPath);
+        if (QFileInfo(QString::fromStdString(settings.modelPath)).fileName() == filename) {
+            std::error_code error;
+            if (std::filesystem::is_regular_file(path, error)) return path;
+        }
+    }
+    const auto requested = filename.toStdWString();
+    for (const auto& root : modelRoots()) {
+        const auto candidate = root / requested;
+        std::error_code error;
+        if (std::filesystem::is_regular_file(candidate, error)) return candidate;
+    }
+    return std::nullopt;
+}
+
+std::optional<pfservices::ModelAsset> findLocalOrRemoteAsset(const QString& filename,
+                                                             std::string& error)
+{
+    const std::string requested = filename.toStdString();
+    for (const auto& root : modelRoots()) {
+        const auto manifest = root / "manifest.json";
+        std::string manifestError;
+        if (auto asset = pfservices::ModelStore::readManifest(manifest, requested, manifestError)) {
+            if (asset->downloadUrl.empty())
+                asset->downloadUrl = std::string(kModelReleaseBase) + asset->filename;
+            return asset;
+        }
+        if (error.empty()) error = manifestError;
+    }
+    std::string remoteError;
+    if (auto asset = pfservices::ModelStore::fetchManifest(kModelManifestUrl,
+                                                           requested,
+                                                           remoteError)) {
+        if (asset->downloadUrl.empty())
+            asset->downloadUrl = std::string(kModelReleaseBase) + asset->filename;
+        return asset;
+    }
+    // A release without a manifest remains usable, but the UI reports that
+    // the download is unverified. Once manifest.json is published, SHA-256
+    // and size validation are applied automatically.
+    pfservices::ModelAsset fallback;
+    fallback.filename = requested;
+    fallback.downloadUrl = std::string(kModelReleaseBase) + requested;
+    error = remoteError.empty() ? error : remoteError;
+    return fallback;
 }
 
 QString localPathFromInput(const QString& value)
@@ -248,33 +325,40 @@ std::filesystem::path findPoseModel()
         if (std::filesystem::is_regular_file(configured)) return configured;
         const auto requestedName = configured.filename();
         if (!requestedName.empty()) {
-            const auto executableModels = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) / "models";
-            const auto localModelsRoot = std::filesystem::path(pfservices::SettingsStore::defaultDirectory()) / "models";
-            for (const auto& root : {executableModels, localModelsRoot}) {
+            for (const auto& root : modelRoots()) {
                 const auto candidate = root / requestedName;
-                if (std::filesystem::is_regular_file(candidate)) return candidate;
+                std::error_code filesystemError;
+                if (std::filesystem::is_regular_file(candidate, filesystemError)) return candidate;
             }
         }
     }
     // Legacy developer location remains a fallback only. It must never
     // override a model explicitly selected in settings.json.
-    const std::filesystem::path external = R"(D:\PF_CUDA\models\yolo26m-pose-640-b1.onnx)";
-    if (std::filesystem::is_regular_file(external)) return external;
-    const auto besideExecutable = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString())
-        / "models" / "yolo26m-pose-640-b1.onnx";
-    if (std::filesystem::is_regular_file(besideExecutable)) return besideExecutable;
-    const std::filesystem::path localModels = std::filesystem::path(pfservices::SettingsStore::defaultDirectory())
-        / "models" / "yolo26m-pose-640-b1.onnx";
-    if (std::filesystem::is_regular_file(localModels)) return localModels;
-    const auto executableModels = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) / "models";
-    const auto localManifest = std::filesystem::path(pfservices::SettingsStore::defaultDirectory())
-        / "models" / "manifest.json";
-    const auto executableManifest = executableModels / "manifest.json";
-    for (const auto& manifest : {executableManifest, localManifest}) {
+    const auto defaultName = QStringLiteral("yolo26m-pose-640-b1.onnx");
+    for (const auto& root : modelRoots()) {
+        const auto candidate = root / defaultName.toStdWString();
+        std::error_code filesystemError;
+        if (std::filesystem::is_regular_file(candidate, filesystemError)) return candidate;
+    }
+    const auto localModels = userModelsRoot() / defaultName.toStdWString();
+    for (const auto& root : modelRoots()) {
+        const auto manifest = root / "manifest.json";
         std::string manifestError;
-        const auto asset = pfservices::ModelStore::readManifest(manifest,
-            "yolo26m-pose-640-b1.onnx", manifestError);
+        auto asset = pfservices::ModelStore::readManifest(manifest,
+            defaultName.toStdString(), manifestError);
         if (!asset.has_value()) continue;
+        if (asset->downloadUrl.empty())
+            asset->downloadUrl = std::string(kModelReleaseBase) + asset->filename;
+        std::string downloadError;
+        if (pfservices::ModelStore::download(*asset, localModels, {}, downloadError))
+            return localModels;
+    }
+    std::string remoteManifestError;
+    if (auto asset = pfservices::ModelStore::fetchManifest(kModelManifestUrl,
+                                                            defaultName.toStdString(),
+                                                            remoteManifestError)) {
+        if (asset->downloadUrl.empty())
+            asset->downloadUrl = std::string(kModelReleaseBase) + asset->filename;
         std::string downloadError;
         if (pfservices::ModelStore::download(*asset, localModels, {}, downloadError))
             return localModels;
@@ -420,6 +504,9 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     modelPath_ = QString::fromStdString(settings.modelPath);
     modelChoice_ = QFileInfo(modelPath_).fileName();
     if (modelChoice_.isEmpty()) modelChoice_ = QStringLiteral("yolo26m-pose-640-b1.onnx");
+    modelStatus_ = findLocalModelFile(modelChoice_).has_value()
+        ? QStringLiteral("Модель установлена и готова к анализу")
+        : QStringLiteral("Модель не установлена · выберите её для скачивания");
     cachePath_ = QString::fromStdString(settings.cachePath);
     cacheLimitGb_ = static_cast<double>(settings.cacheLimitBytes) / (1024.0 * 1024.0 * 1024.0);
     processingThreads_ = static_cast<int>(std::clamp<std::size_t>(settings.processingThreads, 0, 256));
@@ -642,68 +729,109 @@ void AnalysisController::selectModel(const QString& filename)
 {
     const QString requested = QFileInfo(filename.trimmed()).fileName();
     if (!isSafeModelFilename(requested)) return;
+    if (modelDownloading_) {
+        modelStatus_ = QStringLiteral("Дождитесь завершения текущей загрузки: ")
+            + modelDownloadingName_;
+        emit modelStatusChanged();
+        return;
+    }
+
     modelChoice_ = requested;
     emit settingsChanged();
+    if (const auto local = findLocalModelFile(requested)) {
+        modelPath_ = QString::fromStdWString(local->wstring());
+        modelStatus_ = QStringLiteral("Модель установлена и готова к анализу");
+        modelDownloadProgress_ = 1.0;
+        saveSettings();
+        emit settingsChanged();
+        emit modelStatusChanged();
+        emit modelDownloadProgressChanged();
+        return;
+    }
 
-    const auto modelsRoot = std::filesystem::path(pfservices::SettingsStore::defaultDirectory()) / "models";
-    const auto destination = modelsRoot / requested.toStdWString();
-    std::error_code filesystemError;
-    if (std::filesystem::is_regular_file(destination, filesystemError)) {
-        modelPath_ = QString::fromStdWString(destination.wstring());
-        modelStatus_ = QStringLiteral("Модель готова к анализу");
-        saveSettings();
-        emit settingsChanged();
-        emit modelStatusChanged();
-        return;
-    }
-    const auto besideExecutable = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString())
-        / "models" / requested.toStdWString();
-    if (std::filesystem::is_regular_file(besideExecutable, filesystemError)) {
-        modelPath_ = QString::fromStdWString(besideExecutable.wstring());
-        modelStatus_ = QStringLiteral("Модель готова к анализу");
-        saveSettings();
-        emit settingsChanged();
-        emit modelStatusChanged();
-        return;
-    }
-    if (const char* root = std::getenv("PF_MODEL_ROOT"); root && *root) {
-        const auto externalRoot = std::filesystem::path(root) / requested.toStdWString();
-        if (std::filesystem::is_regular_file(externalRoot, filesystemError)) {
-            modelPath_ = QString::fromStdWString(externalRoot.wstring());
-            modelStatus_ = QStringLiteral("Модель готова к анализу");
-            saveSettings();
-            emit settingsChanged();
-            emit modelStatusChanged();
+    const auto destination = userModelsRoot() / requested.toStdWString();
+    modelDownloading_ = true;
+    modelDownloadingName_ = requested;
+    modelDownloadProgress_ = 0.0;
+    modelStatus_ = QStringLiteral("Скачиваем выбранную модель из GitHub Releases…");
+    emit modelStatusChanged();
+    emit modelDownloadProgressChanged();
+    ++modelCatalogRevision_;
+    emit modelCatalogChanged();
+
+    QThread* thread = QThread::create([this, requested, destination] {
+        std::string manifestError;
+        auto asset = findLocalOrRemoteAsset(requested, manifestError);
+        if (!asset.has_value()) {
+            const QString message = QStringLiteral("Модель отсутствует в release: ")
+                + requested;
+            QMetaObject::invokeMethod(this, [this, message] {
+                modelDownloading_ = false;
+                modelDownloadingName_.clear();
+                modelStatus_ = message;
+                modelDownloadProgress_ = 0.0;
+                emit modelStatusChanged();
+                emit modelDownloadProgressChanged();
+                ++modelCatalogRevision_;
+                emit modelCatalogChanged();
+            }, Qt::QueuedConnection);
             return;
         }
-    }
-    if (modelDownloading_) return;
-
-    modelDownloading_ = true;
-    modelStatus_ = QStringLiteral("Скачиваем модель с GitHub Releases…");
-    emit modelStatusChanged();
-    QThread* thread = QThread::create([this, requested, destination] {
-        pfservices::ModelAsset asset;
-        asset.filename = requested.toStdString();
-        asset.downloadUrl = std::string(kModelReleaseBase) + asset.filename;
+        const bool verified = !asset->sha256.empty() || asset->sizeBytes != 0;
         std::string error;
-        const bool ok = pfservices::ModelStore::download(asset, destination, {}, error);
+        const bool ok = pfservices::ModelStore::download(
+            *asset,
+            destination,
+            [this](std::uint64_t received, std::uint64_t total) {
+                const double progress = total == 0
+                    ? 0.0
+                    : std::clamp(static_cast<double>(received) / static_cast<double>(total), 0.0, 1.0);
+                QMetaObject::invokeMethod(this, [this, progress] {
+                    if (std::abs(modelDownloadProgress_ - progress) < 0.001) return;
+                    modelDownloadProgress_ = progress;
+                    emit modelDownloadProgressChanged();
+                }, Qt::QueuedConnection);
+            },
+            error);
         const QString message = ok
-            ? QStringLiteral("Модель скачана и готова")
+            ? (verified ? QStringLiteral("Модель скачана, SHA-256 проверен")
+                        : QStringLiteral("Модель скачана без manifest.json · проверьте release"))
             : QStringLiteral("Не удалось скачать модель: ") + QString::fromStdString(error);
         QMetaObject::invokeMethod(this, [this, ok, destination, message] {
             modelDownloading_ = false;
+            modelDownloadingName_.clear();
             modelStatus_ = message;
             if (ok) {
                 modelPath_ = QString::fromStdWString(destination.wstring());
+                modelDownloadProgress_ = 1.0;
                 saveSettings();
                 emit settingsChanged();
+            } else {
+                modelDownloadProgress_ = 0.0;
             }
             emit modelStatusChanged();
+            emit modelDownloadProgressChanged();
+            ++modelCatalogRevision_;
+            emit modelCatalogChanged();
         }, Qt::QueuedConnection);
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
+}
+
+bool AnalysisController::modelAvailable(const QString& filename) const
+{
+    const QString requested = QFileInfo(filename.trimmed()).fileName();
+    return findLocalModelFile(requested).has_value();
+}
+
+QString AnalysisController::modelStatusFor(const QString& filename) const
+{
+    const QString requested = QFileInfo(filename.trimmed()).fileName();
+    if (modelDownloading_ && requested == modelDownloadingName_)
+        return QStringLiteral("Скачивается");
+    if (modelAvailable(requested)) return QStringLiteral("Установлена");
+    return QStringLiteral("Не установлена · скачивается при выборе");
 }
 
 void AnalysisController::setCachePath(const QString& value)
@@ -898,6 +1026,17 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     }
     if (busy_) {
         if (!normalized.isEmpty()) deferredAnalyzePaths_ = normalized;
+        return;
+    }
+    if (modelDownloading_) {
+        setProgress(0.0, QStringLiteral("Скачиваем модель"), 0, 0);
+        setStatus(QStringLiteral("Дождитесь завершения загрузки модели ") + modelDownloadingName_);
+        return;
+    }
+    if (!modelAvailable(modelChoice_)) {
+        setProgress(0.0, QStringLiteral("Модель не установлена"), 0, 0);
+        setStatus(QStringLiteral("Модель ") + modelChoice_
+                  + QStringLiteral(" ещё не установлена. Выберите её в каталоге моделей."));
         return;
     }
     // A manually selected execution provider is a hard requirement. Do not

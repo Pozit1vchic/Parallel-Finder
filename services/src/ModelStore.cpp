@@ -42,15 +42,51 @@ std::optional<ModelAsset> assetFromObject(const QJsonObject& object,
     asset.filename = requestedFilename;
     const auto sha = object.value(QStringLiteral("sha256"));
     if (sha.isString()) asset.sha256 = sha.toString().toStdString();
-    const auto size = object.value(QStringLiteral("sizeBytes"));
+    const auto size = object.contains(QStringLiteral("sizeBytes"))
+        ? object.value(QStringLiteral("sizeBytes"))
+        : object.value(QStringLiteral("size"));
     if (size.isDouble() && size.toInteger() > 0) asset.sizeBytes = static_cast<std::uint64_t>(size.toInteger());
-    const auto url = object.value(QStringLiteral("url"));
+    const auto url = object.contains(QStringLiteral("downloadUrl"))
+        ? object.value(QStringLiteral("downloadUrl"))
+        : object.value(QStringLiteral("url"));
     if (url.isString()) asset.downloadUrl = url.toString().toStdString();
     const auto license = object.value(QStringLiteral("license"));
     if (license.isString()) asset.license = license.toString().toStdString();
     const auto minimum = object.value(QStringLiteral("minimumAppVersion"));
     if (minimum.isString()) asset.minimumAppVersion = minimum.toString().toStdString();
     return asset;
+}
+
+std::optional<ModelAsset> assetFromManifestBytes(const QByteArray& bytes,
+                                                 const std::string& filename,
+                                                 std::string& error)
+{
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        error = "parse model manifest: " + parseError.errorString().toStdString();
+        return std::nullopt;
+    }
+    const QJsonObject root = document.object();
+    const QJsonValue modelsValue = root.contains(QStringLiteral("models"))
+        ? root.value(QStringLiteral("models"))
+        : root.value(QStringLiteral("assets"));
+    if (modelsValue.isArray()) {
+        for (const auto& item : modelsValue.toArray()) {
+            if (item.isObject()) {
+                if (auto asset = assetFromObject(item.toObject(), filename)) return asset;
+            }
+        }
+    } else if (modelsValue.isObject()) {
+        const auto object = modelsValue.toObject().value(QString::fromStdString(filename));
+        if (object.isObject()) {
+            QJsonObject normalized = object.toObject();
+            normalized[QStringLiteral("filename")] = QString::fromStdString(filename);
+            if (auto asset = assetFromObject(normalized, filename)) return asset;
+        }
+    }
+    error = "model '" + filename + "' is absent from manifest";
+    return std::nullopt;
 }
 
 } // namespace
@@ -120,30 +156,48 @@ std::optional<ModelAsset> ModelStore::readManifest(const std::filesystem::path& 
         error = "open model manifest: " + file.errorString().toStdString();
         return std::nullopt;
     }
-    QJsonParseError parseError;
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
-    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-        error = "parse model manifest: " + parseError.errorString().toStdString();
+    return assetFromManifestBytes(file.readAll(), filename, error);
+}
+
+std::optional<ModelAsset> ModelStore::fetchManifest(const std::string& url,
+                                                    const std::string& filename,
+                                                    std::string& error)
+{
+    const QUrl requestUrl(QString::fromStdString(url));
+    if (!requestUrl.isValid()
+        || requestUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0) {
+        error = "model manifest requires an HTTPS URL";
         return std::nullopt;
     }
-    const QJsonObject root = document.object();
-    const QJsonValue modelsValue = root.value(QStringLiteral("models"));
-    if (modelsValue.isArray()) {
-        for (const auto& item : modelsValue.toArray()) {
-            if (item.isObject()) {
-                if (auto asset = assetFromObject(item.toObject(), filename)) return asset;
-            }
-        }
-    } else if (modelsValue.isObject()) {
-        const auto object = modelsValue.toObject().value(QString::fromStdString(filename));
-        if (object.isObject()) {
-            QJsonObject normalized = object.toObject();
-            normalized[QStringLiteral("filename")] = QString::fromStdString(filename);
-            if (auto asset = assetFromObject(normalized, filename)) return asset;
-        }
+    QNetworkAccessManager manager;
+    QNetworkRequest request(requestUrl);
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("ParallelFinder/0.1"));
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    QNetworkReply* reply = manager.get(request);
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QTimer timeout;
+    timeout.setSingleShot(true);
+    QObject::connect(&timeout, &QTimer::timeout, reply, &QNetworkReply::abort);
+    timeout.start(15000);
+    loop.exec();
+    const auto networkError = reply->error();
+    const std::string networkMessage = reply->errorString().toStdString();
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (networkError != QNetworkReply::NoError) {
+        error = "fetch model manifest: " + networkMessage;
+        reply->deleteLater();
+        return std::nullopt;
     }
-    error = "model '" + filename + "' is absent from manifest";
-    return std::nullopt;
+    if (status < 200 || status >= 300) {
+        error = "fetch model manifest: HTTP " + std::to_string(status);
+        reply->deleteLater();
+        return std::nullopt;
+    }
+    const auto result = assetFromManifestBytes(reply->readAll(), filename, error);
+    reply->deleteLater();
+    return result;
 }
 
 bool ModelStore::download(const ModelAsset& asset,
@@ -191,6 +245,8 @@ bool ModelStore::download(const ModelAsset& asset,
 
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("ParallelFinder/0.1"));
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
     if (offset > 0) {
         request.setRawHeader("Range", "bytes=" + QByteArray::number(offset) + "-");
     }

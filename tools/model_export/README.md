@@ -1,5 +1,19 @@
 # Model export
 
+For a complete catalog built from `D:\YOLO_Download_Project\models`, use
+`export_pose_release.py`. It exports every `*pose*.pt`, computes SHA-256 and
+writes the release `manifest.json` expected by the application:
+
+```powershell
+$env:PYTHONPATH = 'D:\PythonLibs'
+python tools\model_export\export_pose_release.py `
+  --input-dir 'D:\YOLO_Download_Project\models' `
+  --output-dir 'D:\Parallel-Finder\release-models'
+```
+
+Upload the generated `.onnx` files and `manifest.json` together to the GitHub
+Release. The runtime downloads missing assets into `%LocalAppData%\ParallelFinder\models`.
+
 The repository does not contain model weights. Export the pinned YOLO26m-pose
 asset into the external D: drive bundle with Python 3.10:
 

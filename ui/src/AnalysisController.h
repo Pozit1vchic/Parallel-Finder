@@ -35,6 +35,9 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(QString modelChoice READ modelChoice NOTIFY settingsChanged)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY modelStatusChanged)
     Q_PROPERTY(bool modelDownloading READ modelDownloading NOTIFY modelStatusChanged)
+    Q_PROPERTY(double modelDownloadProgress READ modelDownloadProgress NOTIFY modelDownloadProgressChanged)
+    Q_PROPERTY(QString modelDownloadingName READ modelDownloadingName NOTIFY modelStatusChanged)
+    Q_PROPERTY(int modelCatalogRevision READ modelCatalogRevision NOTIFY modelCatalogChanged)
     Q_PROPERTY(QString cachePath READ cachePath NOTIFY settingsChanged)
     Q_PROPERTY(double cacheLimitGb READ cacheLimitGb NOTIFY settingsChanged)
     Q_PROPERTY(int processingThreads READ processingThreads WRITE setProcessingThreads NOTIFY settingsChanged)
@@ -74,6 +77,9 @@ public:
     QString modelChoice() const { return modelChoice_; }
     QString modelStatus() const { return modelStatus_; }
     bool modelDownloading() const noexcept { return modelDownloading_; }
+    double modelDownloadProgress() const noexcept { return modelDownloadProgress_; }
+    QString modelDownloadingName() const { return modelDownloadingName_; }
+    int modelCatalogRevision() const noexcept { return modelCatalogRevision_; }
     QString cachePath() const { return cachePath_; }
     double cacheLimitGb() const noexcept { return cacheLimitGb_; }
     int processingThreads() const noexcept { return processingThreads_; }
@@ -106,6 +112,8 @@ public:
 
     Q_INVOKABLE void setModelPath(const QString& value);
     Q_INVOKABLE void selectModel(const QString& filename);
+    Q_INVOKABLE bool modelAvailable(const QString& filename) const;
+    Q_INVOKABLE QString modelStatusFor(const QString& filename) const;
     Q_INVOKABLE void setCachePath(const QString& value);
     Q_INVOKABLE void setCacheLimitGb(double value);
     Q_INVOKABLE void setSceneThreshold(double value);
@@ -132,6 +140,8 @@ signals:
     void matcherParamsChanged();
     void settingsChanged();
     void modelStatusChanged();
+    void modelDownloadProgressChanged();
+    void modelCatalogChanged();
     void exportFinished(bool success, const QString& message);
 
 private:
@@ -164,6 +174,9 @@ private:
     QString modelChoice_;
     QString modelStatus_;
     bool modelDownloading_ = false;
+    double modelDownloadProgress_ = 0.0;
+    QString modelDownloadingName_;
+    int modelCatalogRevision_ = 0;
     QStringList deferredAnalyzePaths_;
     QString cachePath_;
     double cacheLimitGb_ = 8.0;

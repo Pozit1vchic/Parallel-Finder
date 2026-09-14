@@ -9,8 +9,9 @@ ONNX Runtime.
 
 - **Код проекта — [AGPL-3.0](LICENSE).**
 - **Веса моделей (.pt/.onnx) не коммитятся в репозиторий** — весов YOLO-pose
-  (Ultralytics, AGPL-3.0) нет в дереве исходников; они скачиваются отдельным
-  fetch-механизмом при первом запуске / берутся из GitHub Releases.
+  (Ultralytics, AGPL-3.0) нет в дереве исходников; `.pt` экспортируются в
+  release-пакет, а отсутствующий `.onnx` скачивается по выбору из GitHub
+  Releases с прогрессом и проверкой manifest.
 - **FFmpeg**: используется сборка MSYS2 UCRT64 (ffmpeg 9.x), конфигурация
   содержит `--enable-gpl --enable-version3` — это **GPLv3-сборка** (x264/x265/xvid).
   Это зафиксировано в релизе и в About-окне.
@@ -87,6 +88,10 @@ ORT-GPU / CUDA / TensorRT / DML-redist при сборке размещаютс�
   экспорте модели, метод и пороги SceneDetector, тай-брейк доминантного персонажа,
   appearance-компонент, fetch-механизм .onnx, лимит кэша) и полная таблица 9 слайдеров →
   `MotionMatcherParams`. Обязательный вход в стадии 3a–4.
+- [`docs/models.md`](docs/models.md) — каталог моделей, release workflow и порядок
+  поиска локальных файлов.
+- [`docs/model-audit.md`](docs/model-audit.md) — аудит несовместимостей модели,
+  провайдера, batch-профиля, кэша и оставшаяся проверка на опубликованном release.
 
 ## Стадии
 

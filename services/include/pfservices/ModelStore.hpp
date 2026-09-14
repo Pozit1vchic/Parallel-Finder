@@ -34,8 +34,15 @@ public:
                              std::string& error);
 
     static std::optional<ModelAsset> readManifest(const std::filesystem::path& path,
-                                                  const std::string& filename,
-                                                  std::string& error);
+                                                   const std::string& filename,
+                                                   std::string& error);
+
+    // Fetches a release manifest over HTTPS. This is intentionally synchronous
+    // so callers can run it on their worker thread; it never writes a file and
+    // only accepts a JSON manifest from the requested HTTPS URL.
+    static std::optional<ModelAsset> fetchManifest(const std::string& url,
+                                                   const std::string& filename,
+                                                   std::string& error);
 
     // Downloads HTTPS assets with resumable .part files and verifies both
     // declared size and SHA-256 before replacing the destination.

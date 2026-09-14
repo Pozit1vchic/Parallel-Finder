@@ -1,10 +1,33 @@
-# models/
+# Model assets
 
-Веса моделей **не хранятся в репозитории** (AGPL-3.0 веса YOLO-pose, см. README).
-Веса `.onnx` скачиваются при первом запуске приложения с GitHub Releases проекта
-по `models/manifest.json` (этот файл появляется в release-пакете, когда известен
-конкретный asset URL). Загрузчик принимает только HTTPS, поддерживает докачку
-`.part`, проверяет размер и SHA-256 до установки. Для разработки экспортируйте
-модель через `tools/model_export/export_yolo26m_pose.py` на диск `D:`.
+Веса моделей **не хранятся в репозитории**. Приложение использует ONNX-экспорт
+YOLO-pose, а не исходные Ultralytics `.pt`. При выборе отсутствующей модели UI
+показывает `↓ скачать`, загружает её из последнего GitHub Release и проверяет
+размер/SHA-256 из `manifest.json` до атомарной установки.
 
-Эта папка игнорируется Git'ом за исключением этого файла.
+Установленные файлы хранятся автоматически в:
+
+```text
+%LocalAppData%\ParallelFinder\models
+```
+
+### Подготовка release из D:\YOLO_Download_Project\models
+
+```powershell
+$env:PYTHONPATH = 'D:\PythonLibs'
+python tools\model_export\export_pose_release.py `
+  --input-dir 'D:\YOLO_Download_Project\models' `
+  --output-dir 'D:\Parallel-Finder\release-models'
+```
+
+Скрипт экспортирует каждый `*pose*.pt` в статический batch-1 ONNX 640×640 и
+создаёт рядом `manifest.json`. Создайте Release в
+`Pozit1vchic/Parallel-Finder` и загрузите **все** `.onnx` плюс `manifest.json`
+как assets одного релиза. Имена должны совпадать с manifest: приложение берёт
+их по адресу `releases/latest/download/<filename>`.
+
+Для разработки можно задать `PF_MODEL_ROOT` на папку с ONNX-файлами, а
+`PF_MODEL_PATH` — на конкретный файл. Ни `.pt`, ни `manifest.json` не нужно
+класть в установочную папку вручную.
+
+Эта папка игнорируется Git за исключением данного README.

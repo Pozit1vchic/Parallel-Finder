@@ -12,15 +12,18 @@ Rectangle {
     property bool advancedOpen: false
     property string accuracyPreset: Analysis.accuracyPreset
     property var modelFiles: [
-        "yolo8n-pose.onnx", "yolo8m-pose.onnx", "yolo8s-pose.onnx", "yolo8l-pose.onnx", "yolo8x-pose.onnx",
-        "yolo11n-pose.onnx", "yolo11m-pose.onnx", "yolo11s-pose.onnx", "yolo11l-pose.onnx", "yolo11x-pose.onnx",
-        "yolo26n-pose.onnx", "yolo26m-pose.onnx", "yolo26s-pose.onnx", "yolo26m-pose-640-b1.onnx", "yolo26l-pose.onnx", "yolo26x-pose.onnx"
+        "yolov8n-pose.onnx", "yolov8s-pose.onnx", "yolov8m-pose.onnx", "yolov8l-pose.onnx", "yolov8x-pose.onnx",
+        "yolo11n-pose.onnx", "yolo11s-pose.onnx", "yolo11m-pose.onnx", "yolo11l-pose.onnx", "yolo11x-pose.onnx",
+        "yolo26n-pose.onnx", "yolo26s-pose.onnx", "yolo26m-pose.onnx", "yolo26l-pose.onnx", "yolo26x-pose.onnx",
+        "yolo26m-pose-640-b1.onnx"
     ]
-    property var modelLabels: [
-        "YOLO 8 · nano", "YOLO 8 · medium", "YOLO 8 · small", "YOLO 8 · large", "YOLO 8 · xlarge",
-        "YOLO 11 · nano", "YOLO 11 · medium", "YOLO 11 · small", "YOLO 11 · large", "YOLO 11 · xlarge",
-        "YOLO 26 · nano", "YOLO 26 · medium", "YOLO 26 · small", "YOLO 26 · medium · 640", "YOLO 26 · large", "YOLO 26 · xlarge"
+    property var modelBaseLabels: [
+        "YOLOv8 · nano", "YOLOv8 · small", "YOLOv8 · medium", "YOLOv8 · large", "YOLOv8 · xlarge",
+        "YOLO11 · nano", "YOLO11 · small", "YOLO11 · medium", "YOLO11 · large", "YOLO11 · xlarge",
+        "YOLO26 · nano", "YOLO26 · small", "YOLO26 · medium", "YOLO26 · large", "YOLO26 · xlarge",
+        "YOLO26 · medium · 640 · batch 1"
     ]
+    property var modelLabels: []
     signal filesRequested(var urls)
     signal folderRequested()
     signal clearRequested()
@@ -32,6 +35,23 @@ Rectangle {
     function sourceName(path) {
         const pieces = String(path).replace(/\\/g, "/").split("/")
         return pieces[pieces.length - 1] || path
+    }
+
+    function refreshModelLabels() {
+        var labels = []
+        for (var i = 0; i < modelFiles.length; ++i) {
+            var state = Analysis.modelAvailable(modelFiles[i]) ? "✓ " : "↓ "
+            labels.push(state + modelBaseLabels[i])
+        }
+        modelLabels = labels
+    }
+
+    Component.onCompleted: refreshModelLabels()
+
+    Connections {
+        target: Analysis
+        function onModelCatalogChanged() { root.refreshModelLabels() }
+        function onModelStatusChanged() { root.refreshModelLabels() }
     }
 
     function applyAccuracyPreset(preset) {
@@ -138,8 +158,30 @@ Rectangle {
                 Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: modelCard.implicitHeight + 24
                     Column { id: modelCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
                         Text { text: L10n.t("settings.poseModel"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        PfComboBox { width: parent.width; model: root.modelLabels; currentIndex: Math.max(0, root.modelFiles.indexOf(Analysis.modelChoice)); Accessible.name: L10n.t("settings.poseModel"); onActivated: Analysis.selectModel(root.modelFiles[currentIndex]) }
-                        Text { width: parent.width; text: Analysis.modelDownloading ? L10n.t("settings.modelDownloading") : (Analysis.modelStatus.length ? L10n.status(Analysis.modelStatus) : L10n.t("settings.modelHint")); color: Analysis.modelDownloading ? Theme.accent : Theme.textSecondary; font.pixelSize: 10; wrapMode: Text.WordWrap; maximumLineCount: 3; clip: true }
+                        PfComboBox {
+                            width: parent.width
+                            model: root.modelLabels
+                            enabled: !Analysis.modelDownloading
+                            currentIndex: Math.max(0, root.modelFiles.indexOf(Analysis.modelChoice))
+                            Accessible.name: L10n.t("settings.poseModel")
+                            onActivated: Analysis.selectModel(root.modelFiles[currentIndex])
+                        }
+                        Text {
+                            width: parent.width
+                            text: Analysis.modelDownloading
+                                ? (L10n.t("settings.modelDownloading") + "\n" + Analysis.modelDownloadingName
+                                   + " · " + Math.round(Analysis.modelDownloadProgress * 100) + "%")
+                                : (Analysis.modelStatus.length ? Analysis.modelStatus : L10n.t("settings.modelHint"))
+                            color: Analysis.modelDownloading ? Theme.accent : Theme.textSecondary
+                            font.pixelSize: 10; wrapMode: Text.WordWrap; maximumLineCount: 4; clip: true
+                        }
+                        ProgressBar {
+                            width: parent.width
+                            visible: Analysis.modelDownloading
+                            value: Analysis.modelDownloadProgress
+                            indeterminate: Analysis.modelDownloading && Analysis.modelDownloadProgress <= 0
+                            Accessible.name: L10n.t("settings.modelDownloading")
+                        }
                     }
                 }
                 Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: sceneCard.implicitHeight + 24
@@ -184,8 +226,8 @@ Rectangle {
             anchors.fill: parent; anchors.topMargin: 10; spacing: 5
             PfButton {
                 width: parent.width
-                text: root.sourceFiles.length === 0 ? L10n.t("sources.add") : (Analysis.busy ? L10n.t("search.running") : L10n.t("search.start"))
-                enabled: root.sourceFiles.length === 0 || !Analysis.busy
+                text: root.sourceFiles.length === 0 ? L10n.t("sources.add") : (Analysis.busy ? L10n.t("search.running") : (Analysis.modelDownloading ? L10n.t("settings.modelDownloading") : L10n.t("search.start")))
+                enabled: root.sourceFiles.length === 0 || (!Analysis.busy && !Analysis.modelDownloading)
                 onClicked: root.sourceFiles.length === 0 ? root.filesRequested([]) : root.analyzeRequested()
                 Accessible.name: text
             }
