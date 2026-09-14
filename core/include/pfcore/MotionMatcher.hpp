@@ -38,6 +38,23 @@ struct MotionMatcherParams {
     // short windows, while this ratio keeps the constraint proportional to a
     // longer sampled trajectory.
     double sakoeChibaRatio = 0.10;
+
+    // A window is a movement only when the normalized mean joint delta is
+    // above this value.  The value is intentionally independent of the
+    // number of keypoints, so models with a different skeleton size behave
+    // consistently.
+    double motionDeltaThreshold = 0.004;
+    // DTW still supplies the global score, but a valid match must also contain
+    // a contiguous run of similar frames.  Short clips may satisfy the
+    // duration alternative when the selected quality profile samples fewer
+    // than 18 pose frames per second.
+    double temporalSimilarityThreshold = 0.82;
+    std::size_t minTemporalFrames = 18;
+    double minTemporalDurationSec = 0.9;
+    // Same-source windows never match inside this hard floor.  It prevents a
+    // static shot from being paired with a nearby overlapping crop.
+    double sameSourceGapFloorSec = 5.0;
+    double nmsOverlapThreshold = 0.35;
 };
 
 struct MotionMatch {

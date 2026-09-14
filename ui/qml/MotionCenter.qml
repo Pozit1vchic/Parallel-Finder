@@ -91,8 +91,8 @@ Column {
                     }
                     Item { width: parent.width; height: parent.height - 72
                         Column { anchors.centerIn: parent; spacing: 9
-                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.sourceFiles.length === 0 ? L10n.t("center.emptyTitle") : root.analysisCompleted ? (Analysis.matchCount > 0 ? L10n.t("center.completedTitle") : L10n.t("center.noMatchesTitle")) : L10n.t("center.readyTitle"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 20 }
-                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.sourceFiles.length === 0 ? L10n.t("center.emptyHint") : root.analysisCompleted ? (Analysis.matchCount > 0 ? L10n.t("center.completedHint") : L10n.t("center.noMatchesHint")) : L10n.t("center.readyHint"); color: Theme.textSecondary; font.pixelSize: 12 }
+                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: Analysis.busy ? L10n.t("center.analyzingTitle") : root.sourceFiles.length === 0 ? L10n.t("center.emptyTitle") : root.analysisCompleted ? (Analysis.matchCount > 0 ? L10n.t("center.completedTitle") : L10n.t("center.noMatchesTitle")) : L10n.t("center.readyTitle"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 20 }
+                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: Analysis.busy ? L10n.t("center.analyzingHint") : root.sourceFiles.length === 0 ? L10n.t("center.emptyHint") : root.analysisCompleted ? (Analysis.matchCount > 0 ? L10n.t("center.completedHint") : L10n.t("center.noMatchesHint")) : L10n.t("center.readyHint"); color: Theme.textSecondary; font.pixelSize: 12 }
                             PfButton { anchors.horizontalCenter: parent.horizontalCenter; visible: root.sourceFiles.length === 0; text: L10n.t("sources.add"); onClicked: root.addRequested() }
                             PfButton { anchors.horizontalCenter: parent.horizontalCenter; visible: root.sourceFiles.length > 0 && !Analysis.busy; text: root.analysisCompleted ? L10n.t("search.restart") : L10n.t("search.start"); onClicked: root.analyzeRequested() }
                             Text { anchors.horizontalCenter: parent.horizontalCenter; visible: Analysis.busy; text: L10n.status(Analysis.progressStage) + " · " + Math.round(Analysis.progress * 100) + "%"; color: Theme.accent; font.pixelSize: 11 }
@@ -100,34 +100,8 @@ Column {
                     }
                 }
                 Row { anchors.fill: parent; anchors.margins: 12; spacing: 10; visible: !!root.selectedRecord
-                    Rectangle { width: (parent.width - 10) / 2; height: parent.height; color: Theme.canvas; radius: Theme.radiusButton; border.color: Theme.accent
-                        Column { anchors.fill: parent; anchors.margins: 10; spacing: 8
-                            Row { width: parent.width
-                                Text { text: L10n.t("timeline.left"); color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 17 }
-                                Item { width: parent.width - 38; height: 1 }
-                                Text { text: root.timecode(root.selectedRecord ? root.selectedRecord.leftStart : 0); color: Theme.textSecondary; font.pixelSize: 10 }
-                            }
-                            Rectangle { width: parent.width; height: parent.height - 42; color: Theme.well; radius: 6
-                                Image { anchors.fill: parent; anchors.margins: 6; source: root.selectedRecord ? (root.selectedRecord.leftPreview || "") : ""; fillMode: Image.PreserveAspectFit; smooth: true; mipmap: true; visible: source.length > 0 }
-                                Text { anchors.centerIn: parent; visible: !root.selectedRecord || root.selectedRecord.leftPreview === undefined || !root.selectedRecord.leftPreview; text: L10n.t("timeline.left"); color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 42 }
-                            }
-                            Text { text: root.fileName(root.selectedRecord ? root.selectedRecord.leftSource : ""); color: Theme.textDisabled; font.pixelSize: 9; elide: Text.ElideMiddle; width: parent.width }
-                        }
-                    }
-                    Rectangle { width: (parent.width - 10) / 2; height: parent.height; color: Theme.canvas; radius: Theme.radiusButton; border.color: Theme.sage
-                        Column { anchors.fill: parent; anchors.margins: 10; spacing: 8
-                            Row { width: parent.width
-                                Text { text: L10n.t("timeline.right"); color: Theme.sage; font.family: Theme.displayFont; font.pixelSize: 17 }
-                                Item { width: parent.width - 38; height: 1 }
-                                Text { text: root.timecode(root.selectedRecord ? root.selectedRecord.rightStart : 0); color: Theme.textSecondary; font.pixelSize: 10 }
-                            }
-                            Rectangle { width: parent.width; height: parent.height - 42; color: Theme.well; radius: 6
-                                Image { anchors.fill: parent; anchors.margins: 6; source: root.selectedRecord ? (root.selectedRecord.rightPreview || "") : ""; fillMode: Image.PreserveAspectFit; smooth: true; mipmap: true; visible: source.length > 0 }
-                                Text { anchors.centerIn: parent; visible: !root.selectedRecord || root.selectedRecord.rightPreview === undefined || !root.selectedRecord.rightPreview; text: L10n.t("timeline.right"); color: Theme.sage; font.family: Theme.displayFont; font.pixelSize: 42 }
-                            }
-                            Text { text: root.fileName(root.selectedRecord ? root.selectedRecord.rightSource : ""); color: Theme.textDisabled; font.pixelSize: 9; elide: Text.ElideMiddle; width: parent.width }
-                        }
-                    }
+                    ComparisonView { width: (parent.width - 10) / 2; height: parent.height; record: root.selectedRecord; side: "left"; accentColor: Theme.accent }
+                    ComparisonView { width: (parent.width - 10) / 2; height: parent.height; record: root.selectedRecord; side: "right"; accentColor: Theme.sage }
                 }
             }
             Row { width: parent.width; height: 24
@@ -161,14 +135,8 @@ Column {
                 PfIconButton { iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); onClicked: root.fullscreenTimeline = false }
             }
             Row { width: parent.width; height: parent.height - 112; spacing: 14
-                Rectangle { width: (parent.width - 14) / 2; height: parent.height; color: Theme.well; radius: Theme.radiusButton; border.color: Theme.accent
-                    Image { anchors.fill: parent; anchors.margins: 10; source: root.selectedRecord ? (root.selectedRecord.leftPreview || "") : ""; fillMode: Image.PreserveAspectFit; smooth: true }
-                    Text { anchors.centerIn: parent; visible: !root.selectedRecord || !root.selectedRecord.leftPreview; text: L10n.t("timeline.left"); color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 48 }
-                }
-                Rectangle { width: (parent.width - 14) / 2; height: parent.height; color: Theme.well; radius: Theme.radiusButton; border.color: Theme.sage
-                    Image { anchors.fill: parent; anchors.margins: 10; source: root.selectedRecord ? (root.selectedRecord.rightPreview || "") : ""; fillMode: Image.PreserveAspectFit; smooth: true }
-                    Text { anchors.centerIn: parent; visible: !root.selectedRecord || !root.selectedRecord.rightPreview; text: L10n.t("timeline.right"); color: Theme.sage; font.family: Theme.displayFont; font.pixelSize: 48 }
-                }
+                ComparisonView { width: (parent.width - 14) / 2; height: parent.height; record: root.selectedRecord; side: "left"; accentColor: Theme.accent }
+                ComparisonView { width: (parent.width - 14) / 2; height: parent.height; record: root.selectedRecord; side: "right"; accentColor: Theme.sage }
             }
             Rectangle { width: parent.width; height: 44; color: Theme.surfaceRaised; radius: 6; border.color: Theme.border; clip: true
                 Item { x: -root.timelineOffset * Math.max(0, width * root.timelineZoom - parent.width); width: parent.width * root.timelineZoom; height: parent.height

@@ -29,6 +29,7 @@ struct SessionKey {
     Provider provider = Provider::Auto;
     int deviceId = 0;
     std::string profile;
+    std::size_t intraOpThreads = 0;
 
     friend bool operator==(const SessionKey&, const SessionKey&) = default;
 };

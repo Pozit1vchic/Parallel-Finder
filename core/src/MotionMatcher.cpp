@@ -14,19 +14,28 @@ namespace {
 
 using Descriptor = std::vector<double>;
 
-std::vector<Descriptor> describe(const MotionWindow& window, bool normalizeSize)
+using NormalizedPose = std::vector<std::pair<double, double>>;
+
+std::vector<NormalizedPose> normalizePoses(const MotionWindow& window,
+                                           bool normalizeSize)
 {
-    std::vector<std::vector<std::pair<double, double>>> normalized;
+    std::vector<NormalizedPose> normalized;
     normalized.reserve(window.frames.size());
     for (const PoseFrame& frame : window.frames) {
-        if (frame.keypoints.empty()) { normalized.emplace_back(); continue; }
+        if (frame.keypoints.empty()) {
+            normalized.emplace_back();
+            continue;
+        }
         double cx = 0.0, cy = 0.0, weight = 0.0;
         for (const auto& point : frame.keypoints) {
             const double w = std::max(0.0, point.confidence);
-            cx += point.x * w; cy += point.y * w; weight += w;
+            cx += point.x * w;
+            cy += point.y * w;
+            weight += w;
         }
         if (weight <= 1e-9) weight = static_cast<double>(frame.keypoints.size());
-        cx /= weight; cy /= weight;
+        cx /= weight;
+        cy /= weight;
         double scale = 1.0;
         if (normalizeSize) {
             scale = 0.0;
@@ -34,13 +43,48 @@ std::vector<Descriptor> describe(const MotionWindow& window, bool normalizeSize)
                 scale = std::max(scale, std::hypot(point.x - cx, point.y - cy));
             if (scale <= 1e-9) scale = 1.0;
         }
-        std::vector<std::pair<double, double>> pose;
+        NormalizedPose pose;
         pose.reserve(frame.keypoints.size());
-        for (const auto& point : frame.keypoints) {
+        for (const auto& point : frame.keypoints)
             pose.emplace_back((point.x - cx) / scale, (point.y - cy) / scale);
-        }
         normalized.push_back(std::move(pose));
     }
+    return normalized;
+}
+
+double motionDelta(const MotionWindow& window, const std::vector<NormalizedPose>& poses)
+{
+    if (poses.size() < 2) return 0.0;
+    double total = 0.0;
+    std::size_t transitions = 0;
+    for (std::size_t frame = 1; frame < poses.size(); ++frame) {
+        const auto& previous = poses[frame - 1];
+        const auto& current = poses[frame];
+        if (previous.empty() || current.empty() || previous.size() != current.size()) continue;
+        double delta = 0.0;
+        std::size_t valid = 0;
+        for (std::size_t point = 0; point < current.size(); ++point) {
+            if (window.frames[frame - 1].keypoints[point].confidence <= 0.0
+                || window.frames[frame].keypoints[point].confidence <= 0.0) {
+                continue;
+            }
+            delta += std::hypot(current[point].first - previous[point].first,
+                                current[point].second - previous[point].second);
+            ++valid;
+        }
+        if (valid == 0) continue;
+        // Normalize the requested sum by the number of observed joints.  This
+        // is the same delta-K signal, without making the threshold model-size
+        // dependent.
+        total += delta / static_cast<double>(valid);
+        ++transitions;
+    }
+    return transitions == 0 ? 0.0 : total / static_cast<double>(transitions);
+}
+
+std::vector<Descriptor> describe(const std::vector<NormalizedPose>& normalized,
+                                 const MotionWindow& window)
+{
     std::vector<Descriptor> result;
     result.reserve(normalized.size());
     for (std::size_t frameIndex = 0; frameIndex < normalized.size(); ++frameIndex) {
@@ -116,6 +160,82 @@ double coarseSimilarity(const std::vector<Descriptor>& left,
     return used == 0 ? 0.0 : std::clamp(std::exp(-(distance / static_cast<double>(used))), 0.0, 1.0);
 }
 
+double cosineSimilarity(const Descriptor& left, const Descriptor& right)
+{
+    if (left.empty() || right.empty() || left.size() != right.size()) return 0.0;
+    double dot = 0.0;
+    double leftNorm = 0.0;
+    double rightNorm = 0.0;
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        dot += left[i] * right[i];
+        leftNorm += left[i] * left[i];
+        rightNorm += right[i] * right[i];
+    }
+    const double denominator = std::sqrt(leftNorm * rightNorm);
+    if (denominator <= 1e-12) return 0.0;
+    return std::clamp(dot / denominator, -1.0, 1.0);
+}
+
+double duration(const MotionWindow& window);
+
+bool hasTemporalSupport(const MotionWindow& window,
+                        const MotionMatcherParams& params)
+{
+    if (window.frames.size() < 3) return false;
+    const double span = duration(window);
+    return window.frames.size() >= params.minTemporalFrames
+        || (span + 1e-9 >= params.minTemporalDurationSec && window.frames.size() >= 3);
+}
+
+bool hasTemporalRun(const std::vector<Descriptor>& left,
+                   const std::vector<Descriptor>& right,
+                   const MotionWindow& leftWindow,
+                   const MotionWindow& rightWindow,
+                   const MotionMatcherParams& params)
+{
+    if (left.empty() || right.empty()) return false;
+    const std::size_t samples = std::min(left.size(), right.size());
+    if (samples < 3) return false;
+    std::size_t run = 0;
+    std::size_t bestRun = 0;
+    std::size_t runStartSample = 0;
+    std::size_t bestStartSample = 0;
+    std::size_t bestEndSample = 0;
+    for (std::size_t sample = 0; sample < samples; ++sample) {
+        const std::size_t leftIndex = (sample * (left.size() - 1))
+            / std::max<std::size_t>(1, samples - 1);
+        const std::size_t rightIndex = (sample * (right.size() - 1))
+            / std::max<std::size_t>(1, samples - 1);
+        if (cosineSimilarity(left[leftIndex], right[rightIndex])
+            >= params.temporalSimilarityThreshold) {
+            if (run == 0) runStartSample = sample;
+            ++run;
+            if (run > bestRun) {
+                bestRun = run;
+                bestStartSample = runStartSample;
+                bestEndSample = sample;
+            }
+        } else {
+            run = 0;
+        }
+    }
+    const auto sampleTimestamp = [](const MotionWindow& window, std::size_t sample,
+                                    std::size_t sampleCount) {
+        const std::size_t index = (sample * (window.frames.size() - 1))
+            / std::max<std::size_t>(1, sampleCount - 1);
+        return window.frames[index].timestampSeconds;
+    };
+    const double runDuration = std::min(
+        sampleTimestamp(leftWindow, bestEndSample, samples)
+            - sampleTimestamp(leftWindow, bestStartSample, samples),
+        sampleTimestamp(rightWindow, bestEndSample, samples)
+            - sampleTimestamp(rightWindow, bestStartSample, samples));
+    const bool enoughFrames = bestRun >= params.minTemporalFrames
+        || (bestRun >= 3
+            && runDuration + 1e-9 >= params.minTemporalDurationSec);
+    return enoughFrames;
+}
+
 double duration(const MotionWindow& window)
 {
     if (window.frames.size() < 2) return 0.0;
@@ -141,6 +261,7 @@ std::vector<double> embedding(const std::vector<Descriptor>& descriptors,
 struct PreparedWindow {
     std::vector<Descriptor> descriptors;
     std::vector<double> embedding;
+    double motionDelta = 0.0;
 };
 
 MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
@@ -162,7 +283,22 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     result.leftEndSeconds = left.frames.empty() ? 0.0 : left.frames.back().timestampSeconds;
     result.rightStartSeconds = right.frames.empty() ? 0.0 : right.frames.front().timestampSeconds;
     result.rightEndSeconds = right.frames.empty() ? 0.0 : right.frames.back().timestampSeconds;
-    if (a.empty() || b.empty()) return result;
+    if (left.sourceId == right.sourceId
+        && std::abs(result.leftStartSeconds - result.rightStartSeconds)
+            < std::max({params.sameSourceGapFloorSec, params.sameFileGapSec,
+                        params.minRepeatGapSec})) {
+        result.similarity = 0.0;
+        return result;
+    }
+    if (a.empty() || b.empty()
+        || leftPrepared.motionDelta < params.motionDeltaThreshold
+        || rightPrepared.motionDelta < params.motionDeltaThreshold
+        || !hasTemporalSupport(left, params)
+        || !hasTemporalSupport(right, params)
+        || !hasTemporalRun(a, b, left, right, params)) {
+        result.similarity = 0.0;
+        return result;
+    }
     const std::size_t rows = a.size(), cols = b.size();
     const double noise = params.noiseFactor * std::max(noiseFloor(a), noiseFloor(b));
     const double inf = std::numeric_limits<double>::infinity();
@@ -222,7 +358,14 @@ void MotionMatcher::setParams(MotionMatcherParams params)
     if (!(params.sakoeChibaRatio >= 0.0 && params.sakoeChibaRatio <= 1.0)
         || !(params.minRepeatGapSec >= 0.0 && params.sameFileGapSec >= 0.0)
         || !(params.crossFileGapSec >= 0.0 && params.duplicateWindowSec >= 0.0)
-        || !(params.timeWeight >= 0.0 && params.timeWeight <= 1.0))
+        || !(params.timeWeight >= 0.0 && params.timeWeight <= 1.0)
+        || !(params.motionDeltaThreshold >= 0.0 && params.motionDeltaThreshold <= 1.0)
+        || !(params.temporalSimilarityThreshold >= 0.0
+             && params.temporalSimilarityThreshold <= 1.0)
+        || params.minTemporalFrames < 3
+        || params.minTemporalDurationSec < 0.0
+        || params.sameSourceGapFloorSec < 0.0
+        || !(params.nmsOverlapThreshold >= 0.0 && params.nmsOverlapThreshold <= 1.0))
         throw std::invalid_argument("MotionMatcher: invalid temporal parameters");
     params_ = params;
 }
@@ -230,7 +373,11 @@ void MotionMatcher::setParams(MotionMatcherParams params)
 MotionMatch MotionMatcher::compare(const MotionWindow& left, const MotionWindow& right,
                                    std::size_t leftIndex, std::size_t rightIndex) const
 {
-    return comparePrepared(left, right, {describe(left, params_.normalizeSize), {}}, {describe(right, params_.normalizeSize), {}},
+    const auto leftPoses = normalizePoses(left, params_.normalizeSize);
+    const auto rightPoses = normalizePoses(right, params_.normalizeSize);
+    return comparePrepared(left, right,
+                           {describe(leftPoses, left), {}, motionDelta(left, leftPoses)},
+                           {describe(rightPoses, right), {}, motionDelta(right, rightPoses)},
                            params_, leftIndex, rightIndex);
 }
 
@@ -243,7 +390,14 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     std::size_t embeddingDimension = 0;
     for (std::size_t index = 0; index < windows.size(); ++index) {
         if (windows[index].frames.empty()) continue;
-        prepared[index].descriptors = describe(windows[index], params_.normalizeSize);
+        const auto poses = normalizePoses(windows[index], params_.normalizeSize);
+        prepared[index].descriptors = describe(poses, windows[index]);
+        prepared[index].motionDelta = motionDelta(windows[index], poses);
+        if (prepared[index].motionDelta < params_.motionDeltaThreshold
+            || !hasTemporalSupport(windows[index], params_)) {
+            prepared[index].descriptors.clear();
+            continue;
+        }
         for (const auto& descriptor : prepared[index].descriptors)
             embeddingDimension = std::max(embeddingDimension, descriptor.size());
     }
@@ -284,7 +438,8 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         const double rightStart = windows[j].frames.front().timestampSeconds;
         const double gap = std::abs(leftStart - rightStart);
         const double requiredGap = sameSource
-            ? std::max(params_.sameFileGapSec, params_.minRepeatGapSec)
+            ? std::max({params_.sameSourceGapFloorSec, params_.sameFileGapSec,
+                        params_.minRepeatGapSec})
             : params_.crossFileGapSec;
         if (gap < requiredGap) continue;
         if (coarseSimilarity(prepared[i].descriptors, prepared[j].descriptors)
@@ -312,7 +467,24 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             if (!sameOrientation && !swappedOrientation) return false;
             const double leftDelta = std::abs(candidate.leftStartSeconds - kept.leftStartSeconds);
             const double rightDelta = std::abs(candidate.rightStartSeconds - kept.rightStartSeconds);
-            return leftDelta <= params_.duplicateWindowSec && rightDelta <= params_.duplicateWindowSec;
+            const auto overlapRatio = [](double firstStart, double firstEnd,
+                                         double secondStart, double secondEnd) {
+                const double overlap = std::max(0.0, std::min(firstEnd, secondEnd)
+                    - std::max(firstStart, secondStart));
+                const double shorter = std::min(std::max(0.0, firstEnd - firstStart),
+                                                std::max(0.0, secondEnd - secondStart));
+                return shorter <= 1e-9 ? 0.0 : overlap / shorter;
+            };
+            const bool overlapping = overlapRatio(candidate.leftStartSeconds,
+                                                  candidate.leftEndSeconds,
+                                                  kept.leftStartSeconds,
+                                                  kept.leftEndSeconds)
+                >= params_.nmsOverlapThreshold
+                && overlapRatio(candidate.rightStartSeconds, candidate.rightEndSeconds,
+                                kept.rightStartSeconds, kept.rightEndSeconds)
+                    >= params_.nmsOverlapThreshold;
+            return overlapping || (leftDelta <= params_.duplicateWindowSec
+                                   && rightDelta <= params_.duplicateWindowSec);
         });
         if (!duplicate) unique.push_back(candidate);
         if (unique.size() >= params_.maxUniqueResults) break;

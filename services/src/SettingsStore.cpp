@@ -17,13 +17,14 @@ namespace {
 QJsonObject toJson(const Settings& settings)
 {
     QJsonObject json;
-    json[QStringLiteral("schemaVersion")] = 3;
+    json[QStringLiteral("schemaVersion")] = 4;
     json[QStringLiteral("provider")] = QString::fromStdString(settings.provider);
     json[QStringLiteral("language")] = QString::fromStdString(settings.language);
     json[QStringLiteral("theme")] = QString::fromStdString(settings.theme);
     json[QStringLiteral("modelPath")] = QString::fromStdString(settings.modelPath);
     json[QStringLiteral("cachePath")] = QString::fromStdString(settings.cachePath);
     json[QStringLiteral("cacheLimitBytes")] = static_cast<qint64>(settings.cacheLimitBytes);
+    json[QStringLiteral("processingThreads")] = static_cast<qint64>(settings.processingThreads);
     json[QStringLiteral("sceneThreshold")] = settings.sceneThreshold;
     json[QStringLiteral("sceneMinFrames")] = static_cast<qint64>(settings.sceneMinFrames);
     json[QStringLiteral("sceneAdaptiveMultiplier")] = settings.sceneAdaptiveMultiplier;
@@ -98,6 +99,10 @@ Settings SettingsStore::load(std::string& error) const
     const auto cacheLimit = json.value(QStringLiteral("cacheLimitBytes"));
     if (cacheLimit.isDouble() && cacheLimit.toInteger() > 0)
         settings.cacheLimitBytes = static_cast<std::size_t>(cacheLimit.toInteger());
+    const auto processingThreads = json.value(QStringLiteral("processingThreads"));
+    if (processingThreads.isDouble() && processingThreads.toInteger() >= 0
+        && processingThreads.toInteger() <= 256)
+        settings.processingThreads = static_cast<std::size_t>(processingThreads.toInteger());
     const auto sceneThreshold = json.value(QStringLiteral("sceneThreshold"));
     if (sceneThreshold.isDouble() && sceneThreshold.toDouble() > 0.0) {
         settings.sceneThreshold = sceneThreshold.toDouble();

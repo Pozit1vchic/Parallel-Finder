@@ -43,14 +43,6 @@ ApplicationWindow {
         const next = root.sourceFiles.slice(); next.splice(index, 1); root.sourceFiles = next
         Analysis.inspectFiles(root.sourceFiles)
     }
-    function resetAnalysisSettings() {
-        Analysis.similarityThreshold = 0.85; Analysis.candidateThreshold = 0.55; Analysis.repeatGap = 6.0
-        Analysis.sameFileGap = 2.0; Analysis.crossFileGap = 0.0; Analysis.duplicateWindow = 1.5
-        Analysis.noiseFactor = 1.0; Analysis.maxUniqueResults = 100; Analysis.timeWeight = 0.25
-        Analysis.accuracyPreset = "balanced"
-        Analysis.setSceneThreshold(27.0); Analysis.qualityProfile = "maximum"
-        Analysis.normalizeSize = true; Analysis.mirrorPoses = true
-    }
     function selectResult(index) {
         const wanted = Number(index)
         const match = (Analysis.results || []).find(function (item) { return Number(item.id) === wanted })
@@ -68,8 +60,6 @@ ApplicationWindow {
     SettingsDialog {
         id: settingsDialog
         rootWindow: root
-        onResetRequested: root.resetAnalysisSettings()
-        onAdvancedRequested: { settingsDialog.close(); sourcesRail.advancedOpen = true; sourcesRail.forceActiveFocus() }
     }
     ExportDialog { id: exportDialog; rootWindow: root; selectedRows: root.selectedExportRows }
 

@@ -1,16 +1,19 @@
 #include <gtest/gtest.h>
 #include <pfcore/MotionMatcher.hpp>
 
+#include <algorithm>
 #include <set>
 
 namespace {
 
-pfcore::MotionWindow window(const char* source, double offset, bool mirrored = false)
+pfcore::MotionWindow window(const char* source, double offset, bool mirrored = false,
+                            int frameCount = 24, double frameStep = 1.0 / 24.0)
 {
     pfcore::MotionWindow result; result.sourceId = source;
-    for (int i = 0; i < 6; ++i) {
-        const double x = static_cast<double>(i) / 5.0;
-        result.frames.push_back({offset + i * 0.1, {{0, 0}, {mirrored ? -x : x, x}}});
+    for (int i = 0; i < frameCount; ++i) {
+        const double x = static_cast<double>(i) / std::max(1, frameCount - 1);
+        result.frames.push_back({offset + i * frameStep,
+                                 {{0, 0}, {mirrored ? -x : x, x}}});
     }
     return result;
 }
@@ -55,6 +58,44 @@ TEST(MotionMatcher, RejectsInvalidTemporalParameters)
     auto params = matcher.params();
     params.sakoeChibaRatio = 1.1;
     EXPECT_THROW(matcher.setParams(params), std::invalid_argument);
+}
+
+TEST(MotionMatcher, RejectsStaticWindows)
+{
+    pfcore::MotionWindow left; left.sourceId = "left";
+    pfcore::MotionWindow right; right.sourceId = "right";
+    for (int i = 0; i < 24; ++i) {
+        left.frames.push_back({i / 24.0, {{0.2, 0.2}, {0.2, 0.4}}});
+        right.frames.push_back({4.0 + i / 24.0, {{0.2, 0.2}, {0.2, 0.4}}});
+    }
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher().compare(left, right).similarity, 0.0);
+    EXPECT_TRUE(pfcore::MotionMatcher().findAllPairs({left, right}).empty());
+}
+
+TEST(MotionMatcher, RequiresAContinuousTemporalRun)
+{
+    auto left = window("left", 0.0, false, 24);
+    auto right = window("right", 4.0, false, 24);
+    // Keep the endpoints similar but break the middle of the trajectory. A
+    // pair of isolated high-similarity frames must not become a result.
+    for (int i = 6; i < 18; ++i)
+        right.frames[static_cast<std::size_t>(i)].keypoints.push_back({0.3, 0.8});
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher().compare(left, right).similarity, 0.0);
+}
+
+TEST(MotionMatcher, EnforcesHardSameSourceGap)
+{
+    pfcore::MotionMatcherParams params;
+    params.candidateThreshold = 0.0;
+    params.similarityThreshold = 0.1;
+    params.minRepeatGapSec = 0.0;
+    params.sameFileGapSec = 0.0;
+    params.maxUniqueResults = 10;
+    auto left = window("same", 0.0);
+    auto near = window("same", 3.0);
+    auto far = window("same", 6.0);
+    EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs({left, near}).empty());
+    EXPECT_FALSE(pfcore::MotionMatcher(params).findAllPairs({left, far}).empty());
 }
 
 TEST(MotionMatcher, SyntheticAcceptanceF1RemainsAboveThreshold)

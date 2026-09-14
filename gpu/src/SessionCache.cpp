@@ -40,7 +40,8 @@ std::string modelIdentity(const ModelRef& model)
 std::string buildCacheKey(const ModelRef& model, const SessionKey& key, Provider resolved)
 {
     return modelIdentity(model) + "|" + providerName(resolved) + "|device"
-        + std::to_string(key.deviceId) + "|" + key.profile;
+        + std::to_string(key.deviceId) + "|" + key.profile + "|threads"
+        + std::to_string(key.intraOpThreads);
 }
 
 } // namespace
@@ -170,7 +171,8 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
         }
     } cleanup { api, options };
 
-    if (!checkStatus(*api, api->SetIntraOpNumThreads(options, 0), error)
+    if (!checkStatus(*api, api->SetIntraOpNumThreads(options,
+                                                     static_cast<int>(key.intraOpThreads)), error)
         || !checkStatus(*api, api->SetSessionGraphOptimizationLevel(options, ORT_ENABLE_ALL),
                         error)
         || !factory->configure(*api, *options, factory->defaultOptions(), error)) {

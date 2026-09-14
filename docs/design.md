@@ -87,9 +87,9 @@ precision) and frame-processing quality (fast, balanced, maximum). The full
 set of nine matcher controls must map to `MotionMatcherParams`, show an inline
 editable value beside the slider, and expose a short tooltip. They, together
 with the scene detector, live in a closed-by-default “Advanced analysis
-settings” disclosure. The same two high-level controls are available in
-Settings; detailed sliders stay on the main workspace so Settings remains
-focused. Controls are grouped by intent rather than a wall of duplicated
+  settings” disclosure. Model selection and all operational controls stay on
+  the main workspace; Settings remains focused on provider and system
+  resources. Controls are grouped by intent rather than a wall of duplicated
 labels:
 
 1. Similarity: similarity threshold, candidate threshold.
@@ -124,8 +124,10 @@ is inactive until at least one checkbox is selected.
 Settings and export are custom movable overlays, not native Qt dialogs. They
 have a deliberate header, 14–16px corner radius, a dark overlay, deep shadow,
 keyboard close, and no platform chrome. Settings are split into two focused
-tabs: Analysis (provider, ready model list, cache path and limit) and
+tabs: Analysis (provider, cache path and limit, processing threads) and
 Appearance (language, bundled/custom font, panel transparency and reset).
+Model selection and matcher presets do not appear in Settings; they stay in
+the main workspace.
 Scene/matcher controls remain in the main workspace. Export contains format,
 numbering, cut mode, output folder and prefix.
 

@@ -2,6 +2,7 @@
 
 #include <QMetaObject>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
@@ -81,7 +82,10 @@ QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
     QDir().mkpath(directory);
     const QString path = directory + QLatin1Char('/') + name;
     QImage image(frame.rgba.data(), frame.width, frame.height, QImage::Format_RGBA8888);
-    if (!image.copy().save(path, "PNG")) return {};
+    QImage preview = image.copy();
+    if (preview.width() > 960 || preview.height() > 540)
+        preview = preview.scaled(960, 540, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    if (!preview.save(path, "PNG")) return {};
     // Image.source is a URL in QML.  A bare Windows path such as C:/tmp/a.png
     // may be parsed as a URL with the scheme "c" and fail silently.
     return QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
@@ -94,7 +98,11 @@ QString savePreviewAt(const std::string& source, double timestamp, const QString
         decoder.open(source);
         decoder.seek(std::max(0.0, timestamp));
         pfcore::DecodedFrame frame;
-        if (decoder.readNext(frame)) return savePreview(frame, name);
+        const double target = std::max(0.0, timestamp);
+        while (decoder.readNext(frame)) {
+            if (frame.timestampSeconds + 1e-3 >= target)
+                return savePreview(frame, name);
+        }
     } catch (...) {
     }
     return {};
@@ -288,6 +296,7 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     if (modelChoice_.isEmpty()) modelChoice_ = QStringLiteral("yolo26m-pose-640-b1.onnx");
     cachePath_ = QString::fromStdString(settings.cachePath);
     cacheLimitGb_ = static_cast<double>(settings.cacheLimitBytes) / (1024.0 * 1024.0 * 1024.0);
+    processingThreads_ = static_cast<int>(std::clamp<std::size_t>(settings.processingThreads, 0, 256));
     sceneThreshold_ = settings.sceneThreshold;
     const auto near = [](double left, double right) { return std::abs(left - right) < 1e-6; };
     if (near(similarityThreshold_, 0.72) && near(candidateThreshold_, 0.40)
@@ -337,6 +346,7 @@ void AnalysisController::saveSettings() const
     settings.modelPath = modelPath_.toStdString();
     settings.cachePath = cachePath_.toStdString();
     settings.cacheLimitBytes = static_cast<std::size_t>(std::max(0.25, cacheLimitGb_) * 1024.0 * 1024.0 * 1024.0);
+    settings.processingThreads = static_cast<std::size_t>(std::clamp(processingThreads_, 0, 256));
     settings.sceneThreshold = sceneThreshold_;
     settings.similarityThreshold = similarityThreshold_;
     settings.candidateThreshold = candidateThreshold_;
@@ -576,6 +586,15 @@ void AnalysisController::setCacheLimitGb(double value)
     emit settingsChanged();
 }
 
+void AnalysisController::setProcessingThreads(int value)
+{
+    const int clamped = std::clamp(value, 0, 256);
+    if (processingThreads_ == clamped) return;
+    processingThreads_ = clamped;
+    saveSettings();
+    emit settingsChanged();
+}
+
 void AnalysisController::setSceneThreshold(double value)
 {
     const double clamped = std::clamp(value, 1.0, 255.0);
@@ -767,10 +786,11 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     const QString qualityProfile = qualityProfile_;
     const bool normalizeSize = normalizeSize_;
     const bool mirrorPoses = mirrorPoses_;
+    const QString previewToken = QString::number(QDateTime::currentMSecsSinceEpoch());
     QThread* thread = QThread::create([this, paths = normalized, similarityThreshold, candidateThreshold, repeatGap,
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
                                         maxUniqueResults, timeWeight, providerChoice,
-                                        qualityProfile, normalizeSize, mirrorPoses] {
+                                        qualityProfile, normalizeSize, mirrorPoses, previewToken] {
         try {
         int files = 0;
         int scenes = 0;
@@ -827,6 +847,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             if (const auto provider = pfgpu::parseProvider(providerChoice.toStdString()); provider.has_value()) {
                 poseParams.provider = *provider;
             }
+            poseParams.intraOpThreads = settings.processingThreads;
             pose = std::make_unique<pfgpu::PoseEstimator>(model.string(), poseParams);
         }
         std::vector<pfcore::MotionWindow> windows;
@@ -924,8 +945,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                                     settings.sceneAdaptiveMultiplier);
                 const auto sceneBoundaries = sceneDetector.detect(samples);
                 scenes += static_cast<int>(sceneBoundaries.size());
-                const QString previewStart = firstFrame.rgba.empty() ? QString() : savePreview(firstFrame, QStringLiteral("%1_start.png").arg(files));
-                const QString previewEnd = lastFrame.rgba.empty() ? QString() : savePreview(lastFrame, QStringLiteral("%1_end.png").arg(files));
+                const QString previewStart = firstFrame.rgba.empty() ? QString()
+                    : savePreview(firstFrame, QStringLiteral("%1_%2_start.png").arg(previewToken).arg(files));
+                const QString previewEnd = lastFrame.rgba.empty() ? QString()
+                    : savePreview(lastFrame, QStringLiteral("%1_%2_end.png").arg(previewToken).arg(files));
                 if (cacheHit) {
                     for (auto& cached : cachedWindows) {
                         windows.push_back(std::move(cached));
@@ -961,7 +984,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         // timestamps rather than guessed frame counts.
                         constexpr double windowSeconds = 1.0;
                         constexpr double strideSeconds = 0.25;
-                        constexpr double minimumWindowSeconds = 0.5;
+                        constexpr double minimumWindowSeconds = 0.9;
                         std::size_t start = 0;
                         while (start < window.frames.size()) {
                             const double startTime = window.frames[start].timestampSeconds;
@@ -1055,9 +1078,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert(QStringLiteral("markers"), markers);
                 resultRecords.push_back(record);
                 const QString exactA = savePreviewAt(item.leftSourceId, item.leftStartSeconds,
-                                                     QStringLiteral("match_%1_a.png").arg(static_cast<int>(i)));
+                                                     QStringLiteral("%1_match_%2_a.png").arg(previewToken).arg(static_cast<int>(i)));
                 const QString exactB = savePreviewAt(item.rightSourceId, item.rightStartSeconds,
-                                                     QStringLiteral("match_%1_b.png").arg(static_cast<int>(i)));
+                                                     QStringLiteral("%1_match_%2_b.png").arg(previewToken).arg(static_cast<int>(i)));
                 previewA.push_back(exactA.isEmpty() && item.leftIndex < static_cast<std::size_t>(windowPreviewA.size())
                                        ? windowPreviewA.at(static_cast<int>(item.leftIndex)) : exactA);
                 previewB.push_back(exactB.isEmpty() && item.rightIndex < static_cast<std::size_t>(windowPreviewB.size())

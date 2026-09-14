@@ -12,6 +12,8 @@ struct Settings {
     std::string modelPath;
     std::string cachePath;
     std::size_t cacheLimitBytes = 8ULL * 1024ULL * 1024ULL * 1024ULL;
+    // 0 lets ONNX Runtime choose a safe default for the current machine.
+    std::size_t processingThreads = 0;
     double sceneThreshold = 27.0;
     std::size_t sceneMinFrames = 8;
     double sceneAdaptiveMultiplier = 3.0;

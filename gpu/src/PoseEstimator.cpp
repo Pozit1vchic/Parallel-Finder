@@ -217,7 +217,8 @@ PoseEstimator::PoseEstimator(std::string modelPath, PoseEstimatorParams params)
     if (modelPath_.empty() || params_.inputWidth <= 0 || params_.inputHeight <= 0
         || params_.keypointCount == 0 || params_.confidenceThreshold < 0.0F
         || params_.confidenceThreshold > 1.0F || params_.nmsIouThreshold <= 0.0F
-        || params_.nmsIouThreshold > 1.0F || params_.batchSize > 64)
+        || params_.nmsIouThreshold > 1.0F || params_.batchSize > 64
+        || params_.intraOpThreads > 256)
         throw std::invalid_argument("PoseEstimator: invalid parameters");
     if (params_.batchSize == 0) params_.batchSize = profileBatchSize(params_.profile);
 }
@@ -232,7 +233,8 @@ std::vector<std::vector<PoseDetection>> PoseEstimator::inferBatch(const std::vec
 {
     if (images.empty()) return {};
     const auto session = sessions_.getOrCreate(ModelRef::fromPath(modelPath_),
-                                               {params_.provider, 0, params_.profile});
+                                               {params_.provider, 0, params_.profile,
+                                                params_.intraOpThreads});
     if (!session.ok) throw std::runtime_error(session.error);
     if (!sessionSpec_.has_value()) {
         SessionSpec description = describeSession(session.handle);

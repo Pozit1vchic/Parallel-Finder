@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Effects
+import QtQuick.Layouts
 import PfUi
 import PfUiBridge
 
@@ -10,12 +11,21 @@ Rectangle {
     property int selectedSourceIndex: -1
     property bool advancedOpen: false
     property string accuracyPreset: Analysis.accuracyPreset
+    property var modelFiles: [
+        "yolo8n-pose.onnx", "yolo8m-pose.onnx", "yolo8s-pose.onnx", "yolo8l-pose.onnx", "yolo8x-pose.onnx",
+        "yolo11n-pose.onnx", "yolo11m-pose.onnx", "yolo11s-pose.onnx", "yolo11l-pose.onnx", "yolo11x-pose.onnx",
+        "yolo26n-pose.onnx", "yolo26m-pose.onnx", "yolo26s-pose.onnx", "yolo26m-pose-640-b1.onnx", "yolo26l-pose.onnx", "yolo26x-pose.onnx"
+    ]
+    property var modelLabels: [
+        "YOLO 8 · nano", "YOLO 8 · medium", "YOLO 8 · small", "YOLO 8 · large", "YOLO 8 · xlarge",
+        "YOLO 11 · nano", "YOLO 11 · medium", "YOLO 11 · small", "YOLO 11 · large", "YOLO 11 · xlarge",
+        "YOLO 26 · nano", "YOLO 26 · medium", "YOLO 26 · small", "YOLO 26 · medium · 640", "YOLO 26 · large", "YOLO 26 · xlarge"
+    ]
     signal filesRequested(var urls)
     signal folderRequested()
     signal clearRequested()
     signal removeRequested(int index)
     signal analyzeRequested()
-    signal resetRequested()
     width: Theme.sidePanelWidth; color: Theme.rail; radius: Theme.radiusCard; border.color: Theme.border
     layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowPanel; shadowBlur: 0.75; shadowVerticalOffset: 10 }
 
@@ -50,9 +60,9 @@ Rectangle {
         anchors.fill: parent; anchors.margins: 16; anchors.bottomMargin: 86; clip: true; contentWidth: width; contentHeight: content.implicitHeight + 18
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-        Column {
+        ColumnLayout {
             id: content; width: parent.width; spacing: 10
-            Row { width: parent.width; height: 32
+            RowLayout { Layout.fillWidth: true; width: parent.width; height: 32
                 Column { width: parent.width - 34; spacing: 4
                     Text { id: sourceTitle; text: L10n.t("sources.title"); color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
                     Text { text: root.sourceFiles.length > 0 ? root.sourceFiles.length + " " + L10n.t("sources.loaded") : L10n.t("sources.subtitle"); color: Theme.textSecondary; font.pixelSize: 11 }
@@ -60,6 +70,7 @@ Rectangle {
                 Text { anchors.verticalCenter: sourceTitle.verticalCenter; text: root.sourceFiles.length; color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 19 }
             }
             DropArea {
+                Layout.fillWidth: true
                 width: parent.width; height: 102
                 Accessible.name: L10n.t("sources.dropTitle")
                 onDropped: if (drop.hasUrls) root.filesRequested(drop.urls)
@@ -71,15 +82,16 @@ Rectangle {
                     }
                 }
             }
-            Row { width: parent.width; spacing: 7
+            RowLayout { Layout.fillWidth: true; width: parent.width; spacing: 7
                 PfButton { width: (parent.width - 7) / 2; text: L10n.t("sources.add"); onClicked: root.filesRequested([]) }
                 PfButton { width: (parent.width - 7) / 2; text: L10n.t("sources.folder"); quiet: true; onClicked: root.folderRequested() }
             }
-            Row { width: parent.width; spacing: 7
+            RowLayout { Layout.fillWidth: true; width: parent.width; spacing: 7
                 PfButton { width: (parent.width - 7) / 2; text: L10n.t("sources.clear"); quiet: true; enabled: root.sourceFiles.length > 0; onClicked: root.clearRequested() }
                 PfButton { width: (parent.width - 7) / 2; text: L10n.t("sources.remove"); quiet: true; enabled: root.selectedSourceIndex >= 0; onClicked: root.removeRequested(root.selectedSourceIndex) }
             }
             ListView {
+                Layout.fillWidth: true
                 width: parent.width; height: root.sourceFiles.length > 0 ? Math.min(128, root.sourceFiles.length * 30) : 34; clip: true; model: root.sourceFiles; focus: true; activeFocusOnTab: true
                 Accessible.name: L10n.t("sources.title")
                 Keys.onUpPressed: { root.selectedSourceIndex = Math.max(0, root.selectedSourceIndex < 0 ? 0 : root.selectedSourceIndex - 1); positionViewAtIndex(root.selectedSourceIndex, ListView.Contain); event.accepted = true }
@@ -92,7 +104,7 @@ Rectangle {
                 }
                 Text { anchors.centerIn: parent; visible: root.sourceFiles.length === 0; text: L10n.t("sources.empty"); color: Theme.textDisabled; font.pixelSize: 10 }
             }
-            Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: accuracyCard.implicitHeight + 24
+            Rectangle { Layout.fillWidth: true; width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: accuracyCard.implicitHeight + 24
                 Column { id: accuracyCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
                     Text { text: L10n.t("search.accuracyGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
                     Text { width: parent.width; text: L10n.t("search.accuracyHint"); color: Theme.textSecondary; font.pixelSize: 10; wrapMode: Text.WordWrap }
@@ -103,7 +115,7 @@ Rectangle {
                     }
                 }
             }
-            Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: qualityCard.implicitHeight + 24
+            Rectangle { Layout.fillWidth: true; width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: qualityCard.implicitHeight + 24
                 Column { id: qualityCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
                     Row { width: parent.width
                         Text { text: L10n.t("search.frameProcessing"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
@@ -121,6 +133,7 @@ Rectangle {
             }
             Button {
                 id: advancedToggle
+                Layout.fillWidth: true
                 width: parent.width
                 height: 44
                 contentItem: Row {
@@ -137,9 +150,17 @@ Rectangle {
             }
             Column {
                 id: advancedColumn
+                Layout.fillWidth: true
                 width: parent.width
                 spacing: 10
                 visible: root.advancedOpen
+                Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: modelCard.implicitHeight + 24
+                    Column { id: modelCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
+                        Text { text: L10n.t("settings.poseModel"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        PfComboBox { width: parent.width; model: root.modelLabels; currentIndex: Math.max(0, root.modelFiles.indexOf(Analysis.modelChoice)); Accessible.name: L10n.t("settings.poseModel"); onActivated: Analysis.selectModel(root.modelFiles[currentIndex]) }
+                        Text { width: parent.width; text: Analysis.modelDownloading ? L10n.t("settings.modelDownloading") : (Analysis.modelStatus.length ? L10n.status(Analysis.modelStatus) : L10n.t("settings.modelHint")); color: Analysis.modelDownloading ? Theme.accent : Theme.textSecondary; font.pixelSize: 10; wrapMode: Text.WordWrap }
+                    }
+                }
                 Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: sceneCard.implicitHeight + 24
                     Column { id: sceneCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
                         Text { text: L10n.t("search.sceneGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }

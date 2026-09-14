@@ -40,6 +40,7 @@ struct PoseEstimatorParams {
     Provider provider = Provider::Auto;
     std::string profile = "b1";
     std::size_t batchSize = 0; // 0 = infer from profile (b1/b8/b16)
+    std::size_t intraOpThreads = 0; // 0 = ONNX Runtime default
     PoseOutputMode outputMode = PoseOutputMode::Auto;
 };
 

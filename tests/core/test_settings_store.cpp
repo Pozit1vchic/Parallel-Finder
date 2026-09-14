@@ -18,6 +18,7 @@ TEST(SettingsStore, SavesAndLoadsAtomically)
     pfservices::Settings expected;
     expected.provider = "dml";
     expected.cacheLimitBytes = 123456;
+    expected.processingThreads = 12;
     expected.sceneThreshold = 42.0;
     expected.sceneMinFrames = 6;
     expected.similarityThreshold = 0.91;
@@ -37,6 +38,7 @@ TEST(SettingsStore, SavesAndLoadsAtomically)
     EXPECT_TRUE(error.empty()) << error;
     EXPECT_EQ(loaded.provider, "dml");
     EXPECT_EQ(loaded.cacheLimitBytes, 123456U);
+    EXPECT_EQ(loaded.processingThreads, 12U);
     EXPECT_DOUBLE_EQ(loaded.sceneThreshold, 42.0);
     EXPECT_EQ(loaded.sceneMinFrames, 6U);
     EXPECT_DOUBLE_EQ(loaded.similarityThreshold, 0.91);
