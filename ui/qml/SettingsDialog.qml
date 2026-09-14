@@ -12,6 +12,7 @@ Popup {
     property var rootWindow
     property bool userPositioned: false
     property string themeStatus: ""
+    signal advancedRequested()
     property var modelFiles: [
         "yolo8n-pose.onnx", "yolo8m-pose.onnx", "yolo8s-pose.onnx", "yolo8l-pose.onnx", "yolo8x-pose.onnx",
         "yolo11n-pose.onnx", "yolo11m-pose.onnx", "yolo11s-pose.onnx", "yolo11l-pose.onnx", "yolo11x-pose.onnx",
@@ -29,6 +30,19 @@ Popup {
     height: Math.min(620, rootWindow ? rootWindow.height - 32 : 580)
     x: 0
     y: 0
+    transformOrigin: Item.Center
+    enter: Transition {
+        ParallelAnimation {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 180; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: 180; easing.type: Easing.OutCubic }
+        }
+    }
+    exit: Transition {
+        ParallelAnimation {
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 150; easing.type: Easing.InCubic }
+            NumberAnimation { property: "scale"; from: 1; to: 0.97; duration: 150; easing.type: Easing.InCubic }
+        }
+    }
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     Overlay.modal: Rectangle { color: Theme.overlayDim }
     background: Rectangle {
@@ -36,7 +50,7 @@ Popup {
         radius: Theme.radiusOverlay
         border.color: Theme.hairline
         layer.enabled: true
-        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowBlur: 1.0; shadowVerticalOffset: 18 }
+        layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowOpacity: 0.78; shadowBlur: 1.0; shadowHorizontalOffset: 0; shadowVerticalOffset: 20 }
     }
 
     Settings {
@@ -95,6 +109,23 @@ Popup {
         root.themeStatus = L10n.t("settings.resetDone")
     }
 
+    function applyAccuracyPreset(preset) {
+        Analysis.accuracyPreset = preset
+        if (preset === "fast") {
+            Analysis.similarityThreshold = 0.72; Analysis.candidateThreshold = 0.40
+            Analysis.repeatGap = 8.0; Analysis.sameFileGap = 3.0; Analysis.duplicateWindow = 2.0
+            Analysis.noiseFactor = 1.25; Analysis.maxUniqueResults = 50; Analysis.timeWeight = 0.10
+        } else if (preset === "precise") {
+            Analysis.similarityThreshold = 0.90; Analysis.candidateThreshold = 0.70
+            Analysis.repeatGap = 4.0; Analysis.sameFileGap = 1.5; Analysis.duplicateWindow = 1.0
+            Analysis.noiseFactor = 0.70; Analysis.maxUniqueResults = 200; Analysis.timeWeight = 0.40
+        } else {
+            Analysis.similarityThreshold = 0.85; Analysis.candidateThreshold = 0.55
+            Analysis.repeatGap = 6.0; Analysis.sameFileGap = 2.0; Analysis.duplicateWindow = 1.5
+            Analysis.noiseFactor = 1.0; Analysis.maxUniqueResults = 100; Analysis.timeWeight = 0.25
+        }
+    }
+
     contentItem: Column {
         spacing: 0
         Rectangle {
@@ -144,6 +175,24 @@ Popup {
                         Text { text: L10n.t("settings.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
                         Text { text: L10n.t("settings.subtitle"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
                         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
+                        Rectangle { width: parent.width; color: Theme.panelAlt; radius: Theme.radiusButton; border.color: Theme.border; implicitHeight: profileBody.implicitHeight + 24
+                            Column { id: profileBody; anchors.fill: parent; anchors.margins: 12; spacing: 9
+                                Text { text: L10n.t("search.accuracyGroup"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                Flow { width: parent.width; spacing: 6
+                                    PfButton { width: 112; compact: true; text: L10n.t("search.presetFast"); quiet: Analysis.accuracyPreset !== "fast"; onClicked: root.applyAccuracyPreset("fast") }
+                                    PfButton { width: 82; compact: true; text: L10n.t("search.presetBalanced"); quiet: Analysis.accuracyPreset !== "balanced"; onClicked: root.applyAccuracyPreset("balanced") }
+                                    PfButton { width: 124; compact: true; text: L10n.t("search.presetPrecise"); quiet: Analysis.accuracyPreset !== "precise"; onClicked: root.applyAccuracyPreset("precise") }
+                                }
+                                Text { text: L10n.t("search.frameProcessing"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                Flow { width: parent.width; spacing: 6
+                                    PfButton { width: 82; compact: true; text: L10n.t("search.fast"); quiet: Analysis.qualityProfile !== "fast"; onClicked: Analysis.qualityProfile = "fast" }
+                                    PfButton { width: 82; compact: true; text: L10n.t("search.medium"); quiet: Analysis.qualityProfile !== "medium"; onClicked: Analysis.qualityProfile = "medium" }
+                                    PfButton { width: 124; compact: true; text: L10n.t("search.maximum"); quiet: Analysis.qualityProfile !== "maximum"; onClicked: Analysis.qualityProfile = "maximum" }
+                                }
+                                Text { width: parent.width; text: L10n.t("settings.advancedHint"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }
+                                PfButton { width: parent.width; compact: true; text: L10n.t("settings.openAdvanced"); quiet: true; onClicked: root.advancedRequested() }
+                            }
+                        }
                         Text { text: L10n.t("settings.environment"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         Row { width: parent.width; height: 36; spacing: 12
                             Text { id: providerLabel; width: 135; text: L10n.t("settings.provider"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; ToolTip.visible: providerHelp.hovered; ToolTip.text: L10n.t("settings.providerHint"); ToolTip.delay: 350 }
@@ -165,12 +214,7 @@ Popup {
                             HoverHandler { id: cacheHelp }
                             PfTextField { width: parent.width - 147; text: Analysis.cachePath; placeholderText: L10n.t("settings.cachePlaceholder"); Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }
                         }
-                        Row { width: parent.width; height: 32; spacing: 12
-                            Text { id: cacheLimitLabel; width: 135; text: L10n.t("settings.cacheLimit"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; ToolTip.visible: cacheLimitHelp.hovered; ToolTip.text: L10n.t("settings.cacheLimitHint"); ToolTip.delay: 350 }
-                            HoverHandler { id: cacheLimitHelp }
-                            PfSlider { width: parent.width - 220; from: 0.25; to: 128; stepSize: 0.25; value: Analysis.cacheLimitGb; Accessible.name: L10n.t("settings.cacheLimit"); onMoved: Analysis.setCacheLimitGb(value) }
-                            Text { width: 65; text: Analysis.cacheLimitGb.toFixed(2) + " GB"; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
-                        }
+                        PfSliderField { width: parent.width; label: L10n.t("settings.cacheLimit"); from: 0.25; to: 128; stepSize: 0.25; value: Analysis.cacheLimitGb; decimals: 2; suffix: "GB"; tooltipText: L10n.t("settings.cacheLimitHint"); Accessible.name: L10n.t("settings.cacheLimit"); onValueEdited: Analysis.setCacheLimitGb(nextValue) }
                         PfButton { width: parent.width; text: L10n.t("settings.reset"); quiet: true; onClicked: root.resetRequested() }
                     }
                 }
@@ -190,12 +234,7 @@ Popup {
                         }
                         Text { visible: customFont.status === FontLoader.Ready; text: L10n.t("settings.fontLoaded") + ": " + customFont.name; color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
                         Text { text: L10n.t("settings.surfaceOpacity"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        Row { width: parent.width; height: 34; spacing: 12
-                            Text { id: opacityLabel; width: 170; text: L10n.t("settings.surfaceOpacity"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; ToolTip.visible: opacityHelp.hovered; ToolTip.text: L10n.t("settings.surfaceOpacityHint"); ToolTip.delay: 350 }
-                            HoverHandler { id: opacityHelp }
-                            PfSlider { width: parent.width - 250; from: 0.72; to: 1.0; stepSize: 0.01; value: Theme.surfaceOpacity; Accessible.name: L10n.t("settings.surfaceOpacity"); onMoved: { Theme.surfaceOpacity = value; customizationStore.surfaceOpacity = value } }
-                            Text { width: 58; text: Math.round(Theme.surfaceOpacity * 100) + "%"; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
-                        }
+                        PfSliderField { width: parent.width; label: L10n.t("settings.surfaceOpacity"); from: 0.72; to: 1.0; stepSize: 0.01; value: Theme.surfaceOpacity; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("settings.surfaceOpacityHint"); Accessible.name: L10n.t("settings.surfaceOpacity"); onValueEdited: { Theme.surfaceOpacity = nextValue; customizationStore.surfaceOpacity = nextValue } }
                         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
                         PfButton { width: parent.width; text: L10n.t("settings.resetAppearance"); quiet: true; onClicked: root.resetAppearance() }
                         Text { width: parent.width; text: root.themeStatus || L10n.t("settings.profileSaved"); color: root.themeStatus ? Theme.accent : Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }

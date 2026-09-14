@@ -40,6 +40,7 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(double sceneThreshold READ sceneThreshold NOTIFY settingsChanged)
     Q_PROPERTY(double similarityThreshold READ similarityThreshold WRITE setSimilarityThreshold NOTIFY matcherParamsChanged)
     Q_PROPERTY(double candidateThreshold READ candidateThreshold WRITE setCandidateThreshold NOTIFY matcherParamsChanged)
+    Q_PROPERTY(QString accuracyPreset READ accuracyPreset WRITE setAccuracyPreset NOTIFY matcherParamsChanged)
     Q_PROPERTY(double repeatGap READ repeatGap WRITE setRepeatGap NOTIFY matcherParamsChanged)
     Q_PROPERTY(double sameFileGap READ sameFileGap WRITE setSameFileGap NOTIFY matcherParamsChanged)
     Q_PROPERTY(double crossFileGap READ crossFileGap WRITE setCrossFileGap NOTIFY matcherParamsChanged)
@@ -77,6 +78,8 @@ public:
     double sceneThreshold() const noexcept { return sceneThreshold_; }
     double similarityThreshold() const noexcept { return similarityThreshold_; }
     double candidateThreshold() const noexcept { return candidateThreshold_; }
+    QString accuracyPreset() const { return accuracyPreset_; }
+    void setAccuracyPreset(const QString& value);
     void setSimilarityThreshold(double value);
     void setCandidateThreshold(double value);
     double repeatGap() const noexcept { return repeatGap_; }
@@ -164,6 +167,7 @@ private:
     double sceneThreshold_ = 27.0;
     double similarityThreshold_ = 0.85;
     double candidateThreshold_ = 0.55;
+    QString accuracyPreset_ = QStringLiteral("balanced");
     double repeatGap_ = 6.0;
     double sameFileGap_ = 2.0;
     double crossFileGap_ = 0.0;

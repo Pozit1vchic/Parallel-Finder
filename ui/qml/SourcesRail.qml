@@ -8,6 +8,8 @@ Rectangle {
     id: root
     property var sourceFiles: []
     property int selectedSourceIndex: -1
+    property bool advancedOpen: false
+    property string accuracyPreset: Analysis.accuracyPreset
     signal filesRequested(var urls)
     signal folderRequested()
     signal clearRequested()
@@ -22,18 +24,40 @@ Rectangle {
         return pieces[pieces.length - 1] || path
     }
 
+    function applyAccuracyPreset(preset) {
+        Analysis.accuracyPreset = preset
+        if (preset === "fast") {
+            Analysis.similarityThreshold = 0.72; Analysis.candidateThreshold = 0.40
+            Analysis.repeatGap = 8.0; Analysis.sameFileGap = 3.0; Analysis.crossFileGap = 0.0
+            Analysis.duplicateWindow = 2.0; Analysis.noiseFactor = 1.25
+            Analysis.maxUniqueResults = 50; Analysis.timeWeight = 0.10
+        } else if (preset === "precise") {
+            Analysis.similarityThreshold = 0.90; Analysis.candidateThreshold = 0.70
+            Analysis.repeatGap = 4.0; Analysis.sameFileGap = 1.5; Analysis.crossFileGap = 0.0
+            Analysis.duplicateWindow = 1.0; Analysis.noiseFactor = 0.70
+            Analysis.maxUniqueResults = 200; Analysis.timeWeight = 0.40
+        } else {
+            Analysis.similarityThreshold = 0.85; Analysis.candidateThreshold = 0.55
+            Analysis.repeatGap = 6.0; Analysis.sameFileGap = 2.0; Analysis.crossFileGap = 0.0
+            Analysis.duplicateWindow = 1.5; Analysis.noiseFactor = 1.0
+            Analysis.maxUniqueResults = 100; Analysis.timeWeight = 0.25
+        }
+    }
+
+    function markCustom() { Analysis.accuracyPreset = "custom" }
+
     Flickable {
         anchors.fill: parent; anchors.margins: 16; anchors.bottomMargin: 86; clip: true; contentWidth: width; contentHeight: content.implicitHeight + 18
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
         Column {
             id: content; width: parent.width; spacing: 10
-            Row { width: parent.width
+            Row { width: parent.width; height: 32
                 Column { width: parent.width - 34; spacing: 4
-                    Text { text: L10n.t("sources.title"); color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
+                    Text { id: sourceTitle; text: L10n.t("sources.title"); color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
                     Text { text: root.sourceFiles.length > 0 ? root.sourceFiles.length + " " + L10n.t("sources.loaded") : L10n.t("sources.subtitle"); color: Theme.textSecondary; font.pixelSize: 11 }
                 }
-                Text { text: root.sourceFiles.length; color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 19 }
+                Text { anchors.verticalCenter: sourceTitle.verticalCenter; text: root.sourceFiles.length; color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 19 }
             }
             DropArea {
                 width: parent.width; height: 102
@@ -68,72 +92,83 @@ Rectangle {
                 }
                 Text { anchors.centerIn: parent; visible: root.sourceFiles.length === 0; text: L10n.t("sources.empty"); color: Theme.textDisabled; font.pixelSize: 10 }
             }
-            Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: sceneCard.implicitHeight + 24
-                Column { id: sceneCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
-                    Text { text: L10n.t("search.sceneGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                    Row { width: parent.width
-                        Text { text: L10n.t("search.sceneThreshold"); color: Theme.textSecondary; font.pixelSize: 11 }
-                        Item { width: parent.width - 116; height: 1 }
-                        Text { text: Math.round(Analysis.sceneThreshold); color: Theme.accent; font.pixelSize: 11 }
+            Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: accuracyCard.implicitHeight + 24
+                Column { id: accuracyCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
+                    Text { text: L10n.t("search.accuracyGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                    Text { width: parent.width; text: L10n.t("search.accuracyHint"); color: Theme.textSecondary; font.pixelSize: 10; wrapMode: Text.WordWrap }
+                    Flow { width: parent.width; spacing: 6
+                        PfButton { width: 94; compact: true; text: L10n.t("search.presetFast"); quiet: root.accuracyPreset !== "fast"; onClicked: root.applyAccuracyPreset("fast") }
+                        PfButton { width: 60; compact: true; text: L10n.t("search.presetBalanced"); quiet: root.accuracyPreset !== "balanced"; onClicked: root.applyAccuracyPreset("balanced") }
+                        PfButton { width: 106; compact: true; text: L10n.t("search.presetPrecise"); quiet: root.accuracyPreset !== "precise"; onClicked: root.applyAccuracyPreset("precise") }
                     }
-                    PfSlider { width: parent.width; tooltipText: L10n.t("search.sceneThresholdHint"); from: 8; to: 60; stepSize: 1; value: Analysis.sceneThreshold; Accessible.name: L10n.t("search.sceneThreshold"); onMoved: Analysis.setSceneThreshold(value) }
-                }
-            }
-            Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: similarityCard.implicitHeight + 24
-                Column { id: similarityCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
-                    Text { text: L10n.t("search.similarityGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                    Row { width: parent.width
-                        Text { text: L10n.t("search.similarity"); color: Theme.textSecondary; font.pixelSize: 11 }
-                        Item { width: parent.width - 100; height: 1 }
-                        Text { text: Math.round(Analysis.similarityThreshold * 100) + "%"; color: Theme.accent; font.pixelSize: 11 }
-                    }
-                    PfSlider { width: parent.width; tooltipText: L10n.t("search.similarityHint"); from: 0.5; to: 0.99; stepSize: 0.01; value: Analysis.similarityThreshold; Accessible.name: L10n.t("search.similarity"); onMoved: Analysis.similarityThreshold = value }
-                    Row { width: parent.width
-                        Text { text: L10n.t("search.candidate"); color: Theme.textSecondary; font.pixelSize: 11 }
-                        Item { width: parent.width - 100; height: 1 }
-                        Text { text: Math.round(Analysis.candidateThreshold * 100) + "%"; color: Theme.accent; font.pixelSize: 11 }
-                    }
-                    PfSlider { width: parent.width; tooltipText: L10n.t("search.candidateHint"); from: 0.2; to: 0.95; stepSize: 0.01; value: Analysis.candidateThreshold; Accessible.name: L10n.t("search.candidate"); onMoved: Analysis.candidateThreshold = value }
-                }
-            }
-            Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: spacingCard.implicitHeight + 24
-                Column { id: spacingCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
-                    Text { text: L10n.t("search.spacingGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                    Text { text: L10n.t("search.repeatGap") + "  ·  " + Analysis.repeatGap.toFixed(1) + " " + L10n.t("common.seconds"); color: Theme.textSecondary; font.pixelSize: 11 }
-                    PfSlider { width: parent.width; tooltipText: L10n.t("search.repeatGapHint"); from: 0; to: 30; stepSize: 0.5; value: Analysis.repeatGap; Accessible.name: L10n.t("search.repeatGap"); onMoved: Analysis.repeatGap = value }
-                    Text { text: L10n.t("search.sameFileGap") + "  ·  " + Analysis.sameFileGap.toFixed(1) + " " + L10n.t("common.seconds"); color: Theme.textSecondary; font.pixelSize: 11 }
-                    PfSlider { width: parent.width; tooltipText: L10n.t("search.sameFileGapHint"); from: 0; to: 15; stepSize: 0.5; value: Analysis.sameFileGap; Accessible.name: L10n.t("search.sameFileGap"); onMoved: Analysis.sameFileGap = value }
-                    Text { text: L10n.t("search.crossFileGap") + "  ·  " + Analysis.crossFileGap.toFixed(1) + " " + L10n.t("common.seconds"); color: Theme.textSecondary; font.pixelSize: 11 }
-                    PfSlider { width: parent.width; tooltipText: L10n.t("search.crossFileGapHint"); from: 0; to: 15; stepSize: 0.5; value: Analysis.crossFileGap; Accessible.name: L10n.t("search.crossFileGap"); onMoved: Analysis.crossFileGap = value }
-                    Text { text: L10n.t("search.duplicateWindow") + "  ·  " + Analysis.duplicateWindow.toFixed(1) + " " + L10n.t("common.seconds"); color: Theme.textSecondary; font.pixelSize: 11 }
-                    PfSlider { width: parent.width; tooltipText: L10n.t("search.duplicateWindowHint"); from: 0.25; to: 8; stepSize: 0.25; value: Analysis.duplicateWindow; Accessible.name: L10n.t("search.duplicateWindow"); onMoved: Analysis.duplicateWindow = value }
-                }
-            }
-            Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: rankingCard.implicitHeight + 24
-                Column { id: rankingCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
-                    Text { text: L10n.t("search.rankingGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                    Text { text: L10n.t("search.noise") + "  ·  " + Analysis.noiseFactor.toFixed(2); color: Theme.textSecondary; font.pixelSize: 11 }
-                    PfSlider { width: parent.width; tooltipText: L10n.t("search.noiseHint"); from: 0; to: 2; stepSize: 0.05; value: Analysis.noiseFactor; Accessible.name: L10n.t("search.noise"); onMoved: Analysis.noiseFactor = value }
-                    Text { text: L10n.t("search.maxResults") + "  ·  " + Analysis.maxUniqueResults; color: Theme.textSecondary; font.pixelSize: 11 }
-                    PfSlider { width: parent.width; tooltipText: L10n.t("search.maxResultsHint"); from: 10; to: 500; stepSize: 10; value: Analysis.maxUniqueResults; Accessible.name: L10n.t("search.maxResults"); onMoved: Analysis.maxUniqueResults = Math.round(value) }
-                    Text { text: L10n.t("search.timeWeight") + "  ·  " + Math.round(Analysis.timeWeight * 100) + "%"; color: Theme.textSecondary; font.pixelSize: 11 }
-                    PfSlider { width: parent.width; tooltipText: L10n.t("search.timeWeightHint"); from: 0; to: 1; stepSize: 0.05; value: Analysis.timeWeight; Accessible.name: L10n.t("search.timeWeight"); onMoved: Analysis.timeWeight = value }
                 }
             }
             Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: qualityCard.implicitHeight + 24
                 Column { id: qualityCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
                     Row { width: parent.width
-                        Text { text: L10n.t("search.quality"); color: Theme.textSecondary; font.pixelSize: 11 }
+                        Text { text: L10n.t("search.frameProcessing"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
                         Item { width: parent.width - 92; height: 1 }
-                        Text { text: Analysis.qualityProfile; color: Theme.sage; font.pixelSize: 10 }
+                        Text { text: Analysis.qualityProfile === "fast" ? L10n.t("search.fast") : Analysis.qualityProfile === "medium" ? L10n.t("search.medium") : L10n.t("search.maximum"); color: Theme.sage; font.pixelSize: 10 }
                     }
-                    Row { width: parent.width; spacing: 5
-                        PfButton { width: (parent.width - 10) / 3; text: L10n.t("search.fast"); quiet: Analysis.qualityProfile !== "fast"; onClicked: Analysis.qualityProfile = "fast" }
-                        PfButton { width: (parent.width - 10) / 3; text: L10n.t("search.medium"); quiet: Analysis.qualityProfile !== "medium"; onClicked: Analysis.qualityProfile = "medium" }
-                        PfButton { width: (parent.width - 10) / 3; text: L10n.t("search.maximum"); quiet: Analysis.qualityProfile !== "maximum"; onClicked: Analysis.qualityProfile = "maximum" }
+                    Flow { width: parent.width; spacing: 6
+                        PfButton { width: 62; compact: true; text: L10n.t("search.fast"); quiet: Analysis.qualityProfile !== "fast"; onClicked: Analysis.qualityProfile = "fast" }
+                        PfButton { width: 62; compact: true; text: L10n.t("search.medium"); quiet: Analysis.qualityProfile !== "medium"; onClicked: Analysis.qualityProfile = "medium" }
+                        PfButton { width: 108; compact: true; text: L10n.t("search.maximum"); quiet: Analysis.qualityProfile !== "maximum"; onClicked: Analysis.qualityProfile = "maximum" }
                     }
                     PfCheckBox { text: L10n.t("search.normalize"); tooltipText: L10n.t("search.normalizeHint"); checked: Analysis.normalizeSize; onToggled: Analysis.normalizeSize = checked }
                     PfCheckBox { text: L10n.t("search.mirror"); tooltipText: L10n.t("search.mirrorHint"); checked: Analysis.mirrorPoses; onToggled: Analysis.mirrorPoses = checked }
+                }
+            }
+            Button {
+                id: advancedToggle
+                width: parent.width
+                height: 44
+                contentItem: Row {
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 8
+                    Text { width: parent.width - 28; text: L10n.t("search.advanced"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap; verticalAlignment: Text.AlignVCenter }
+                    Text { text: root.advancedOpen ? "−" : "+"; color: Theme.accent; font.pixelSize: 17; horizontalAlignment: Text.AlignRight; width: 20; verticalAlignment: Text.AlignVCenter }
+                }
+                background: Rectangle { radius: Theme.radiusButton; color: advancedToggle.hovered ? Theme.surfaceRaised : "transparent"; border.color: advancedToggle.activeFocus ? Theme.accent : Theme.hairline; border.width: advancedToggle.activeFocus ? 2 : 1 }
+                Accessible.name: L10n.t("search.advanced")
+                Accessible.role: Accessible.Button
+                onClicked: root.advancedOpen = !root.advancedOpen
+            }
+            Column {
+                id: advancedColumn
+                width: parent.width
+                spacing: 10
+                visible: root.advancedOpen
+                Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: sceneCard.implicitHeight + 24
+                    Column { id: sceneCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
+                        Text { text: L10n.t("search.sceneGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        PfSliderField { width: parent.width; label: L10n.t("search.sceneThreshold"); from: 8; to: 60; stepSize: 1; value: Analysis.sceneThreshold; decimals: 0; integer: true; tooltipText: L10n.t("search.sceneThresholdHint"); Accessible.name: L10n.t("search.sceneThreshold"); onValueEdited: Analysis.setSceneThreshold(nextValue) }
+                    }
+                }
+                Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: similarityCard.implicitHeight + 24
+                    Column { id: similarityCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
+                        Text { text: L10n.t("search.similarityGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        PfSliderField { width: parent.width; label: L10n.t("search.similarity"); from: 0.5; to: 0.99; stepSize: 0.01; value: Analysis.similarityThreshold; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("search.similarityHint"); Accessible.name: L10n.t("search.similarity"); onValueEdited: { root.markCustom(); Analysis.similarityThreshold = nextValue } }
+                        PfSliderField { width: parent.width; label: L10n.t("search.candidate"); from: 0.2; to: 0.95; stepSize: 0.01; value: Analysis.candidateThreshold; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("search.candidateHint"); Accessible.name: L10n.t("search.candidate"); onValueEdited: { root.markCustom(); Analysis.candidateThreshold = nextValue } }
+                    }
+                }
+                Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: spacingCard.implicitHeight + 24
+                    Column { id: spacingCard; anchors.fill: parent; anchors.margins: 12; spacing: 9
+                        Text { text: L10n.t("search.spacingGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        PfSliderField { width: parent.width; label: L10n.t("search.repeatGap"); from: 0; to: 30; stepSize: 0.5; value: Analysis.repeatGap; decimals: 1; suffix: L10n.t("common.seconds"); tooltipText: L10n.t("search.repeatGapHint"); Accessible.name: L10n.t("search.repeatGap"); onValueEdited: { root.markCustom(); Analysis.repeatGap = nextValue } }
+                        PfSliderField { width: parent.width; label: L10n.t("search.sameFileGap"); from: 0; to: 15; stepSize: 0.5; value: Analysis.sameFileGap; decimals: 1; suffix: L10n.t("common.seconds"); tooltipText: L10n.t("search.sameFileGapHint"); Accessible.name: L10n.t("search.sameFileGap"); onValueEdited: { root.markCustom(); Analysis.sameFileGap = nextValue } }
+                        PfSliderField { width: parent.width; label: L10n.t("search.crossFileGap"); from: 0; to: 15; stepSize: 0.5; value: Analysis.crossFileGap; decimals: 1; suffix: L10n.t("common.seconds"); tooltipText: L10n.t("search.crossFileGapHint"); Accessible.name: L10n.t("search.crossFileGap"); onValueEdited: { root.markCustom(); Analysis.crossFileGap = nextValue } }
+                        PfSliderField { width: parent.width; label: L10n.t("search.duplicateWindow"); from: 0.25; to: 8; stepSize: 0.25; value: Analysis.duplicateWindow; decimals: 2; suffix: L10n.t("common.seconds"); tooltipText: L10n.t("search.duplicateWindowHint"); Accessible.name: L10n.t("search.duplicateWindow"); onValueEdited: { root.markCustom(); Analysis.duplicateWindow = nextValue } }
+                    }
+                }
+                Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: rankingCard.implicitHeight + 24
+                    Column { id: rankingCard; anchors.fill: parent; anchors.margins: 12; spacing: 9
+                        Text { text: L10n.t("search.rankingGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        PfSliderField { width: parent.width; label: L10n.t("search.noise"); from: 0; to: 2; stepSize: 0.05; value: Analysis.noiseFactor; decimals: 2; tooltipText: L10n.t("search.noiseHint"); Accessible.name: L10n.t("search.noise"); onValueEdited: { root.markCustom(); Analysis.noiseFactor = nextValue } }
+                        PfSliderField { width: parent.width; label: L10n.t("search.maxResults"); from: 10; to: 500; stepSize: 10; value: Analysis.maxUniqueResults; decimals: 0; integer: true; tooltipText: L10n.t("search.maxResultsHint"); Accessible.name: L10n.t("search.maxResults"); onValueEdited: { root.markCustom(); Analysis.maxUniqueResults = Math.round(nextValue) } }
+                        PfSliderField { width: parent.width; label: L10n.t("search.timeWeight"); from: 0; to: 1; stepSize: 0.05; value: Analysis.timeWeight; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("search.timeWeightHint"); Accessible.name: L10n.t("search.timeWeight"); onValueEdited: { root.markCustom(); Analysis.timeWeight = nextValue } }
+                    }
                 }
             }
         }

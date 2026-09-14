@@ -289,6 +289,23 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     cachePath_ = QString::fromStdString(settings.cachePath);
     cacheLimitGb_ = static_cast<double>(settings.cacheLimitBytes) / (1024.0 * 1024.0 * 1024.0);
     sceneThreshold_ = settings.sceneThreshold;
+    const auto near = [](double left, double right) { return std::abs(left - right) < 1e-6; };
+    if (near(similarityThreshold_, 0.72) && near(candidateThreshold_, 0.40)
+        && near(repeatGap_, 8.0) && near(sameFileGap_, 3.0)
+        && near(duplicateWindow_, 2.0) && near(noiseFactor_, 1.25)
+        && maxUniqueResults_ == 50 && near(timeWeight_, 0.10)) {
+        accuracyPreset_ = QStringLiteral("fast");
+    } else if (near(similarityThreshold_, 0.90) && near(candidateThreshold_, 0.70)
+        && near(repeatGap_, 4.0) && near(sameFileGap_, 1.5)
+        && near(duplicateWindow_, 1.0) && near(noiseFactor_, 0.70)
+        && maxUniqueResults_ == 200 && near(timeWeight_, 0.40)) {
+        accuracyPreset_ = QStringLiteral("precise");
+    } else if (!near(similarityThreshold_, 0.85) || !near(candidateThreshold_, 0.55)
+        || !near(repeatGap_, 6.0) || !near(sameFileGap_, 2.0)
+        || !near(duplicateWindow_, 1.5) || !near(noiseFactor_, 1.0)
+        || maxUniqueResults_ != 100 || !near(timeWeight_, 0.25)) {
+        accuracyPreset_ = QStringLiteral("custom");
+    }
 }
 
 void AnalysisController::saveMatcherSettings() const
@@ -357,6 +374,16 @@ void AnalysisController::setCandidateThreshold(double value)
     if (std::abs(candidateThreshold_ - clamped) < 1e-9) return;
     candidateThreshold_ = clamped;
     saveMatcherSettings();
+    emit matcherParamsChanged();
+}
+
+void AnalysisController::setAccuracyPreset(const QString& value)
+{
+    const QString normalized = value.trimmed().toLower();
+    if (normalized != QStringLiteral("fast") && normalized != QStringLiteral("balanced")
+        && normalized != QStringLiteral("precise") && normalized != QStringLiteral("custom")) return;
+    if (accuracyPreset_ == normalized) return;
+    accuracyPreset_ = normalized;
     emit matcherParamsChanged();
 }
 

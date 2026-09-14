@@ -15,9 +15,22 @@ Popup {
     modal: true; focus: true; padding: 0
     width: Math.min(600, rootWindow ? rootWindow.width - 40 : 560); height: 520
     x: 0; y: 0
+    transformOrigin: Item.Center
+    enter: Transition {
+        ParallelAnimation {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 180; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: 180; easing.type: Easing.OutCubic }
+        }
+    }
+    exit: Transition {
+        ParallelAnimation {
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 150; easing.type: Easing.InCubic }
+            NumberAnimation { property: "scale"; from: 1; to: 0.97; duration: 150; easing.type: Easing.InCubic }
+        }
+    }
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     Overlay.modal: Rectangle { color: Theme.overlayDim }
-    background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairline; layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowBlur: 1.0; shadowVerticalOffset: 18 } }
+    background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairline; layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowOpacity: 0.78; shadowBlur: 1.0; shadowHorizontalOffset: 0; shadowVerticalOffset: 20 } }
     FolderDialog { id: folderDialog; title: L10n.t("export.chooseFolder"); onAccepted: root.outputFolder = selectedFolder.toLocalFile() }
     Connections { target: Analysis; function onExportFinished(success, message) { root.exportStatus = message; if (success) root.close() } }
     function selectedIndexes() { return Object.keys(root.selectedRows).map(function (key) { return Number(key) }) }

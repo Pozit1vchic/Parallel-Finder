@@ -8,6 +8,7 @@ set(PFUI_QML_FILES
     qml/L10n.qml
     qml/Main.qml
     qml/PfSlider.qml
+    qml/PfSliderField.qml
     qml/PfComboBox.qml
     qml/PfTextField.qml
     qml/PfCheckBox.qml

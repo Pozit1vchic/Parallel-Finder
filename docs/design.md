@@ -81,11 +81,16 @@ elevated surface in the center column.
 ### Sources and controls
 
 The primary action is `Добавить видео`. Folder selection and clearing are
-secondary. The source list is compact and visibly selected. The full set of
-nine matcher controls must map to `MotionMatcherParams`, show an inline value,
-and expose a short tooltip. The scene detector has a separate main-workspace
-control and is not hidden in Settings. Controls are grouped by intent rather
-than a wall of duplicated labels:
+secondary. The source list is compact and visibly selected. The rail starts
+with two high-level controls: an accuracy preset (quick, balanced, high
+precision) and frame-processing quality (fast, balanced, maximum). The full
+set of nine matcher controls must map to `MotionMatcherParams`, show an inline
+editable value beside the slider, and expose a short tooltip. They, together
+with the scene detector, live in a closed-by-default “Advanced analysis
+settings” disclosure. The same two high-level controls are available in
+Settings; detailed sliders stay on the main workspace so Settings remains
+focused. Controls are grouped by intent rather than a wall of duplicated
+labels:
 
 1. Similarity: similarity threshold, candidate threshold.
 2. Spacing: repeat gap, same-file gap, cross-file gap, duplicate window.
@@ -126,9 +131,12 @@ numbering, cut mode, output folder and prefix.
 
 ## Interaction / motion
 
-The interface is intentionally static. State changes replace content directly
+The workspace is intentionally static. State changes replace content directly
 so analysis remains legible and deterministic. There are no perpetual floating
-cards, pulsing status dots, rainbow glows, motion blur or entrance animations.
+cards, pulsing status dots, rainbow glows or motion blur. The only allowed
+motion is a short 150–180ms opacity/scale transition when a user opens or
+closes a modal, because it confirms the change of focus without decorating the
+analysis surface.
 
 ## Explicit rejections
 

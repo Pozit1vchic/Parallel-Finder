@@ -7,9 +7,10 @@ Button {
     id: control
     property bool quiet: false
     property bool sageAction: false
-    implicitHeight: 38
+    property bool compact: false
+    implicitHeight: compact ? 32 : 38
     height: implicitHeight
-    padding: 14
+    padding: compact ? 6 : 14
     hoverEnabled: true
 
     contentItem: Text {
@@ -17,11 +18,11 @@ Button {
         color: !control.enabled ? Theme.textDisabled
               : control.quiet ? Theme.textSecondary : Theme.canvas
         font.family: Theme.fontFamily
-        font.pixelSize: 12
+        font.pixelSize: control.compact ? 10 : 12
         font.weight: Font.DemiBold
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideRight
+        elide: Text.ElideNone
     }
 
     background: Rectangle {

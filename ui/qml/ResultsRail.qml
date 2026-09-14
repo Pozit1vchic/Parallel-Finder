@@ -93,12 +93,12 @@ Rectangle {
             Keys.onReturnPressed: if (root.visibleResults.length > 0) root.resultSelected(root.selectedIndex < 0 ? Number(root.visibleResults[0].id) : root.selectedIndex)
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             delegate: Rectangle {
-                width: resultList.width - 8; height: Theme.resultRowHeight + 12; radius: 7; color: root.selectedRows[modelData.id] ? Theme.accentMuted : Theme.surfaceRaised; border.color: Number(modelData.id) === root.selectedIndex ? Theme.accent : Theme.border; Accessible.name: String(modelData.direction || "") + " " + Math.round(Number(modelData.similarity) * 100) + "%"; Accessible.role: Accessible.ListItem
+                width: resultList.width - 8; height: Theme.resultRowHeight + 30; radius: 7; color: root.selectedRows[modelData.id] ? Theme.accentMuted : Theme.surfaceRaised; border.color: Number(modelData.id) === root.selectedIndex ? Theme.accent : Theme.border; Accessible.name: String(modelData.direction || "") + " " + Math.round(Number(modelData.similarity) * 100) + "%"; Accessible.role: Accessible.ListItem
                 MouseArea { anchors.fill: parent; onClicked: root.resultSelected(modelData.id) }
                 Row { anchors.fill: parent; anchors.margins: 7; spacing: 8
                     PfCheckBox { id: exportCheck; width: 18; text: ""; checked: root.selectedRows[modelData.id] === true; Accessible.name: L10n.t("results.export") + " " + (modelData.id + 1); onToggled: { const next = Object.assign({}, root.selectedRows); if (checked) next[modelData.id] = true; else delete next[modelData.id]; root.exportSelectionChanged(next) } }
                     Column { width: parent.width - 34; spacing: 2
-                        Text { width: parent.width; text: Math.round(Number(modelData.similarity) * 100) + "%  ·  " + String(modelData.direction || "") + "  ·  " + String(modelData.gesture || ""); color: Theme.textPrimary; font.pixelSize: 10; elide: Text.ElideRight }
+                        Text { width: parent.width; height: 22; text: Math.round(Number(modelData.similarity) * 100) + "%  ·  " + String(modelData.direction || "") + "  ·  " + String(modelData.gesture || ""); color: Theme.textPrimary; font.pixelSize: 10; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight }
                         Text { width: parent.width; text: String(modelData.leftSource || "").split(/[\\/]/).pop() + "  ↔  " + String(modelData.rightSource || "").split(/[\\/]/).pop(); color: Theme.textSecondary; font.pixelSize: 9; elide: Text.ElideRight }
                         Text { width: parent.width; text: root.formatTime(modelData.leftStart) + "  /  " + root.formatTime(modelData.rightStart); color: Theme.textDisabled; font.pixelSize: 9 }
                     }
