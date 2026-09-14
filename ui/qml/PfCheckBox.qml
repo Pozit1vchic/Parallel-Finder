@@ -5,9 +5,34 @@ import PfUi
 
 CheckBox {
     id: control
+    property string tooltipText: ""
     implicitHeight: 28
     height: 28
     spacing: 9
+
+    Rectangle {
+        id: hint
+        visible: control.hovered && control.tooltipText.length > 0
+        x: 0
+        y: control.height + 6
+        z: 30
+        width: 250
+        height: hintText.implicitHeight + 16
+        radius: Theme.radiusButton
+        color: Theme.surfaceRaised
+        border.color: Theme.hairlineStrong
+        Text {
+            id: hintText
+            anchors.fill: parent
+            anchors.margins: 8
+            text: control.tooltipText
+            color: Theme.textPrimary
+            font.family: Theme.fontFamily
+            font.pixelSize: 10
+            lineHeight: 1.15
+            wrapMode: Text.WordWrap
+        }
+    }
 
     indicator: Rectangle {
         x: 0

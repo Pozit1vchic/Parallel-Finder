@@ -132,8 +132,8 @@ Rectangle {
                         PfButton { width: (parent.width - 10) / 3; text: L10n.t("search.medium"); quiet: Analysis.qualityProfile !== "medium"; onClicked: Analysis.qualityProfile = "medium" }
                         PfButton { width: (parent.width - 10) / 3; text: L10n.t("search.maximum"); quiet: Analysis.qualityProfile !== "maximum"; onClicked: Analysis.qualityProfile = "maximum" }
                     }
-                    PfCheckBox { text: L10n.t("search.normalize"); checked: Analysis.normalizeSize; onToggled: Analysis.normalizeSize = checked }
-                    PfCheckBox { text: L10n.t("search.mirror"); checked: Analysis.mirrorPoses; onToggled: Analysis.mirrorPoses = checked }
+                    PfCheckBox { text: L10n.t("search.normalize"); tooltipText: L10n.t("search.normalizeHint"); checked: Analysis.normalizeSize; onToggled: Analysis.normalizeSize = checked }
+                    PfCheckBox { text: L10n.t("search.mirror"); tooltipText: L10n.t("search.mirrorHint"); checked: Analysis.mirrorPoses; onToggled: Analysis.mirrorPoses = checked }
                 }
             }
         }

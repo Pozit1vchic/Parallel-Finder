@@ -78,7 +78,11 @@ Column {
                 Rectangle { width: parent.width * Analysis.progress; height: parent.height; radius: 3; color: Theme.accent }
             }
             Rectangle {
-                id: stage; width: parent.width; height: parent.height - 102; color: Theme.well; radius: Theme.radiusButton; border.color: Theme.hairline; clip: true
+                // Keep the timeline inside the comparison surface at the
+                // 700px minimum window height. The previous fixed subtraction
+                // left 60px of the Column's content outside the panel, which
+                // made the bottom track appear clipped on smaller windows.
+                id: stage; width: parent.width; height: Math.max(180, parent.height - 165); color: Theme.well; radius: Theme.radiusButton; border.color: Theme.hairline; clip: true
                 Column { anchors.fill: parent; anchors.margins: 16; spacing: 10; visible: !root.selectedRecord
                     Row { width: parent.width
                         Text { text: L10n.t("center.motionField"); color: Theme.textDisabled; font.pixelSize: 10; font.letterSpacing: 0.8 }
