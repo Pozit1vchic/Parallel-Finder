@@ -48,20 +48,12 @@ Item {
         height: labelText.implicitHeight
         Text {
             id: labelText
-            width: parent.width - valuePreview.implicitWidth - 6
+            width: parent.width
             text: root.label
             color: Theme.textSecondary
             font.family: Theme.fontFamily
             font.pixelSize: 11
             elide: Text.ElideRight
-        }
-        Text {
-            id: valuePreview
-            text: root.displayNumber(root.value) + (root.suffix.length ? " " + root.suffix : "")
-            color: Theme.accent
-            font.family: Theme.fontFamily
-            font.pixelSize: 10
-            horizontalAlignment: Text.AlignRight
         }
     }
 
