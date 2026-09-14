@@ -13,7 +13,8 @@ Popup {
     property string exportStatus: ""
     property bool userPositioned: false
     modal: true; focus: true; padding: 0
-    width: Math.min(600, rootWindow ? rootWindow.width - 40 : 560); height: 520
+    width: Math.min(600, rootWindow ? rootWindow.width - 40 : 560)
+    height: Math.min(620, rootWindow ? rootWindow.height - 32 : 580)
     x: 0; y: 0
     transformOrigin: Item.Center
     enter: Transition {
@@ -31,7 +32,14 @@ Popup {
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     Overlay.modal: Rectangle { color: Theme.overlayDim }
     background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairline; layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowOpacity: 0.78; shadowBlur: 1.0; shadowHorizontalOffset: 0; shadowVerticalOffset: 20 } }
-    FolderDialog { id: folderDialog; title: L10n.t("export.chooseFolder"); onAccepted: root.outputFolder = selectedFolder.toLocalFile() }
+    FolderDialog {
+        id: folderDialog
+        title: L10n.t("export.chooseFolder")
+        onAccepted: {
+            const path = selectedFolder.toLocalFile()
+            if (path.length > 0) root.outputFolder = path
+        }
+    }
     Connections { target: Analysis; function onExportFinished(success, message) { root.exportStatus = message; if (success) root.close() } }
     function selectedIndexes() { return Object.keys(root.selectedRows).map(function (key) { return Number(key) }) }
     contentItem: Column { anchors.fill: parent; anchors.margins: 24; spacing: 14
@@ -58,7 +66,7 @@ Popup {
         }
         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
         Text { text: L10n.t("export.format"); color: Theme.textSecondary; font.pixelSize: 11 }
-        PfComboBox { id: exportFormat; width: parent.width; model: ["JSON", "CSV", "TXT", "EDL", "FCPXML", "AEP"]; Accessible.name: L10n.t("export.format") }
+        PfComboBox { id: exportFormat; width: parent.width; model: ["JSON", "CSV", "TXT", "FFMPEG"]; Accessible.name: L10n.t("export.format") }
         Text { text: L10n.t("export.numbering"); color: Theme.textSecondary; font.pixelSize: 11 }
             Row { width: parent.width; spacing: 8
                 PfButton { width: (parent.width - 8) / 2; text: L10n.t("export.asVideo"); quiet: exportNumbering.currentIndex !== 0; onClicked: exportNumbering.currentIndex = 0 }
@@ -76,7 +84,15 @@ Popup {
             PfButton { width: 102; text: L10n.t("export.chooseFolder"); quiet: true; onClicked: folderDialog.open() }
         }
         PfTextField { id: prefixField; width: parent.width; text: "frame_"; placeholderText: L10n.t("export.prefix"); Accessible.name: L10n.t("export.prefix") }
-        Text { width: parent.width; text: root.exportStatus || L10n.t("export.hint"); color: root.exportStatus ? Theme.accent : Theme.textSecondary; font.pixelSize: 11; wrapMode: Text.WordWrap }
+        Text {
+            width: parent.width
+            text: root.exportStatus || (exportFormat.currentText === "FFMPEG"
+                ? "FFmpeg создаст отдельный MP4-клип для каждой стороны выбранной параллели и вырежет полный интервал сцены."
+                : L10n.t("export.hint"))
+            color: root.exportStatus ? Theme.accent : Theme.textSecondary
+            font.pixelSize: 11
+            wrapMode: Text.WordWrap
+        }
         PfButton { width: parent.width; text: L10n.t("export.prepare"); enabled: Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(exportFormat.currentText, exportNumbering.currentIndex, cutMode.currentIndex, root.outputFolder, prefixField.text, root.selectedIndexes()) }
     }
 

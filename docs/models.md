@@ -1,7 +1,7 @@
 # Модели YOLO-pose
 
 Parallel Finder запускает модели ONNX с выходом YOLO-pose (17 keypoints), а не
-исходные веса Ultralytics `.pt`. Поэтому файлы из `D:\YOLO_Download_Project\models`
+исходные веса Ultralytics `.pt`. Поэтому файлы из `D:\YOLO\_Download_Project\models`
 нужно сначала экспортировать в ONNX с размером входа 640, затем положить под
 одним из поддерживаемых имён:
 
@@ -26,7 +26,7 @@ yolo26n-pose.onnx  yolo26s-pose.onnx  yolo26m-pose.onnx  yolo26l-pose.onnx  yolo
 времени в `%LocalAppData%\ParallelFinder\models`. Прогресс отображается под
 селектором, а после загрузки manifest-пакета проверяются размер и SHA-256.
 
-## Release-пакет из `D:\YOLO_Download_Project\models`
+## Release-пакет из `D:\YOLO\_Download_Project\models`
 
 `.pt` из этой папки — исходные веса, их нельзя передать ONNX Runtime напрямую.
 Подготовьте пакет одной командой (нужны установленные Ultralytics/PyTorch):
@@ -34,7 +34,7 @@ yolo26n-pose.onnx  yolo26s-pose.onnx  yolo26m-pose.onnx  yolo26l-pose.onnx  yolo
 ```powershell
 $env:PYTHONPATH = 'D:\PythonLibs'
 python tools\model_export\export_pose_release.py `
-  --input-dir 'D:\YOLO_Download_Project\models' `
+  --input-dir 'D:\YOLO\_Download_Project\models' `
   --output-dir 'D:\Parallel-Finder\release-models'
 ```
 
@@ -88,7 +88,8 @@ body-reid.onnx          person-reid.onnx
 
 Положить файл можно в `models` рядом с exe, в
 `%LocalAppData%\ParallelFinder\models`, в каталог `PF_MODEL_ROOT` или в
-исторический `D:\PF_CUDA\models`. Разрешены и другие имена, если в имени есть
+исторический `D:\PF_CUDA\models` или `D:\YOLO\_Download_Project\models`.
+Разрешены и другие имена, если в имени есть
 `reid` или `osnet`. Переменная `PF_REID_MODEL_PATH` задаёт точный файл.
 Если `manifest.json` release-пакета содержит один из этих assets, приложение
 может скачать его в `%LocalAppData%\ParallelFinder\models` с проверкой размера и

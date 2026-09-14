@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Effects
+import QtQuick.Layouts
 import PfUi
 
 Button {
@@ -8,14 +9,18 @@ Button {
     property bool quiet: false
     property bool sageAction: false
     property bool compact: false
-    implicitHeight: compact ? 32 : 38
+    // Two-line labels are intentional in the narrow rail.  Give the text a
+    // real second line instead of letting the control clip it at 32/38 px.
+    implicitHeight: compact ? 36 : 46
     height: implicitHeight
-    padding: compact ? 6 : 14
-    leftPadding: compact ? 7 : 14
-    rightPadding: compact ? 7 : 14
-    topPadding: compact ? 4 : 7
-    bottomPadding: compact ? 4 : 7
+    padding: compact ? 6 : 12
+    leftPadding: compact ? 7 : 12
+    rightPadding: compact ? 7 : 12
+    topPadding: compact ? 5 : 6
+    bottomPadding: compact ? 5 : 6
     hoverEnabled: true
+    activeFocusOnTab: true
+    Layout.minimumWidth: 0
 
     contentItem: Text {
         text: control.text
@@ -30,6 +35,7 @@ Button {
         // wrap inside the available width instead of silently cutting them.
         wrapMode: Text.WordWrap
         maximumLineCount: 2
+        elide: Text.ElideNone
         clip: true
     }
 

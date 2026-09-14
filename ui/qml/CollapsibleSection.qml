@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Layouts
 import PfUi
 
 // A layout-owned disclosure row. Its body participates in implicitHeight only
@@ -15,23 +16,29 @@ Item {
     implicitHeight: header.implicitHeight + (root.expanded ? body.implicitHeight + 10 : 0)
     height: implicitHeight
 
-    Column {
+    ColumnLayout {
         anchors.left: parent.left
         anchors.right: parent.right
         spacing: 10
 
         Button {
             id: header
-            width: parent.width
-            implicitHeight: 44
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            implicitHeight: 46
             height: implicitHeight
             hoverEnabled: true
+            activeFocusOnTab: true
             Accessible.role: Accessible.Button
             Accessible.name: root.title
             onClicked: {
-                // Let the owner keep the binding; assigning root.expanded here
-                // would sever an external `expanded: ownerState` binding.
-                root.toggled(!root.expanded)
+                // Keep the component usable on its own as well as from a
+                // parent binding.  The signal lets the owner persist the
+                // state; assigning here makes the visual state update in the
+                // same event loop tick, even when the owner is a plain QML
+                // property rather than a C++ NOTIFY property.
+                root.expanded = !root.expanded
+                root.toggled(root.expanded)
             }
             contentItem: Row {
                 anchors.fill: parent
@@ -39,7 +46,7 @@ Item {
                 anchors.rightMargin: 12
                 spacing: 8
                 Text {
-                    width: parent.width - disclosure.implicitWidth - 8
+                    width: Math.max(0, parent.width - disclosure.implicitWidth - 8)
                     text: root.title
                     color: Theme.textPrimary
                     font.family: Theme.fontFamily
@@ -47,6 +54,7 @@ Item {
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                     verticalAlignment: Text.AlignVCenter
+                    clip: true
                 }
                 Text {
                     id: disclosure
@@ -64,9 +72,10 @@ Item {
             }
         }
 
-        Column {
+        ColumnLayout {
             id: body
-            width: parent.width
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
             spacing: 10
             visible: root.expanded
         }

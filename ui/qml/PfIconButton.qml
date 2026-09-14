@@ -14,6 +14,9 @@ Button {
     width: implicitWidth
     height: implicitHeight
     hoverEnabled: true
+    // Icon buttons should not steal the initial focus when a modal opens.
+    // Keyboard navigation can still reach them when the user tabs explicitly.
+    activeFocusOnTab: true
     ToolTip.visible: hovered && accessibleName.length > 0
     ToolTip.text: accessibleName
     ToolTip.delay: 500

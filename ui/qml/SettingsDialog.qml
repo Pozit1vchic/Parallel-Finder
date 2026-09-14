@@ -94,7 +94,12 @@ Popup {
         customizationStore.fontFamily = Theme.fontFamily
         customizationStore.surfaceOpacity = Theme.surfaceOpacity
     }
-    onOpened: centerInWindow()
+    onOpened: {
+        centerInWindow()
+        // Prevent the close icon or first tab from receiving an orange focus
+        // ring just because the popup was opened with the mouse.
+        Qt.callLater(function() { root.forceActiveFocus() })
+    }
     Keys.onEscapePressed: root.close()
 
     function centerInWindow() {
@@ -120,7 +125,7 @@ Popup {
             radius: Theme.radiusOverlay
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.hairline }
             Text { anchors.left: parent.left; anchors.leftMargin: 22; anchors.verticalCenter: parent.verticalCenter; text: L10n.t("settings.windowTitle"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 13; font.weight: Font.DemiBold }
-            PfIconButton { anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter; iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); onClicked: root.close() }
+            PfIconButton { anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter; iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); activeFocusOnTab: false; focusPolicy: Qt.NoFocus; onClicked: root.close() }
             MouseArea {
                 anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.rightMargin: 56
                 property real pressX
@@ -143,12 +148,16 @@ Popup {
             TabButton {
                 id: analysisTab
                 text: L10n.t("settings.tabAnalysis")
+                focusPolicy: Qt.NoFocus
+                activeFocusOnTab: false
                 contentItem: Text { text: analysisTab.text; color: analysisTab.checked ? Theme.textPrimary : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: analysisTab.checked ? Font.DemiBold : Font.Normal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 background: Rectangle { color: analysisTab.checked ? Theme.panelAlt : "transparent"; border.color: analysisTab.checked ? Theme.accent : "transparent"; border.width: analysisTab.checked ? 1 : 0; radius: Theme.radiusButton }
             }
             TabButton {
                 id: customizationTab
                 text: L10n.t("settings.tabAppearance")
+                focusPolicy: Qt.NoFocus
+                activeFocusOnTab: false
                 contentItem: Text { text: customizationTab.text; color: customizationTab.checked ? Theme.textPrimary : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: customizationTab.checked ? Font.DemiBold : Font.Normal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 background: Rectangle { color: customizationTab.checked ? Theme.panelAlt : "transparent"; border.color: customizationTab.checked ? Theme.accent : "transparent"; border.width: customizationTab.checked ? 1 : 0; radius: Theme.radiusButton }
             }
@@ -158,15 +167,15 @@ Popup {
                 Flickable { anchors.fill: parent; anchors.margins: 22; clip: true; contentWidth: width; contentHeight: analysisBody.implicitHeight + 30; boundsBehavior: Flickable.StopAtBounds
                     ColumnLayout { id: analysisBody; width: parent.width; spacing: 14
                         Text { text: L10n.t("settings.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
-                        Text { text: L10n.t("settings.subtitle"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                        Text { Layout.fillWidth: true; text: L10n.t("settings.subtitle"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 13; wrapMode: Text.WordWrap }
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hairline }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.environment"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout { Layout.fillWidth: true; spacing: 12
-                            Text { Layout.preferredWidth: 128; text: L10n.t("settings.provider"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; ToolTip.visible: providerHelp.hovered; ToolTip.text: L10n.t("settings.providerHint"); ToolTip.delay: 350; elide: Text.ElideRight }
+                            Text { Layout.preferredWidth: 128; Layout.minimumWidth: 0; text: L10n.t("settings.provider"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 13; verticalAlignment: Text.AlignVCenter; ToolTip.visible: providerHelp.hovered; ToolTip.text: L10n.t("settings.providerHint"); ToolTip.delay: 350; elide: Text.ElideRight }
                             HoverHandler { id: providerHelp }
-                            PfComboBox { id: provider; Layout.preferredWidth: 180; Layout.fillWidth: true; model: root.providerLabels; currentIndex: Math.max(0, root.providerIds.indexOf(Analysis.providerChoice)); Accessible.name: L10n.t("settings.provider"); onActivated: Analysis.providerChoice = root.providerIds[currentIndex] }
+                            PfComboBox { id: provider; Layout.preferredWidth: 180; Layout.minimumWidth: 0; Layout.fillWidth: true; model: root.providerLabels; currentIndex: Math.max(0, root.providerIds.indexOf(Analysis.providerChoice)); Accessible.name: L10n.t("settings.provider"); onActivated: Analysis.providerChoice = root.providerIds[currentIndex] }
                         }
-                        Text { Layout.fillWidth: true; text: AppInfo.gpuSummary; color: AppInfo.backendIsGpu ? Theme.sage : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                        Text { Layout.fillWidth: true; text: AppInfo.gpuSummary; color: AppInfo.backendIsGpu ? Theme.sage : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
                         Text {
                             Layout.fillWidth: true
                             text: Analysis.providerChoice === "auto"
@@ -175,7 +184,31 @@ Popup {
                                     ? "✓ " + Analysis.providerChoice.toUpperCase() + " доступен"
                                     : "Провайдер недоступен: " + (AppInfo.backendReason(Analysis.providerChoice) || "нет совместимого runtime"))
                             color: AppInfo.backendAvailable(Analysis.providerChoice) ? Theme.sage : Theme.accent
-                            font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap
+                            font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            visible: Analysis.providerChoice !== "auto"
+                                && Analysis.providerChoice !== "cpu"
+                                && !AppInfo.backendAvailable(Analysis.providerChoice)
+                            PfButton {
+                                Layout.preferredWidth: 154
+                                Layout.minimumWidth: 0
+                                compact: true
+                                text: AppInfo.providerDownloading ? "Скачивание…" : "Скачать runtime"
+                                enabled: !AppInfo.providerDownloading
+                                onClicked: AppInfo.downloadProvider(Analysis.providerChoice)
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                text: AppInfo.providerDownloadStatus
+                                color: Theme.textSecondary
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 11
+                                wrapMode: Text.WordWrap
+                            }
                         }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.cache"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout { Layout.fillWidth: true; spacing: 8
@@ -184,7 +217,7 @@ Popup {
                         }
                         PfSliderField { Layout.fillWidth: true; label: L10n.t("settings.cacheLimit"); from: 0.25; to: 128; stepSize: 0.25; value: Analysis.cacheLimitGb; decimals: 2; suffix: "GB"; tooltipText: L10n.t("settings.cacheLimitHint"); Accessible.name: L10n.t("settings.cacheLimit"); onValueEdited: Analysis.setCacheLimitGb(nextValue) }
                         PfSliderField { Layout.fillWidth: true; label: L10n.t("settings.processingThreads"); from: 0; to: 64; stepSize: 1; value: Analysis.processingThreads; decimals: 0; integer: true; tooltipText: L10n.t("settings.processingThreadsHint"); Accessible.name: L10n.t("settings.processingThreads"); onValueEdited: Analysis.setProcessingThreads(Math.round(nextValue)) }
-                        Text { Layout.fillWidth: true; text: L10n.t("settings.systemHint"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }
+                        Text { Layout.fillWidth: true; text: L10n.t("settings.systemHint"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
                     }
                 }
             }

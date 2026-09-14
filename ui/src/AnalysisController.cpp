@@ -36,6 +36,7 @@
 #include "pfservices/SettingsStore.hpp"
 #include "pfservices/ModelStore.hpp"
 #include "pfservices/PfCache.hpp"
+#include "pfservices/CutService.hpp"
 #include "pfexporters/ExportOptions.hpp"
 
 namespace pfui {
@@ -64,6 +65,10 @@ std::vector<std::filesystem::path> modelRoots()
     if (const char* root = std::getenv("PF_MODEL_ROOT"); root && *root)
         roots.emplace_back(root);
     roots.emplace_back(R"(D:\PF_CUDA\models)");
+    // Developer/download workspace used by the model preparation script.
+    // Keeping it as a read-only fallback makes the catalog reflect the files
+    // the user already downloaded without requiring a PATH edit.
+    roots.emplace_back(R"(D:\YOLO\_Download_Project\models)");
     return roots;
 }
 
@@ -235,7 +240,7 @@ bool readBytes(const std::vector<std::uint8_t>& input, std::size_t& offset, T& v
 std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::MotionWindow>& windows)
 {
     std::vector<std::uint8_t> output;
-    const std::uint32_t version = 4;
+    const std::uint32_t version = 5;
     appendBytes(output, version);
     appendBytes(output, static_cast<std::uint32_t>(windows.size()));
     for (const auto& window : windows) {
@@ -244,6 +249,8 @@ std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::Motio
         appendBytes(output, static_cast<std::uint64_t>(window.trackId));
         appendBytes(output, static_cast<std::uint64_t>(window.sceneIndex));
         appendBytes(output, static_cast<std::uint8_t>(window.hasSceneIndex ? 1 : 0));
+        appendBytes(output, window.sceneStartSeconds);
+        appendBytes(output, window.sceneEndSeconds);
         appendBytes(output, window.appearanceConfidence);
         appendBytes(output, static_cast<std::uint32_t>(window.appearanceEmbedding.size()));
         for (const float value : window.appearanceEmbedding) appendBytes(output, value);
@@ -266,7 +273,7 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
 {
     std::size_t offset = 0;
     std::uint32_t version = 0, windowCount = 0;
-    if (!readBytes(input, offset, version) || version != 4
+    if (!readBytes(input, offset, version) || version != 5
         || !readBytes(input, offset, windowCount) || windowCount > 1'000'000U) return false;
     windows.clear();
     windows.reserve(windowCount);
@@ -284,6 +291,10 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
         window.trackId = static_cast<std::size_t>(trackId);
         window.sceneIndex = static_cast<std::size_t>(sceneIndex);
         window.hasSceneIndex = hasSceneIndex != 0;
+        if (!readBytes(input, offset, window.sceneStartSeconds)
+            || !readBytes(input, offset, window.sceneEndSeconds)
+            || !std::isfinite(window.sceneStartSeconds)
+            || !std::isfinite(window.sceneEndSeconds)) return false;
         std::uint32_t embeddingSize = 0;
         if (!readBytes(input, offset, window.appearanceConfidence)
             || !readBytes(input, offset, embeddingSize)
@@ -385,6 +396,7 @@ std::filesystem::path findBodyReIdModel()
     if (const char* root = std::getenv("PF_MODEL_ROOT"); root && *root)
         roots.emplace_back(root);
     roots.emplace_back(R"(D:\PF_CUDA\models)");
+    roots.emplace_back(R"(D:\YOLO\_Download_Project\models)");
     const std::vector<std::string> preferred {
         "person-reid-osnet.onnx", "osnet_x1_0.onnx", "osnet.onnx",
         "body-reid.onnx", "person-reid.onnx"
@@ -407,6 +419,21 @@ std::filesystem::path findBodyReIdModel()
             if (!asset.has_value()) continue;
             std::string downloadError;
             const auto destination = localModels / name;
+            if (pfservices::ModelStore::download(*asset, destination, {}, downloadError))
+                return destination;
+        }
+    }
+    // The canonical release name is also eligible for a one-time remote
+    // lookup.  Do not probe five names in a row: a missing release manifest
+    // must fail fast rather than stall the first analysis for every alias.
+    {
+        std::string remoteError;
+        const auto canonical = preferred.front();
+        if (auto asset = pfservices::ModelStore::fetchManifest(kModelManifestUrl,
+                                                                canonical,
+                                                                remoteError)) {
+            std::string downloadError;
+            const auto destination = localModels / canonical;
             if (pfservices::ModelStore::download(*asset, destination, {}, downloadError))
                 return destination;
         }
@@ -888,8 +915,61 @@ bool AnalysisController::exportResults(const QString& format,
         emit exportFinished(false, QStringLiteral("Не выбраны результаты для экспорта"));
         return false;
     }
-    pfexporters::ExportOptions options;
     const QString normalized = format.trimmed().toUpper();
+    if (normalized == QStringLiteral("FFMPEG")) {
+        const QString folder = outputFolder.trimmed();
+        if (folder.isEmpty()) {
+            emit exportFinished(false, QStringLiteral("Выберите папку для MP4-клипов"));
+            return false;
+        }
+        const QString requestedPrefix = prefix.trimmed().isEmpty()
+            ? QStringLiteral("scene_") : prefix.trimmed();
+        QDir().mkpath(folder);
+        const pfservices::CutMode mode = cutMode == 1
+            ? pfservices::CutMode::Fast : pfservices::CutMode::Exact;
+        const pfservices::CutService cutter;
+        int written = 0;
+        for (std::size_t index = 0; index < selected.size(); ++index) {
+            const auto& match = selected[index];
+            const QString ordinal = QString::number(static_cast<int>(index + 1)).rightJustified(4, QLatin1Char('0'));
+            const auto cutOne = [&](const std::string& source,
+                                    double start,
+                                    double end,
+                                    const QString& side) -> bool {
+                if (source.empty() || !(end > start)) return false;
+                pfservices::CutRequest request;
+                request.inputPath = std::filesystem::path(QString::fromStdString(source).toStdWString());
+                request.outputPath = std::filesystem::path((QDir(folder).filePath(
+                    requestedPrefix + ordinal + "_" + side + ".mp4")).toStdWString());
+                request.startSeconds = std::max(0.0, start);
+                request.endSeconds = end;
+                request.mode = mode;
+                const auto result = cutter.cut(request);
+                if (!result.success) {
+                    emit exportFinished(false, QStringLiteral("FFmpeg: ")
+                        + QString::fromStdString(result.error));
+                    return false;
+                }
+                ++written;
+                return true;
+            };
+            const double leftStart = match.leftSceneEndSeconds > match.leftSceneStartSeconds
+                ? match.leftSceneStartSeconds : match.leftStartSeconds;
+            const double leftEnd = match.leftSceneEndSeconds > match.leftSceneStartSeconds
+                ? match.leftSceneEndSeconds : match.leftEndSeconds;
+            const double rightStart = match.rightSceneEndSeconds > match.rightSceneStartSeconds
+                ? match.rightSceneStartSeconds : match.rightStartSeconds;
+            const double rightEnd = match.rightSceneEndSeconds > match.rightSceneStartSeconds
+                ? match.rightSceneEndSeconds : match.rightEndSeconds;
+            if (!cutOne(match.leftSourceId, leftStart, leftEnd, QStringLiteral("A")))
+                return false;
+            if (!cutOne(match.rightSourceId, rightStart, rightEnd, QStringLiteral("B")))
+                return false;
+        }
+        emit exportFinished(true, QStringLiteral("FFmpeg: создано %1 MP4-клипов").arg(written));
+        return true;
+    }
+    pfexporters::ExportOptions options;
     if (normalized == QStringLiteral("CSV")) options.format = pfexporters::ExportFormat::Csv;
     else if (normalized == QStringLiteral("TXT")) options.format = pfexporters::ExportFormat::Txt;
     else if (normalized == QStringLiteral("EDL")) options.format = pfexporters::ExportFormat::Edl;
@@ -1168,7 +1248,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 const auto info = decoder.info();
                 std::vector<pfcore::MotionWindow> cachedWindows;
                 bool cacheHit = false;
-                std::string cacheKey = "motion-v4|" + model.string() + "|"
+                std::string cacheKey = "motion-v5|" + model.string() + "|"
                     + providerChoice.toStdString() + "|reid="
                     + (reidModelPresent ? reidModel.string() : std::string("none")) + "|"
                     + path.toStdString();
@@ -1322,6 +1402,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             window.trackId = track.id;
                             window.sceneIndex = sceneIndex;
                             window.hasSceneIndex = true;
+                            window.sceneStartSeconds = sceneStart;
+                            window.sceneEndSeconds = sceneEnd;
                             const auto appearance = averageAppearance(track, sceneStart, sceneEnd);
                             window.appearanceEmbedding = appearance.embedding;
                             window.appearanceConfidence = appearance.confidence;
@@ -1356,6 +1438,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                     chunk.trackId = window.trackId;
                                     chunk.sceneIndex = window.sceneIndex;
                                     chunk.hasSceneIndex = window.hasSceneIndex;
+                                    chunk.sceneStartSeconds = window.sceneStartSeconds;
+                                    chunk.sceneEndSeconds = window.sceneEndSeconds;
                                     chunk.appearanceEmbedding = window.appearanceEmbedding;
                                     chunk.appearanceConfidence = window.appearanceConfidence;
                                     chunk.frames.assign(window.frames.begin()

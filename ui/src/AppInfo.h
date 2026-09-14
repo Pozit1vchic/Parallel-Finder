@@ -22,6 +22,9 @@ class AppInfo : public QObject {
     Q_PROPERTY(QString gpuSummary READ gpuSummary NOTIFY gpuInfoChanged)
     Q_PROPERTY(QString ortVersion READ ortVersion NOTIFY gpuInfoChanged)
     Q_PROPERTY(bool backendIsGpu READ backendIsGpu NOTIFY gpuInfoChanged)
+    Q_PROPERTY(bool providerDownloading READ providerDownloading NOTIFY providerDownloadChanged)
+    Q_PROPERTY(double providerDownloadProgress READ providerDownloadProgress NOTIFY providerDownloadChanged)
+    Q_PROPERTY(QString providerDownloadStatus READ providerDownloadStatus NOTIFY providerDownloadChanged)
 
 public:
     static AppInfo* instance();
@@ -41,6 +44,10 @@ public:
     bool backendIsGpu() const;
     Q_INVOKABLE bool backendAvailable(const QString& backend) const;
     Q_INVOKABLE QString backendReason(const QString& backend) const;
+    Q_INVOKABLE void downloadProvider(const QString& backend);
+    bool providerDownloading() const noexcept { return providerDownloading_; }
+    double providerDownloadProgress() const noexcept { return providerDownloadProgress_; }
+    QString providerDownloadStatus() const { return providerDownloadStatus_; }
 
     // Single entry point for the init step: one signal for the whole badge
     // instead of four updates flickering through the UI.
@@ -51,12 +58,16 @@ public:
 
 signals:
     void gpuInfoChanged();
+    void providerDownloadChanged();
 
 private:
     QString m_gpuBackend = QStringLiteral("cpu");
     QString m_gpuDevice;
     QString m_ortVersion;
     bool m_backendIsGpu = false;
+    bool providerDownloading_ = false;
+    double providerDownloadProgress_ = 0.0;
+    QString providerDownloadStatus_;
 };
 
 } // namespace pfui

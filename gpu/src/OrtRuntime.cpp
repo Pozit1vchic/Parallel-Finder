@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -62,6 +63,7 @@ std::pair<const OrtApi*, std::uint32_t> selectApiVersion(const OrtApiBase& apiBa
 // (application directory first, then PATH), which is what the portable release
 // relies on.
 constexpr const char* kRuntimePathEnvVar = "PF_ORT_DLL";
+constexpr const char* kProviderRootEnvVar = "PF_PROVIDER_ROOT";
 
 struct RuntimeState {
     std::once_flag once;
@@ -111,9 +113,41 @@ void loadRuntime(RuntimeState& s)
         wchar_t modulePath[MAX_PATH] {};
         const DWORD length = ::GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
         if (length > 0 && length < MAX_PATH) {
-            const auto appRuntime = std::filesystem::path(modulePath).parent_path()
-                / "onnxruntime.dll";
+            const auto appDirectory = std::filesystem::path(modulePath).parent_path();
+            const auto appRuntime = appDirectory / "onnxruntime.dll";
+            // Provider bundles downloaded by the UI are installed side by
+            // side under <app>/providers/<name>.  They are deliberately
+            // considered only on the next process start: ONNX Runtime cannot
+            // attach a new EP after its DLL has already been loaded.
+            const auto providerRoot = appDirectory / "providers";
+            std::error_code iterationError;
+            if (std::filesystem::is_directory(providerRoot, iterationError)) {
+                // Prefer the bundle explicitly selected by the user.  This
+                // marker is written only after a verified archive is fully
+                // extracted, so a partial download can never hijack startup.
+                std::ifstream active(providerRoot / "active.txt");
+                std::string activeProvider;
+                std::getline(active, activeProvider);
+                if (!activeProvider.empty()) {
+                    const auto activeRuntime = providerRoot / activeProvider / "onnxruntime.dll";
+                    if (std::filesystem::is_regular_file(activeRuntime))
+                        candidates.push_back(activeRuntime);
+                }
+                for (const auto& entry : std::filesystem::directory_iterator(providerRoot, iterationError)) {
+                    if (iterationError) break;
+                    if (!entry.is_directory(iterationError)) continue;
+                    const auto bundledRuntime = entry.path() / "onnxruntime.dll";
+                    if (std::filesystem::is_regular_file(bundledRuntime))
+                        candidates.push_back(bundledRuntime);
+                }
+            }
             if (std::filesystem::is_regular_file(appRuntime)) candidates.push_back(appRuntime);
+            if (const char* root = std::getenv(kProviderRootEnvVar); root && *root) {
+                const auto overrideRoot = std::filesystem::path(root);
+                const auto overrideRuntime = overrideRoot / "onnxruntime.dll";
+                if (std::filesystem::is_regular_file(overrideRuntime))
+                    candidates.push_back(overrideRuntime);
+            }
         }
         candidates.emplace_back(L"onnxruntime.dll");
     }

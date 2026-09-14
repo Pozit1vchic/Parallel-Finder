@@ -132,7 +132,7 @@ build/ucrt64-release/ParallelFinder.exe
 Ваш исходный каталог:
 
 ```text
-D:\YOLO_Download_Project\models
+D:\YOLO\_Download_Project\models
 ```
 
 Исходные `.pt` нужны только для подготовки release. В корне проекта есть
@@ -143,7 +143,7 @@ D:\YOLO_Download_Project\models
 $env:PYTHONPATH = 'D:\PythonLibs'
 
 python D:\Parallel-Finder\tools\model_export\export_pose_release.py `
-  --input-dir 'D:\YOLO_Download_Project\models' `
+  --input-dir 'D:\YOLO\_Download_Project\models' `
   --output-dir 'D:\Parallel-Finder\release-models'
 ```
 
@@ -236,6 +236,8 @@ $env:PF_MODEL_PATH = 'D:\PF_CUDA\models\yolo26m-pose-640-b1.onnx'
 - [`docs/models.md`](docs/models.md) — каталог моделей и GitHub Release workflow.
 - [`docs/full-audit.md`](docs/full-audit.md) — сводный технический аудит.
 - [`docs/model-audit.md`](docs/model-audit.md) — аудит model/provider/cache pipeline.
+- [`docs/provider-runtime.md`](docs/provider-runtime.md) — формат release-манифеста
+  и установка CUDA/TensorRT/DirectML runtime.
 - [`docs/engineering-notes.md`](docs/engineering-notes.md) — инженерные правила.
 
 ## Лицензирование

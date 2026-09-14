@@ -2,13 +2,24 @@
 #include "AnalysisController.h"
 #include <pfgpu/DeviceInfo.hpp>
 #include <pfgpu/Provider.hpp>
+#include <pfservices/ProviderStore.hpp>
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QMetaObject>
 #include <QQmlEngine>
+#include <QThread>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 
 namespace pfui {
 namespace {
 constexpr QChar kSeparator = QChar(0x00B7); // middle dot: "CUDA · RTX 4070"
+constexpr auto kProviderManifestUrl = "https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/providers.json";
 
 QString displayBackend(const QString& backend)
 {
@@ -90,6 +101,70 @@ QString AppInfo::backendReason(const QString& backend) const
     if (const auto* status = pfgpu::findBackendStatus(*provider))
         return status->available ? QString() : QString::fromStdString(status->reason);
     return QStringLiteral("Провайдер недоступен");
+}
+
+void AppInfo::downloadProvider(const QString& backend)
+{
+    const QString provider = backend.trimmed().toLower();
+    if (provider.isEmpty() || provider == QStringLiteral("auto")
+        || provider == QStringLiteral("cpu")) {
+        providerDownloadStatus_ = QStringLiteral("Для CPU отдельный runtime не нужен");
+        emit providerDownloadChanged();
+        return;
+    }
+    if (providerDownloading_) return;
+    providerDownloading_ = true;
+    providerDownloadProgress_ = 0.0;
+    providerDownloadStatus_ = QStringLiteral("Проверяем интернет и release-манифест…");
+    emit providerDownloadChanged();
+
+    QThread* thread = QThread::create([this, provider] {
+        std::string error;
+        const auto asset = pfservices::ProviderStore::fetchManifest(
+            kProviderManifestUrl, provider.toStdString(), error);
+        if (!asset) {
+            const QString message = QString::fromStdString(error);
+            QMetaObject::invokeMethod(this, [this, message] {
+                providerDownloading_ = false;
+                providerDownloadStatus_ = QStringLiteral("Не удалось скачать runtime: ") + message;
+                emit providerDownloadChanged();
+            }, Qt::QueuedConnection);
+            return;
+        }
+
+        const std::filesystem::path destination = std::filesystem::path(
+            QCoreApplication::applicationDirPath().toStdWString())
+            / "providers" / provider.toStdWString();
+        const bool ok = pfservices::ProviderStore::downloadAndInstall(
+            *asset, destination,
+            [this](std::uint64_t received, std::uint64_t total) {
+                const double progress = total > 0
+                    ? std::clamp(static_cast<double>(received) / static_cast<double>(total), 0.0, 1.0)
+                    : 0.0;
+                QMetaObject::invokeMethod(this, [this, progress] {
+                    providerDownloadProgress_ = progress;
+                    providerDownloadStatus_ = QStringLiteral("Скачивание runtime… %1%")
+                        .arg(static_cast<int>(std::round(progress * 100.0)));
+                    emit providerDownloadChanged();
+                }, Qt::QueuedConnection);
+            }, error);
+        if (ok) {
+            std::ofstream active(destination.parent_path() / "active.txt",
+                                 std::ios::binary | std::ios::trunc);
+            active << provider.toStdString();
+        }
+        const QString message = ok
+            ? QStringLiteral("Runtime установлен. Перезапустите приложение, чтобы применить провайдер.")
+            : QStringLiteral("Не удалось установить runtime: ") + QString::fromStdString(error);
+        QMetaObject::invokeMethod(this, [this, ok, message] {
+            providerDownloading_ = false;
+            providerDownloadProgress_ = ok ? 1.0 : 0.0;
+            providerDownloadStatus_ = message;
+            emit providerDownloadChanged();
+        }, Qt::QueuedConnection);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
 }
 
 void AppInfo::setGpuInfo(const QString& backend,

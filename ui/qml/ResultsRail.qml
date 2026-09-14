@@ -35,6 +35,14 @@ Rectangle {
         const target = current < 0 || current >= visibleResults.length - 1 ? visibleResults[0] : visibleResults[current + 1]
         root.resultSelected(Number(target.id))
     }
+    function movementLabel(item) {
+        const labels = []
+        const direction = String(item.direction || "").trim()
+        const gesture = String(item.gesture || "").trim()
+        if (direction && direction.toLowerCase() !== "mixed") labels.push(direction)
+        if (gesture && gesture.toLowerCase() !== "mixed" && gesture !== direction) labels.push(gesture)
+        return labels.length ? labels.join(" · ") : "движение"
+    }
     onResultsChanged: rebuild()
     onSortDescendingChanged: rebuild()
     Component.onCompleted: rebuild()
@@ -75,15 +83,15 @@ Rectangle {
                 Row { anchors.fill: parent; anchors.margins: 7; spacing: 8
                     PfCheckBox { id: exportCheck; width: 18; text: ""; checked: root.selectedRows[modelData.id] === true; Accessible.name: L10n.t("results.export") + " " + (modelData.id + 1); onToggled: { const next = Object.assign({}, root.selectedRows); if (checked) next[modelData.id] = true; else delete next[modelData.id]; root.exportSelectionChanged(next) } }
                     Column { id: rowContent; width: Math.max(0, parent.width - 34); spacing: 3
-                        Text { width: parent.width; text: Math.round(Number(modelData.similarity) * 100) + "%  ·  " + String(modelData.direction || "") + "  ·  " + String(modelData.gesture || ""); color: Theme.textPrimary; font.pixelSize: 10; wrapMode: Text.WordWrap; maximumLineCount: 2; clip: true }
-                        Text { width: parent.width; text: String(modelData.leftSource || "").split(/[\\/]/).pop() + "  ↔  " + String(modelData.rightSource || "").split(/[\\/]/).pop(); color: Theme.textSecondary; font.pixelSize: 9; elide: Text.ElideMiddle; clip: true }
-                        Text { width: parent.width; text: root.formatTime(modelData.leftStart) + "  /  " + root.formatTime(modelData.rightStart); color: Theme.textDisabled; font.pixelSize: 9; elide: Text.ElideRight }
+                        Text { width: parent.width; text: Math.round(Number(modelData.similarity) * 100) + "%  ·  " + root.movementLabel(modelData); color: Theme.textPrimary; font.pixelSize: 11; wrapMode: Text.WordWrap; maximumLineCount: 2; clip: true }
+                        Text { width: parent.width; text: String(modelData.leftSource || "").split(/[\\/]/).pop() + "  ↔  " + String(modelData.rightSource || "").split(/[\\/]/).pop(); color: Theme.textSecondary; font.pixelSize: 11; elide: Text.ElideMiddle; clip: true }
+                        Text { width: parent.width; text: root.formatTime(modelData.leftStart) + "  /  " + root.formatTime(modelData.rightStart); color: Theme.textDisabled; font.pixelSize: 11; elide: Text.ElideRight }
                         Text {
                             width: parent.width
                             visible: modelData.leftTrackId !== undefined || modelData.rightTrackId !== undefined
                             text: "трек A #" + String(modelData.leftTrackId || "?") + "  ·  трек B #" + String(modelData.rightTrackId || "?")
                             color: Theme.textDisabled
-                            font.pixelSize: 8
+                            font.pixelSize: 10
                             elide: Text.ElideRight
                         }
                         Text {
@@ -92,7 +100,7 @@ Rectangle {
                                 ? "ReID · один человек подтверждён"
                                 : "ReID не применён · pose-only"
                             color: modelData.identityVerified === true ? Theme.sage : Theme.textDisabled
-                            font.pixelSize: 8
+                            font.pixelSize: 10
                             elide: Text.ElideRight
                         }
                     }

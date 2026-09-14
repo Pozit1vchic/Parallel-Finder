@@ -41,19 +41,23 @@ Column {
             anchors.margins: 16
             spacing: 10
 
-            Row {
+            Item {
                 width: parent.width
                 height: 24
                 Text {
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
                     text: L10n.t("center.comparison")
                     color: Theme.textPrimary
                     font.pixelSize: 16
                     font.weight: Font.DemiBold
                     verticalAlignment: Text.AlignVCenter
                 }
-                Item { width: parent.width - stateText.implicitWidth - 10; height: 1 }
                 Text {
                     id: stateText
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Math.min(parent.width * 0.58, implicitWidth)
                     text: Analysis.busy
                         ? L10n.status(Analysis.progressStage)
                         : root.selectedRecord
@@ -64,42 +68,56 @@ Column {
                     color: Analysis.busy ? Theme.accent : Theme.textSecondary
                     font.pixelSize: 10
                     verticalAlignment: Text.AlignVCenter
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
                 }
             }
 
-            Row {
+            Item {
                 width: parent.width
-                height: 16
-                Text { text: L10n.t("stats.progress"); color: Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
-                Item { width: parent.width - progressText.implicitWidth - 10; height: 1 }
+                height: 20
+                Text {
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: L10n.t("stats.progress")
+                    color: Theme.textSecondary
+                    font.pixelSize: 10
+                    verticalAlignment: Text.AlignVCenter
+                }
                 Text {
                     id: progressText
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
                     text: Math.round(Analysis.progress * 100) + "%"
                     color: Analysis.busy ? Theme.accent : Theme.textSecondary
                     font.pixelSize: 10
                     verticalAlignment: Text.AlignVCenter
+                    horizontalAlignment: Text.AlignRight
                 }
             }
 
             Rectangle {
                 width: parent.width
-                height: 5
-                radius: 3
-                color: Theme.well
+                height: 8
+                radius: 4
+                color: Theme.surfaceMuted
+                border.width: 1
+                border.color: Theme.hairline
                 Accessible.role: Accessible.ProgressBar
                 Accessible.name: L10n.t("stats.progress") + ": " + Math.round(Analysis.progress * 100) + "%"
                 Rectangle {
-                    width: parent.width * Math.max(0, Math.min(1, Analysis.progress))
-                    height: parent.height
+                    width: Math.max(0, parent.width * Math.max(0, Math.min(1, Analysis.progress)))
+                    height: parent.height - 2
+                    y: 1
                     radius: 3
-                    color: Theme.accent
+                    color: Analysis.busy ? Theme.accent : Theme.sage
                 }
             }
 
             Rectangle {
                 id: stage
                 width: parent.width
-                height: Math.max(220, parent.height - 70)
+                height: Math.max(220, parent.height - 78)
                 color: Theme.well
                 radius: Theme.radiusButton
                 border.color: Theme.hairline

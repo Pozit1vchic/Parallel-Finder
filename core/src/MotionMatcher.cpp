@@ -404,6 +404,14 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     result.leftEndSeconds = left.frames.empty() ? 0.0 : left.frames.back().timestampSeconds;
     result.rightStartSeconds = right.frames.empty() ? 0.0 : right.frames.front().timestampSeconds;
     result.rightEndSeconds = right.frames.empty() ? 0.0 : right.frames.back().timestampSeconds;
+    result.leftSceneStartSeconds = left.sceneStartSeconds >= 0.0
+        ? left.sceneStartSeconds : result.leftStartSeconds;
+    result.leftSceneEndSeconds = left.sceneEndSeconds > result.leftSceneStartSeconds
+        ? left.sceneEndSeconds : result.leftEndSeconds;
+    result.rightSceneStartSeconds = right.sceneStartSeconds >= 0.0
+        ? right.sceneStartSeconds : result.rightStartSeconds;
+    result.rightSceneEndSeconds = right.sceneEndSeconds > result.rightSceneStartSeconds
+        ? right.sceneEndSeconds : result.rightEndSeconds;
     if (left.sourceId == right.sourceId
         && left.hasSceneIndex && right.hasSceneIndex
         && left.sceneIndex == right.sceneIndex) {

@@ -24,6 +24,10 @@ struct MotionWindow {
     std::size_t trackId = 0;
     std::size_t sceneIndex = 0;
     bool hasSceneIndex = false;
+    // Full shot bounds retained separately from the shorter motion chunk.
+    // Matching still uses the chunk; export can cut the complete scene.
+    double sceneStartSeconds = -1.0;
+    double sceneEndSeconds = -1.0;
     std::vector<PoseFrame> frames;
     // L2-normalized body-ReID prototype for this temporal window. Empty means
     // the optional ReID model was unavailable and the result is pose-only.
@@ -52,26 +56,28 @@ struct MotionMatcherParams {
     // above this value.  The value is intentionally independent of the
     // number of keypoints, so models with a different skeleton size behave
     // consistently.
-    // The previous value accepted detector jitter as movement. This is a
-    // normalized per-joint delta, so 0.012 is deliberately conservative.
-    double motionDeltaThreshold = 0.012;
+    // This remains above ordinary detector jitter while allowing a genuine
+    // short gesture to survive at 24/30 FPS.
+    // Pose detectors often emit 1–2 px of legitimate movement at 24/30 FPS.
+    // Keep the static gate, but do not make a real short gesture disappear.
+    double motionDeltaThreshold = 0.008;
     // A small active-transition ratio is allowed because a window can enter
     // from a neutral pose; trajectory range and temporal-run checks below are
     // the stronger guards against a one-frame/noise candidate.
-    double minActiveTransitionRatio = 0.04;
+    double minActiveTransitionRatio = 0.03;
     // Mean range of a joint trajectory across the window. It filters pose
     // jitter that happens to exceed one transition threshold.
-    double minMotionRange = 0.08;
+    double minMotionRange = 0.06;
     // Minimum span of a supported continuous run. It prevents one-frame
     // candidates even when a clip was sampled sparsely.
-    double minMotionSpanSec = 0.9;
+    double minMotionSpanSec = 0.75;
     // DTW still supplies the global score, but a valid match must also contain
     // a contiguous run of similar frames.  Short clips may satisfy the
     // duration alternative when the selected quality profile samples fewer
     // than 18 pose frames per second.
     double temporalSimilarityThreshold = 0.82;
-    std::size_t minTemporalFrames = 18;
-    double minTemporalDurationSec = 1.1;
+    std::size_t minTemporalFrames = 12;
+    double minTemporalDurationSec = 0.75;
     // Same-source windows never match inside this hard floor.  It prevents a
     // static shot from being paired with a nearby overlapping crop.
     double sameSourceGapFloorSec = 5.0;
@@ -98,6 +104,10 @@ struct MotionMatch {
     double leftEndSeconds = 0.0;
     double rightStartSeconds = 0.0;
     double rightEndSeconds = 0.0;
+    double leftSceneStartSeconds = 0.0;
+    double leftSceneEndSeconds = 0.0;
+    double rightSceneStartSeconds = 0.0;
+    double rightSceneEndSeconds = 0.0;
     std::string directionLabel;
     std::string gestureLabel;
     double rankScore = 0.0;
