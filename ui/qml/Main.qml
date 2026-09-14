@@ -43,10 +43,12 @@ ApplicationWindow {
         const next = root.sourceFiles.slice(); next.splice(index, 1); root.sourceFiles = next
         Analysis.inspectFiles(root.sourceFiles)
     }
-    function resetMatcherSettings() {
+    function resetAnalysisSettings() {
         Analysis.similarityThreshold = 0.85; Analysis.candidateThreshold = 0.55; Analysis.repeatGap = 6.0
         Analysis.sameFileGap = 2.0; Analysis.crossFileGap = 0.0; Analysis.duplicateWindow = 1.5
         Analysis.noiseFactor = 1.0; Analysis.maxUniqueResults = 100; Analysis.timeWeight = 0.25
+        Analysis.setSceneThreshold(27.0); Analysis.qualityProfile = "maximum"
+        Analysis.normalizeSize = true; Analysis.mirrorPoses = true
     }
     function selectResult(index) {
         const wanted = Number(index)
@@ -62,7 +64,7 @@ ApplicationWindow {
 
     FileDialog { id: fileDialog; title: L10n.t("dialog.chooseVideos"); fileMode: FileDialog.OpenFiles; nameFilters: [L10n.t("dialog.videoFilter"), L10n.t("dialog.allFiles")]; onAccepted: root.addFiles(selectedFiles) }
     FolderDialog { id: folderDialog; title: L10n.t("dialog.chooseFolder"); onAccepted: root.addFolder(selectedFolder) }
-    SettingsDialog { id: settingsDialog; rootWindow: root; onResetRequested: root.resetMatcherSettings() }
+    SettingsDialog { id: settingsDialog; rootWindow: root; onResetRequested: root.resetAnalysisSettings() }
     ExportDialog { id: exportDialog; rootWindow: root; selectedRows: root.selectedExportRows }
 
     Connections { target: Analysis; function onResultsChanged() { root.syncResultsSelection() } }

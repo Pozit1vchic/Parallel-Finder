@@ -168,7 +168,7 @@ Popup {
                         Row { width: parent.width; height: 32; spacing: 12
                             Text { id: cacheLimitLabel; width: 135; text: L10n.t("settings.cacheLimit"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; ToolTip.visible: cacheLimitHelp.hovered; ToolTip.text: L10n.t("settings.cacheLimitHint"); ToolTip.delay: 350 }
                             HoverHandler { id: cacheLimitHelp }
-                            PfSlider { width: parent.width - 220; from: 0.25; to: 128; stepSize: 0.25; value: Analysis.cacheLimitGb; Accessible.name: L10n.t("settings.cacheLimit"); onMoved: Analysis.cacheLimitGb = value }
+                            PfSlider { width: parent.width - 220; from: 0.25; to: 128; stepSize: 0.25; value: Analysis.cacheLimitGb; Accessible.name: L10n.t("settings.cacheLimit"); onMoved: Analysis.setCacheLimitGb(value) }
                             Text { width: 65; text: Analysis.cacheLimitGb.toFixed(2) + " GB"; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
                         }
                         PfButton { width: parent.width; text: L10n.t("settings.reset"); quiet: true; onClicked: root.resetRequested() }
