@@ -67,9 +67,9 @@ Rectangle {
         }
         Text { text: L10n.t("results.filters"); color: Theme.textSecondary; font.pixelSize: 11 }
         Row { width: parent.width; spacing: 5
-            PfButton { width: (parent.width - 10) / 3; text: L10n.t("results.all"); quiet: root.activeFilter !== "all"; onClicked: root.activeFilter = "all" }
-            PfButton { width: (parent.width - 10) / 3; text: L10n.t("results.forward"); quiet: root.activeFilter !== "forward"; onClicked: root.activeFilter = "forward" }
-            PfButton { width: (parent.width - 10) / 3; text: L10n.t("results.side"); quiet: root.activeFilter !== "side"; onClicked: root.activeFilter = "side" }
+            PfButton { width: (parent.width - 10) / 3; padding: 7; text: L10n.t("results.all"); quiet: root.activeFilter !== "all"; onClicked: root.activeFilter = "all" }
+            PfButton { width: (parent.width - 10) / 3; padding: 7; text: L10n.t("results.forward"); quiet: root.activeFilter !== "forward"; onClicked: root.activeFilter = "forward" }
+            PfButton { width: (parent.width - 10) / 3; padding: 7; text: L10n.t("results.side"); quiet: root.activeFilter !== "side"; onClicked: root.activeFilter = "side" }
         }
         ListView {
             id: resultList; width: parent.width; height: parent.height - 178; clip: true; spacing: 5; model: root.visibleResults; focus: true; activeFocusOnTab: true

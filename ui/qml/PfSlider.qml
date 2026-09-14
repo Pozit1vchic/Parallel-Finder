@@ -9,9 +9,29 @@ Slider {
     implicitHeight: 18
     height: 18
 
-    ToolTip.visible: control.hovered && control.tooltipText.length > 0
-    ToolTip.delay: 650
-    ToolTip.text: control.tooltipText
+    Rectangle {
+        id: hint
+        visible: control.hovered && control.tooltipText.length > 0
+        x: Math.max(0, Math.min(control.width - width, control.visualPosition * control.width - width / 2))
+        y: -height - 8
+        z: 20
+        width: 250
+        height: hintText.implicitHeight + 16
+        radius: Theme.radiusButton
+        color: Theme.surfaceRaised
+        border.color: Theme.hairlineStrong
+        Text {
+            id: hintText
+            anchors.fill: parent
+            anchors.margins: 8
+            text: control.tooltipText
+            color: Theme.textPrimary
+            font.family: Theme.fontFamily
+            font.pixelSize: 10
+            lineHeight: 1.15
+            wrapMode: Text.WordWrap
+        }
+    }
     background: Rectangle {
         x: 0
         y: Math.round(control.height / 2 - height / 2)

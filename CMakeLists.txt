@@ -28,8 +28,8 @@ add_subdirectory(core)       # pfcore      — VideoDecoder, SceneDetector, Domi
 add_subdirectory(gpu)        # pfgpu       — ORT-сессии, провайдеры auto/cuda/dml/cpu
 add_subdirectory(services)   # pfservices  — ThumbnailCache, CutService, ThemeStore, settings
 add_subdirectory(exporters)  # pfexporters — JSON/CSV/TXT/EDL/FCPXML/AEP
-add_subdirectory(ui)         # pfui        — QML Splash/Main/Settings/DemoMode + C++ bridge
-add_subdirectory(app)        # ParallelFinder — thin: init → Splash → Main
+add_subdirectory(ui)         # pfui        — QML Main/Settings/Export + C++ bridge
+add_subdirectory(app)        # ParallelFinder — thin: init → Main
 
 if(BUILD_TESTING)
     add_subdirectory(tests)

@@ -13,7 +13,9 @@ Column {
     property real timelineZoom: 1.0
     property real timelineOffset: 0.0
     property bool fullscreenTimeline: false
-    property bool analysisCompleted: !Analysis.busy && Analysis.progress >= 0.999 && String(Analysis.status).indexOf("Анализ ") === 0
+    // Completion is an explicit controller state. Inspection of an added file
+    // also reaches 100%, but it must still leave the comparison in "ready".
+    property bool analysisCompleted: Analysis.analysisCompleted && !Analysis.busy
     signal addRequested()
     signal analyzeRequested()
 
@@ -59,9 +61,20 @@ Column {
             Row { width: parent.width; height: 23
                 Text { text: L10n.t("center.comparison"); color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
                 Item { width: parent.width - 310; height: 1 }
-                Text { text: Analysis.busy ? Analysis.progressStage : (root.selectedRecord ? L10n.t("center.selected") : L10n.t("center.waiting")); color: Theme.textSecondary; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
+                Text {
+                    text: Analysis.busy ? Analysis.progressStage
+                        : root.selectedRecord ? L10n.t("center.selected")
+                        : root.analysisCompleted ? (Analysis.matchCount > 0 ? L10n.t("center.completedTitle") : L10n.t("center.noMatchesStatus"))
+                        : root.sourceFiles.length > 0 ? L10n.t("center.readyStatus") : L10n.t("center.waiting")
+                    color: Theme.textSecondary; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter
+                }
             }
-            Rectangle { width: parent.width; height: 5; radius: 3; color: Theme.well
+            Row { width: parent.width; height: 16
+                Text { text: L10n.t("stats.progress"); color: Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
+                Item { width: parent.width - 190; height: 1 }
+                Text { text: Math.round(Analysis.progress * 100) + "%"; color: Analysis.busy ? Theme.accent : Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
+            }
+            Rectangle { width: parent.width; height: 5; radius: 3; color: Theme.well; Accessible.role: Accessible.ProgressBar; Accessible.name: L10n.t("stats.progress") + ": " + Math.round(Analysis.progress * 100) + "%"
                 Rectangle { width: parent.width * Analysis.progress; height: parent.height; radius: 3; color: Theme.accent }
             }
             Rectangle {

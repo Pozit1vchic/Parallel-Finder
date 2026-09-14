@@ -26,6 +26,7 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(qlonglong totalFrames READ totalFrames NOTIFY progressChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(bool analysisCompleted READ analysisCompleted NOTIFY analysisStateChanged)
     Q_PROPERTY(QString providerChoice READ providerChoice WRITE setProviderChoice NOTIFY settingsChanged)
     Q_PROPERTY(QString qualityProfile READ qualityProfile WRITE setQualityProfile NOTIFY settingsChanged)
     Q_PROPERTY(bool normalizeSize READ normalizeSize WRITE setNormalizeSize NOTIFY settingsChanged)
@@ -62,6 +63,7 @@ public:
     qlonglong totalFrames() const noexcept { return totalFrames_; }
     QString status() const { return status_; }
     bool busy() const noexcept { return busy_; }
+    bool analysisCompleted() const noexcept { return analysisCompleted_; }
     QString providerChoice() const { return providerChoice_; }
     QString qualityProfile() const { return qualityProfile_; }
     bool normalizeSize() const noexcept { return normalizeSize_; }
@@ -120,6 +122,7 @@ signals:
     void progressChanged();
     void statusChanged();
     void busyChanged();
+    void analysisStateChanged();
     void matcherParamsChanged();
     void settingsChanged();
     void modelStatusChanged();
@@ -142,6 +145,7 @@ private:
     double sourceFps_ = 0.0;
     QString status_;
     bool busy_ = false;
+    bool analysisCompleted_ = false;
     double progress_ = 0.0;
     QString progressStage_;
     qlonglong processedFrames_ = 0;

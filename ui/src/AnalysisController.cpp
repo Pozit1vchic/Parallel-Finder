@@ -492,6 +492,16 @@ void AnalysisController::selectModel(const QString& filename)
         emit modelStatusChanged();
         return;
     }
+    const auto besideExecutable = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString())
+        / "models" / requested.toStdWString();
+    if (std::filesystem::is_regular_file(besideExecutable, filesystemError)) {
+        modelPath_ = QString::fromStdWString(besideExecutable.wstring());
+        modelStatus_ = QStringLiteral("Модель готова к анализу");
+        saveSettings();
+        emit settingsChanged();
+        emit modelStatusChanged();
+        return;
+    }
     if (modelDownloading_) return;
 
     modelDownloading_ = true;
@@ -630,6 +640,8 @@ void AnalysisController::inspectFiles(const QStringList& paths)
     results_.clear();
     matches_.clear();
     matchCount_ = 0;
+    analysisCompleted_ = false;
+    emit analysisStateChanged();
     emit resultsChanged();
     emit summaryChanged();
     busy_ = true;
@@ -661,7 +673,9 @@ void AnalysisController::inspectFiles(const QStringList& paths)
             emit summaryChanged();
             busy_ = false;
             emit busyChanged();
-            setProgress(1.0, error.isEmpty() ? QStringLiteral("Файлы готовы") : QStringLiteral("Ошибка чтения"), 0, 0);
+            // File inspection only validates metadata; it is not an analysis
+            // run and must not present a misleading 100% progress state.
+            setProgress(0.0, error.isEmpty() ? QStringLiteral("Файлы готовы") : QStringLiteral("Ошибка чтения"), 0, 0);
             setStatus(error.isEmpty() ? QStringLiteral("Файлы готовы к анализу")
                                       : QStringLiteral("Не удалось открыть файл: ") + error);
             if (error.isEmpty() && !deferredAnalyzePaths_.isEmpty()) {
@@ -691,6 +705,13 @@ QStringList AnalysisController::filesInFolder(const QString& folder) const
 void AnalysisController::analyzeFiles(const QStringList& paths)
 {
     const QStringList normalized = normalizedPaths(paths);
+    if (normalized.isEmpty()) {
+        analysisCompleted_ = false;
+        emit analysisStateChanged();
+        setProgress(0.0, QStringLiteral("Нет файлов"), 0, 0);
+        setStatus(QStringLiteral("Добавьте хотя бы одно видео для анализа"));
+        return;
+    }
     if (busy_) {
         if (!normalized.isEmpty()) deferredAnalyzePaths_ = normalized;
         return;
@@ -698,6 +719,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     results_.clear();
     matches_.clear();
     matchCount_ = 0;
+    analysisCompleted_ = false;
+    emit analysisStateChanged();
     emit resultsChanged();
     emit summaryChanged();
     busy_ = true;
@@ -1026,6 +1049,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             sourceFps_ = sourceFps;
             emit summaryChanged();
             emit resultsChanged();
+            analysisCompleted_ = error.isEmpty();
+            emit analysisStateChanged();
             setProgress(1.0, error.isEmpty() ? QStringLiteral("Анализ завершён") : QStringLiteral("Анализ остановлен"), processedFrames, totalFramesEstimate);
             busy_ = false; emit busyChanged();
             setStatus(error.isEmpty() ? QStringLiteral("Анализ сцен завершён")
@@ -1035,6 +1060,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             const QString message = QString::fromUtf8(exception.what());
             QMetaObject::invokeMethod(this, [this, message] {
                 busy_ = false;
+                analysisCompleted_ = false;
+                emit analysisStateChanged();
                 emit busyChanged();
                 setProgress(0.0, QStringLiteral("Ошибка анализа"), 0, 0);
                 setStatus(QStringLiteral("Анализ не запущен: ") + message);
@@ -1042,6 +1069,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         } catch (...) {
             QMetaObject::invokeMethod(this, [this] {
                 busy_ = false;
+                analysisCompleted_ = false;
+                emit analysisStateChanged();
                 emit busyChanged();
                 setProgress(0.0, QStringLiteral("Ошибка анализа"), 0, 0);
                 setStatus(QStringLiteral("Анализ не запущен: неизвестная ошибка"));

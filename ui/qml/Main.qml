@@ -49,8 +49,10 @@ ApplicationWindow {
         Analysis.noiseFactor = 1.0; Analysis.maxUniqueResults = 100; Analysis.timeWeight = 0.25
     }
     function selectResult(index) {
-        root.selectedResultIndex = index
-        root.selectedRecord = index >= 0 && index < Analysis.results.length ? Analysis.results[index] : null
+        const wanted = Number(index)
+        const match = (Analysis.results || []).find(function (item) { return Number(item.id) === wanted })
+        root.selectedResultIndex = match ? Number(match.id) : -1
+        root.selectedRecord = match || null
     }
     function syncResultsSelection() {
         root.selectedExportRows = ({})

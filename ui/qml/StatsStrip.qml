@@ -6,6 +6,13 @@ Rectangle {
     id: root
     property var analysis: Analysis
     height: 68; color: Theme.rail; radius: Theme.radiusCard; border.color: Theme.border
+    function timecode(seconds) {
+        const total = Math.max(0, Math.round(Number(seconds) || 0))
+        const h = Math.floor(total / 3600)
+        const m = Math.floor((total % 3600) / 60)
+        const s = total % 60
+        return [h, m, s].map(function (v) { return String(v).padStart(2, "0") }).join(":")
+    }
     Row {
         anchors.fill: parent; anchors.margins: 1
         Repeater {
@@ -14,8 +21,8 @@ Rectangle {
                 { label: L10n.t("stats.frames"), value: root.analysis.frameCount },
                 { label: L10n.t("stats.scenes"), value: root.analysis.sceneCount },
                 { label: L10n.t("stats.pairs"), value: root.analysis.matchCount },
-                { label: L10n.t("stats.duration"), value: root.analysis.durationSeconds > 0 ? Math.round(root.analysis.durationSeconds) + " " + L10n.t("common.seconds") : "0 " + L10n.t("common.seconds") },
-                { label: L10n.t("stats.status"), value: root.analysis.busy ? Math.round(root.analysis.progress * 100) + "%" : L10n.t("common.empty") }
+                { label: L10n.t("stats.duration"), value: root.timecode(root.analysis.durationSeconds) },
+                { label: L10n.t("stats.progress"), value: root.analysis.busy || root.analysis.analysisCompleted ? Math.round(root.analysis.progress * 100) + "%" : L10n.t("common.empty") }
             ]
             delegate: Item {
                 width: parent.width / 6; height: parent.height

@@ -83,12 +83,14 @@ elevated surface in the center column.
 The primary action is `Добавить видео`. Folder selection and clearing are
 secondary. The source list is compact and visibly selected. The full set of
 nine matcher controls must map to `MotionMatcherParams`, show an inline value,
-and expose a short tooltip. Controls are grouped by intent rather than a wall
-of duplicated labels:
+and expose a short tooltip. The scene detector has a separate main-workspace
+control and is not hidden in Settings. Controls are grouped by intent rather
+than a wall of duplicated labels:
 
 1. Similarity: similarity threshold, candidate threshold.
 2. Spacing: repeat gap, same-file gap, cross-file gap, duplicate window.
 3. Ranking: noise factor, maximum unique results, time weight.
+4. Scene detection: scene-change threshold.
 
 ### Empty analysis state
 
