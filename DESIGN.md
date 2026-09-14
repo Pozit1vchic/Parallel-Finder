@@ -16,7 +16,7 @@ Hard rules:
 - one large comparison stage, two equal side rails, shared outer inset;
 - terracotta means A/action, sage means B/context;
 - real video and timecode are the visual hero after analysis;
-- empty state uses a subtle motion trace, never radar rings or fake graphics;
+- empty state is quiet and action-first: no aura, particles, radar rings or fake graphics;
 - all nine matcher controls remain visible through scrolling and map to
   `MotionMatcherParams`;
 - settings/export are custom movable overlays with deliberate depth;

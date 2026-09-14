@@ -323,4 +323,40 @@ QtObject {
         const lang = _dict[language] || _dict.en
         return (key in lang) ? lang[key] : ((_dict.ru && key in _dict.ru) ? _dict.ru[key] : key)
     }
+
+    // Backend progress is intentionally a compact state machine rather than
+    // UI copy. Keep that contract in C++, but translate the known states here
+    // so switching to English never leaves a Russian footer/status behind.
+    function status(value) {
+        const text = String(value || "")
+        if (language !== "en") return text
+        const exact = {
+            "Открываем видео…": "Opening video…",
+            "Открываем файлы": "Opening files",
+            "Файлы готовы": "Files ready",
+            "Файлы готовы к анализу": "Files ready for analysis",
+            "Подготавливаем анализ": "Preparing analysis",
+            "Читаем кадры": "Reading frames",
+            "Анализируем движение": "Analyzing motion",
+            "Декодируем кадры и ищем смены сцен…": "Decoding frames and detecting scenes…",
+            "Анализ сцен завершён": "Scene analysis complete",
+            "Анализ завершён": "Analysis complete",
+            "Анализ остановлен": "Analysis stopped",
+            "Нет файлов": "No files",
+            "Модель не найдена": "Model not found",
+            "Ошибка чтения": "Read error",
+            "Ошибка анализа": "Analysis error",
+            "Модель готова к анализу": "Model ready for analysis",
+            "Модель скачана и готова": "Model downloaded and ready",
+            "Скачиваем модель с GitHub Releases…": "Downloading model from GitHub Releases…",
+            "Модель поз не найдена. Укажите её в settings.json или в папке models.": "Pose model not found. Select one in settings or place it in the models folder.",
+            "Добавьте хотя бы одно видео для анализа": "Add at least one video to analyze"
+        }
+        if (exact[text] !== undefined) return exact[text]
+        if (text.indexOf("Не удалось открыть файл: ") === 0) return "Could not open file: " + text.slice("Не удалось открыть файл: ".length)
+        if (text.indexOf("Анализ остановлен: ") === 0) return "Analysis stopped: " + text.slice("Анализ остановлен: ".length)
+        if (text.indexOf("Анализ не запущен: ") === 0) return "Analysis did not start: " + text.slice("Анализ не запущен: ".length)
+        if (text.indexOf("Не удалось скачать модель: ") === 0) return "Could not download model: " + text.slice("Не удалось скачать модель: ".length)
+        return text
+    }
 }

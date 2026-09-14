@@ -20,8 +20,21 @@ Rectangle {
     function matchesFilter(item) {
         if (activeFilter === "all") return true
         const direction = String(item.direction || "").toLowerCase()
-        if (activeFilter === "forward") return direction.indexOf("toward") >= 0 || direction.indexOf("camera") >= 0
-        if (activeFilter === "side") return direction === "left" || direction === "right"
+        // The classifier stores stable English ids (toward_camera/left/right),
+        // while older cached/exported records may contain their Russian labels.
+        // Keep the filter data-driven instead of silently returning an empty
+        // list when a record was produced by another locale/version.
+        if (activeFilter === "forward") {
+            return direction.indexOf("toward") >= 0
+                || direction.indexOf("camera") >= 0
+                || direction.indexOf("к камер") >= 0
+        }
+        if (activeFilter === "side") {
+            return direction === "left" || direction === "right"
+                || direction.indexOf("left") >= 0 || direction.indexOf("right") >= 0
+                || direction.indexOf("влево") >= 0 || direction.indexOf("вправо") >= 0
+                || direction.indexOf("сторон") >= 0
+        }
         return true
     }
     function rebuild() {

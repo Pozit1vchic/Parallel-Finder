@@ -31,12 +31,12 @@ ONNX Runtime.
 ## Структура (модули = CMake-таргеты, ядро без Qt)
 
 ```
-app/            ParallelFinder (thin: init → Splash → Main)
+app/            ParallelFinder (thin: init → Main)
 gpu/    pfgpu        getDeviceInfo, ORT-сессии (модель|провайдер), auto/cuda/dml/cpu
 core/   pfcore       VideoDecoder, SceneDetector, DominantPerson, MovementClassifier, MotionMatcher, MotionRanker, JobManager
 services/ pfservices PFCACHE1 disk cache, ThumbnailCache LRU64, CutService (ffmpeg QProcess), SettingsStore, ModelStore
 exporters/ pfexporters JSON/CSV/TXT/EDL/FCPXML/AEP(.jsx + json)
-ui/     pfui         QML Splash/Main/Settings/DemoMode + C++ bridge
+ui/     pfui         QML Main/Settings/Export + C++ bridge
 tests/  gtest + qtest
 models/ *.onnx (gitignore) — не коммитятся
 ```
@@ -99,5 +99,5 @@ ORT-GPU / CUDA / TensorRT / DML-redist при сборке размещаютс�
 3b. ✅ Треки + дескрипторы движения + all-pairs HNSW-prefilter + band-constrained DTW
 3c. ✅ Классификатор направления/жеста · ранжирование · JobManager · PFCACHE1
 4. ✅ Экспорт + сервисы (CutService, ThumbnailCache, settings.json)
-5. UI (Splash/Main/Settings/DemoMode) · 5b. Qt-деплой
+5. UI (Main/Settings/Export) · 5b. Qt-деплой
 6. GPU-бандл + перф-валидация + финальный аудит

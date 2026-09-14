@@ -62,7 +62,7 @@ Column {
                 Text { text: L10n.t("center.comparison"); color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
                 Item { width: parent.width - 310; height: 1 }
                 Text {
-                    text: Analysis.busy ? Analysis.progressStage
+                    text: Analysis.busy ? L10n.status(Analysis.progressStage)
                         : root.selectedRecord ? L10n.t("center.selected")
                         : root.analysisCompleted ? (Analysis.matchCount > 0 ? L10n.t("center.completedTitle") : L10n.t("center.noMatchesStatus"))
                         : root.sourceFiles.length > 0 ? L10n.t("center.readyStatus") : L10n.t("center.waiting")
@@ -91,7 +91,7 @@ Column {
                             Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.sourceFiles.length === 0 ? L10n.t("center.emptyHint") : root.analysisCompleted ? (Analysis.matchCount > 0 ? L10n.t("center.completedHint") : L10n.t("center.noMatchesHint")) : L10n.t("center.readyHint"); color: Theme.textSecondary; font.pixelSize: 12 }
                             PfButton { anchors.horizontalCenter: parent.horizontalCenter; visible: root.sourceFiles.length === 0; text: L10n.t("sources.add"); onClicked: root.addRequested() }
                             PfButton { anchors.horizontalCenter: parent.horizontalCenter; visible: root.sourceFiles.length > 0 && !Analysis.busy; text: root.analysisCompleted ? L10n.t("search.restart") : L10n.t("search.start"); onClicked: root.analyzeRequested() }
-                            Text { anchors.horizontalCenter: parent.horizontalCenter; visible: Analysis.busy; text: Analysis.progressStage + " · " + Math.round(Analysis.progress * 100) + "%"; color: Theme.accent; font.pixelSize: 11 }
+                            Text { anchors.horizontalCenter: parent.horizontalCenter; visible: Analysis.busy; text: L10n.status(Analysis.progressStage) + " · " + Math.round(Analysis.progress * 100) + "%"; color: Theme.accent; font.pixelSize: 11 }
                         }
                     }
                 }

@@ -154,8 +154,8 @@ Rectangle {
             }
             Text {
                 width: parent.width; text: Analysis.busy
-                    ? Analysis.progressStage + " · " + Math.round(Analysis.progress * 100) + "%"
-                    : Analysis.status
+                    ? L10n.status(Analysis.progressStage) + " · " + Math.round(Analysis.progress * 100) + "%"
+                    : L10n.status(Analysis.status)
                 color: Analysis.busy ? Theme.accent : Theme.textDisabled; font.pixelSize: 9
                 elide: Text.ElideRight
             }
