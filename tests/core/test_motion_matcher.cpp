@@ -23,6 +23,7 @@ TEST(MotionMatcher, IdenticalNormalizedMotionScoresHighly)
     pfcore::MotionMatcher matcher;
     const auto match = matcher.compare(window("a", 0), window("b", 4));
     EXPECT_GT(match.similarity, 0.8);
+    EXPECT_LT(match.similarity, 0.995);
 }
 
 TEST(MotionMatcher, AllPairsAllowsOneWindowInSeveralResults)

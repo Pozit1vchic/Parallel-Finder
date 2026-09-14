@@ -3,6 +3,7 @@
 #include <QMetaObject>
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDebug>
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
@@ -471,6 +472,7 @@ void AnalysisController::setProviderChoice(const QString& value)
     const QString canonical = normalized == QStringLiteral("directml") ? QStringLiteral("dml") : normalized;
     if (providerChoice_ == canonical) return;
     providerChoice_ = canonical;
+    qDebug().noquote() << "Parallel Finder compute backend:" << canonical;
     saveSettings();
     emit settingsChanged();
 }

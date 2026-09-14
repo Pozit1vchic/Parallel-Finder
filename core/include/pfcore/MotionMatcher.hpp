@@ -82,7 +82,9 @@ public:
     void setParams(MotionMatcherParams params);
 
     // Compares two windows using normalized pose trajectories and constrained
-    // DTW. Returns a value in [0, 1], where 1 means identical motion.
+    // DTW plus temporal/anatomical calibration. Returns a value in [0, 1];
+    // the public score deliberately stays below 100% to avoid claiming proof
+    // from a duplicated frame or a self-comparison.
     MotionMatch compare(const MotionWindow& left, const MotionWindow& right,
                         std::size_t leftIndex = 0, std::size_t rightIndex = 0) const;
 

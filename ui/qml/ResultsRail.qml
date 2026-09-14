@@ -7,7 +7,6 @@ Rectangle {
     id: root
     property var results: []
     property var selectedRows: ({})
-    property string activeFilter: "all"
     property bool sortDescending: true
     property int selectedIndex: -1
     signal exportSelectionChanged(var rows)
@@ -17,30 +16,9 @@ Rectangle {
     layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowPanel; shadowBlur: 0.75; shadowVerticalOffset: 10 }
     property var visibleResults: []
 
-    function matchesFilter(item) {
-        if (activeFilter === "all") return true
-        const direction = String(item.direction || "").toLowerCase()
-        // The classifier stores stable English ids (toward_camera/left/right),
-        // while older cached/exported records may contain their Russian labels.
-        // Keep the filter data-driven instead of silently returning an empty
-        // list when a record was produced by another locale/version.
-        if (activeFilter === "forward") {
-            return direction.indexOf("toward") >= 0
-                || direction.indexOf("к камер") >= 0
-        }
-        if (activeFilter === "side") {
-            return direction === "left" || direction === "right"
-                || direction.indexOf("left") >= 0 || direction.indexOf("right") >= 0
-                || direction.indexOf("away") >= 0
-                || direction.indexOf("влево") >= 0 || direction.indexOf("вправо") >= 0
-                || direction.indexOf("от камер") >= 0
-                || direction.indexOf("сторон") >= 0
-        }
-        return true
-    }
     function rebuild() {
         const next = []
-        for (const item of (results || [])) if (matchesFilter(item)) next.push(item)
+        for (const item of (results || [])) next.push(item)
         next.sort(function (a, b) { return (Number(a.similarity) - Number(b.similarity)) * (sortDescending ? -1 : 1) })
         visibleResults = next
     }
@@ -57,7 +35,6 @@ Rectangle {
         root.resultSelected(Number(target.id))
     }
     onResultsChanged: rebuild()
-    onActiveFilterChanged: rebuild()
     onSortDescendingChanged: rebuild()
     Component.onCompleted: rebuild()
 
@@ -67,11 +44,10 @@ Rectangle {
                 Text { text: L10n.t("results.title"); color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
                 Text { text: root.results.length > 0 ? root.results.length + " " + L10n.t("results.found") : L10n.t("results.emptyHint"); color: Theme.textSecondary; font.pixelSize: 11 }
             }
-            Text { text: root.results.length; color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 20 }
         }
-        Row { width: parent.width; spacing: 6
+        Row { width: parent.width; spacing: 6; height: 28
             PfIconButton { width: 28; height: 28; iconSource: "qrc:/qt/qml/PfUi/qml/assets/chevron-left.svg"; accessibleName: L10n.t("results.previous"); enabled: root.visibleResults.length > 0; onClicked: root.selectPrevious() }
-            Text { width: parent.width - 68; text: root.results.length > 0 ? L10n.t("results.selectPair") : L10n.t("common.empty"); color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 10 }
+            Item { width: parent.width - 68; height: 1 }
             PfIconButton { width: 28; height: 28; iconSource: "qrc:/qt/qml/PfUi/qml/assets/chevron-right.svg"; accessibleName: L10n.t("results.next"); enabled: root.visibleResults.length > 0; onClicked: root.selectNext() }
         }
         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
@@ -79,14 +55,8 @@ Rectangle {
             PfButton { width: (parent.width - 6) / 2; text: root.sortDescending ? L10n.t("results.sort") + " ↓" : L10n.t("results.sort") + " ↑"; quiet: true; onClicked: root.sortDescending = !root.sortDescending }
             PfButton { width: (parent.width - 6) / 2; text: L10n.t("results.export"); enabled: Object.keys(root.selectedRows).length > 0; quiet: Object.keys(root.selectedRows).length === 0; onClicked: root.exportRequested() }
         }
-        Text { text: L10n.t("results.filters"); color: Theme.textSecondary; font.pixelSize: 11 }
-        Row { width: parent.width; spacing: 5
-            PfButton { width: (parent.width - 10) / 3; padding: 7; text: L10n.t("results.all"); quiet: root.activeFilter !== "all"; onClicked: root.activeFilter = "all" }
-            PfButton { width: (parent.width - 10) / 3; padding: 7; text: L10n.t("results.forward"); quiet: root.activeFilter !== "forward"; onClicked: root.activeFilter = "forward" }
-            PfButton { width: (parent.width - 10) / 3; padding: 7; text: L10n.t("results.side"); quiet: root.activeFilter !== "side"; onClicked: root.activeFilter = "side" }
-        }
         ListView {
-            id: resultList; width: parent.width; height: parent.height - 178; clip: true; spacing: 5; model: root.visibleResults; focus: true; activeFocusOnTab: true
+            id: resultList; width: parent.width; height: parent.height - 112; clip: true; spacing: 5; model: root.visibleResults; focus: true; activeFocusOnTab: true
             Accessible.name: L10n.t("results.title")
             Keys.onUpPressed: { root.selectPrevious(); event.accepted = true }
             Keys.onDownPressed: { root.selectNext(); event.accepted = true }

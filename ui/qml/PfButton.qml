@@ -22,7 +22,9 @@ Button {
         font.weight: Font.DemiBold
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideNone
+        elide: Text.ElideRight
+        clip: true
+        wrapMode: Text.NoWrap
     }
 
     background: Rectangle {

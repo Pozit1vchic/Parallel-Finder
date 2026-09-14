@@ -12,6 +12,14 @@ Popup {
     property var rootWindow
     property bool userPositioned: false
     property string themeStatus: ""
+    readonly property var providerIds: ["auto", "dml", "cuda", "tensorrt", "cpu"]
+    readonly property var providerLabels: [
+        L10n.t("settings.providerAuto"),
+        L10n.t("settings.providerDirectMl"),
+        L10n.t("settings.providerCuda"),
+        L10n.t("settings.providerTensorRt"),
+        L10n.t("settings.providerCpu")
+    ]
     modal: true
     focus: true
     padding: 0
@@ -156,7 +164,7 @@ Popup {
                         RowLayout { Layout.fillWidth: true; spacing: 12
                             Text { Layout.preferredWidth: 128; text: L10n.t("settings.provider"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; ToolTip.visible: providerHelp.hovered; ToolTip.text: L10n.t("settings.providerHint"); ToolTip.delay: 350 }
                             HoverHandler { id: providerHelp }
-                            PfComboBox { id: provider; Layout.preferredWidth: 180; Layout.fillWidth: true; model: ["Auto", "TensorRT", "CUDA", "DirectML", "CPU"]; currentIndex: ["auto", "tensorrt", "cuda", "dml", "cpu"].indexOf(Analysis.providerChoice); Accessible.name: L10n.t("settings.provider"); onActivated: Analysis.providerChoice = ["auto", "tensorrt", "cuda", "dml", "cpu"][currentIndex] }
+                            PfComboBox { id: provider; Layout.preferredWidth: 180; Layout.fillWidth: true; model: root.providerLabels; currentIndex: Math.max(0, root.providerIds.indexOf(Analysis.providerChoice)); Accessible.name: L10n.t("settings.provider"); onActivated: Analysis.providerChoice = root.providerIds[currentIndex] }
                         }
                         Text { Layout.fillWidth: true; text: AppInfo.gpuSummary; color: AppInfo.backendIsGpu ? Theme.sage : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.cache"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }

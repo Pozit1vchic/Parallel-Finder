@@ -6,7 +6,17 @@
 
 namespace pfui {
 namespace {
-constexpr QChar kSeparator = QChar(0x00B7); // middle dot: "cuda · RTX 4070"
+constexpr QChar kSeparator = QChar(0x00B7); // middle dot: "CUDA · RTX 4070"
+
+QString displayBackend(const QString& backend)
+{
+    const QString key = backend.trimmed().toLower();
+    if (key == QStringLiteral("dml") || key == QStringLiteral("directml")) return QStringLiteral("DirectML");
+    if (key == QStringLiteral("cuda")) return QStringLiteral("CUDA");
+    if (key == QStringLiteral("tensorrt")) return QStringLiteral("TensorRT");
+    if (key == QStringLiteral("cpu")) return QStringLiteral("CPU");
+    return backend;
+}
 }
 
 AppInfo* AppInfo::instance()
@@ -49,9 +59,9 @@ QString AppInfo::gpuDevice() const
 QString AppInfo::gpuSummary() const
 {
     if (m_gpuDevice.isEmpty()) {
-        return m_gpuBackend;
+        return displayBackend(m_gpuBackend);
     }
-    return m_gpuBackend + QStringLiteral(" ") + kSeparator + QStringLiteral(" ")
+    return displayBackend(m_gpuBackend) + QStringLiteral(" ") + kSeparator + QStringLiteral(" ")
         + m_gpuDevice;
 }
 

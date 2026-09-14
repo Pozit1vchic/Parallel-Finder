@@ -176,6 +176,70 @@ double cosineSimilarity(const Descriptor& left, const Descriptor& right)
     return std::clamp(dot / denominator, -1.0, 1.0);
 }
 
+double shapeSimilarity(const std::vector<NormalizedPose>& left,
+                       const std::vector<NormalizedPose>& right)
+{
+    if (left.empty() || right.empty()) return 0.0;
+    const std::size_t samples = std::min<std::size_t>(8, std::min(left.size(), right.size()));
+    double score = 0.0;
+    std::size_t used = 0;
+    for (std::size_t sample = 0; sample < samples; ++sample) {
+        const std::size_t li = (sample * (left.size() - 1))
+            / std::max<std::size_t>(1, samples - 1);
+        const std::size_t ri = (sample * (right.size() - 1))
+            / std::max<std::size_t>(1, samples - 1);
+        const auto& a = left[li];
+        const auto& b = right[ri];
+        if (a.empty() || b.empty()) continue;
+
+        // A pose model's joint order is its topology contract.  A different
+        // number of visible joints is therefore a real penalty, not missing
+        // noise.  Pairwise distances add an anatomy/proportion check without
+        // hardcoding a particular COCO or custom skeleton graph.
+        const double topology = static_cast<double>(std::min(a.size(), b.size()))
+            / static_cast<double>(std::max(a.size(), b.size()));
+        const std::size_t points = std::min(a.size(), b.size());
+        double error = 0.0;
+        std::size_t pairs = 0;
+        for (std::size_t i = 0; i < points; ++i) {
+            for (std::size_t j = i + 1; j < points; ++j) {
+                const double leftDistance = std::hypot(a[i].first - a[j].first,
+                                                       a[i].second - a[j].second);
+                const double rightDistance = std::hypot(b[i].first - b[j].first,
+                                                        b[i].second - b[j].second);
+                error += std::abs(leftDistance - rightDistance);
+                ++pairs;
+            }
+        }
+        const double proportionScore = pairs == 0
+            ? 1.0
+            : std::exp(-3.0 * error / static_cast<double>(pairs));
+        score += topology * proportionScore;
+        ++used;
+    }
+    return used == 0 ? 0.0 : std::clamp(score / static_cast<double>(used), 0.0, 1.0);
+}
+
+double temporalCosineScore(const std::vector<Descriptor>& left,
+                           const std::vector<Descriptor>& right)
+{
+    if (left.empty() || right.empty()) return 0.0;
+    const std::size_t samples = std::min(left.size(), right.size());
+    double score = 0.0;
+    std::size_t used = 0;
+    for (std::size_t sample = 0; sample < samples; ++sample) {
+        const std::size_t li = (sample * (left.size() - 1))
+            / std::max<std::size_t>(1, samples - 1);
+        const std::size_t ri = (sample * (right.size() - 1))
+            / std::max<std::size_t>(1, samples - 1);
+        const double cosine = cosineSimilarity(left[li], right[ri]);
+        if (cosine <= 0.0) continue;
+        score += cosine;
+        ++used;
+    }
+    return used == 0 ? 0.0 : std::clamp(score / static_cast<double>(used), 0.0, 1.0);
+}
+
 double duration(const MotionWindow& window);
 
 bool hasTemporalSupport(const MotionWindow& window,
@@ -259,6 +323,7 @@ std::vector<double> embedding(const std::vector<Descriptor>& descriptors,
 }
 
 struct PreparedWindow {
+    std::vector<NormalizedPose> poses;
     std::vector<Descriptor> descriptors;
     std::vector<double> embedding;
     double motionDelta = 0.0;
@@ -341,7 +406,23 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     const double durationDenominator = std::max({leftDuration, rightDuration, 1e-9});
     const double timePenalty = params.timeWeight
         * std::abs(leftDuration - rightDuration) / durationDenominator;
-    result.similarity = std::clamp(std::exp(-(result.dtwDistance + timePenalty)), 0.0, 1.0);
+    const double dtwScore = std::clamp(std::exp(-result.dtwDistance), 0.0, 1.0);
+    const double temporalScore = temporalCosineScore(a, b);
+    const double anatomyScore = shapeSimilarity(leftPrepared.poses, rightPrepared.poses);
+    // DTW captures trajectory distance, cosine captures frame-wise direction,
+    // and anatomyScore prevents different skeleton topology/proportions from
+    // receiving a near-perfect score.  Keep a headroom below 100% so exact
+    // duplicate frames cannot be presented as mathematically perfect proof.
+    double calibrated = 0.50 * dtwScore + 0.30 * temporalScore
+        + 0.20 * anatomyScore - timePenalty;
+    // Reserve the 95%+ band for agreement across all three signals.  A pair
+    // with a good average but a weak temporal or anatomical component is a
+    // candidate, never an "almost identical" movement.
+    if (calibrated > 0.95
+        && (dtwScore < 0.96 || temporalScore < 0.96 || anatomyScore < 0.96)) {
+        calibrated = 0.949;
+    }
+    result.similarity = std::clamp(calibrated, 0.0, 0.994);
     return result;
 }
 
@@ -376,8 +457,8 @@ MotionMatch MotionMatcher::compare(const MotionWindow& left, const MotionWindow&
     const auto leftPoses = normalizePoses(left, params_.normalizeSize);
     const auto rightPoses = normalizePoses(right, params_.normalizeSize);
     return comparePrepared(left, right,
-                           {describe(leftPoses, left), {}, motionDelta(left, leftPoses)},
-                           {describe(rightPoses, right), {}, motionDelta(right, rightPoses)},
+                           {leftPoses, describe(leftPoses, left), {}, motionDelta(left, leftPoses)},
+                           {rightPoses, describe(rightPoses, right), {}, motionDelta(right, rightPoses)},
                            params_, leftIndex, rightIndex);
 }
 
@@ -391,6 +472,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     for (std::size_t index = 0; index < windows.size(); ++index) {
         if (windows[index].frames.empty()) continue;
         const auto poses = normalizePoses(windows[index], params_.normalizeSize);
+        prepared[index].poses = poses;
         prepared[index].descriptors = describe(poses, windows[index]);
         prepared[index].motionDelta = motionDelta(windows[index], poses);
         if (prepared[index].motionDelta < params_.motionDeltaThreshold

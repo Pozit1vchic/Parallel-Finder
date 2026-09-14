@@ -114,7 +114,7 @@ void UiSmokeTests::gpuInfoPropagatesToQml()
     QCOMPARE(item->property("d").toString(), QStringLiteral("NVIDIA GeForce RTX 4070"));
     QCOMPARE(item->property("ort").toString(), QStringLiteral("1.26.0"));
     const QString summary = item->property("s").toString();
-    QVERIFY2(summary.startsWith(QStringLiteral("cuda")), qPrintable(summary));
+    QVERIFY2(summary.startsWith(QStringLiteral("CUDA")), qPrintable(summary));
     QVERIFY2(summary.contains(QStringLiteral("4070")), qPrintable(summary));
     delete item;
 

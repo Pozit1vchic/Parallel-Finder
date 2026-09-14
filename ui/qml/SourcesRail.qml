@@ -67,7 +67,6 @@ Rectangle {
                     Text { id: sourceTitle; text: L10n.t("sources.title"); color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
                     Text { text: root.sourceFiles.length > 0 ? root.sourceFiles.length + " " + L10n.t("sources.loaded") : L10n.t("sources.subtitle"); color: Theme.textSecondary; font.pixelSize: 11 }
                 }
-                Text { anchors.verticalCenter: sourceTitle.verticalCenter; text: root.sourceFiles.length; color: Theme.accent; font.family: Theme.displayFont; font.pixelSize: 19 }
             }
             DropArea {
                 Layout.fillWidth: true
@@ -131,29 +130,12 @@ Rectangle {
                     PfCheckBox { text: L10n.t("search.mirror"); tooltipText: L10n.t("search.mirrorHint"); checked: Analysis.mirrorPoses; onToggled: Analysis.mirrorPoses = checked }
                 }
             }
-            Button {
-                id: advancedToggle
+            CollapsibleSection {
                 Layout.fillWidth: true
                 width: parent.width
-                height: 44
-                contentItem: Row {
-                    anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 8
-                    Text { width: parent.width - 28; text: L10n.t("search.advanced"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap; verticalAlignment: Text.AlignVCenter }
-                    Text { text: root.advancedOpen ? "−" : "+"; color: Theme.accent; font.pixelSize: 17; horizontalAlignment: Text.AlignRight; width: 20; verticalAlignment: Text.AlignVCenter }
-                }
-                background: Rectangle { radius: Theme.radiusButton; color: advancedToggle.hovered ? Theme.surfaceRaised : "transparent"; border.color: advancedToggle.activeFocus ? Theme.accent : Theme.hairline; border.width: advancedToggle.activeFocus ? 2 : 1 }
-                Accessible.name: L10n.t("search.advanced")
-                Accessible.role: Accessible.Button
-                onClicked: root.advancedOpen = !root.advancedOpen
-            }
-            Column {
-                id: advancedColumn
-                Layout.fillWidth: true
-                width: parent.width
-                spacing: 10
-                visible: root.advancedOpen
+                title: L10n.t("search.advanced")
+                expanded: root.advancedOpen
+                onToggled: root.advancedOpen = expanded
                 Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: modelCard.implicitHeight + 24
                     Column { id: modelCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
                         Text { text: L10n.t("settings.poseModel"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }

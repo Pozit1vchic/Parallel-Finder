@@ -29,10 +29,13 @@ void MotionRanker::rank(std::vector<MotionMatch>& matches,
     }
     std::stable_sort(matches.begin(), matches.end(), [](const MotionMatch& left,
                                                         const MotionMatch& right) {
-        if (std::abs(left.rankScore - right.rankScore) > 1e-12)
-            return left.rankScore > right.rankScore;
+        // The user-facing order is the calibrated similarity percentage. The
+        // classifier confidence remains a tie-breaker, never a way to move a
+        // weaker match above a stronger one.
         if (std::abs(left.similarity - right.similarity) > 1e-12)
             return left.similarity > right.similarity;
+        if (std::abs(left.rankScore - right.rankScore) > 1e-12)
+            return left.rankScore > right.rankScore;
         if (left.leftIndex != right.leftIndex) return left.leftIndex < right.leftIndex;
         return left.rightIndex < right.rightIndex;
     });

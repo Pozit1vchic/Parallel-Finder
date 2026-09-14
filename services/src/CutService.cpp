@@ -10,6 +10,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 namespace pfservices {
 namespace {
 
@@ -119,6 +123,15 @@ CutResult CutService::cut(const CutRequest& request) const
         QProcess process;
         process.setProgram(QString::fromStdString(ffmpegExecutable_));
         process.setArguments(arguments);
+#if defined(_WIN32)
+        // ffmpeg is a console executable. CREATE_NO_WINDOW keeps its stderr
+        // captured by QProcess instead of flashing a console window over the
+        // Qt GUI when a cut is requested.
+        process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *args) {
+            args->flags |= CREATE_NO_WINDOW;
+        });
+#endif
+        process.setProcessChannelMode(QProcess::SeparateChannels);
         process.start();
         if (!process.waitForStarted(5000)) {
             result.error = processError(process);

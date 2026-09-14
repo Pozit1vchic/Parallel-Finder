@@ -17,7 +17,6 @@ ApplicationWindow {
     property var sourceFiles: []
     property int selectedResultIndex: -1
     property var selectedExportRows: ({})
-    property string activeMovementFilter: "all"
     property real railWidth: Math.max(272, Math.min(300, width * 0.22))
     property var selectedRecord: null
 
@@ -87,8 +86,7 @@ ApplicationWindow {
                 }
                 ResultsRail {
                     id: resultsRail; width: root.railWidth; height: parent.height
-                    results: Analysis.results; activeFilter: root.activeMovementFilter; selectedRows: root.selectedExportRows; selectedIndex: root.selectedResultIndex
-                    onActiveFilterChanged: root.activeMovementFilter = activeFilter
+                    results: Analysis.results; selectedRows: root.selectedExportRows; selectedIndex: root.selectedResultIndex
                     onExportSelectionChanged: root.selectedExportRows = rows
                     onResultSelected: root.selectResult(index)
                     onExportRequested: exportDialog.open()

@@ -75,7 +75,9 @@ Stage 4 audit and implementation notes:
   `RenumberSorted` orders by rank score with deterministic similarity/time
   tie-breakers. AEP output contains a real JSX importer with footage layers
   plus the adjacent `parallel_data.json` sidecar.
-- `CutService` still uses QProcess without a shell and encoder fallback
+- `CutService` uses QProcess without a shell, captures stderr, and applies
+  `CREATE_NO_WINDOW` on Windows so ffmpeg never flashes a console window
+  over the Qt UI; encoder fallback remains explicit.
   NVENC → AMF → QSV → CPU for exact cuts. Optional output ceilings prevent
   upscaling while preserving aspect ratio; fast stream-copy mode rejects a
   resize request because filtering would invalidate `-c copy`.

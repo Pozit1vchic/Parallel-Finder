@@ -12,6 +12,7 @@ set(PFUI_QML_FILES
     qml/PfComboBox.qml
     qml/PfTextField.qml
     qml/PfCheckBox.qml
+    qml/CollapsibleSection.qml
     qml/PfButton.qml
     qml/PfIconButton.qml
     qml/TopBar.qml

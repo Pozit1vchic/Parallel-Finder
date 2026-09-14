@@ -12,7 +12,7 @@ dashboard. It should feel like a quiet, precise film tool: the video and its
 motion traces are the visual event; chrome is supporting equipment.
 
 One memorable visual per screen is enough. In the analysis state it is the
-selected A/B pair and its four linked timeline markers. The empty state stays
+selected A/B pair and its exact timecodes. The empty state stays
 quiet and action-first: no aura, particle field, radar rings, fake target or
 perpetual decorative animation.
 
@@ -61,9 +61,9 @@ The layout remains three columns and is never replaced by a marketing hero:
 
 ```
 ┌────────────── material ─────────────┬────── analysis / comparison ──────┬──── results ────┐
-│ sources + queue                     │ six compact stats, not six cards  │ filters/sort    │
-│ nine controls in a scroll rail       │ progress / A-B preview             │ virtual list    │
-│ quality / backend / start             │ real timeline, 4 linked markers    │ selected export │
+│ sources + queue                     │ six compact stats, not six cards  │ sort + list      │
+│ compact controls in a scroll rail    │ full-height viewport, pan + zoom    │ selected export │
+│ quality / backend / start             │ progress / A-B preview             │ virtual list    │
 └──────────────────────────────────────┴───────────────────────────────────┴─────────────────┘
 ```
 
@@ -107,17 +107,19 @@ particle aura, motion blur or a progress spinner as hero art.
 ### Selected pair
 
 Show actual A/B frames at equal size. A is terracotta, B is sage. Each preview
-has source name, local timecode and a clear visual association with its two
-timeline markers. Timeline uses real duration and has zoom, pan and fullscreen
-controls. It contains four markers: A start/end in terracotta, B start/end in
-sage.
+has source name and local timecode. The viewport is the primary workspace: the
+mouse wheel zooms, dragging pans the frame, double-click restores fit-to-window,
+and the frame surface clips all content to its border. The former bottom
+timeline panel is intentionally removed; result records still retain exact
+start/end values for export and inspection.
 
 ### Results
 
 Rows are 32px virtualized by default and use checkboxes that start unchecked.
 One selected row controls the A/B comparison; checkbox state controls export.
-Result controls include sort, movement category filters and Prev/Next. Export
-is inactive until at least one checkbox is selected.
+Result controls include sort and Prev/Next. The list is intentionally
+monolithic; movement category filters were removed because they fragmented the
+small results rail. Export is inactive until at least one checkbox is selected.
 
 ### Settings and export
 
