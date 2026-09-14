@@ -92,6 +92,8 @@ ORT-GPU / CUDA / TensorRT / DML-redist при сборке размещаютс�
   поиска локальных файлов.
 - [`docs/model-audit.md`](docs/model-audit.md) — аудит несовместимостей модели,
   провайдера, batch-профиля, кэша и оставшаяся проверка на опубликованном release.
+- [`docs/full-audit.md`](docs/full-audit.md) — сводный аудит matcher, UI/UX,
+  provider/model pipeline, cache и фактических проверок сборки.
 
 ## Стадии
 
