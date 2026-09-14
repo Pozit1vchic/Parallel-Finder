@@ -27,6 +27,13 @@ void MotionRanker::rank(std::vector<MotionMatch>& matches,
                                      * (0.75 + 0.25 * durationFactor)
                                      * confidenceFactor, 0.0, 1.0);
     }
+    // Final semantic guard: pose jitter can occasionally survive numeric
+    // prefilters, but a pair classified static in both axes is not a motion
+    // result. Keep a static camera with a real hand gesture (gesture != static)
+    // eligible; remove only the exact static/static false-positive class.
+    matches.erase(std::remove_if(matches.begin(), matches.end(), [](const auto& match) {
+        return match.directionLabel == "static" && match.gestureLabel == "static";
+    }), matches.end());
     std::stable_sort(matches.begin(), matches.end(), [](const MotionMatch& left,
                                                         const MotionMatch& right) {
         // The user-facing order is the calibrated similarity percentage. The

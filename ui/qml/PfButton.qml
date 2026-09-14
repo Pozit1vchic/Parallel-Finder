@@ -11,6 +11,10 @@ Button {
     implicitHeight: compact ? 32 : 38
     height: implicitHeight
     padding: compact ? 6 : 14
+    leftPadding: compact ? 7 : 14
+    rightPadding: compact ? 7 : 14
+    topPadding: compact ? 4 : 7
+    bottomPadding: compact ? 4 : 7
     hoverEnabled: true
 
     contentItem: Text {
@@ -22,9 +26,11 @@ Button {
         font.weight: Font.DemiBold
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideRight
+        // A button is a control, not a marquee: let longer localized labels
+        // wrap inside the available width instead of silently cutting them.
+        wrapMode: Text.WordWrap
+        maximumLineCount: 2
         clip: true
-        wrapMode: Text.NoWrap
     }
 
     background: Rectangle {

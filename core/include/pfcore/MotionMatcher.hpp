@@ -19,6 +19,11 @@ struct PoseFrame {
 
 struct MotionWindow {
     std::string sourceId;
+    // Stable provenance carried from the detector. Invalid values are used
+    // by callers that construct synthetic windows and mean "unknown".
+    std::size_t trackId = 0;
+    std::size_t sceneIndex = 0;
+    bool hasSceneIndex = false;
     std::vector<PoseFrame> frames;
 };
 
@@ -43,14 +48,26 @@ struct MotionMatcherParams {
     // above this value.  The value is intentionally independent of the
     // number of keypoints, so models with a different skeleton size behave
     // consistently.
-    double motionDeltaThreshold = 0.004;
+    // The previous value accepted detector jitter as movement. This is a
+    // normalized per-joint delta, so 0.012 is deliberately conservative.
+    double motionDeltaThreshold = 0.012;
+    // A small active-transition ratio is allowed because a window can enter
+    // from a neutral pose; trajectory range and temporal-run checks below are
+    // the stronger guards against a one-frame/noise candidate.
+    double minActiveTransitionRatio = 0.04;
+    // Mean range of a joint trajectory across the window. It filters pose
+    // jitter that happens to exceed one transition threshold.
+    double minMotionRange = 0.08;
+    // Minimum span of a supported continuous run. It prevents one-frame
+    // candidates even when a clip was sampled sparsely.
+    double minMotionSpanSec = 0.9;
     // DTW still supplies the global score, but a valid match must also contain
     // a contiguous run of similar frames.  Short clips may satisfy the
     // duration alternative when the selected quality profile samples fewer
     // than 18 pose frames per second.
     double temporalSimilarityThreshold = 0.82;
     std::size_t minTemporalFrames = 18;
-    double minTemporalDurationSec = 0.9;
+    double minTemporalDurationSec = 1.1;
     // Same-source windows never match inside this hard floor.  It prevents a
     // static shot from being paired with a nearby overlapping crop.
     double sameSourceGapFloorSec = 5.0;

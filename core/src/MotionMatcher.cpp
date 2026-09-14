@@ -52,11 +52,39 @@ std::vector<NormalizedPose> normalizePoses(const MotionWindow& window,
     return normalized;
 }
 
-double motionDelta(const MotionWindow& window, const std::vector<NormalizedPose>& poses)
+struct MotionActivity {
+    double meanDelta = 0.0;
+    double activeTransitionRatio = 0.0;
+    double trajectoryRange = 0.0;
+};
+
+MotionActivity motionActivity(const MotionWindow& window,
+                              const std::vector<NormalizedPose>& poses)
 {
-    if (poses.size() < 2) return 0.0;
+    if (poses.size() < 2) return {};
     double total = 0.0;
     std::size_t transitions = 0;
+    std::size_t activeTransitions = 0;
+    double rangeSum = 0.0;
+    std::size_t rangePoints = 0;
+    if (!poses.empty() && !poses.front().empty()) {
+        const std::size_t pointCount = poses.front().size();
+        for (std::size_t point = 0; point < pointCount; ++point) {
+            double minX = poses.front()[point].first;
+            double maxX = minX;
+            double minY = poses.front()[point].second;
+            double maxY = minY;
+            for (const auto& pose : poses) {
+                if (pose.size() <= point) continue;
+                minX = std::min(minX, pose[point].first);
+                maxX = std::max(maxX, pose[point].first);
+                minY = std::min(minY, pose[point].second);
+                maxY = std::max(maxY, pose[point].second);
+            }
+            rangeSum += std::hypot(maxX - minX, maxY - minY);
+            ++rangePoints;
+        }
+    }
     for (std::size_t frame = 1; frame < poses.size(); ++frame) {
         const auto& previous = poses[frame - 1];
         const auto& current = poses[frame];
@@ -76,10 +104,18 @@ double motionDelta(const MotionWindow& window, const std::vector<NormalizedPose>
         // Normalize the requested sum by the number of observed joints.  This
         // is the same delta-K signal, without making the threshold model-size
         // dependent.
-        total += delta / static_cast<double>(valid);
+        const double mean = delta / static_cast<double>(valid);
+        total += mean;
+        // Detector jitter is normally a few thousandths of a normalized
+        // body unit. Require materially larger transitions and a sustained
+        // ratio of them before calling a window a movement.
+        if (mean >= 0.008) ++activeTransitions;
         ++transitions;
     }
-    return transitions == 0 ? 0.0 : total / static_cast<double>(transitions);
+    if (transitions == 0) return {};
+    return {total / static_cast<double>(transitions),
+            static_cast<double>(activeTransitions) / static_cast<double>(transitions),
+            rangePoints == 0 ? 0.0 : rangeSum / static_cast<double>(rangePoints)};
 }
 
 std::vector<Descriptor> describe(const std::vector<NormalizedPose>& normalized,
@@ -248,7 +284,8 @@ bool hasTemporalSupport(const MotionWindow& window,
     if (window.frames.size() < 3) return false;
     const double span = duration(window);
     return window.frames.size() >= params.minTemporalFrames
-        || (span + 1e-9 >= params.minTemporalDurationSec && window.frames.size() >= 3);
+        || (span + 1e-9 >= std::max(params.minTemporalDurationSec, params.minMotionSpanSec)
+            && window.frames.size() >= 6);
 }
 
 bool hasTemporalRun(const std::vector<Descriptor>& left,
@@ -295,7 +332,7 @@ bool hasTemporalRun(const std::vector<Descriptor>& left,
         sampleTimestamp(rightWindow, bestEndSample, samples)
             - sampleTimestamp(rightWindow, bestStartSample, samples));
     const bool enoughFrames = bestRun >= params.minTemporalFrames
-        || (bestRun >= 3
+        || (bestRun >= std::max<std::size_t>(6, params.minTemporalFrames / 3)
             && runDuration + 1e-9 >= params.minTemporalDurationSec);
     return enoughFrames;
 }
@@ -327,6 +364,8 @@ struct PreparedWindow {
     std::vector<Descriptor> descriptors;
     std::vector<double> embedding;
     double motionDelta = 0.0;
+    double activeTransitionRatio = 0.0;
+    double trajectoryRange = 0.0;
 };
 
 MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
@@ -349,6 +388,12 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     result.rightStartSeconds = right.frames.empty() ? 0.0 : right.frames.front().timestampSeconds;
     result.rightEndSeconds = right.frames.empty() ? 0.0 : right.frames.back().timestampSeconds;
     if (left.sourceId == right.sourceId
+        && left.hasSceneIndex && right.hasSceneIndex
+        && left.sceneIndex == right.sceneIndex) {
+        result.similarity = 0.0;
+        return result;
+    }
+    if (left.sourceId == right.sourceId
         && std::abs(result.leftStartSeconds - result.rightStartSeconds)
             < std::max({params.sameSourceGapFloorSec, params.sameFileGapSec,
                         params.minRepeatGapSec})) {
@@ -358,6 +403,10 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     if (a.empty() || b.empty()
         || leftPrepared.motionDelta < params.motionDeltaThreshold
         || rightPrepared.motionDelta < params.motionDeltaThreshold
+        || leftPrepared.activeTransitionRatio < params.minActiveTransitionRatio
+        || rightPrepared.activeTransitionRatio < params.minActiveTransitionRatio
+        || leftPrepared.trajectoryRange < params.minMotionRange
+        || rightPrepared.trajectoryRange < params.minMotionRange
         || !hasTemporalSupport(left, params)
         || !hasTemporalSupport(right, params)
         || !hasTemporalRun(a, b, left, right, params)) {
@@ -441,6 +490,9 @@ void MotionMatcher::setParams(MotionMatcherParams params)
         || !(params.crossFileGapSec >= 0.0 && params.duplicateWindowSec >= 0.0)
         || !(params.timeWeight >= 0.0 && params.timeWeight <= 1.0)
         || !(params.motionDeltaThreshold >= 0.0 && params.motionDeltaThreshold <= 1.0)
+        || !(params.minActiveTransitionRatio >= 0.0 && params.minActiveTransitionRatio <= 1.0)
+        || params.minMotionRange < 0.0
+        || params.minMotionSpanSec < 0.0
         || !(params.temporalSimilarityThreshold >= 0.0
              && params.temporalSimilarityThreshold <= 1.0)
         || params.minTemporalFrames < 3
@@ -456,9 +508,13 @@ MotionMatch MotionMatcher::compare(const MotionWindow& left, const MotionWindow&
 {
     const auto leftPoses = normalizePoses(left, params_.normalizeSize);
     const auto rightPoses = normalizePoses(right, params_.normalizeSize);
+    const MotionActivity leftActivity = motionActivity(left, leftPoses);
+    const MotionActivity rightActivity = motionActivity(right, rightPoses);
     return comparePrepared(left, right,
-                           {leftPoses, describe(leftPoses, left), {}, motionDelta(left, leftPoses)},
-                           {rightPoses, describe(rightPoses, right), {}, motionDelta(right, rightPoses)},
+                           {leftPoses, describe(leftPoses, left), {}, leftActivity.meanDelta,
+                            leftActivity.activeTransitionRatio, leftActivity.trajectoryRange},
+                           {rightPoses, describe(rightPoses, right), {}, rightActivity.meanDelta,
+                            rightActivity.activeTransitionRatio, rightActivity.trajectoryRange},
                            params_, leftIndex, rightIndex);
 }
 
@@ -474,8 +530,13 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         const auto poses = normalizePoses(windows[index], params_.normalizeSize);
         prepared[index].poses = poses;
         prepared[index].descriptors = describe(poses, windows[index]);
-        prepared[index].motionDelta = motionDelta(windows[index], poses);
+        const MotionActivity activity = motionActivity(windows[index], poses);
+        prepared[index].motionDelta = activity.meanDelta;
+        prepared[index].activeTransitionRatio = activity.activeTransitionRatio;
+        prepared[index].trajectoryRange = activity.trajectoryRange;
         if (prepared[index].motionDelta < params_.motionDeltaThreshold
+            || prepared[index].activeTransitionRatio < params_.minActiveTransitionRatio
+            || prepared[index].trajectoryRange < params_.minMotionRange
             || !hasTemporalSupport(windows[index], params_)) {
             prepared[index].descriptors.clear();
             continue;
@@ -516,6 +577,10 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         const std::size_t j = static_cast<std::size_t>(key & 0xffffffffULL);
         if (i >= windows.size() || j >= windows.size() || i >= j) continue;
         const bool sameSource = windows[i].sourceId == windows[j].sourceId;
+        if (sameSource && windows[i].hasSceneIndex && windows[j].hasSceneIndex
+            && windows[i].sceneIndex == windows[j].sceneIndex) {
+            continue;
+        }
         const double leftStart = windows[i].frames.front().timestampSeconds;
         const double rightStart = windows[j].frames.front().timestampSeconds;
         const double gap = std::abs(leftStart - rightStart);

@@ -26,8 +26,6 @@ QtObject {
     readonly property color sageBright: Qt.lighter(sage, 1.18)
     readonly property color sagePressed: Qt.darker(sage, 1.25)
     readonly property color sageMuted: Qt.rgba(sage.r, sage.g, sage.b, 0.11)
-    readonly property color glowA: Qt.rgba(accent.r, accent.g, accent.b, 0.18)
-    readonly property color glowB: Qt.rgba(sage.r, sage.g, sage.b, 0.14)
     readonly property color textPrimary: "#F5F1EC"
     readonly property color textSecondary: "#ACA89F"
     readonly property color textDisabled: "#77766F"

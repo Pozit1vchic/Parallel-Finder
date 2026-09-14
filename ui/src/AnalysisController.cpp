@@ -30,6 +30,7 @@
 #include "pfcore/MotionRanker.hpp"
 #include "pfcore/DominantPerson.hpp"
 #include "pfgpu/PoseEstimator.hpp"
+#include "pfgpu/DeviceInfo.hpp"
 #include "pfservices/SettingsStore.hpp"
 #include "pfservices/ModelStore.hpp"
 #include "pfservices/PfCache.hpp"
@@ -84,8 +85,11 @@ QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
     const QString path = directory + QLatin1Char('/') + name;
     QImage image(frame.rgba.data(), frame.width, frame.height, QImage::Format_RGBA8888);
     QImage preview = image.copy();
-    if (preview.width() > 960 || preview.height() > 540)
-        preview = preview.scaled(960, 540, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    // Keep enough source detail for a large A/B viewport. The old 960x540
+    // cap was visibly soft on 1440p/4K footage after the image was enlarged
+    // by PreserveAspectFit.
+    if (preview.width() > 1920 || preview.height() > 1080)
+        preview = preview.scaled(1920, 1080, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     if (!preview.save(path, "PNG")) return {};
     // Image.source is a URL in QML.  A bare Windows path such as C:/tmp/a.png
     // may be parsed as a URL with the scheme "c" and fail silently.
@@ -152,12 +156,15 @@ bool readBytes(const std::vector<std::uint8_t>& input, std::size_t& offset, T& v
 std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::MotionWindow>& windows)
 {
     std::vector<std::uint8_t> output;
-    const std::uint32_t version = 1;
+    const std::uint32_t version = 2;
     appendBytes(output, version);
     appendBytes(output, static_cast<std::uint32_t>(windows.size()));
     for (const auto& window : windows) {
         appendBytes(output, static_cast<std::uint32_t>(window.sourceId.size()));
         output.insert(output.end(), window.sourceId.begin(), window.sourceId.end());
+        appendBytes(output, static_cast<std::uint64_t>(window.trackId));
+        appendBytes(output, static_cast<std::uint64_t>(window.sceneIndex));
+        appendBytes(output, static_cast<std::uint8_t>(window.hasSceneIndex ? 1 : 0));
         appendBytes(output, static_cast<std::uint32_t>(window.frames.size()));
         for (const auto& frame : window.frames) {
             appendBytes(output, frame.timestampSeconds);
@@ -177,7 +184,7 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
 {
     std::size_t offset = 0;
     std::uint32_t version = 0, windowCount = 0;
-    if (!readBytes(input, offset, version) || version != 1
+    if (!readBytes(input, offset, version) || version != 2
         || !readBytes(input, offset, windowCount) || windowCount > 1'000'000U) return false;
     windows.clear();
     windows.reserve(windowCount);
@@ -188,6 +195,13 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
         pfcore::MotionWindow window;
         window.sourceId.assign(reinterpret_cast<const char*>(input.data() + offset), sourceSize);
         offset += sourceSize;
+        std::uint64_t trackId = 0, sceneIndex = 0;
+        std::uint8_t hasSceneIndex = 0;
+        if (!readBytes(input, offset, trackId) || !readBytes(input, offset, sceneIndex)
+            || !readBytes(input, offset, hasSceneIndex)) return false;
+        window.trackId = static_cast<std::size_t>(trackId);
+        window.sceneIndex = static_cast<std::size_t>(sceneIndex);
+        window.hasSceneIndex = hasSceneIndex != 0;
         std::uint32_t frameCount = 0;
         if (!readBytes(input, offset, frameCount) || frameCount > 100'000U) return false;
         window.frames.reserve(frameCount);
@@ -214,11 +228,6 @@ std::filesystem::path findPoseModel()
         const std::filesystem::path path(configured);
         if (std::filesystem::is_regular_file(path)) return path;
     }
-    const std::filesystem::path external = R"(D:\PF_CUDA\models\yolo26m-pose-640-b1.onnx)";
-    if (std::filesystem::is_regular_file(external)) return external;
-    const auto besideExecutable = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString())
-        / "models" / "yolo26m-pose-640-b1.onnx";
-    if (std::filesystem::is_regular_file(besideExecutable)) return besideExecutable;
     std::string settingsError;
     const pfservices::Settings settings = pfservices::SettingsStore().load(settingsError);
     if (!settings.modelPath.empty()) {
@@ -234,6 +243,13 @@ std::filesystem::path findPoseModel()
             }
         }
     }
+    // Legacy developer location remains a fallback only. It must never
+    // override a model explicitly selected in settings.json.
+    const std::filesystem::path external = R"(D:\PF_CUDA\models\yolo26m-pose-640-b1.onnx)";
+    if (std::filesystem::is_regular_file(external)) return external;
+    const auto besideExecutable = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString())
+        / "models" / "yolo26m-pose-640-b1.onnx";
+    if (std::filesystem::is_regular_file(besideExecutable)) return besideExecutable;
     const std::filesystem::path localModels = std::filesystem::path(pfservices::SettingsStore::defaultDirectory())
         / "models" / "yolo26m-pose-640-b1.onnx";
     if (std::filesystem::is_regular_file(localModels)) return localModels;
@@ -541,6 +557,17 @@ void AnalysisController::selectModel(const QString& filename)
         emit modelStatusChanged();
         return;
     }
+    if (const char* root = std::getenv("PF_MODEL_ROOT"); root && *root) {
+        const auto externalRoot = std::filesystem::path(root) / requested.toStdWString();
+        if (std::filesystem::is_regular_file(externalRoot, filesystemError)) {
+            modelPath_ = QString::fromStdWString(externalRoot.wstring());
+            modelStatus_ = QStringLiteral("Модель готова к анализу");
+            saveSettings();
+            emit settingsChanged();
+            emit modelStatusChanged();
+            return;
+        }
+    }
     if (modelDownloading_) return;
 
     modelDownloading_ = true;
@@ -764,6 +791,22 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         if (!normalized.isEmpty()) deferredAnalyzePaths_ = normalized;
         return;
     }
+    // A manually selected execution provider is a hard requirement. Do not
+    // silently fall back to CPU after the user explicitly chose CUDA, TensorRT
+    // or DirectML; report the real probe reason before touching the files.
+    if (const auto requested = pfgpu::parseProvider(providerChoice_.toStdString());
+        requested.has_value() && *requested != pfgpu::Provider::Auto
+        && !pfgpu::isProviderAvailable(*requested)) {
+        const auto* status = pfgpu::findBackendStatus(*requested);
+        const QString reason = status && !status->reason.empty()
+            ? QStringLiteral(": ") + QString::fromStdString(status->reason)
+            : QString();
+        setProgress(0.0, QStringLiteral("Провайдер недоступен"), 0, 0);
+        setStatus(QStringLiteral("Выбранный провайдер ")
+                  + QString::fromLatin1(pfgpu::providerName(*requested))
+                  + QStringLiteral(" недоступен") + reason);
+        return;
+    }
     results_.clear();
     matches_.clear();
     matchCount_ = 0;
@@ -860,7 +903,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 const auto info = decoder.info();
                 std::vector<pfcore::MotionWindow> cachedWindows;
                 bool cacheHit = false;
-                std::string cacheKey = "motion-v1|" + model.string() + "|" + path.toStdString();
+                std::string cacheKey = "motion-v2|" + model.string() + "|"
+                    + providerChoice.toStdString() + "|" + path.toStdString();
                 std::error_code cacheFileError;
                 const auto cacheFileSize = std::filesystem::file_size(path.toStdString(), cacheFileError);
                 const auto cacheWriteTime = std::filesystem::last_write_time(path.toStdString(), cacheFileError);
@@ -885,8 +929,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 std::size_t index = 0;
                 double nextSceneSample = 0.0;
                 double previousPoseTimestamp = -1.0;
-                const std::size_t poseStride = qualityProfile == QStringLiteral("fast") ? 8U
-                    : qualityProfile == QStringLiteral("medium") ? 5U : 3U;
+                // The profile names are user-facing contracts: fast samples
+                // every fifth frame, medium every third, maximum every frame.
+                const std::size_t poseStride = qualityProfile == QStringLiteral("fast") ? 5U
+                    : qualityProfile == QStringLiteral("medium") ? 3U : 1U;
                 while (decoder.readNext(frame)) {
                     ++processedFrames;
                     if (processedFrames % 10 == 0 || processedFrames == totalFramesEstimate) {
@@ -946,7 +992,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                                             / std::max(1.0, info.frameRate)))),
                                                     settings.sceneAdaptiveMultiplier);
                 const auto sceneBoundaries = sceneDetector.detect(samples);
-                scenes += static_cast<int>(sceneBoundaries.size());
+                // A boundary separates two scenes; the user-facing counter is
+                // the number of actual segments, not the number of cuts.
+                scenes += samples.empty() ? 0 : static_cast<int>(sceneBoundaries.size() + 1U);
                 const QString previewStart = firstFrame.rgba.empty() ? QString()
                     : savePreview(firstFrame, QStringLiteral("%1_%2_start.png").arg(previewToken).arg(files));
                 const QString previewEnd = lastFrame.rgba.empty() ? QString()
@@ -972,7 +1020,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             ? sceneStarts[sceneIndex + 1] : std::max(info.durationSeconds, lastTimestamp + 0.001);
                         pfcore::MotionWindow window;
                         window.sourceId = path.toStdString();
+                        window.sceneIndex = sceneIndex;
+                        window.hasSceneIndex = true;
                         if (dominant.has_value()) {
+                            window.trackId = dominant->id;
                             for (const auto& observation : dominant->observations) {
                                 if (observation.timestampSeconds >= sceneStart
                                     && observation.timestampSeconds < sceneEnd) {
@@ -984,9 +1035,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         // aggregate window per scene. The durations and stride
                         // are the documented 3b contract, measured on actual
                         // timestamps rather than guessed frame counts.
-                        constexpr double windowSeconds = 1.0;
+                        constexpr double windowSeconds = 1.5;
                         constexpr double strideSeconds = 0.25;
-                        constexpr double minimumWindowSeconds = 0.9;
+                        constexpr double minimumWindowSeconds = 1.1;
                         std::size_t start = 0;
                         while (start < window.frames.size()) {
                             const double startTime = window.frames[start].timestampSeconds;
@@ -1002,6 +1053,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                     >= minimumWindowSeconds) {
                                 pfcore::MotionWindow chunk;
                                 chunk.sourceId = window.sourceId;
+                                chunk.trackId = window.trackId;
+                                chunk.sceneIndex = window.sceneIndex;
+                                chunk.hasSceneIndex = window.hasSceneIndex;
                                 chunk.frames.assign(window.frames.begin()
                                                         + static_cast<std::ptrdiff_t>(start),
                                                     window.frames.begin()

@@ -162,11 +162,21 @@ Popup {
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hairline }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.environment"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout { Layout.fillWidth: true; spacing: 12
-                            Text { Layout.preferredWidth: 128; text: L10n.t("settings.provider"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; ToolTip.visible: providerHelp.hovered; ToolTip.text: L10n.t("settings.providerHint"); ToolTip.delay: 350 }
+                            Text { Layout.preferredWidth: 128; text: L10n.t("settings.provider"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; ToolTip.visible: providerHelp.hovered; ToolTip.text: L10n.t("settings.providerHint"); ToolTip.delay: 350; elide: Text.ElideRight }
                             HoverHandler { id: providerHelp }
                             PfComboBox { id: provider; Layout.preferredWidth: 180; Layout.fillWidth: true; model: root.providerLabels; currentIndex: Math.max(0, root.providerIds.indexOf(Analysis.providerChoice)); Accessible.name: L10n.t("settings.provider"); onActivated: Analysis.providerChoice = root.providerIds[currentIndex] }
                         }
                         Text { Layout.fillWidth: true; text: AppInfo.gpuSummary; color: AppInfo.backendIsGpu ? Theme.sage : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                        Text {
+                            Layout.fillWidth: true
+                            text: Analysis.providerChoice === "auto"
+                                ? L10n.t("settings.providerHint")
+                                : (AppInfo.backendAvailable(Analysis.providerChoice)
+                                    ? "✓ " + Analysis.providerChoice.toUpperCase() + " доступен"
+                                    : "Провайдер недоступен: " + (AppInfo.backendReason(Analysis.providerChoice) || "нет совместимого runtime"))
+                            color: AppInfo.backendAvailable(Analysis.providerChoice) ? Theme.sage : Theme.accent
+                            font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap
+                        }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.cache"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout { Layout.fillWidth: true; spacing: 8
                             PfTextField { Layout.fillWidth: true; text: Analysis.cachePath; placeholderText: L10n.t("settings.cachePlaceholder"); Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }
@@ -187,9 +197,9 @@ Popup {
                         Text { text: L10n.t("settings.language"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfComboBox { width: parent.width; model: [L10n.t("settings.languageRussian"), L10n.t("settings.languageEnglish")]; currentIndex: L10n.language === "en" ? 1 : 0; Accessible.name: L10n.t("settings.language"); onActivated: { L10n.language = currentIndex === 1 ? "en" : "ru"; customizationStore.language = L10n.language } }
                         Text { text: L10n.t("settings.font"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        Row { width: parent.width; spacing: 8
-                            PfComboBox { width: parent.width - 132; model: ["Segoe UI", "Arial", "Verdana"]; currentIndex: Math.max(0, model.indexOf(Theme.fontFamily)); Accessible.name: L10n.t("settings.font"); onActivated: { Theme.fontFamily = currentText; customizationStore.fontFamily = currentText; customizationStore.customFontPath = "" } }
-                            PfButton { width: 124; text: L10n.t("settings.fontAdd"); quiet: true; onClicked: fontDialog.open() }
+                        RowLayout { width: parent.width; spacing: 8
+                            PfComboBox { Layout.fillWidth: true; model: ["Segoe UI", "Arial", "Verdana"]; currentIndex: Math.max(0, model.indexOf(Theme.fontFamily)); Accessible.name: L10n.t("settings.font"); onActivated: { Theme.fontFamily = currentText; customizationStore.fontFamily = currentText; customizationStore.customFontPath = "" } }
+                            PfButton { Layout.preferredWidth: 132; text: L10n.t("settings.fontAdd"); quiet: true; onClicked: fontDialog.open() }
                         }
                         Text { visible: customFont.status === FontLoader.Ready; text: L10n.t("settings.fontLoaded") + ": " + customFont.name; color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
                         Text { text: L10n.t("settings.surfaceOpacity"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }

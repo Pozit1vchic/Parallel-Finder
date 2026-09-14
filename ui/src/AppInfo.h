@@ -39,6 +39,8 @@ public:
     QString gpuSummary() const;   // display form: "cuda · NVIDIA GeForce RTX 4070"
     QString ortVersion() const;   // ONNX Runtime version, "" when not loaded
     bool backendIsGpu() const;
+    Q_INVOKABLE bool backendAvailable(const QString& backend) const;
+    Q_INVOKABLE QString backendReason(const QString& backend) const;
 
     // Single entry point for the init step: one signal for the whole badge
     // instead of four updates flickering through the UI.

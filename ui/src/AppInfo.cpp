@@ -1,5 +1,7 @@
 #include "AppInfo.h"
 #include "AnalysisController.h"
+#include <pfgpu/DeviceInfo.hpp>
+#include <pfgpu/Provider.hpp>
 
 #include <QCoreApplication>
 #include <QQmlEngine>
@@ -73,6 +75,21 @@ QString AppInfo::ortVersion() const
 bool AppInfo::backendIsGpu() const
 {
     return m_backendIsGpu;
+}
+
+bool AppInfo::backendAvailable(const QString& backend) const
+{
+    const auto provider = pfgpu::parseProvider(backend.toStdString());
+    return provider.has_value() && pfgpu::isProviderAvailable(*provider);
+}
+
+QString AppInfo::backendReason(const QString& backend) const
+{
+    const auto provider = pfgpu::parseProvider(backend.toStdString());
+    if (!provider.has_value()) return QStringLiteral("Неизвестный провайдер");
+    if (const auto* status = pfgpu::findBackendStatus(*provider))
+        return status->available ? QString() : QString::fromStdString(status->reason);
+    return QStringLiteral("Провайдер недоступен");
 }
 
 void AppInfo::setGpuInfo(const QString& backend,

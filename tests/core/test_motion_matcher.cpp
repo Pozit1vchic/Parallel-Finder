@@ -73,6 +73,27 @@ TEST(MotionMatcher, RejectsStaticWindows)
     EXPECT_TRUE(pfcore::MotionMatcher().findAllPairs({left, right}).empty());
 }
 
+TEST(MotionMatcher, RejectsDetectorJitterAndSameSceneRepeats)
+{
+    pfcore::MotionWindow left; left.sourceId = "clip-a"; left.hasSceneIndex = true; left.sceneIndex = 3;
+    pfcore::MotionWindow right; right.sourceId = "clip-b"; right.hasSceneIndex = true; right.sceneIndex = 4;
+    for (int i = 0; i < 24; ++i) {
+        const double jitter = (i % 3 == 0 ? 0.004 : -0.003);
+        left.frames.push_back({i / 24.0, {{0.2 + jitter, 0.2}, {0.2, 0.4 + jitter}}});
+        right.frames.push_back({6.0 + i / 24.0, {{0.2 - jitter, 0.2}, {0.2, 0.4 - jitter}}});
+    }
+    EXPECT_TRUE(pfcore::MotionMatcher().findAllPairs({left, right}).empty());
+}
+
+TEST(MotionMatcher, RejectsSameSceneEvenWhenThePoseMoves)
+{
+    auto left = window("same", 0.0);
+    auto right = window("same", 8.0);
+    left.hasSceneIndex = right.hasSceneIndex = true;
+    left.sceneIndex = right.sceneIndex = 2;
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher().compare(left, right).similarity, 0.0);
+}
+
 TEST(MotionMatcher, RequiresAContinuousTemporalRun)
 {
     auto left = window("left", 0.0, false, 24);

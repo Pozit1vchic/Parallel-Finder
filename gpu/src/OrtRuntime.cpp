@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -95,16 +96,36 @@ HMODULE loadLibrary(const std::filesystem::path& path, std::string& error)
 
 void loadRuntime(RuntimeState& s)
 {
-    std::filesystem::path candidate = L"onnxruntime.dll";
+    std::vector<std::filesystem::path> candidates;
     bool explicitPath = false;
     if (const char* override_path = std::getenv(kRuntimePathEnvVar);
         override_path && *override_path) {
-        candidate = std::filesystem::path(override_path);
+        candidates.emplace_back(override_path);
         explicitPath = true;
+    } else {
+        // Prefer a side-by-side GPU bundle when it is present. Loading the
+        // generic CPU/DML DLL first makes later CUDA/TensorRT selection look
+        // like a UI bug because an already loaded runtime cannot gain EPs.
+        const std::filesystem::path gpuRuntime = R"(D:\PF_CUDA\onnxruntime.dll)";
+        if (std::filesystem::is_regular_file(gpuRuntime)) candidates.push_back(gpuRuntime);
+        wchar_t modulePath[MAX_PATH] {};
+        const DWORD length = ::GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
+        if (length > 0 && length < MAX_PATH) {
+            const auto appRuntime = std::filesystem::path(modulePath).parent_path()
+                / "onnxruntime.dll";
+            if (std::filesystem::is_regular_file(appRuntime)) candidates.push_back(appRuntime);
+        }
+        candidates.emplace_back(L"onnxruntime.dll");
     }
 
-    HMODULE module = loadLibrary(candidate, s.status.error);
+    HMODULE module = nullptr;
+    std::string lastError;
+    for (const auto& candidate : candidates) {
+        module = loadLibrary(candidate, lastError);
+        if (module) break;
+    }
     if (!module) {
+        s.status.error = lastError;
         if (explicitPath) {
             s.status.error += " (from " + std::string(kRuntimePathEnvVar) + ")";
         } else {
