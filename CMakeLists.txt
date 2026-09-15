@@ -31,6 +31,6 @@ add_subdirectory(exporters)  # pfexporters — JSON/CSV/TXT/EDL/FCPXML/AEP
 add_subdirectory(ui)         # pfui        — QML Main/Settings/Export + C++ bridge
 add_subdirectory(app)        # ParallelFinder — thin: init → Main
 
-if(BUILD_TESTING)
+if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
     add_subdirectory(tests)
 endif()

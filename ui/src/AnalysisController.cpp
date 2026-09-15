@@ -240,7 +240,7 @@ bool readBytes(const std::vector<std::uint8_t>& input, std::size_t& offset, T& v
 std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::MotionWindow>& windows)
 {
     std::vector<std::uint8_t> output;
-    const std::uint32_t version = 5;
+    const std::uint32_t version = 6;
     appendBytes(output, version);
     appendBytes(output, static_cast<std::uint32_t>(windows.size()));
     for (const auto& window : windows) {
@@ -249,6 +249,7 @@ std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::Motio
         appendBytes(output, static_cast<std::uint64_t>(window.trackId));
         appendBytes(output, static_cast<std::uint64_t>(window.sceneIndex));
         appendBytes(output, static_cast<std::uint8_t>(window.hasSceneIndex ? 1 : 0));
+        appendBytes(output, static_cast<std::uint8_t>(window.staticFrameSet ? 1 : 0));
         appendBytes(output, window.sceneStartSeconds);
         appendBytes(output, window.sceneEndSeconds);
         appendBytes(output, window.appearanceConfidence);
@@ -273,7 +274,7 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
 {
     std::size_t offset = 0;
     std::uint32_t version = 0, windowCount = 0;
-    if (!readBytes(input, offset, version) || version != 5
+    if (!readBytes(input, offset, version) || version != 6
         || !readBytes(input, offset, windowCount) || windowCount > 1'000'000U) return false;
     windows.clear();
     windows.reserve(windowCount);
@@ -285,12 +286,14 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
         window.sourceId.assign(reinterpret_cast<const char*>(input.data() + offset), sourceSize);
         offset += sourceSize;
         std::uint64_t trackId = 0, sceneIndex = 0;
-        std::uint8_t hasSceneIndex = 0;
+        std::uint8_t hasSceneIndex = 0, staticFrameSet = 0;
         if (!readBytes(input, offset, trackId) || !readBytes(input, offset, sceneIndex)
-            || !readBytes(input, offset, hasSceneIndex)) return false;
+            || !readBytes(input, offset, hasSceneIndex)
+            || !readBytes(input, offset, staticFrameSet)) return false;
         window.trackId = static_cast<std::size_t>(trackId);
         window.sceneIndex = static_cast<std::size_t>(sceneIndex);
         window.hasSceneIndex = hasSceneIndex != 0;
+        window.staticFrameSet = staticFrameSet != 0;
         if (!readBytes(input, offset, window.sceneStartSeconds)
             || !readBytes(input, offset, window.sceneEndSeconds)
             || !std::isfinite(window.sceneStartSeconds)
@@ -526,6 +529,9 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     qualityProfile_ = QStringLiteral("maximum");
     if (settings.qualityProfile == "fast" || settings.qualityProfile == "medium" || settings.qualityProfile == "maximum")
         qualityProfile_ = QString::fromStdString(settings.qualityProfile);
+    if (settings.analysisMode == "motion" || settings.analysisMode == "static"
+        || settings.analysisMode == "clips" || settings.analysisMode == "combined")
+        analysisMode_ = QString::fromStdString(settings.analysisMode);
     normalizeSize_ = settings.normalizeSize;
     mirrorPoses_ = settings.mirrorPoses;
     modelPath_ = QString::fromStdString(settings.modelPath);
@@ -581,6 +587,7 @@ void AnalysisController::saveSettings() const
     auto settings = store.load(error);
     settings.provider = providerChoice_.toStdString();
     settings.qualityProfile = qualityProfile_.toStdString();
+    settings.analysisMode = analysisMode_.toStdString();
     settings.normalizeSize = normalizeSize_;
     settings.mirrorPoses = mirrorPoses_;
     settings.modelPath = modelPath_.toStdString();
@@ -723,6 +730,17 @@ void AnalysisController::setQualityProfile(const QString& value)
         && normalized != QStringLiteral("maximum")) return;
     if (qualityProfile_ == normalized) return;
     qualityProfile_ = normalized;
+    saveSettings();
+    emit settingsChanged();
+}
+
+void AnalysisController::setAnalysisMode(const QString& value)
+{
+    const QString normalized = value.trimmed().toLower();
+    if (normalized != QStringLiteral("motion") && normalized != QStringLiteral("static")
+        && normalized != QStringLiteral("clips") && normalized != QStringLiteral("combined")) return;
+    if (analysisMode_ == normalized) return;
+    analysisMode_ = normalized;
     saveSettings();
     emit settingsChanged();
 }
@@ -917,14 +935,17 @@ bool AnalysisController::exportResults(const QString& format,
     }
     const QString normalized = format.trimmed().toUpper();
     if (normalized == QStringLiteral("FFMPEG")) {
-        const QString folder = outputFolder.trimmed();
+        const QString folder = localPathFromInput(outputFolder);
         if (folder.isEmpty()) {
             emit exportFinished(false, QStringLiteral("Выберите папку для MP4-клипов"));
             return false;
         }
         const QString requestedPrefix = prefix.trimmed().isEmpty()
             ? QStringLiteral("scene_") : prefix.trimmed();
-        QDir().mkpath(folder);
+        if (!QDir().mkpath(folder)) {
+            emit exportFinished(false, QStringLiteral("Не удалось создать папку экспорта: ") + folder);
+            return false;
+        }
         const pfservices::CutMode mode = cutMode == 1
             ? pfservices::CutMode::Fast : pfservices::CutMode::Exact;
         const pfservices::CutService cutter;
@@ -979,7 +1000,7 @@ bool AnalysisController::exportResults(const QString& format,
     options.numbering = numberingMode == 1 ? pfexporters::NumberingMode::RenumberSorted
                                            : pfexporters::NumberingMode::AsInVideo;
     options.cutMode = cutMode == 1 ? pfexporters::CutMode::Fast : pfexporters::CutMode::Exact;
-    options.outputFolder = outputFolder.toStdString();
+    options.outputFolder = localPathFromInput(outputFolder).toStdString();
     options.filePrefix = prefix.trimmed().isEmpty() ? "frame_" : prefix.trimmed().toStdString();
     options.framesPerSecond = sourceFps_;
     std::string error;
@@ -1157,13 +1178,14 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     const double timeWeight = timeWeight_;
     const QString providerChoice = providerChoice_;
     const QString qualityProfile = qualityProfile_;
+    const QString analysisMode = analysisMode_;
     const bool normalizeSize = normalizeSize_;
     const bool mirrorPoses = mirrorPoses_;
     const QString previewToken = QString::number(QDateTime::currentMSecsSinceEpoch());
     QThread* thread = QThread::create([this, paths = normalized, similarityThreshold, candidateThreshold, repeatGap,
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
                                         maxUniqueResults, timeWeight, providerChoice,
-                                        qualityProfile, normalizeSize, mirrorPoses, previewToken] {
+                                        qualityProfile, analysisMode, normalizeSize, mirrorPoses, previewToken] {
         try {
         int files = 0;
         int scenes = 0;
@@ -1248,9 +1270,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 const auto info = decoder.info();
                 std::vector<pfcore::MotionWindow> cachedWindows;
                 bool cacheHit = false;
-                std::string cacheKey = "motion-v5|" + model.string() + "|"
+                std::string cacheKey = "motion-v6|" + model.string() + "|"
                     + providerChoice.toStdString() + "|reid="
                     + (reidModelPresent ? reidModel.string() : std::string("none")) + "|"
+                    + "quality=" + qualityProfile.toStdString() + "|mirror="
+                    + (mirrorPoses ? std::string("1") : std::string("0")) + "|"
+                    + "mode=" + analysisMode.toStdString() + "|"
                     + path.toStdString();
                 std::error_code cacheFileError;
                 const auto cacheFileSize = std::filesystem::file_size(path.toStdString(), cacheFileError);
@@ -1259,7 +1284,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     + std::to_string(cacheWriteTime.time_since_epoch().count());
                 if (analysisCache) {
                     if (const auto cached = analysisCache->get(cacheKey))
-                        cacheHit = deserializeMotionWindows(*cached, cachedWindows);
+                        cacheHit = deserializeMotionWindows(*cached, cachedWindows)
+                            && !cachedWindows.empty();
                 }
                 ++files;
                 duration += info.durationSeconds;
@@ -1413,50 +1439,64 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                     window.frames.push_back({observation.timestampSeconds, observation.keypoints});
                                 }
                             }
-                            // Compare overlapping motion windows rather than one
-                            // aggregate window per scene. The durations and stride
-                            // are the documented 3b contract, measured on actual
-                            // timestamps rather than guessed frame counts.
-                            constexpr double windowSeconds = 1.5;
-                            constexpr double strideSeconds = 0.25;
-                            constexpr double minimumWindowSeconds = 1.1;
-                            std::size_t start = 0;
-                            while (start < window.frames.size()) {
-                                const double startTime = window.frames[start].timestampSeconds;
-                                if (startTime + minimumWindowSeconds > sceneEnd + 1e-9) break;
-                                std::size_t end = start;
-                                while (end + 1 < window.frames.size()
-                                       && window.frames[end + 1].timestampSeconds
-                                           <= startTime + windowSeconds + 1e-9) {
-                                    ++end;
+                            // Never reduce a scene to one representative frame. Each
+                            // selected analysis mode creates a temporal set of fresh
+                            // samples; the matcher can then enforce its multi-frame
+                            // support and motion/static policy.
+                            const auto appendChunks = [&](double windowSeconds,
+                                                          double strideSeconds,
+                                                          double minimumWindowSeconds,
+                                                          bool staticFrameSet) {
+                                if (window.frames.size() < 2) return;
+                                std::size_t start = 0;
+                                while (start < window.frames.size()) {
+                                    const double startTime = window.frames[start].timestampSeconds;
+                                    if (startTime + minimumWindowSeconds > sceneEnd + 1e-9) break;
+                                    std::size_t end = start;
+                                    while (end + 1 < window.frames.size()
+                                           && window.frames[end + 1].timestampSeconds
+                                               <= startTime + windowSeconds + 1e-9) {
+                                        ++end;
+                                    }
+                                    if (end > start
+                                        && window.frames[end].timestampSeconds - startTime
+                                            >= minimumWindowSeconds) {
+                                        pfcore::MotionWindow chunk;
+                                        chunk.sourceId = window.sourceId;
+                                        chunk.trackId = window.trackId;
+                                        chunk.sceneIndex = window.sceneIndex;
+                                        chunk.hasSceneIndex = window.hasSceneIndex;
+                                        chunk.staticFrameSet = staticFrameSet;
+                                        chunk.sceneStartSeconds = window.sceneStartSeconds;
+                                        chunk.sceneEndSeconds = window.sceneEndSeconds;
+                                        chunk.appearanceEmbedding = window.appearanceEmbedding;
+                                        chunk.appearanceConfidence = window.appearanceConfidence;
+                                        chunk.frames.assign(window.frames.begin()
+                                                                + static_cast<std::ptrdiff_t>(start),
+                                                            window.frames.begin()
+                                                                + static_cast<std::ptrdiff_t>(end + 1));
+                                        windows.push_back(std::move(chunk));
+                                        previewA.push_back(previewStart);
+                                        previewB.push_back(previewEnd);
+                                    }
+                                    const double nextTime = startTime + strideSeconds;
+                                    std::size_t next = start + 1;
+                                    while (next < window.frames.size()
+                                           && window.frames[next].timestampSeconds < nextTime) {
+                                        ++next;
+                                    }
+                                    start = next;
                                 }
-                                if (end > start
-                                    && window.frames[end].timestampSeconds - startTime
-                                        >= minimumWindowSeconds) {
-                                    pfcore::MotionWindow chunk;
-                                    chunk.sourceId = window.sourceId;
-                                    chunk.trackId = window.trackId;
-                                    chunk.sceneIndex = window.sceneIndex;
-                                    chunk.hasSceneIndex = window.hasSceneIndex;
-                                    chunk.sceneStartSeconds = window.sceneStartSeconds;
-                                    chunk.sceneEndSeconds = window.sceneEndSeconds;
-                                    chunk.appearanceEmbedding = window.appearanceEmbedding;
-                                    chunk.appearanceConfidence = window.appearanceConfidence;
-                                    chunk.frames.assign(window.frames.begin()
-                                                            + static_cast<std::ptrdiff_t>(start),
-                                                        window.frames.begin()
-                                                            + static_cast<std::ptrdiff_t>(end + 1));
-                                    windows.push_back(std::move(chunk));
-                                    previewA.push_back(previewStart);
-                                    previewB.push_back(previewEnd);
-                                }
-                                const double nextTime = startTime + strideSeconds;
-                                std::size_t next = start + 1;
-                                while (next < window.frames.size()
-                                       && window.frames[next].timestampSeconds < nextTime) {
-                                    ++next;
-                                }
-                                start = next;
+                            };
+                            if (analysisMode == QStringLiteral("motion")) {
+                                appendChunks(2.5, 0.75, 2.0, false);
+                            } else if (analysisMode == QStringLiteral("clips")) {
+                                appendChunks(4.0, 1.0, 3.0, false);
+                            } else if (analysisMode == QStringLiteral("static")) {
+                                appendChunks(2.0, 0.75, 1.5, true);
+                            } else { // combined: independent motion and static passes
+                                appendChunks(2.5, 0.75, 2.0, false);
+                                appendChunks(2.0, 0.75, 1.5, true);
                             }
                         }
                     }
@@ -1487,6 +1527,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.noiseFactor = noiseFactor;
             params.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults);
             params.timeWeight = timeWeight;
+            params.allowStaticFrames = analysisMode == QStringLiteral("static")
+                || analysisMode == QStringLiteral("combined");
             params.normalizeSize = normalizeSize;
             const bool appearanceReady = reidReady && std::any_of(windows.begin(), windows.end(),
                 [](const auto& window) { return !window.appearanceEmbedding.empty(); });

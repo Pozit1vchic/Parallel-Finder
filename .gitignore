@@ -64,6 +64,10 @@ compile_commands.json
 .clangd/
 .cache/
 .coverage/
+
+# Local verification suite. Tests stay available in a developer checkout,
+# but are intentionally not part of the product repository.
+/tests/
 coverage/
 
 # Python tooling

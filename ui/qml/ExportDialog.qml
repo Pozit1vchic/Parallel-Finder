@@ -36,12 +36,28 @@ Popup {
         id: folderDialog
         title: L10n.t("export.chooseFolder")
         onAccepted: {
-            const path = selectedFolder.toLocalFile()
-            if (path.length > 0) root.outputFolder = path
+            root.outputFolder = root.localFolderPath(selectedFolder)
         }
     }
     Connections { target: Analysis; function onExportFinished(success, message) { root.exportStatus = message; if (success) root.close() } }
     function selectedIndexes() { return Object.keys(root.selectedRows).map(function (key) { return Number(key) }) }
+    function localFolderPath(value) {
+        if (value && value.toLocalFile) {
+            const local = value.toLocalFile()
+            if (local && local.length > 0) return local
+        }
+        let text = String(value || "")
+        if (text.toLowerCase().startsWith("file:")) {
+            try { text = decodeURIComponent(text.replace(/^file:\/\//i, "")) } catch (error) { text = text.replace(/^file:\/\//i, "") }
+        }
+        if (/^\/[A-Za-z]:/.test(text)) text = text.slice(1)
+        return text
+    }
+    function chooseFolder() {
+        if (root.outputFolder.length > 0)
+            folderDialog.currentFolder = "file:///" + root.outputFolder.replace(/\\/g, "/")
+        folderDialog.open()
+    }
     contentItem: Column { anchors.fill: parent; anchors.margins: 24; spacing: 14
         Item { width: parent.width; height: 38
             Column { anchors.left: parent.left; anchors.top: parent.top; width: parent.width - 42; spacing: 4
@@ -81,7 +97,7 @@ Popup {
         ComboBox { id: cutMode; visible: false; model: [0, 1]; currentIndex: 0 }
         Row { width: parent.width; spacing: 8
             PfTextField { id: folderField; width: parent.width - 110; text: root.outputFolder; placeholderText: L10n.t("export.folder"); Accessible.name: L10n.t("export.folder"); onEditingFinished: root.outputFolder = text }
-            PfButton { width: 102; text: L10n.t("export.chooseFolder"); quiet: true; onClicked: folderDialog.open() }
+            PfButton { width: 102; text: L10n.t("export.chooseFolder"); quiet: true; onClicked: root.chooseFolder() }
         }
         PfTextField { id: prefixField; width: parent.width; text: "frame_"; placeholderText: L10n.t("export.prefix"); Accessible.name: L10n.t("export.prefix") }
         Text {

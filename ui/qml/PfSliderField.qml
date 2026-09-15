@@ -19,7 +19,7 @@ Item {
     property bool integer: false
     signal valueEdited(real nextValue)
 
-    implicitHeight: labelText.implicitHeight + slider.implicitHeight + 7
+    implicitHeight: labelText.implicitHeight + 4 + 24 + 13
     height: implicitHeight
 
     function displayNumber(raw) {
@@ -59,6 +59,7 @@ Item {
     }
 
     RowLayout {
+        id: controlRow
         anchors.top: labelRow.bottom
         anchors.topMargin: 4
         width: parent.width
@@ -105,6 +106,32 @@ Item {
             font.family: Theme.fontFamily
             font.pixelSize: 10
             Layout.alignment: Qt.AlignVCenter
+        }
+    }
+
+    RowLayout {
+        id: rangeRow
+        anchors.top: controlRow.bottom
+        anchors.topMargin: 1
+        width: parent.width
+        height: 12
+        Text {
+            Layout.minimumWidth: 0
+            text: root.displayNumber(root.from) + (root.suffix.length ? root.suffix : "")
+            color: Theme.textDisabled
+            font.family: Theme.fontFamily
+            font.pixelSize: 9
+            elide: Text.ElideRight
+        }
+        Item { Layout.fillWidth: true }
+        Text {
+            Layout.minimumWidth: 0
+            text: root.displayNumber(root.to) + (root.suffix.length ? root.suffix : "")
+            color: Theme.textDisabled
+            font.family: Theme.fontFamily
+            font.pixelSize: 9
+            horizontalAlignment: Text.AlignRight
+            elide: Text.ElideLeft
         }
     }
 }

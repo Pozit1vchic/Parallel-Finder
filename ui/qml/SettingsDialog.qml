@@ -20,6 +20,13 @@ Popup {
         L10n.t("settings.providerTensorRt"),
         L10n.t("settings.providerCpu")
     ]
+    readonly property var accentIds: ["orange", "blue", "violet", "teal"]
+    readonly property var accentLabels: [
+        L10n.t("settings.accentOrange"),
+        L10n.t("settings.accentBlue"),
+        L10n.t("settings.accentViolet"),
+        L10n.t("settings.accentTeal")
+    ]
     modal: true
     focus: true
     padding: 0
@@ -57,6 +64,7 @@ Popup {
         property string fontFamily: "Segoe UI"
         property string customFontPath: ""
         property real surfaceOpacity: 1.0
+        property string accentColor: "orange"
     }
     FontLoader {
         id: customFont
@@ -86,6 +94,7 @@ Popup {
     Component.onCompleted: {
         L10n.language = customizationStore.language
         Theme.surfaceOpacity = customizationStore.surfaceOpacity
+        root.applyAccent(customizationStore.accentColor)
         if (!customizationStore.customFontPath.length) Theme.fontFamily = customizationStore.fontFamily
         root.centerInWindow()
     }
@@ -110,10 +119,22 @@ Popup {
     function resetAppearance() {
         Theme.fontFamily = "Segoe UI"
         Theme.surfaceOpacity = 1.0
+        root.applyAccent("orange")
         customizationStore.fontFamily = Theme.fontFamily
         customizationStore.customFontPath = ""
         customizationStore.surfaceOpacity = Theme.surfaceOpacity
         root.themeStatus = L10n.t("settings.resetDone")
+    }
+    function accentValue(id) {
+        if (id === "blue") return "#5D8DDE"
+        if (id === "violet") return "#A679D6"
+        if (id === "teal") return "#54B7A5"
+        return "#D97757"
+    }
+    function applyAccent(id) {
+        const normalized = root.accentIds.indexOf(id) >= 0 ? id : "orange"
+        Theme.accent = root.accentValue(normalized)
+        customizationStore.accentColor = normalized
     }
     function providerStatusText(id) {
         const key = String(id || "auto").toLowerCase()
@@ -252,6 +273,8 @@ Popup {
                             PfButton { Layout.preferredWidth: 132; text: L10n.t("settings.fontAdd"); quiet: true; onClicked: fontDialog.open() }
                         }
                         Text { visible: customFont.status === FontLoader.Ready; text: L10n.t("settings.fontLoaded") + ": " + customFont.name; color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
+                        Text { text: L10n.t("settings.accentColor"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        PfComboBox { width: parent.width; model: root.accentLabels; currentIndex: Math.max(0, root.accentIds.indexOf(customizationStore.accentColor)); Accessible.name: L10n.t("settings.accentColor"); onActivated: root.applyAccent(root.accentIds[currentIndex]) }
                         Text { text: L10n.t("settings.surfaceOpacity"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfSliderField { width: parent.width; label: L10n.t("settings.surfaceOpacity"); from: 0.72; to: 1.0; stepSize: 0.01; value: Theme.surfaceOpacity; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("settings.surfaceOpacityHint"); Accessible.name: L10n.t("settings.surfaceOpacity"); onValueEdited: { Theme.surfaceOpacity = nextValue; customizationStore.surfaceOpacity = nextValue } }
                         Rectangle { width: parent.width; height: 1; color: Theme.hairline }

@@ -31,8 +31,13 @@ void MotionRanker::rank(std::vector<MotionMatch>& matches,
     // prefilters, but a pair classified static in both axes is not a motion
     // result. Keep a static camera with a real hand gesture (gesture != static)
     // eligible; remove only the exact static/static false-positive class.
-    matches.erase(std::remove_if(matches.begin(), matches.end(), [](const auto& match) {
-        return match.directionLabel == "static" && match.gestureLabel == "static";
+    matches.erase(std::remove_if(matches.begin(), matches.end(), [&](const auto& match) {
+        const bool explicitStaticAnalysis = match.leftIndex < windows.size()
+            && match.rightIndex < windows.size()
+            && windows[match.leftIndex].staticFrameSet
+            && windows[match.rightIndex].staticFrameSet;
+        return !explicitStaticAnalysis
+            && match.directionLabel == "static" && match.gestureLabel == "static";
     }), matches.end());
     std::stable_sort(matches.begin(), matches.end(), [](const MotionMatch& left,
                                                         const MotionMatch& right) {

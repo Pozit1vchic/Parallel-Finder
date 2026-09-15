@@ -197,7 +197,9 @@ double coarseSimilarity(const std::vector<Descriptor>& left,
                         const std::vector<Descriptor>& right)
 {
     if (left.empty() || right.empty()) return 0.0;
-    const std::size_t samples = std::min<std::size_t>(4, std::min(left.size(), right.size()));
+    // Four endpoint samples made a long window look like a single-frame
+    // comparison. Use a denser temporal sketch before the expensive DTW pass.
+    const std::size_t samples = std::min<std::size_t>(16, std::min(left.size(), right.size()));
     if (samples == 0) return 0.0;
     double distance = 0.0;
     std::size_t used = 0;
@@ -303,6 +305,28 @@ bool hasTemporalSupport(const MotionWindow& window,
     return window.frames.size() >= params.minTemporalFrames
         || (span + 1e-9 >= std::max(params.minTemporalDurationSec, params.minMotionSpanSec)
             && window.frames.size() >= 6);
+}
+
+bool hasDistinctTemporalSamples(const MotionWindow& window,
+                                const std::vector<Descriptor>& descriptors,
+                                const MotionMatcherParams& params)
+{
+    // A candidate is never allowed to collapse to one reused frame. Count the
+    // actual timestamped samples that reached the descriptor stage; this also
+    // works for static-frame mode where pose motion is intentionally optional.
+    if (descriptors.size() < params.minTemporalFrames
+        || window.frames.size() < params.minTemporalFrames) return false;
+    std::size_t usable = 0;
+    double previousTimestamp = -std::numeric_limits<double>::infinity();
+    for (std::size_t index = 0; index < descriptors.size()
+         && index < window.frames.size(); ++index) {
+        if (descriptors[index].empty()) continue;
+        const double timestamp = window.frames[index].timestampSeconds;
+        if (!std::isfinite(timestamp) || timestamp <= previousTimestamp) continue;
+        previousTimestamp = timestamp;
+        ++usable;
+    }
+    return usable >= params.minTemporalFrames;
 }
 
 bool hasTemporalRun(const std::vector<Descriptor>& left,
@@ -447,16 +471,22 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         result.similarity = 0.0;
         return result;
     }
-    if (a.empty() || b.empty()
-        || leftPrepared.motionDelta < params.motionDeltaThreshold
+    const bool staticPair = left.staticFrameSet || right.staticFrameSet;
+    const bool motionGateFails = leftPrepared.motionDelta < params.motionDeltaThreshold
         || rightPrepared.motionDelta < params.motionDeltaThreshold
         || leftPrepared.activeTransitionRatio < params.minActiveTransitionRatio
         || rightPrepared.activeTransitionRatio < params.minActiveTransitionRatio
         || leftPrepared.trajectoryRange < params.minMotionRange
         || rightPrepared.trajectoryRange < params.minMotionRange
+        || !hasTemporalRun(a, b, left, right, params);
+    if (left.staticFrameSet != right.staticFrameSet
+        || (staticPair && !params.allowStaticFrames)
+        || a.empty() || b.empty()
+        || !hasDistinctTemporalSamples(left, a, params)
+        || !hasDistinctTemporalSamples(right, b, params)
         || !hasTemporalSupport(left, params)
         || !hasTemporalSupport(right, params)
-        || !hasTemporalRun(a, b, left, right, params)) {
+        || (!staticPair && motionGateFails)) {
         result.similarity = 0.0;
         return result;
     }
@@ -591,9 +621,12 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         prepared[index].motionDelta = activity.meanDelta;
         prepared[index].activeTransitionRatio = activity.activeTransitionRatio;
         prepared[index].trajectoryRange = activity.trajectoryRange;
-        if (prepared[index].motionDelta < params_.motionDeltaThreshold
-            || prepared[index].activeTransitionRatio < params_.minActiveTransitionRatio
-            || prepared[index].trajectoryRange < params_.minMotionRange
+        const bool staticWindow = windows[index].staticFrameSet;
+        if ((staticWindow && !params_.allowStaticFrames)
+            || !hasDistinctTemporalSamples(windows[index], prepared[index].descriptors, params_)
+            || (!staticWindow && (prepared[index].motionDelta < params_.motionDeltaThreshold
+                                  || prepared[index].activeTransitionRatio < params_.minActiveTransitionRatio
+                                  || prepared[index].trajectoryRange < params_.minMotionRange))
             || !hasTemporalSupport(windows[index], params_)) {
             prepared[index].descriptors.clear();
             continue;
@@ -634,6 +667,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         const std::size_t j = static_cast<std::size_t>(key & 0xffffffffULL);
         if (i >= windows.size() || j >= windows.size() || i >= j) continue;
         const bool sameSource = windows[i].sourceId == windows[j].sourceId;
+        if (windows[i].staticFrameSet != windows[j].staticFrameSet) continue;
         if (sameSource && params_.requireSameTrackWithinSource
             && windows[i].trackId != 0 && windows[j].trackId != 0
             && windows[i].trackId != windows[j].trackId) {
@@ -692,8 +726,17 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 && overlapRatio(candidate.rightStartSeconds, candidate.rightEndSeconds,
                                 kept.rightStartSeconds, kept.rightEndSeconds)
                     >= params_.nmsOverlapThreshold;
+            const bool sameTrackAndScene = windows[candidate.leftIndex].trackId != 0
+                && windows[candidate.leftIndex].trackId == windows[kept.leftIndex].trackId
+                && windows[candidate.rightIndex].trackId != 0
+                && windows[candidate.rightIndex].trackId == windows[kept.rightIndex].trackId
+                && windows[candidate.leftIndex].hasSceneIndex
+                && windows[candidate.rightIndex].hasSceneIndex
+                && windows[candidate.leftIndex].sceneIndex == windows[kept.leftIndex].sceneIndex
+                && windows[candidate.rightIndex].sceneIndex == windows[kept.rightIndex].sceneIndex;
             return overlapping || (leftDelta <= params_.duplicateWindowSec
-                                   && rightDelta <= params_.duplicateWindowSec);
+                                   && rightDelta <= params_.duplicateWindowSec)
+                || (sameTrackAndScene && leftDelta <= 1.25 && rightDelta <= 1.25);
         });
         if (!duplicate) unique.push_back(candidate);
         if (unique.size() >= params_.maxUniqueResults) break;

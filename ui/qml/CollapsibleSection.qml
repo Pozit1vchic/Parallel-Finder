@@ -28,7 +28,7 @@ Item {
             id: header
             Layout.fillWidth: true
             Layout.minimumWidth: 0
-            implicitHeight: 46
+            implicitHeight: Math.max(46, titleText.implicitHeight + 16)
             height: implicitHeight
             hoverEnabled: true
             activeFocusOnTab: true
@@ -43,31 +43,21 @@ Item {
                 root.expanded = !root.expanded
                 root.toggled(root.expanded)
             }
-            contentItem: RowLayout {
+            contentItem: Text {
+                id: titleText
                 anchors.fill: parent
                 anchors.leftMargin: 12
                 anchors.rightMargin: 12
-                spacing: 8
-                Text {
-                    Layout.fillWidth: true
-                    Layout.minimumWidth: 0
-                    text: root.title
-                    color: Theme.textPrimary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 11
-                    font.weight: Font.DemiBold
-                    elide: Text.ElideRight
-                    verticalAlignment: Text.AlignVCenter
-                    clip: true
-                }
-                Text {
-                    id: disclosure
-                    Layout.alignment: Qt.AlignVCenter
-                    text: root.expanded ? "−" : "+"
-                    color: Theme.accent
-                    font.pixelSize: 17
-                    verticalAlignment: Text.AlignVCenter
-                }
+                text: root.title
+                color: Theme.textPrimary
+                font.family: Theme.fontFamily
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
+                clip: true
             }
             background: Rectangle {
                 radius: Theme.radiusButton

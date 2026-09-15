@@ -24,6 +24,10 @@ struct MotionWindow {
     std::size_t trackId = 0;
     std::size_t sceneIndex = 0;
     bool hasSceneIndex = false;
+    // Static-frame analysis still uses a temporal set of independent samples;
+    // this flag tells the matcher not to require motion, while preserving the
+    // multi-frame/temporal coverage guard.
+    bool staticFrameSet = false;
     // Full shot bounds retained separately from the shorter motion chunk.
     // Matching still uses the chunk; export can cut the complete scene.
     double sceneStartSeconds = -1.0;
@@ -87,6 +91,7 @@ struct MotionMatcherParams {
     // to a visually similar pose from person B.  Cross-file IDs are not
     // comparable and are therefore intentionally ignored.
     bool requireSameTrackWithinSource = true;
+    bool allowStaticFrames = false;
     bool requireAppearance = false;
     double minAppearanceSimilarity = 0.55;
     double appearanceWeight = 0.20;

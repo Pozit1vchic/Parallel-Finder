@@ -95,9 +95,8 @@ Rectangle {
                 onDropped: if (drop.hasUrls) root.filesRequested(drop.urls)
                 Rectangle { anchors.fill: parent; radius: Theme.radiusButton; color: parent.containsDrag ? Theme.accentMuted : Theme.well; border.width: 1; border.color: parent.containsDrag ? Theme.accent : Theme.hairlineStrong
                     Column { anchors.centerIn: parent; width: parent.width - 24; spacing: 7
-                        Image { anchors.horizontalCenter: parent.horizontalCenter; source: "qrc:/qt/qml/PfUi/qml/assets/plus.svg"; sourceSize.width: 20; sourceSize.height: 20; smooth: true }
-                        Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: L10n.t("sources.dropTitle"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
-                        Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: L10n.t("sources.dropHint"); color: Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                        Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: L10n.t("sources.dropTitle"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap; maximumLineCount: 2; clip: true }
+                        Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: L10n.t("sources.dropHint"); color: Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap; maximumLineCount: 2; clip: true }
                     }
                 }
             }
@@ -147,6 +146,72 @@ Rectangle {
                     }
                     PfCheckBox { text: L10n.t("search.normalize"); tooltipText: L10n.t("search.normalizeHint"); checked: Analysis.normalizeSize; onToggled: Analysis.normalizeSize = checked }
                     PfCheckBox { text: L10n.t("search.mirror"); tooltipText: L10n.t("search.mirrorHint"); checked: Analysis.mirrorPoses; onToggled: Analysis.mirrorPoses = checked }
+                }
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                width: parent.width
+                color: Theme.panelAlt
+                radius: 10
+                border.color: Theme.border
+                implicitHeight: modeCard.implicitHeight + 24
+                ColumnLayout {
+                    id: modeCard
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 8
+                    Text {
+                        Layout.fillWidth: true
+                        text: L10n.t("search.analysisMode")
+                        color: Theme.sage
+                        font.pixelSize: 11
+                        font.weight: Font.DemiBold
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: L10n.t("search.modeHint")
+                        color: Theme.textSecondary
+                        font.pixelSize: 10
+                        wrapMode: Text.WordWrap
+                    }
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 2
+                        columnSpacing: 6
+                        rowSpacing: 6
+                        PfButton {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            compact: true
+                            text: L10n.t("search.modeMotion")
+                            quiet: Analysis.analysisMode !== "motion"
+                            onClicked: Analysis.analysisMode = "motion"
+                        }
+                        PfButton {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            compact: true
+                            text: L10n.t("search.modeStatic")
+                            quiet: Analysis.analysisMode !== "static"
+                            onClicked: Analysis.analysisMode = "static"
+                        }
+                        PfButton {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            compact: true
+                            text: L10n.t("search.modeClips")
+                            quiet: Analysis.analysisMode !== "clips"
+                            onClicked: Analysis.analysisMode = "clips"
+                        }
+                        PfButton {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            compact: true
+                            text: L10n.t("search.modeCombined")
+                            quiet: Analysis.analysisMode !== "combined"
+                            onClicked: Analysis.analysisMode = "combined"
+                        }
+                    }
                 }
             }
             CollapsibleSection {

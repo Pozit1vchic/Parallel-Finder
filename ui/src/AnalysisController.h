@@ -29,6 +29,7 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(bool analysisCompleted READ analysisCompleted NOTIFY analysisStateChanged)
     Q_PROPERTY(QString providerChoice READ providerChoice WRITE setProviderChoice NOTIFY settingsChanged)
     Q_PROPERTY(QString qualityProfile READ qualityProfile WRITE setQualityProfile NOTIFY settingsChanged)
+    Q_PROPERTY(QString analysisMode READ analysisMode WRITE setAnalysisMode NOTIFY settingsChanged)
     Q_PROPERTY(bool normalizeSize READ normalizeSize WRITE setNormalizeSize NOTIFY settingsChanged)
     Q_PROPERTY(bool mirrorPoses READ mirrorPoses WRITE setMirrorPoses NOTIFY settingsChanged)
     Q_PROPERTY(QString modelPath READ modelPath NOTIFY settingsChanged)
@@ -71,6 +72,7 @@ public:
     bool analysisCompleted() const noexcept { return analysisCompleted_; }
     QString providerChoice() const { return providerChoice_; }
     QString qualityProfile() const { return qualityProfile_; }
+    QString analysisMode() const { return analysisMode_; }
     bool normalizeSize() const noexcept { return normalizeSize_; }
     bool mirrorPoses() const noexcept { return mirrorPoses_; }
     QString modelPath() const { return modelPath_; }
@@ -106,6 +108,7 @@ public:
     void setTimeWeight(double value);
     void setProviderChoice(const QString& value);
     void setQualityProfile(const QString& value);
+    void setAnalysisMode(const QString& value);
     void setNormalizeSize(bool value);
     void setMirrorPoses(bool value);
     void setProcessingThreads(int value);
@@ -168,6 +171,7 @@ private:
     qlonglong totalFrames_ = 0;
     QString providerChoice_ = QStringLiteral("auto");
     QString qualityProfile_ = QStringLiteral("maximum");
+    QString analysisMode_ = QStringLiteral("motion");
     bool normalizeSize_ = true;
     bool mirrorPoses_ = true;
     QString modelPath_;

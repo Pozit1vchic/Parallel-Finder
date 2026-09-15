@@ -17,7 +17,7 @@ namespace {
 QJsonObject toJson(const Settings& settings)
 {
     QJsonObject json;
-    json[QStringLiteral("schemaVersion")] = 4;
+    json[QStringLiteral("schemaVersion")] = 5;
     json[QStringLiteral("provider")] = QString::fromStdString(settings.provider);
     json[QStringLiteral("language")] = QString::fromStdString(settings.language);
     json[QStringLiteral("theme")] = QString::fromStdString(settings.theme);
@@ -39,6 +39,7 @@ QJsonObject toJson(const Settings& settings)
     json[QStringLiteral("timeWeight")] = settings.timeWeight;
     json[QStringLiteral("sakoeChibaRatio")] = settings.sakoeChibaRatio;
     json[QStringLiteral("qualityProfile")] = QString::fromStdString(settings.qualityProfile);
+    json[QStringLiteral("analysisMode")] = QString::fromStdString(settings.analysisMode);
     json[QStringLiteral("normalizeSize")] = settings.normalizeSize;
     json[QStringLiteral("mirrorPoses")] = settings.mirrorPoses;
     return json;
@@ -92,6 +93,10 @@ Settings SettingsStore::load(std::string& error) const
     readString(json, "modelPath", settings.modelPath);
     readString(json, "cachePath", settings.cachePath);
     readString(json, "qualityProfile", settings.qualityProfile);
+    readString(json, "analysisMode", settings.analysisMode);
+    if (settings.analysisMode != "motion" && settings.analysisMode != "static"
+        && settings.analysisMode != "clips" && settings.analysisMode != "combined")
+        settings.analysisMode = "motion";
     const auto normalizeSize = json.value(QStringLiteral("normalizeSize"));
     if (normalizeSize.isBool()) settings.normalizeSize = normalizeSize.toBool();
     const auto mirrorPoses = json.value(QStringLiteral("mirrorPoses"));
