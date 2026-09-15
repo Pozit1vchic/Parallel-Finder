@@ -16,6 +16,7 @@
 #include <QQmlEngine>
 #include <QThread>
 #include <QVariantMap>
+#include <QVersionNumber>
 
 #include <algorithm>
 #include <cctype>
@@ -115,6 +116,21 @@ std::optional<std::filesystem::path> findLocalModelFile(const QString& filename)
     return std::nullopt;
 }
 
+// Derived windows depend on more than a filename.  Reusing a cache entry after
+// replacing an ONNX file in place or changing scene segmentation settings is a
+// correctness bug: the interface appears to accept the new choice while it
+// silently displays windows made by an older pipeline.
+std::string cacheFileFingerprint(const std::filesystem::path& path)
+{
+    std::error_code error;
+    const auto size = std::filesystem::file_size(path, error);
+    if (error) return path.string() + "|unavailable";
+    const auto writeTime = std::filesystem::last_write_time(path, error);
+    if (error) return path.string() + "|" + std::to_string(size) + "|time-unavailable";
+    return path.string() + "|" + std::to_string(size) + "|"
+        + std::to_string(writeTime.time_since_epoch().count());
+}
+
 std::optional<pfservices::ModelAsset> findLocalOrRemoteAsset(const QString& filename,
                                                              std::string& error)
 {
@@ -142,6 +158,27 @@ std::optional<pfservices::ModelAsset> findLocalOrRemoteAsset(const QString& file
     // arbitrary bytes at a predictable GitHub URL.
     error = remoteError.empty() ? error : remoteError;
     return std::nullopt;
+}
+
+bool modelVersionIsCompatible(const pfservices::ModelAsset& asset, QString& error)
+{
+    if (asset.minimumAppVersion.empty()) return true;
+    const QVersionNumber required = QVersionNumber::fromString(
+        QString::fromStdString(asset.minimumAppVersion));
+    const QVersionNumber current = QVersionNumber::fromString(
+        QCoreApplication::applicationVersion());
+    if (required.isNull()) {
+        error = QStringLiteral("В manifest указан некорректный minimumAppVersion: %1")
+            .arg(QString::fromStdString(asset.minimumAppVersion));
+        return false;
+    }
+    if (current.isNull() || QVersionNumber::compare(current, required) < 0) {
+        error = QStringLiteral("Для модели нужна версия приложения %1 или новее; установлена %2")
+            .arg(QString::fromStdString(asset.minimumAppVersion),
+                 QCoreApplication::applicationVersion());
+        return false;
+    }
+    return true;
 }
 
 QString localPathFromInput(const QString& value)
@@ -200,9 +237,9 @@ QString savePreviewAt(const std::string& source, double timestamp, const QString
         decoder.seek(std::max(0.0, timestamp));
         pfcore::DecodedFrame frame;
         const double target = std::max(0.0, timestamp);
-        while (decoder.readNext(frame)) {
+        while (decoder.readNext(frame, false)) {
             if (frame.timestampSeconds + 1e-3 >= target)
-                return savePreview(frame, name);
+                return decoder.convertCurrentFrameToRgba(frame) ? savePreview(frame, name) : QString {};
         }
     } catch (...) {
     }
@@ -230,6 +267,51 @@ std::vector<std::uint8_t> sceneThumbnail(const pfcore::DecodedFrame& frame,
                         result.begin() + static_cast<std::ptrdiff_t>(target));
         }
     }
+    return result;
+}
+
+// Pose and body-ReID do not benefit from 4K input: both models letterbox to
+// their own small tensor (normally 640x640/256x128), while decoding and
+// copying a 4K RGBA frame costs roughly eight times more memory bandwidth than
+// a 720p frame. The analysis decoder is already capped at this working size;
+// this helper also protects callers that provide a full-resolution frame. The
+// preview path reopens the source separately when a full-resolution still is
+// requested.
+struct InferenceSample {
+    int width = 0;
+    int height = 0;
+    std::vector<std::uint8_t> rgba;
+};
+
+InferenceSample makeInferenceSample(const pfcore::DecodedFrame& frame)
+{
+    InferenceSample result;
+    if (frame.width <= 0 || frame.height <= 0 || frame.rgba.empty()) return result;
+
+    constexpr int kMaxInferenceWidth = 1280;
+    constexpr int kMaxInferenceHeight = 720;
+    const double scale = std::min({1.0,
+                                   static_cast<double>(kMaxInferenceWidth) / frame.width,
+                                   static_cast<double>(kMaxInferenceHeight) / frame.height});
+    const int targetWidth = std::max(1, static_cast<int>(std::lround(frame.width * scale)));
+    const int targetHeight = std::max(1, static_cast<int>(std::lround(frame.height * scale)));
+
+    QImage source(frame.rgba.data(), frame.width, frame.height,
+                  frame.width * 4, QImage::Format_RGBA8888);
+    QImage resized = source;
+    if (targetWidth != frame.width || targetHeight != frame.height) {
+        // FastTransformation is sufficient before a pose network's own
+        // letterbox and avoids turning 4K analysis into a CPU resize job.
+        resized = source.scaled(targetWidth, targetHeight, Qt::IgnoreAspectRatio,
+                                Qt::FastTransformation);
+    }
+    resized = resized.convertToFormat(QImage::Format_RGBA8888);
+    result.width = resized.width();
+    result.height = resized.height();
+    const qsizetype bytes = resized.sizeInBytes();
+    result.rgba.resize(static_cast<std::size_t>(std::max<qsizetype>(0, bytes)));
+    if (bytes > 0 && resized.constBits())
+        std::memcpy(result.rgba.data(), resized.constBits(), static_cast<std::size_t>(bytes));
     return result;
 }
 
@@ -367,7 +449,10 @@ std::filesystem::path findPoseModel()
     }
     // Legacy developer location remains a fallback only. It must never
     // override a model explicitly selected in settings.json.
-    const auto defaultName = QStringLiteral("yolo26m-pose-640-b1.onnx");
+    // This is the universal batch-1 asset published in the model Release.
+    // Do not default to a developer-only `-b1` filename: a fresh install must
+    // be able to download exactly the model selected by default.
+    const auto defaultName = QStringLiteral("yolo26m-pose.onnx");
     for (const auto& root : modelRoots()) {
         const auto candidate = root / defaultName.toStdWString();
         std::error_code filesystemError;
@@ -494,11 +579,9 @@ AppearancePrototype averageAppearance(const pfcore::PersonTrack& track,
 {
     std::vector<float> sum;
     std::size_t samples = 0;
-    std::size_t observations = 0;
     for (const auto& observation : track.observations) {
         if (observation.timestampSeconds < startSeconds
             || observation.timestampSeconds >= endSeconds) continue;
-        ++observations;
         if (observation.appearanceEmbedding.empty()) continue;
         if (sum.empty()) sum.assign(observation.appearanceEmbedding.size(), 0.0F);
         if (sum.size() != observation.appearanceEmbedding.size()) continue;
@@ -515,8 +598,13 @@ AppearancePrototype averageAppearance(const pfcore::PersonTrack& track,
     if (!(norm > 1e-12)) return {};
     norm = std::sqrt(norm);
     for (float& value : sum) value = static_cast<float>(value / norm);
-    return {std::move(sum), static_cast<double>(samples)
-        / static_cast<double>(std::max<std::size_t>(1, observations))};
+    // ReID is intentionally sampled much less often than pose inference.
+    // Treating its evidence as `reid samples / pose observations` made a
+    // healthy fast run look unreliable (for example, 3 ReID crops among 18
+    // pose frames scored 0.17) and removed every window before matching.
+    // Three independently sampled, valid crops form a full prototype; one
+    // crop is deliberately still below the matcher's evidence threshold.
+    return {std::move(sum), std::min(1.0, static_cast<double>(samples) / 3.0)};
 }
 
 } // namespace
@@ -557,8 +645,19 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
         && maxUniqueResults_ == 100
         && std::abs(timeWeight_ - 0.25) < 1e-6;
     if (legacyBalanced) {
-        similarityThreshold_ = 0.78;
+        similarityThreshold_ = 0.72;
         candidateThreshold_ = 0.50;
+    }
+    // Scores are now motion-only (ReID is an identity gate), so migrate the
+    // old presets that were tuned against the inflated appearance score.
+    const bool legacyFast = std::abs(similarityThreshold_ - 0.72) < 1e-6
+        && std::abs(candidateThreshold_ - 0.40) < 1e-6
+        && std::abs(repeatGap_ - 8.0) < 1e-6
+        && std::abs(sameFileGap_ - 3.0) < 1e-6
+        && maxUniqueResults_ == 50;
+    if (legacyFast) {
+        similarityThreshold_ = 0.65;
+        candidateThreshold_ = 0.45;
     }
     providerChoice_ = QString::fromStdString(settings.provider);
     // Keep headless diagnostics explicit without changing the persisted
@@ -572,6 +671,10 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     qualityProfile_ = QStringLiteral("maximum");
     if (settings.qualityProfile == "fast" || settings.qualityProfile == "medium" || settings.qualityProfile == "maximum")
         qualityProfile_ = QString::fromStdString(settings.qualityProfile);
+    const QString envQuality = qEnvironmentVariable("PF_QUALITY_PROFILE").toLower();
+    if (envQuality == QStringLiteral("fast") || envQuality == QStringLiteral("medium")
+        || envQuality == QStringLiteral("maximum"))
+        qualityProfile_ = envQuality;
     if (settings.analysisMode == "motion" || settings.analysisMode == "static"
         || settings.analysisMode == "clips" || settings.analysisMode == "combined")
         analysisMode_ = QString::fromStdString(settings.analysisMode);
@@ -586,7 +689,15 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     mirrorPoses_ = settings.mirrorPoses;
     modelPath_ = QString::fromStdString(settings.modelPath);
     modelChoice_ = QFileInfo(modelPath_).fileName();
-    if (modelChoice_.isEmpty()) modelChoice_ = QStringLiteral("yolo26m-pose-640-b1.onnx");
+    if (modelChoice_.isEmpty()) modelChoice_ = QStringLiteral("yolo26m-pose.onnx");
+    // Migrate the old developer-only default.  It was never present in the
+    // public manifest, so leaving it selected on a clean update would make
+    // the download control point at an unavailable asset.
+    if (modelChoice_ == QStringLiteral("yolo26m-pose-640-b1.onnx")
+        && !findLocalModelFile(modelChoice_).has_value()) {
+        modelChoice_ = QStringLiteral("yolo26m-pose.onnx");
+        modelPath_.clear();
+    }
     modelStatus_ = findLocalModelFile(modelChoice_).has_value()
         ? QStringLiteral("Модель установлена и готова к анализу")
         : QStringLiteral("Модель не установлена · выберите её для скачивания");
@@ -595,17 +706,17 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     processingThreads_ = static_cast<int>(std::clamp<std::size_t>(settings.processingThreads, 0, 256));
     sceneThreshold_ = settings.sceneThreshold;
     const auto near = [](double left, double right) { return std::abs(left - right) < 1e-6; };
-    if (near(similarityThreshold_, 0.72) && near(candidateThreshold_, 0.40)
+    if (near(similarityThreshold_, 0.65) && near(candidateThreshold_, 0.45)
         && near(repeatGap_, 8.0) && near(sameFileGap_, 3.0)
         && near(duplicateWindow_, 2.0) && near(noiseFactor_, 1.25)
         && maxUniqueResults_ == 50 && near(timeWeight_, 0.10)) {
         accuracyPreset_ = QStringLiteral("fast");
-    } else if (near(similarityThreshold_, 0.90) && near(candidateThreshold_, 0.70)
+    } else if (near(similarityThreshold_, 0.82) && near(candidateThreshold_, 0.65)
         && near(repeatGap_, 4.0) && near(sameFileGap_, 1.5)
         && near(duplicateWindow_, 1.0) && near(noiseFactor_, 0.70)
         && maxUniqueResults_ == 200 && near(timeWeight_, 0.40)) {
         accuracyPreset_ = QStringLiteral("precise");
-    } else if (!near(similarityThreshold_, 0.78) || !near(candidateThreshold_, 0.50)
+    } else if (!near(similarityThreshold_, 0.72) || !near(candidateThreshold_, 0.50)
         || !near(repeatGap_, 6.0) || !near(sameFileGap_, 2.0)
         || !near(duplicateWindow_, 1.5) || !near(noiseFactor_, 1.0)
         || maxUniqueResults_ != 100 || !near(timeWeight_, 0.25)) {
@@ -865,6 +976,20 @@ void AnalysisController::selectModel(const QString& filename)
                 modelDownloading_ = false;
                 modelDownloadingName_.clear();
                 modelStatus_ = message;
+                modelDownloadProgress_ = 0.0;
+                emit modelStatusChanged();
+                emit modelDownloadProgressChanged();
+                ++modelCatalogRevision_;
+                emit modelCatalogChanged();
+            }, Qt::QueuedConnection);
+            return;
+        }
+        QString compatibilityError;
+        if (!modelVersionIsCompatible(*asset, compatibilityError)) {
+            QMetaObject::invokeMethod(this, [this, compatibilityError] {
+                modelDownloading_ = false;
+                modelDownloadingName_.clear();
+                modelStatus_ = compatibilityError;
                 modelDownloadProgress_ = 0.0;
                 emit modelStatusChanged();
                 emit modelDownloadProgressChanged();
@@ -1376,6 +1501,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             try {
                 pfcore::VideoDecoder decoder;
                 decoder.open(path.toStdString());
+                // Decode only the working resolution needed by pose/ReID.
+                // The separate preview decoder below remains full-resolution
+                // when the user opens an A/B result.
+                decoder.setRgbaMaxDimensions(1280, 720);
                 const auto info = decoder.info();
                 std::vector<pfcore::MotionWindow> cachedWindows;
                 bool cacheHit = false;
@@ -1386,18 +1515,16 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 // Bump this contract whenever association or the identity
                 // policy changes; otherwise a stricter matcher can still
                 // display candidates produced by an older pipeline.
-                std::string cacheKey = "motion-v8|" + model.string() + "|"
+                std::string cacheKey = "motion-v14|trajectory|dominant-scene-track|infer=1280x720|pose=" + cacheFileFingerprint(model) + "|"
                     + providerChoice.toStdString() + "|reid="
-                    + (reidModelPresent ? reidModel.string() : std::string("none")) + "|"
+                    + (reidModelPresent ? cacheFileFingerprint(reidModel) : std::string("none")) + "|"
                     + "quality=" + qualityProfile.toStdString() + "|mirror="
                     + (mirrorPoses ? std::string("1") : std::string("0")) + "|"
-                    + "mode=" + analysisMode.toStdString() + "|"
-                    + path.toStdString();
-                std::error_code cacheFileError;
-                const auto cacheFileSize = std::filesystem::file_size(path.toStdString(), cacheFileError);
-                const auto cacheWriteTime = std::filesystem::last_write_time(path.toStdString(), cacheFileError);
-                cacheKey += "|" + std::to_string(cacheFileSize) + "|"
-                    + std::to_string(cacheWriteTime.time_since_epoch().count());
+                    + "mode=" + analysisMode.toStdString() + "|scene="
+                    + std::to_string(settings.sceneThreshold) + ":"
+                    + std::to_string(settings.sceneMinFrames) + ":"
+                    + std::to_string(settings.sceneAdaptiveMultiplier) + "|source="
+                    + cacheFileFingerprint(path.toStdString());
                 if (analysisCache) {
                     if (const auto cached = analysisCache->get(cacheKey))
                         cacheHit = deserializeMotionWindows(*cached, cachedWindows)
@@ -1419,10 +1546,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 std::size_t decodedFrameIndex = 0;
                 double nextSceneSample = 0.0;
                 double previousPoseTimestamp = -1.0;
-                // The profile names are user-facing contracts: fast samples
-                // every fifth frame, medium every third, maximum every frame.
-                const std::size_t poseStride = qualityProfile == QStringLiteral("fast") ? 5U
-                    : qualityProfile == QStringLiteral("medium") ? 3U : 1U;
+                // The profile names are user-facing contracts. Motion does
+                // not need every decoded frame: fast/medium/maximum sample at
+                // roughly 3/6/12 fps on a 24 fps source while the decoder
+                // still advances frame-accurate timestamps for scene cuts.
+                const std::size_t poseStride = qualityProfile == QStringLiteral("fast") ? 8U
+                    : qualityProfile == QStringLiteral("medium") ? 4U : 2U;
                 // The scene detector works on one thumbnail per second.
                 // Convert a nearby decoded frame, rather than every full
                 // source frame, so high-resolution CPU analysis is not
@@ -1434,8 +1563,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 // prevents "maximum" mode from spending most of its runtime
                 // re-identifying nearly identical frames. The 0.5 s floor
                 // still gives several independent crops per motion window.
-                const double reidIntervalSeconds = qualityProfile == QStringLiteral("fast") ? 0.80
-                    : qualityProfile == QStringLiteral("medium") ? 0.60 : 0.50;
+                const double reidIntervalSeconds = qualityProfile == QStringLiteral("fast") ? 1.20
+                    : qualityProfile == QStringLiteral("medium") ? 0.80 : 0.50;
                 double nextReIdTimestamp = -std::numeric_limits<double>::infinity();
                 struct PendingPoseSample {
                     double timestamp = 0.0;
@@ -1452,9 +1581,16 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 // cannot turn a b8/b16 model into a multi-hundred-megabyte
                 // allocation before ONNX Runtime even starts.
                 constexpr std::uint64_t kPoseBatchMemoryBudget = 128ULL * 1024ULL * 1024ULL;
+                // Pending samples are capped at 1280x720 by
+                // makeInferenceSample(), so the batch budget reflects the
+                // actual tensor staging size rather than the source's 4K
+                // dimensions.
+                const std::uint64_t inferenceWidth = std::min<std::uint64_t>(
+                    1280ULL, static_cast<std::uint64_t>(std::max(1, info.width)));
+                const std::uint64_t inferenceHeight = std::min<std::uint64_t>(
+                    720ULL, static_cast<std::uint64_t>(std::max(1, info.height)));
                 const std::uint64_t frameBytes = std::max<std::uint64_t>(1,
-                    static_cast<std::uint64_t>(std::max(1, info.width))
-                    * static_cast<std::uint64_t>(std::max(1, info.height)) * 4ULL);
+                    inferenceWidth * inferenceHeight * 4ULL);
                 const std::size_t memoryBoundBatch = static_cast<std::size_t>(std::max<std::uint64_t>(
                     1, kPoseBatchMemoryBudget / frameBytes));
                 const std::size_t poseBatchSize = std::min(requestedPoseBatch, memoryBoundBatch);
@@ -1564,14 +1700,18 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         while (nextSceneSample <= frame.timestampSeconds + 1e-9);
                     }
                     if (samplePose && !frame.rgba.empty()) {
+                        const InferenceSample inference = makeInferenceSample(frame);
+                        if (inference.rgba.empty()) continue;
                         if (poseBatchSize <= 1) {
-                            PendingPoseSample sample{frame.timestampSeconds, frame.width, frame.height,
-                                                     poseSampleIndex, frame.rgba};
+                            PendingPoseSample sample{frame.timestampSeconds, inference.width,
+                                                     inference.height, poseSampleIndex,
+                                                     inference.rgba};
                             pfgpu::PoseImage image{sample.width, sample.height, sample.rgba.data()};
                             processPose(sample, pose->infer(image));
                         } else {
-                            PendingPoseSample sample{frame.timestampSeconds, frame.width, frame.height,
-                                                     poseSampleIndex, frame.rgba};
+                            PendingPoseSample sample{frame.timestampSeconds, inference.width,
+                                                     inference.height, poseSampleIndex,
+                                                     inference.rgba};
                             pendingPose.push_back(std::move(sample));
                             if (pendingPose.size() >= poseBatchSize) flushPoseBatch();
                         }
@@ -1618,11 +1758,45 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         const double sceneStart = sceneStarts[sceneIndex];
                         const double sceneEnd = sceneIndex + 1 < sceneStarts.size()
                             ? sceneStarts[sceneIndex + 1] : std::max(info.durationSeconds, lastTimestamp + 0.001);
-                        // Keep every sufficiently long person track.  The old
-                        // pipeline selected tracker.dominant(), which silently
-                        // discarded all other people and made the result set
-                        // look like one person was present in the whole clip.
+                        // The product contract is the dominant character, not
+                        // an all-person similarity search. Select the longest
+                        // IoU track visible in this shot; this prevents a
+                        // background actor from becoming a candidate merely
+                        // because their pose resembles the lead's.
+                        std::vector<const pfcore::PersonTrack*> sceneTracks;
                         for (const auto& track : tracker.tracks()) {
+                            std::size_t observationsInScene = 0;
+                            for (const auto& observation : track.observations) {
+                                if (observation.timestampSeconds >= sceneStart
+                                    && observation.timestampSeconds < sceneEnd) {
+                                    ++observationsInScene;
+                                }
+                            }
+                            if (observationsInScene >= 2) sceneTracks.push_back(&track);
+                        }
+                        std::sort(sceneTracks.begin(), sceneTracks.end(),
+                                  [&](const auto* left, const auto* right) {
+                            auto sceneDuration = [&](const auto* track) {
+                                double total = 0.0;
+                                for (const auto& observation : track->observations) {
+                                    if (observation.timestampSeconds >= sceneStart
+                                        && observation.timestampSeconds < sceneEnd) {
+                                        total += observation.frameDurationSeconds;
+                                    }
+                                }
+                                return total;
+                            };
+                            const double leftDuration = sceneDuration(left);
+                            const double rightDuration = sceneDuration(right);
+                            if (std::abs(leftDuration - rightDuration) > 1e-9)
+                                return leftDuration > rightDuration;
+                            if (std::abs(left->averageArea() - right->averageArea()) > 1e-9)
+                                return left->averageArea() > right->averageArea();
+                            return left->id < right->id;
+                        });
+                        if (sceneTracks.size() > 1) sceneTracks.resize(1);
+                        for (const auto* trackPtr : sceneTracks) {
+                            const auto& track = *trackPtr;
                             if (isCancelled()) { markCancelled(); break; }
                             pfcore::MotionWindow window;
                             window.sourceId = path.toStdString();
@@ -1730,6 +1904,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.noiseFactor = noiseFactor;
             params.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults);
             params.timeWeight = timeWeight;
+            params.minTemporalFrames = qualityProfile == QStringLiteral("fast") ? 6U
+                : qualityProfile == QStringLiteral("medium") ? 8U : 10U;
             params.allowStaticFrames = analysisMode == QStringLiteral("static")
                 || analysisMode == QStringLiteral("combined");
             params.normalizeSize = normalizeSize;
@@ -1741,11 +1917,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.requireAppearance = true;
             // OSNet is the identity gate, not a cosmetic label. The compact
             // x0.25 export used by the desktop build is intentionally noisy;
-            // 0.78 lets visually similar faces through (as with two bearded
-            // actors in the same clip). Keep only a high-confidence match and
-            // give appearance enough influence to veto a pose-only false hit.
-            params.minAppearanceSimilarity = 0.88;
-            params.appearanceWeight = 0.40;
+            // keep the identity threshold high. ReID is a hard identity gate
+            // only; the percentage in the result rail remains motion-only.
+            params.minAppearanceSimilarity = 0.84;
+            params.appearanceWeight = 0.0;
             foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows);
             pfcore::MotionRanker::rank(foundMatches, windows);
             matches = static_cast<int>(foundMatches.size());

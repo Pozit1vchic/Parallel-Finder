@@ -9,7 +9,6 @@ Parallel Finder запускает модели ONNX с выходом YOLO-pose
 yolov8n-pose.onnx  yolov8s-pose.onnx  yolov8m-pose.onnx  yolov8l-pose.onnx  yolov8x-pose.onnx
 yolo11n-pose.onnx  yolo11s-pose.onnx  yolo11m-pose.onnx  yolo11l-pose.onnx  yolo11x-pose.onnx
 yolo26n-pose.onnx  yolo26s-pose.onnx  yolo26m-pose.onnx  yolo26l-pose.onnx  yolo26x-pose.onnx
-yolo26m-pose-640-b1.onnx  yolo26m-pose-640-b8.onnx
 ```
 
 Есть два рабочих места (приоритет сверху вниз):
@@ -54,17 +53,17 @@ python tools\model_export\export_pose_release.py `
 
 ### Аудит совместимости
 
-* Batch-1 — универсальный профиль для CPU. `yolo26m-pose-640-b8.onnx` выдаётся
-  отдельным профилем и обрабатывается настоящими `inferBatch`-пачками на GPU;
-  при CPU анализе приложение использует установленный b1-сосед, чтобы не
-  считать padding-слоты впустую.
+* Pose-модели из Release публикуются в универсальном batch-1 профиле. Batch-8
+  остаётся developer/GPU-профилем и не показывается в селекторе, пока не будет
+  добавлен в manifest как отдельный проверенный asset.
 * `.pt` и произвольные ONNX без YOLO-pose выхода на 17 keypoints не считаются
   рабочими моделями; ошибка графа показывается до запуска анализа.
 * Выбранный провайдер (`dml`, `cuda`, `tensorrt`, `cpu`) передаётся в
   PoseEstimator и проходит preflight; тихого переключения на другой backend
   нет.
-* Ключ кэша включает модель, провайдер и optional body-ReID, поэтому смена
-  модели не возвращает старые признаки.
+* Ключ кэша включает fingerprint pose/ReID-моделей, провайдер, режим, настройки
+  scene detector и fingerprint видео. Поэтому замена ONNX по тому же пути или
+  смена segmentation-параметров не возвращает старые признаки.
 * Body-ReID необходим для публикации межперсонажных совпадений. Без OSNet/
   FastReID ONNX приложение безопасно завершает анализ без таких совпадений и
   явно сообщает причину в статусе, вместо того чтобы выдавать ложные пары.

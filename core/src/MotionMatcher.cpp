@@ -18,6 +18,14 @@ using Descriptor = std::vector<double>;
 
 using NormalizedPose = std::vector<std::pair<double, double>>;
 
+constexpr double kMinimumKeypointConfidence = 0.25;
+constexpr std::size_t kMinimumComparableJoints = 6;
+
+bool validPoint(const std::pair<double, double>& point)
+{
+    return std::isfinite(point.first) && std::isfinite(point.second);
+}
+
 double appearanceCosine(const std::vector<float>& left,
                          const std::vector<float>& right)
 {
@@ -35,11 +43,9 @@ double appearanceCosine(const std::vector<float>& left,
     return std::clamp(dot / std::sqrt(leftNorm * rightNorm), -1.0, 1.0);
 }
 
-// Tracker IDs are local to one source.  A different ID in the same source is
-// a different detected person; ReID must not be allowed to merge two IDs just
-// because two actors wear similar clothes or make a similar pose.  A scene
-// transition with the *same* ID is the only case where ReID may confirm a
-// continuation, because the tracker can reuse an ID after a cut.
+// Tracker IDs are local to one source and scene cuts can restart a tracker.
+// A different ID is therefore not identity proof in either direction; it
+// needs multi-crop body-ReID confirmation before the temporal matcher sees it.
 bool differentTrackSegment(const MotionWindow& left, const MotionWindow& right)
 {
     if (left.trackId != right.trackId) return true;
@@ -59,25 +65,40 @@ std::vector<NormalizedPose> normalizePoses(const MotionWindow& window,
         }
         double cx = 0.0, cy = 0.0, weight = 0.0;
         for (const auto& point : frame.keypoints) {
+            if (point.confidence < kMinimumKeypointConfidence) continue;
             const double w = std::max(0.0, point.confidence);
             cx += point.x * w;
             cy += point.y * w;
             weight += w;
         }
-        if (weight <= 1e-9) weight = static_cast<double>(frame.keypoints.size());
+        // A crop with no reliable joints cannot establish pose similarity.
+        // Preserve it as invalid instead of turning zero-confidence values
+        // into a plausible artificial skeleton.
+        if (weight <= 1e-9) {
+            normalized.emplace_back();
+            continue;
+        }
         cx /= weight;
         cy /= weight;
         double scale = 1.0;
         if (normalizeSize) {
             scale = 0.0;
-            for (const auto& point : frame.keypoints)
+            for (const auto& point : frame.keypoints) {
+                if (point.confidence < kMinimumKeypointConfidence) continue;
                 scale = std::max(scale, std::hypot(point.x - cx, point.y - cy));
+            }
             if (scale <= 1e-9) scale = 1.0;
         }
         NormalizedPose pose;
         pose.reserve(frame.keypoints.size());
-        for (const auto& point : frame.keypoints)
-            pose.emplace_back((point.x - cx) / scale, (point.y - cy) / scale);
+        for (const auto& point : frame.keypoints) {
+            if (point.confidence < kMinimumKeypointConfidence) {
+                const double invalid = std::numeric_limits<double>::quiet_NaN();
+                pose.emplace_back(invalid, invalid);
+            } else {
+                pose.emplace_back((point.x - cx) / scale, (point.y - cy) / scale);
+            }
+        }
         normalized.push_back(std::move(pose));
     }
     return normalized;
@@ -102,17 +123,20 @@ FrameRoot frameRoot(const PoseFrame& frame)
     double cy = 0.0;
     double weight = 0.0;
     for (const auto& point : frame.keypoints) {
+        if (point.confidence < kMinimumKeypointConfidence) continue;
         const double confidence = std::max(0.0, point.confidence);
         cx += point.x * confidence;
         cy += point.y * confidence;
         weight += confidence;
     }
-    if (weight <= 1e-9) weight = static_cast<double>(frame.keypoints.size());
+    if (weight <= 1e-9) return {};
     cx /= weight;
     cy /= weight;
     double scale = 0.0;
-    for (const auto& point : frame.keypoints)
+    for (const auto& point : frame.keypoints) {
+        if (point.confidence < kMinimumKeypointConfidence) continue;
         scale = std::max(scale, std::hypot(point.x - cx, point.y - cy));
+    }
     return {cx, cy, std::max(scale, 1e-6)};
 }
 
@@ -128,17 +152,22 @@ MotionActivity motionActivity(const MotionWindow& window,
     if (!poses.empty() && !poses.front().empty()) {
         const std::size_t pointCount = poses.front().size();
         for (std::size_t point = 0; point < pointCount; ++point) {
-            double minX = poses.front()[point].first;
-            double maxX = minX;
-            double minY = poses.front()[point].second;
-            double maxY = minY;
+            bool hasPoint = false;
+            double minX = 0.0, maxX = 0.0, minY = 0.0, maxY = 0.0;
             for (const auto& pose : poses) {
-                if (pose.size() <= point) continue;
+                if (pose.size() <= point || !validPoint(pose[point])) continue;
+                if (!hasPoint) {
+                    minX = maxX = pose[point].first;
+                    minY = maxY = pose[point].second;
+                    hasPoint = true;
+                    continue;
+                }
                 minX = std::min(minX, pose[point].first);
                 maxX = std::max(maxX, pose[point].first);
                 minY = std::min(minY, pose[point].second);
                 maxY = std::max(maxY, pose[point].second);
             }
+            if (!hasPoint) continue;
             rangeSum += std::hypot(maxX - minX, maxY - minY);
             ++rangePoints;
         }
@@ -175,8 +204,9 @@ MotionActivity motionActivity(const MotionWindow& window,
         double delta = 0.0;
         std::size_t valid = 0;
         for (std::size_t point = 0; point < current.size(); ++point) {
-            if (window.frames[frame - 1].keypoints[point].confidence <= 0.0
-                || window.frames[frame].keypoints[point].confidence <= 0.0) {
+            if (window.frames[frame - 1].keypoints[point].confidence < kMinimumKeypointConfidence
+                || window.frames[frame].keypoints[point].confidence < kMinimumKeypointConfidence
+                || !validPoint(previous[point]) || !validPoint(current[point])) {
                 continue;
             }
             delta += std::hypot(current[point].first - previous[point].first,
@@ -214,52 +244,63 @@ std::vector<Descriptor> describe(const std::vector<NormalizedPose>& normalized,
 {
     std::vector<Descriptor> result;
     result.reserve(normalized.size());
-    const FrameRoot baseRoot = window.frames.empty() ? FrameRoot{}
-        : frameRoot(window.frames.front());
     for (std::size_t frameIndex = 0; frameIndex < normalized.size(); ++frameIndex) {
         const auto& pose = normalized[frameIndex];
         if (pose.empty()) { result.emplace_back(); continue; }
         const auto* previous = frameIndex > 0 ? &normalized[frameIndex - 1] : nullptr;
+        const auto* beforePrevious = frameIndex > 1 ? &normalized[frameIndex - 2] : nullptr;
         const double dt = frameIndex > 0
             ? std::max(1e-3, window.frames[frameIndex].timestampSeconds
                 - window.frames[frameIndex - 1].timestampSeconds)
             : 1.0;
+        // The retrieval descriptor must describe *what the person does*, not
+        // where they happen to stand in a shot. Keeping normalized x/y here
+        // made the nearest-neighbour stage a pose/composition search: a
+        // stationary close-up of the same actor beat a matching gesture from
+        // a different scene. Store joint velocity and acceleration instead;
+        // DTW can now align an arm raise, turn or step at different moments
+        // and speeds without treating a held pose as a parallel.
         Descriptor descriptor;
         descriptor.reserve(pose.size() * 4);
         for (std::size_t pointIndex = 0; pointIndex < pose.size(); ++pointIndex) {
-            descriptor.push_back(pose[pointIndex].first);
-            descriptor.push_back(pose[pointIndex].second);
             double velocityX = 0.0;
             double velocityY = 0.0;
-            if (previous && previous->size() == pose.size()) {
+            if (previous && previous->size() == pose.size()
+                && validPoint(pose[pointIndex]) && validPoint((*previous)[pointIndex])) {
                 velocityX = (pose[pointIndex].first - (*previous)[pointIndex].first) / dt;
                 velocityY = (pose[pointIndex].second - (*previous)[pointIndex].second) / dt;
+            } else if (!validPoint(pose[pointIndex])) {
+                velocityX = std::numeric_limits<double>::quiet_NaN();
+                velocityY = std::numeric_limits<double>::quiet_NaN();
             }
-            descriptor.push_back(std::clamp(velocityX, -4.0, 4.0));
-            descriptor.push_back(std::clamp(velocityY, -4.0, 4.0));
+            double accelerationX = 0.0;
+            double accelerationY = 0.0;
+            if (beforePrevious && previous && beforePrevious->size() == pose.size()
+                && previous->size() == pose.size()
+                && validPoint(pose[pointIndex]) && validPoint((*previous)[pointIndex])
+                && validPoint((*beforePrevious)[pointIndex])) {
+                const double previousDt = std::max(1e-3,
+                    window.frames[frameIndex - 1].timestampSeconds
+                    - window.frames[frameIndex - 2].timestampSeconds);
+                const double previousVelocityX = ((*previous)[pointIndex].first
+                    - (*beforePrevious)[pointIndex].first) / previousDt;
+                const double previousVelocityY = ((*previous)[pointIndex].second
+                    - (*beforePrevious)[pointIndex].second) / previousDt;
+                accelerationX = (velocityX - previousVelocityX) / dt;
+                accelerationY = (velocityY - previousVelocityY) / dt;
+            } else if (!std::isfinite(velocityX) || !std::isfinite(velocityY)) {
+                accelerationX = std::numeric_limits<double>::quiet_NaN();
+                accelerationY = std::numeric_limits<double>::quiet_NaN();
+            }
+            descriptor.push_back(std::isfinite(velocityX) ? std::clamp(velocityX, -4.0, 4.0)
+                                                          : velocityX);
+            descriptor.push_back(std::isfinite(velocityY) ? std::clamp(velocityY, -4.0, 4.0)
+                                                          : velocityY);
+            descriptor.push_back(std::isfinite(accelerationX) ? std::clamp(accelerationX, -8.0, 8.0)
+                                                              : accelerationX);
+            descriptor.push_back(std::isfinite(accelerationY) ? std::clamp(accelerationY, -8.0, 8.0)
+                                                              : accelerationY);
         }
-        // Add a relative root/scale channel after the normalized joints. It
-        // carries translation and zoom motion, but never absolute image
-        // coordinates, so the same movement remains comparable in another
-        // crop or camera framing.
-        const FrameRoot currentRoot = frameRoot(window.frames[frameIndex]);
-        const double baseScale = std::max(baseRoot.scale, 1e-6);
-        const double rootX = (currentRoot.x - baseRoot.x) / baseScale;
-        const double rootY = std::log(std::max(currentRoot.scale, 1e-6) / baseScale);
-        double rootVelocityX = 0.0;
-        double rootVelocityY = 0.0;
-        if (frameIndex > 0) {
-            const FrameRoot previousRoot = frameRoot(window.frames[frameIndex - 1]);
-            const double previousScale = std::max(previousRoot.scale, 1e-6);
-            const double dt = std::max(1e-3, window.frames[frameIndex].timestampSeconds
-                - window.frames[frameIndex - 1].timestampSeconds);
-            rootVelocityX = (rootX - (previousRoot.x - baseRoot.x) / baseScale) / dt;
-            rootVelocityY = (rootY - std::log(previousScale / baseScale)) / dt;
-        }
-        descriptor.push_back(std::clamp(rootX, -8.0, 8.0));
-        descriptor.push_back(std::clamp(rootY, -4.0, 4.0));
-        descriptor.push_back(std::clamp(rootVelocityX, -8.0, 8.0));
-        descriptor.push_back(std::clamp(rootVelocityY, -8.0, 8.0));
         result.push_back(std::move(descriptor));
     }
     return result;
@@ -270,25 +311,38 @@ double frameDistance(const Descriptor& left, const Descriptor& right)
     if (left.empty() || right.empty() || left.size() != right.size()
         || left.size() % 4U != 0U) return 1.0;
 
-    // Descriptors are interleaved as x/y position and x/y velocity for each
-    // joint.  A flat L1 average over all four values made unrelated poses
-    // look deceptively close: most normalized coordinates are small and
-    // exp(-distance) turned that small error into an 85–95% score.  Keep the
-    // spatial and temporal errors separate and normalize velocity to its
-    // bounded [-4, 4] range.
-    double positionError = 0.0;
+    // Descriptors are interleaved x/y velocity and x/y acceleration for each
+    // joint. This makes the distance a comparison of trajectories rather
+    // than of the static body layout in a particular camera angle.
     double velocityError = 0.0;
+    double accelerationError = 0.0;
+    std::size_t comparableJoints = 0;
+    std::size_t comparableVelocities = 0;
     const std::size_t joints = left.size() / 4U;
     for (std::size_t joint = 0; joint < joints; ++joint) {
         const std::size_t offset = joint * 4U;
-        positionError += std::hypot(left[offset] - right[offset],
-                                    left[offset + 1U] - right[offset + 1U]);
-        velocityError += std::hypot(left[offset + 2U] - right[offset + 2U],
-                                    left[offset + 3U] - right[offset + 3U]) / 8.0;
+        if (!std::isfinite(left[offset]) || !std::isfinite(left[offset + 1U])
+            || !std::isfinite(right[offset]) || !std::isfinite(right[offset + 1U])) {
+            continue;
+        }
+        velocityError += std::hypot(left[offset] - right[offset],
+                                    left[offset + 1U] - right[offset + 1U]) / 8.0;
+        ++comparableJoints;
+        if (std::isfinite(left[offset + 2U]) && std::isfinite(left[offset + 3U])
+            && std::isfinite(right[offset + 2U]) && std::isfinite(right[offset + 3U])) {
+            accelerationError += std::hypot(left[offset + 2U] - right[offset + 2U],
+                                            left[offset + 3U] - right[offset + 3U]) / 16.0;
+            ++comparableVelocities;
+        }
     }
-    const double spatial = positionError / static_cast<double>(joints);
-    const double temporal = velocityError / static_cast<double>(joints);
-    return std::clamp(0.78 * spatial + 0.22 * temporal, 0.0, 1.0);
+    // A head/shoulder crop lacks the body information needed to call two
+    // scenes a matching motion. Failing closed beats inventing a percentage.
+    const std::size_t minimumComparable = std::min(kMinimumComparableJoints, joints);
+    if (comparableJoints < minimumComparable) return 1.0;
+    const double velocity = velocityError / static_cast<double>(comparableJoints);
+    const double acceleration = comparableVelocities == 0 ? 0.0
+        : accelerationError / static_cast<double>(comparableVelocities);
+    return std::clamp(0.75 * velocity + 0.25 * acceleration, 0.0, 1.0);
 }
 
 double frameSimilarity(const Descriptor& left, const Descriptor& right)
@@ -296,10 +350,10 @@ double frameSimilarity(const Descriptor& left, const Descriptor& right)
     if (left.empty() || right.empty() || left.size() != right.size()) return 0.0;
     const double distance = frameDistance(left, right);
     if (!std::isfinite(distance)) return 0.0;
-    // The exponential is intentionally steeper than the old exp(-distance).
-    // A frame must agree in both joint layout and instantaneous velocity to
-    // contribute to a temporal run.
-    return std::clamp(std::exp(-2.0 * distance), 0.0, 1.0);
+    // A 0.82 temporal gate now corresponds to a small joint-and-velocity
+    // error. This prevents a visually unrelated silhouette from passing a
+    // run just because it has the same rough body proportions.
+    return std::clamp(std::exp(-4.0 * distance), 0.0, 1.0);
 }
 
 double noiseFloor(const std::vector<Descriptor>& descriptors)
@@ -363,13 +417,22 @@ double shapeSimilarity(const std::vector<NormalizedPose>& left,
         // number of visible joints is therefore a real penalty, not missing
         // noise.  Pairwise distances add an anatomy/proportion check without
         // hardcoding a particular COCO or custom skeleton graph.
-        const double topology = static_cast<double>(std::min(a.size(), b.size()))
-            / static_cast<double>(std::max(a.size(), b.size()));
         const std::size_t points = std::min(a.size(), b.size());
+        std::vector<std::size_t> valid;
+        valid.reserve(points);
+        for (std::size_t i = 0; i < points; ++i) {
+            if (validPoint(a[i]) && validPoint(b[i])) valid.push_back(i);
+        }
+        const std::size_t minimumComparable = std::min(kMinimumComparableJoints, points);
+        if (valid.size() < minimumComparable) continue;
+        const double topology = static_cast<double>(valid.size())
+            / static_cast<double>(std::max(a.size(), b.size()));
         double error = 0.0;
         std::size_t pairs = 0;
-        for (std::size_t i = 0; i < points; ++i) {
-            for (std::size_t j = i + 1; j < points; ++j) {
+        for (std::size_t leftIndex = 0; leftIndex < valid.size(); ++leftIndex) {
+            for (std::size_t rightIndex = leftIndex + 1; rightIndex < valid.size(); ++rightIndex) {
+                const std::size_t i = valid[leftIndex];
+                const std::size_t j = valid[rightIndex];
                 const double leftDistance = std::hypot(a[i].first - a[j].first,
                                                        a[i].second - a[j].second);
                 const double rightDistance = std::hypot(b[i].first - b[j].first,
@@ -405,6 +468,39 @@ double temporalCosineScore(const std::vector<Descriptor>& left,
         ++used;
     }
     return used == 0 ? 0.0 : std::clamp(score / static_cast<double>(used), 0.0, 1.0);
+}
+
+double velocityDirectionScore(const std::vector<Descriptor>& left,
+                              const std::vector<Descriptor>& right)
+{
+    if (left.empty() || right.empty()) return 0.0;
+    const std::size_t samples = std::min(left.size(), right.size());
+    double score = 0.0;
+    std::size_t used = 0;
+    for (std::size_t sample = 0; sample < samples; ++sample) {
+        const std::size_t li = (sample * (left.size() - 1))
+            / std::max<std::size_t>(1, samples - 1);
+        const std::size_t ri = (sample * (right.size() - 1))
+            / std::max<std::size_t>(1, samples - 1);
+        const auto& a = left[li];
+        const auto& b = right[ri];
+        if (a.empty() || b.empty() || a.size() != b.size()) continue;
+        double dot = 0.0;
+        double normA = 0.0;
+        double normB = 0.0;
+        for (std::size_t point = 0; point + 3U < a.size(); point += 4U) {
+            if (!std::isfinite(a[point]) || !std::isfinite(a[point + 1U])
+                || !std::isfinite(b[point]) || !std::isfinite(b[point + 1U])) continue;
+            dot += a[point] * b[point] + a[point + 1U] * b[point + 1U];
+            normA += a[point] * a[point] + a[point + 1U] * a[point + 1U];
+            normB += b[point] * b[point] + b[point + 1U] * b[point + 1U];
+        }
+        if (normA <= 1e-8 || normB <= 1e-8) continue;
+        score += std::clamp(dot / std::sqrt(normA * normB), -1.0, 1.0);
+        ++used;
+    }
+    // Map cosine [-1, 1] to an intuitive agreement score [0, 1].
+    return used == 0 ? 0.0 : std::clamp(0.5 + 0.5 * score / static_cast<double>(used), 0.0, 1.0);
 }
 
 double duration(const MotionWindow& window);
@@ -531,9 +627,16 @@ bool hasTemporalRun(const std::vector<Descriptor>& left,
             - leftWindow.frames[std::min(bestStartLeft, leftWindow.frames.size() - 1)].timestampSeconds,
         rightWindow.frames[std::min(bestEndRight, rightWindow.frames.size() - 1)].timestampSeconds
             - rightWindow.frames[std::min(bestStartRight, rightWindow.frames.size() - 1)].timestampSeconds);
-    const bool enoughFrames = bestRun >= params.minTemporalFrames
-        || (bestRun >= std::max<std::size_t>(6, params.minTemporalFrames / 3)
-            && runDuration + 1e-9 >= params.minTemporalDurationSec);
+    // Require a real run, but do not force the entire 2.5 s analysis window
+    // to align. Edits often share only one short gesture; six consecutive
+    // observations is the hard floor and the quarter-window term scales it
+    // for denser sampling.
+    const std::size_t requiredFrames = std::max<std::size_t>(
+        std::size_t{6},
+        static_cast<std::size_t>(std::ceil(0.25
+            * static_cast<double>(std::min(leftSamples, rightSamples)))));
+    const bool enoughFrames = bestRun >= requiredFrames
+        && runDuration + 1e-9 >= params.minTemporalDurationSec;
     if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
         std::fprintf(stderr, "PF_DEBUG_MATCHER temporal max=%.3f bestRun=%zu duration=%.3f threshold=%.3f\n",
                      maximumSimilarity, bestRun, runDuration, params.temporalSimilarityThreshold);
@@ -608,18 +711,14 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     if (left.sourceId == right.sourceId
         && params.requireSameTrackWithinSource
         && left.trackId != 0 && right.trackId != 0
-        && left.trackId != right.trackId) {
-        // A body-ReID model is not a license to merge two independent tracks
-        // from the same clip.  This is the false-positive pattern seen when
-        // two actors have a similar silhouette or wardrobe.
-        result.similarity = 0.0;
-        return result;
-    }
-    if (left.sourceId == right.sourceId
-        && params.requireSameTrackWithinSource
-        && left.trackId != 0 && right.trackId != 0
         && differentTrackSegment(left, right)) {
-        const bool sameAppearance = !left.appearanceEmbedding.empty()
+        // Scene cuts routinely restart a visual tracker. A different local
+        // track ID is therefore a warning, not a proof that the actor changed.
+        // Let it pass only when several valid body-ReID observations agree.
+        const bool sameAppearance = left.appearanceConfidence + 1e-9
+                >= params.minAppearanceEvidence
+            && right.appearanceConfidence + 1e-9 >= params.minAppearanceEvidence
+            && !left.appearanceEmbedding.empty()
             && !right.appearanceEmbedding.empty()
             && appearanceCosine(left.appearanceEmbedding, right.appearanceEmbedding)
                 >= params.minAppearanceSimilarity;
@@ -732,20 +831,36 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     const double durationDenominator = std::max({leftDuration, rightDuration, 1e-9});
     const double timePenalty = params.timeWeight
         * std::abs(leftDuration - rightDuration) / durationDenominator;
-    const double dtwScore = std::clamp(std::exp(-3.0 * result.dtwDistance), 0.0, 1.0);
+    const double dtwScore = std::clamp(std::exp(-4.0 * result.dtwDistance), 0.0, 1.0);
     const double temporalScore = temporalCosineScore(a, b);
-    const double anatomyScore = shapeSimilarity(leftPrepared.poses, rightPrepared.poses);
-    // DTW captures trajectory distance, cosine captures frame-wise direction,
-    // and anatomyScore prevents different skeleton topology/proportions from
-    // receiving a near-perfect score.  Keep a headroom below 100% so exact
-    // duplicate frames cannot be presented as mathematically perfect proof.
-    const double motionScore = 0.50 * dtwScore + 0.30 * temporalScore
-        + 0.20 * anatomyScore;
-    double calibrated = motionScore;
-    if (result.appearanceVerified) {
-        calibrated = (1.0 - params.appearanceWeight) * motionScore
-            + params.appearanceWeight * result.appearanceSimilarity;
+    const double directionScore = velocityDirectionScore(a, b);
+    // Opposite-direction trajectories can have an excellent DTW distance
+    // because their amplitudes are similar. Require directional agreement
+    // before accepting the movement as the same gesture.
+    if (!staticPair && directionScore < 0.45) {
+        result.similarity = 0.0;
+        return result;
     }
+    const double anatomyScore = shapeSimilarity(leftPrepared.poses, rightPrepared.poses);
+    if (staticPair && (temporalScore < params.staticPoseSimilarityThreshold
+                       || anatomyScore < params.staticPoseSimilarityThreshold
+                       || dtwScore < params.staticPoseSimilarityThreshold)) {
+        result.similarity = 0.0;
+        return result;
+    }
+    // The number shown to the editor is *motion* similarity. Body-ReID is a
+    // required identity filter, not an extra 40 points for "same actor".
+    // A weak component must visibly lower the score rather than being hidden
+    // by two stronger averages.
+    // Anatomy is deliberately not part of the primary score: the same
+    // gesture can start from different neutral poses. It remains a small
+    // sanity penalty below, while DTW and frame-wise trajectory agreement
+    // decide whether the movement itself repeats.
+    const double weightedMotion = 0.60 * dtwScore + 0.25 * temporalScore
+        + 0.15 * directionScore;
+    const double weakestMotionSignal = std::min({dtwScore, temporalScore, directionScore});
+    double calibrated = 0.60 * weakestMotionSignal + 0.40 * weightedMotion;
+    calibrated -= 0.10 * std::max(0.0, 0.65 - anatomyScore);
     calibrated -= timePenalty;
     // Reserve the 95%+ band for agreement across all three signals.  A pair
     // with a good average but a weak temporal or anatomical component is a
@@ -778,6 +893,8 @@ void MotionMatcher::setParams(MotionMatcherParams params)
         || params.minMotionSpanSec < 0.0
         || !(params.temporalSimilarityThreshold >= 0.0
              && params.temporalSimilarityThreshold <= 1.0)
+        || !(params.staticPoseSimilarityThreshold >= 0.0
+             && params.staticPoseSimilarityThreshold <= 1.0)
         || params.minTemporalFrames < 3
         || params.minTemporalDurationSec < 0.0
         || params.sameSourceGapFloorSec < 0.0
@@ -814,6 +931,8 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
 
     std::vector<PreparedWindow> prepared(windows.size());
     std::size_t preparedCount = 0;
+    std::size_t preparedMotion = 0;
+    std::size_t preparedStatic = 0;
     std::size_t embeddingDimension = 0;
     for (std::size_t index = 0; index < windows.size(); ++index) {
         if (windows[index].frames.empty()) continue;
@@ -840,35 +959,105 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             continue;
         }
         ++preparedCount;
+        if (staticWindow) ++preparedStatic;
+        else {
+            ++preparedMotion;
+            if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
+                std::fprintf(stderr,
+                             "PF_DEBUG_MATCHER motion-window id=%zu t=%.3f track=%zu scene=%zu reid=%.3f delta=%.4f range=%.4f active=%.3f\n",
+                             index,
+                             windows[index].frames.empty() ? -1.0
+                                 : windows[index].frames.front().timestampSeconds,
+                             windows[index].trackId, windows[index].sceneIndex,
+                             windows[index].appearanceConfidence,
+                             prepared[index].motionDelta, prepared[index].trajectoryRange,
+                             prepared[index].activeTransitionRatio);
+            }
+        }
         for (const auto& descriptor : prepared[index].descriptors)
             embeddingDimension = std::max(embeddingDimension, descriptor.size());
     }
     if (embeddingDimension == 0) return matches;
 
-    MotionIndex index;
-    for (std::size_t windowIndex = 0; windowIndex < prepared.size(); ++windowIndex) {
-        auto& item = prepared[windowIndex];
-        if (item.descriptors.empty()) continue;
-        item.embedding = embedding(item.descriptors, embeddingDimension);
-        index.add(windowIndex, item.embedding);
-    }
-    index.build();
-
     // HNSW returns a bounded candidate set. The union of both query
     // directions keeps the all-pairs semantics while making DTW the expensive
-    // second pass rather than the first operation on every pair.
+    // second pass rather than the first operation on every pair. Do not put
+    // static-pose and motion windows in the same nearest-neighbour index:
+    // near-static silhouettes otherwise crowd the bounded list and prevent
+    // motion candidates from ever reaching the temporal matcher.
     std::unordered_set<std::uint64_t> candidatePairs;
-    const std::size_t candidateCount = std::min<std::size_t>(windows.size(),
-        std::max<std::size_t>(8, std::min<std::size_t>(32, windows.size())));
-    candidatePairs.reserve(preparedCount * std::min<std::size_t>(candidateCount, 32U));
-    for (std::size_t i = 0; i < windows.size(); ++i) {
-        if (prepared[i].descriptors.empty()) continue;
-        for (const auto neighbour : index.query(prepared[i].embedding, candidateCount, candidateCount * 2)) {
-            if (neighbour.id == i || neighbour.similarity + 1e-9 < params_.candidateThreshold) continue;
-            const auto left = std::min(i, neighbour.id);
-            const auto right = std::max(i, neighbour.id);
-            candidatePairs.insert((static_cast<std::uint64_t>(left) << 32U)
-                                  | static_cast<std::uint64_t>(right));
+    candidatePairs.reserve(preparedCount * 24U);
+    for (const bool staticWindow : {false, true}) {
+        std::vector<std::size_t> group;
+        group.reserve(preparedCount);
+        MotionIndex index;
+        for (std::size_t windowIndex = 0; windowIndex < prepared.size(); ++windowIndex) {
+            auto& item = prepared[windowIndex];
+            if (item.descriptors.empty() || windows[windowIndex].staticFrameSet != staticWindow)
+                continue;
+            item.embedding = embedding(item.descriptors, embeddingDimension);
+            index.add(windowIndex, item.embedding);
+            group.push_back(windowIndex);
+        }
+        if (group.size() < 2) continue;
+        index.build();
+        const std::size_t candidateCount = std::min<std::size_t>(group.size(),
+            std::max<std::size_t>(24, std::min<std::size_t>(96, group.size())));
+        const double retrievalThreshold = params_.candidateThreshold * 0.65;
+        for (const std::size_t i : group) {
+            for (const auto neighbour : index.query(prepared[i].embedding,
+                                                    candidateCount, candidateCount * 2)) {
+                if (neighbour.id == i || neighbour.similarity + 1e-9 < retrievalThreshold)
+                    continue;
+                const auto left = std::min(i, neighbour.id);
+                const auto right = std::max(i, neighbour.id);
+                candidatePairs.insert((static_cast<std::uint64_t>(left) << 32U)
+                                      | static_cast<std::uint64_t>(right));
+            }
+        }
+    }
+
+    // Pose retrieval is intentionally broad, but it still misses the same
+    // actor when a cut changes the camera angle or the gesture. Add a second
+    // bounded retrieval channel from the body-ReID prototypes. This is only
+    // candidate generation: the identity gate, continuous temporal run and
+    // DTW score below must all agree before anything is published.
+    std::size_t appearanceCandidatePairs = 0;
+    constexpr std::size_t maxAppearanceNeighbours = 64;
+    for (std::size_t i = 0; i < prepared.size(); ++i) {
+        if (prepared[i].descriptors.empty()
+            || windows[i].appearanceEmbedding.empty()
+            || windows[i].appearanceConfidence + 1e-9 < params_.minAppearanceEvidence) {
+            continue;
+        }
+        std::vector<std::pair<double, std::size_t>> neighbours;
+        neighbours.reserve(32);
+        for (std::size_t j = 0; j < prepared.size(); ++j) {
+            if (i == j || prepared[j].descriptors.empty()
+                || windows[i].staticFrameSet != windows[j].staticFrameSet
+                || windows[j].appearanceEmbedding.empty()
+                || windows[j].appearanceConfidence + 1e-9 < params_.minAppearanceEvidence) {
+                continue;
+            }
+            const double similarity = appearanceCosine(windows[i].appearanceEmbedding,
+                                                        windows[j].appearanceEmbedding);
+            if (similarity + 1e-9 >= params_.minAppearanceSimilarity)
+                neighbours.emplace_back(similarity, j);
+        }
+        std::sort(neighbours.begin(), neighbours.end(),
+                  [](const auto& left, const auto& right) {
+                      return left.first > right.first;
+                  });
+        if (neighbours.size() > maxAppearanceNeighbours)
+            neighbours.resize(maxAppearanceNeighbours);
+        for (const auto& [similarity, j] : neighbours) {
+            (void)similarity;
+            const auto left = std::min(i, j);
+            const auto right = std::max(i, j);
+            if (candidatePairs.insert((static_cast<std::uint64_t>(left) << 32U)
+                                      | static_cast<std::uint64_t>(right)).second) {
+                ++appearanceCandidatePairs;
+            }
         }
     }
 
@@ -886,19 +1075,27 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if (windows[i].staticFrameSet != windows[j].staticFrameSet) { ++staticRejected; continue; }
         if (sameSource && params_.requireSameTrackWithinSource
             && windows[i].trackId != 0 && windows[j].trackId != 0
-            && windows[i].trackId != windows[j].trackId) {
-            ++trackRejected;
-            continue;
-        }
-        if (sameSource && params_.requireSameTrackWithinSource
-            && windows[i].trackId != 0 && windows[j].trackId != 0
             && differentTrackSegment(windows[i], windows[j])) {
-            const bool sameAppearance = !windows[i].appearanceEmbedding.empty()
+            const bool sameAppearance = windows[i].appearanceConfidence + 1e-9
+                    >= params_.minAppearanceEvidence
+                && windows[j].appearanceConfidence + 1e-9
+                    >= params_.minAppearanceEvidence
+                && !windows[i].appearanceEmbedding.empty()
                 && !windows[j].appearanceEmbedding.empty()
                 && appearanceCosine(windows[i].appearanceEmbedding,
                                     windows[j].appearanceEmbedding)
                     >= params_.minAppearanceSimilarity;
             if (!sameAppearance) {
+                if (std::getenv("PF_DEBUG_MATCHER") != nullptr && !windows[i].staticFrameSet) {
+                    std::fprintf(stderr,
+                                 "PF_DEBUG_MATCHER reject-motion-identity a=%zu b=%zu t=%.3f/%.3f reid=%.3f/%.3f cosine=%.3f\n",
+                                 i, j,
+                                 windows[i].frames.empty() ? -1.0 : windows[i].frames.front().timestampSeconds,
+                                 windows[j].frames.empty() ? -1.0 : windows[j].frames.front().timestampSeconds,
+                                 windows[i].appearanceConfidence, windows[j].appearanceConfidence,
+                                 appearanceCosine(windows[i].appearanceEmbedding,
+                                                  windows[j].appearanceEmbedding));
+                }
                 ++trackRejected;
                 continue;
             }
@@ -917,15 +1114,27 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             : params_.crossFileGapSec;
         if (gap < requiredGap) continue;
         ++gapPassed;
-        if (coarseSimilarity(prepared[i].descriptors, prepared[j].descriptors)
-            < params_.candidateThreshold) continue;
+        // The index is a retrieval stage, not the score shown to the user.
+        // Keep its recall broad, then let DTW plus the continuous temporal
+        // run make the final acceptance decision.
+        const double identitySimilarity = appearanceCosine(
+            windows[i].appearanceEmbedding, windows[j].appearanceEmbedding);
+        const bool identityCandidate = identitySimilarity + 1e-9
+            >= params_.minAppearanceSimilarity;
+        if (!identityCandidate
+            && coarseSimilarity(prepared[i].descriptors, prepared[j].descriptors)
+                < params_.candidateThreshold * 0.65) continue;
         ++coarsePassed;
         ++compared;
         MotionMatch candidate = comparePrepared(windows[i], windows[j], prepared[i], prepared[j],
                                                 params_, i, j);
         if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
-            std::fprintf(stderr, "PF_DEBUG_MATCHER compared a=%zu b=%zu similarity=%.3f dtw=%.3f appearance=%.3f\n",
-                         i, j, candidate.similarity, candidate.dtwDistance,
+            std::fprintf(stderr, "PF_DEBUG_MATCHER compared a=%zu b=%zu t=%.3f/%.3f static=%d/%d similarity=%.3f dtw=%.3f appearance=%.3f\n",
+                         i, j,
+                         windows[i].frames.empty() ? -1.0 : windows[i].frames.front().timestampSeconds,
+                         windows[j].frames.empty() ? -1.0 : windows[j].frames.front().timestampSeconds,
+                         windows[i].staticFrameSet ? 1 : 0, windows[j].staticFrameSet ? 1 : 0,
+                         candidate.similarity, candidate.dtwDistance,
                          candidate.appearanceSimilarity);
         }
         if (candidate.similarity >= params_.similarityThreshold) matches.push_back(candidate);
@@ -973,9 +1182,27 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 && windows[candidate.rightIndex].hasSceneIndex
                 && windows[candidate.leftIndex].sceneIndex == windows[kept.leftIndex].sceneIndex
                 && windows[candidate.rightIndex].sceneIndex == windows[kept.rightIndex].sceneIndex;
+            // Track IDs can restart after an occlusion. Scene provenance is
+            // the stable unit represented by a result card, so collapse
+            // windows from the same source/scene pair even when IDs differ.
+            const bool sameSourceAndScene = windows[candidate.leftIndex].sourceId
+                    == windows[kept.leftIndex].sourceId
+                && windows[candidate.rightIndex].sourceId
+                    == windows[kept.rightIndex].sourceId
+                && windows[candidate.leftIndex].hasSceneIndex
+                && windows[candidate.rightIndex].hasSceneIndex
+                && windows[candidate.leftIndex].sceneIndex
+                    == windows[kept.leftIndex].sceneIndex
+                && windows[candidate.rightIndex].sceneIndex
+                    == windows[kept.rightIndex].sceneIndex;
+            // A scene is the unit shown in the results rail. Sliding motion
+            // windows inside the same tracked shot must not produce a second
+            // card for that shot pair (the old 1.25 s bound let exactly this
+            // duplicate through when the windows were five seconds apart).
+            // Keep the strongest window selected by the sort above.
             return overlapping || (leftDelta <= params_.duplicateWindowSec
                                    && rightDelta <= params_.duplicateWindowSec)
-                || (sameTrackAndScene && leftDelta <= 1.25 && rightDelta <= 1.25);
+                || sameTrackAndScene || sameSourceAndScene;
         });
         if (!duplicate) unique.push_back(candidate);
         if (unique.size() >= params_.maxUniqueResults) break;
@@ -983,8 +1210,8 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     matches = std::move(unique);
     if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
         std::fprintf(stderr,
-                     "PF_DEBUG_MATCHER windows=%zu prepared=%zu candidates=%zu trackRejected=%zu sceneRejected=%zu staticRejected=%zu gapPassed=%zu coarsePassed=%zu compared=%zu accepted=%zu\n",
-                     windows.size(), preparedCount, candidatePairs.size(), trackRejected,
+                     "PF_DEBUG_MATCHER windows=%zu prepared=%zu motion=%zu static=%zu candidates=%zu appearanceCandidates=%zu trackRejected=%zu sceneRejected=%zu staticRejected=%zu gapPassed=%zu coarsePassed=%zu compared=%zu accepted=%zu\n",
+                     windows.size(), preparedCount, preparedMotion, preparedStatic, candidatePairs.size(), appearanceCandidatePairs, trackRejected,
                      sceneRejected, staticRejected, gapPassed, coarsePassed, compared,
                      matches.size());
     }

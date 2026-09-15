@@ -45,6 +45,18 @@ public:
     // is needed: decoding still advances normally, but avoids allocating and
     // converting a full RGBA frame that the caller will discard.
     bool readNext(DecodedFrame& frame, bool convertToRgba = true);
+
+    // Limit RGBA conversion to an aspect-preserving working size. The coded
+    // stream is still decoded at its native resolution, but callers doing
+    // computer-vision inference can avoid allocating/copying 4K frames.
+    // Passing zero disables the limit (the default).
+    void setRgbaMaxDimensions(int maxWidth, int maxHeight) noexcept;
+
+    // Converts the most recently decoded frame after readNext(..., false).
+    // This lets callers scan by timestamp without converting every frame on
+    // the way to one requested preview. Returns false when no retained frame
+    // is available (for example after a regular readNext(..., true)).
+    bool convertCurrentFrameToRgba(DecodedFrame& frame);
     void seek(double timestampSeconds);
     void rewind();
 

@@ -41,12 +41,17 @@ struct VideoDecoder::Impl {
     AVPacket* packet = nullptr;
     AVFrame* decoded = nullptr;
     SwsContext* scaler = nullptr;
-    int scalerWidth = 0;
-    int scalerHeight = 0;
+    int scalerSourceWidth = 0;
+    int scalerSourceHeight = 0;
+    int scalerTargetWidth = 0;
+    int scalerTargetHeight = 0;
     AVPixelFormat scalerFormat = AV_PIX_FMT_NONE;
     int streamIndex = -1;
     VideoInfo metadata;
     bool draining = false;
+    bool frameAvailable = false;
+    int rgbaMaxWidth = 0;
+    int rgbaMaxHeight = 0;
 
     ~Impl() { reset(); }
 
@@ -58,12 +63,56 @@ struct VideoDecoder::Impl {
         if (codec) avcodec_free_context(&codec);
         if (format) avformat_close_input(&format);
         scaler = nullptr;
-        scalerWidth = 0;
-        scalerHeight = 0;
+        scalerSourceWidth = 0;
+        scalerSourceHeight = 0;
+        scalerTargetWidth = 0;
+        scalerTargetHeight = 0;
         scalerFormat = AV_PIX_FMT_NONE;
         streamIndex = -1;
         draining = false;
+        frameAvailable = false;
+        rgbaMaxWidth = 0;
+        rgbaMaxHeight = 0;
         metadata = {};
+    }
+
+    void copyCurrentFrameToRgba(DecodedFrame& output)
+    {
+        const AVFrame* source = decoded;
+        const auto pixelFormat = static_cast<AVPixelFormat>(source->format);
+        const double scale = std::min({1.0,
+            rgbaMaxWidth > 0 ? static_cast<double>(rgbaMaxWidth) / source->width : 1.0,
+            rgbaMaxHeight > 0 ? static_cast<double>(rgbaMaxHeight) / source->height : 1.0});
+        const int targetWidth = std::max(1, static_cast<int>(std::lround(source->width * scale)));
+        const int targetHeight = std::max(1, static_cast<int>(std::lround(source->height * scale)));
+        if (!scaler || scalerSourceWidth != source->width
+            || scalerSourceHeight != source->height
+            || scalerTargetWidth != targetWidth || scalerTargetHeight != targetHeight
+            || scalerFormat != pixelFormat) {
+            if (scaler) sws_freeContext(scaler);
+            scaler = sws_getContext(source->width, source->height,
+                static_cast<AVPixelFormat>(source->format), targetWidth,
+                targetHeight, AV_PIX_FMT_RGBA, SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+            if (!scaler) throw std::runtime_error("create pixel converter failed");
+            scalerSourceWidth = source->width;
+            scalerSourceHeight = source->height;
+            scalerTargetWidth = targetWidth;
+            scalerTargetHeight = targetHeight;
+            scalerFormat = pixelFormat;
+        }
+        output.width = targetWidth;
+        output.height = targetHeight;
+        const auto pixels = static_cast<std::size_t>(targetWidth)
+            * static_cast<std::size_t>(targetHeight);
+        if (pixels > std::numeric_limits<std::size_t>::max() / 4U)
+            throw std::runtime_error("decoded frame buffer size overflow");
+        output.rgba.resize(pixels * 4U);
+        std::uint8_t* destination[] = { output.rgba.data() };
+        int stride[] = { output.width * 4 };
+        if (sws_scale(scaler, source->data, source->linesize, 0,
+                      source->height, destination, stride) <= 0) {
+            throw std::runtime_error("convert decoded frame to RGBA failed");
+        }
     }
 };
 
@@ -146,9 +195,32 @@ void VideoDecoder::close() noexcept { if (impl_) impl_->reset(); }
 bool VideoDecoder::isOpen() const noexcept { return impl_ && impl_->codec != nullptr; }
 const VideoInfo& VideoDecoder::info() const { if (!isOpen()) throw std::logic_error("decoder is not open"); return impl_->metadata; }
 
+void VideoDecoder::setRgbaMaxDimensions(int maxWidth, int maxHeight) noexcept
+{
+    if (!impl_) return;
+    impl_->rgbaMaxWidth = std::max(0, maxWidth);
+    impl_->rgbaMaxHeight = std::max(0, maxHeight);
+    if (impl_->scaler) {
+        sws_freeContext(impl_->scaler);
+        impl_->scaler = nullptr;
+        impl_->scalerSourceWidth = 0;
+        impl_->scalerSourceHeight = 0;
+        impl_->scalerTargetWidth = 0;
+        impl_->scalerTargetHeight = 0;
+        impl_->scalerFormat = AV_PIX_FMT_NONE;
+    }
+}
+
 bool VideoDecoder::readNext(DecodedFrame& output, bool convertToRgba)
 {
     if (!isOpen()) throw std::logic_error("decoder is not open");
+    // A timestamp-only caller can ask for the current frame later. Release it
+    // just before receiving the next one, which keeps AVFrame ownership fully
+    // inside this RAII wrapper.
+    if (impl_->frameAvailable) {
+        av_frame_unref(impl_->decoded);
+        impl_->frameAvailable = false;
+    }
     for (;;) {
         int result = avcodec_receive_frame(impl_->codec, impl_->decoded);
         if (result == 0) {
@@ -165,30 +237,10 @@ bool VideoDecoder::readNext(DecodedFrame& output, bool convertToRgba)
             output.timestampSeconds = pts * av_q2d(stream->time_base);
             if (!convertToRgba) {
                 output.rgba.clear();
-                av_frame_unref(impl_->decoded);
+                impl_->frameAvailable = true;
                 return true;
             }
-            const auto pixelFormat = static_cast<AVPixelFormat>(source->format);
-            if (!impl_->scaler || impl_->scalerWidth != source->width
-                || impl_->scalerHeight != source->height || impl_->scalerFormat != pixelFormat) {
-                if (impl_->scaler) sws_freeContext(impl_->scaler);
-                impl_->scaler = sws_getContext(source->width, source->height, static_cast<AVPixelFormat>(source->format),
-                    source->width, source->height, AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr, nullptr, nullptr);
-                if (!impl_->scaler) throw std::runtime_error("create pixel converter failed");
-                impl_->scalerWidth = source->width;
-                impl_->scalerHeight = source->height;
-                impl_->scalerFormat = pixelFormat;
-            }
-            const auto pixels = static_cast<std::size_t>(output.width)
-                * static_cast<std::size_t>(output.height);
-            if (pixels > std::numeric_limits<std::size_t>::max() / 4U)
-                throw std::runtime_error("decoded frame buffer size overflow");
-            output.rgba.resize(pixels * 4U);
-            std::uint8_t* dst[] = { output.rgba.data() }; int stride[] = { output.width * 4 };
-            if (sws_scale(impl_->scaler, source->data, source->linesize, 0,
-                          source->height, dst, stride) <= 0) {
-                throw std::runtime_error("convert decoded frame to RGBA failed");
-            }
+            impl_->copyCurrentFrameToRgba(output);
             av_frame_unref(impl_->decoded);
             return true;
         }
@@ -208,9 +260,20 @@ bool VideoDecoder::readNext(DecodedFrame& output, bool convertToRgba)
     }
 }
 
+bool VideoDecoder::convertCurrentFrameToRgba(DecodedFrame& output)
+{
+    if (!isOpen() || !impl_->frameAvailable) return false;
+    impl_->copyCurrentFrameToRgba(output);
+    return true;
+}
+
 void VideoDecoder::seek(double timestampSeconds)
 {
     if (!isOpen()) throw std::logic_error("decoder is not open");
+    if (impl_->frameAvailable) {
+        av_frame_unref(impl_->decoded);
+        impl_->frameAvailable = false;
+    }
     const AVStream* stream = impl_->format->streams[impl_->streamIndex];
     const int64_t timestamp = static_cast<int64_t>(std::max(0.0, timestampSeconds) / av_q2d(stream->time_base));
     const int result = av_seek_frame(impl_->format, impl_->streamIndex, timestamp, AVSEEK_FLAG_BACKWARD);

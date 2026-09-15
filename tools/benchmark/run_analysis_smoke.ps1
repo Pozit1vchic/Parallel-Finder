@@ -52,9 +52,14 @@ foreach ($mode in $Modes) {
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $psi
     [void]$process.Start()
-    $stdout = $process.StandardOutput.ReadToEnd()
-    $stderr = $process.StandardError.ReadToEnd()
+    # Read both redirected streams concurrently. Reading stdout to completion
+    # before stderr can deadlock a verbose PF_DEBUG_MATCHER run when stderr's
+    # pipe fills before the child has a chance to exit.
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
     $process.WaitForExit()
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
     Write-Host $stdout
     if ($stderr) { Write-Warning $stderr }
     if ($process.ExitCode -ne 0) {

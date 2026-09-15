@@ -104,11 +104,15 @@ Rectangle {
                         Text {
                             width: parent.width
                             text: modelData.identityVerified === true
-                                ? "ReID · подтверждён (" + Math.round(Number(modelData.appearanceSimilarity || 0) * 100) + "%)"
-                                : "ReID · личность не подтверждена"
+                                ? "ReID · внешность похожа (" + Math.round(Number(modelData.appearanceSimilarity || 0) * 100) + "%)"
+                                : "ReID · недостаточно данных о внешности"
                             color: modelData.identityVerified === true ? Theme.sage : Theme.textDisabled
                             font.pixelSize: 10
                             elide: Text.ElideRight
+                            ToolTip.visible: reidHint.hovered
+                            ToolTip.delay: 350
+                            ToolTip.text: "ReID сравнивает внешний вид тела, а не подтверждает личность."
+                            HoverHandler { id: reidHint }
                         }
                     }
                 }

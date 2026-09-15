@@ -14,6 +14,20 @@ python tools\model_export\export_pose_release.py `
 Upload the generated `.onnx` files and `manifest.json` together to the GitHub
 Release. The runtime downloads missing assets into `%LocalAppData%\ParallelFinder\models`.
 
+Do **not** add the ONNX files to Git or Git LFS. They are release assets, while
+the source repository contains only the exporter and metadata contract. After
+exporting, publish the already verified bundle with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\release\publish-model-release.ps1 `
+  -Tag v0.1.0
+```
+
+The publisher refuses to upload a file whose size or SHA-256 differs from
+`manifest.json`; it also requires an authenticated `gh` session. The local
+model directory on this machine is `D:\YOLO_Download_Project\models` (not
+`D:\YOLO\_Download_Project\models`).
+
 The repository does not contain model weights. Export the pinned YOLO26m-pose
 asset into the external D: drive bundle with Python 3.10:
 

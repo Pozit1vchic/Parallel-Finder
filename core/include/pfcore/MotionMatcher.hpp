@@ -79,22 +79,28 @@ struct MotionMatcherParams {
     // a contiguous run of similar frames.  Short clips may satisfy the
     // duration alternative when the selected quality profile samples fewer
     // than 18 pose frames per second.
-    // Frame similarity is calibrated from both pose and velocity errors.  A
-    // 0.72 run threshold leaves room for detector jitter while the window,
-    // diversity and DTW gates still reject isolated or static matches.
-    double temporalSimilarityThreshold = 0.72;
-    // Eight independent observations are the minimum. The duration floor
-    // prevents a short burst from degenerating into a single-frame match.
-    std::size_t minTemporalFrames = 8;
-    double minTemporalDurationSec = 0.30;
+    // Frame similarity is calibrated from pose and velocity. The threshold is
+    // deliberately lower than the final score because camera angle and crop
+    // change the 2D skeleton; duration, DTW, anatomy and the final threshold
+    // still have to agree before a pair is published.
+    double temporalSimilarityThreshold = 0.42;
+    // Static-pose mode is stricter: it has no motion trajectory to help
+    // disambiguate the same person standing in unrelated scenes.
+    double staticPoseSimilarityThreshold = 0.86;
+    // At least ten observations are sampled for a window, but a valid
+    // alignment may be a shorter, six-frame gesture. Half a second is long
+    // enough to rule out a copied still frame while retaining real edits
+    // whose repeated action only lasts one beat.
+    std::size_t minTemporalFrames = 10;
+    double minTemporalDurationSec = 0.50;
     // Same-source windows never match inside this hard floor.  It prevents a
     // static shot from being paired with a nearby overlapping crop.
     double sameSourceGapFloorSec = 5.0;
     double nmsOverlapThreshold = 0.35;
-    // Track IDs are local to a source file.  When both windows come from one
-    // file, requiring the same ID prevents a pose from person A being matched
-    // to a visually similar pose from person B.  Cross-file IDs are not
-    // comparable and are therefore intentionally ignored.
+    // Track IDs are local to a source file.  A different ID must not silently
+    // become the same person: within one source it is allowed only when the
+    // body-ReID gate independently verifies the appearance. Cross-file IDs
+    // are not comparable and are therefore intentionally ignored.
     bool requireSameTrackWithinSource = true;
     bool allowStaticFrames = false;
     bool requireAppearance = false;
@@ -102,10 +108,12 @@ struct MotionMatcherParams {
     // default conservative so callers do not accidentally publish pose-only
     // matches between visually similar people.
     double minAppearanceSimilarity = 0.80;
-    double appearanceWeight = 0.30;
-    // Fraction of a window's track observations that actually contributed a
-    // valid ReID embedding. A single lucky/blurred crop must not establish an
-    // identity for a whole temporal segment.
+    // Kept for settings compatibility. Appearance is an identity gate only;
+    // it deliberately never inflates the user-visible motion similarity.
+    double appearanceWeight = 0.0;
+    // Confidence from independent valid ReID crops in a temporal window.
+    // It is not calculated per pose frame because ReID is sampled less often.
+    // A single lucky/blurred crop must not establish an identity.
     double minAppearanceEvidence = 0.45;
 };
 
