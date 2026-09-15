@@ -35,6 +35,18 @@ double appearanceCosine(const std::vector<float>& left,
     return std::clamp(dot / std::sqrt(leftNorm * rightNorm), -1.0, 1.0);
 }
 
+// Tracker IDs are only meaningful inside a continuous shot.  The detector
+// runs before scene boundaries are known, so a person in the next shot can
+// inherit the previous shot's numeric ID when the boxes happen to overlap.
+// Treat a scene transition as an identity boundary unless body-ReID confirms
+// that the two observations are still the same person.
+bool differentTrackSegment(const MotionWindow& left, const MotionWindow& right)
+{
+    if (left.trackId != right.trackId) return true;
+    return left.hasSceneIndex && right.hasSceneIndex
+        && left.sceneIndex != right.sceneIndex;
+}
+
 std::vector<NormalizedPose> normalizePoses(const MotionWindow& window,
                                            bool normalizeSize)
 {
@@ -596,7 +608,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     if (left.sourceId == right.sourceId
         && params.requireSameTrackWithinSource
         && left.trackId != 0 && right.trackId != 0
-        && left.trackId != right.trackId) {
+        && differentTrackSegment(left, right)) {
         const bool sameAppearance = !left.appearanceEmbedding.empty()
             && !right.appearanceEmbedding.empty()
             && appearanceCosine(left.appearanceEmbedding, right.appearanceEmbedding)
@@ -855,7 +867,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if (windows[i].staticFrameSet != windows[j].staticFrameSet) { ++staticRejected; continue; }
         if (sameSource && params_.requireSameTrackWithinSource
             && windows[i].trackId != 0 && windows[j].trackId != 0
-            && windows[i].trackId != windows[j].trackId) {
+            && differentTrackSegment(windows[i], windows[j])) {
             const bool sameAppearance = !windows[i].appearanceEmbedding.empty()
                 && !windows[j].appearanceEmbedding.empty()
                 && appearanceCosine(windows[i].appearanceEmbedding,

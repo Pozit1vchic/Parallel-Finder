@@ -1695,11 +1695,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.allowStaticFrames = analysisMode == QStringLiteral("static")
                 || analysisMode == QStringLiteral("combined");
             params.normalizeSize = normalizeSize;
-            // If a ReID model is installed, pose-only cross-person matches
-            // are too dangerous to show. A missing/broken model is reported
-            // explicitly in the status bar; it must not silently lower the
-            // identity gate back to a loose pose-only search.
-            params.requireAppearance = reidModelPresent;
+            // Pose similarity is not an identity signal: two actors can make
+            // the same gesture.  Never publish a cross-person result without
+            // a body-ReID embedding.  When the model is absent or failed,
+            // MotionMatcher fails closed instead of silently returning
+            // plausible-looking but wrong pairs.
+            params.requireAppearance = true;
             // OSNet is the identity gate, not a cosmetic label. A loose 0.55
             // threshold lets visually similar people through; keep only a
             // stronger appearance agreement and give it enough influence in
@@ -1770,7 +1771,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             : (reidModelPresent
                 ? QStringLiteral("ReID: отключён (%1)").arg(reidFailure.isEmpty()
                     ? QStringLiteral("ошибка модели") : reidFailure)
-                : QStringLiteral("ReID: модель не найдена, pose-only режим"));
+                : QStringLiteral("ReID: модель не найдена · межперсонажные совпадения отключены"));
         const QString debugSummary = qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")
             ? QStringLiteral(" · debug: windows=%1 detections=%2")
                 .arg(static_cast<qulonglong>(windows.size()))
