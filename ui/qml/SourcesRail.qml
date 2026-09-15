@@ -77,7 +77,7 @@ Rectangle {
     function markCustom() { Analysis.accuracyPreset = "custom" }
 
     Flickable {
-        anchors.fill: parent; anchors.margins: 16; anchors.bottomMargin: 100; clip: true; contentWidth: width; contentHeight: content.implicitHeight + 18
+        anchors.fill: parent; anchors.margins: 16; anchors.bottomMargin: 100; clip: true; contentWidth: width; contentHeight: Math.max(content.implicitHeight, content.childrenRect.height) + 18
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
         ColumnLayout {

@@ -13,6 +13,9 @@ Item {
     default property alias content: body.data
     signal toggled(bool expanded)
 
+    // Use the body's actual child bounds instead of relying on a layout pass
+    // that may happen after Flickable has already calculated contentHeight.
+    // This keeps every advanced card scrollable when the disclosure opens.
     implicitHeight: header.implicitHeight + (root.expanded ? body.implicitHeight + 10 : 0)
     height: implicitHeight
 
@@ -40,13 +43,14 @@ Item {
                 root.expanded = !root.expanded
                 root.toggled(root.expanded)
             }
-            contentItem: Row {
+            contentItem: RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 12
                 anchors.rightMargin: 12
                 spacing: 8
                 Text {
-                    width: Math.max(0, parent.width - disclosure.implicitWidth - 8)
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     text: root.title
                     color: Theme.textPrimary
                     font.family: Theme.fontFamily
@@ -58,6 +62,7 @@ Item {
                 }
                 Text {
                     id: disclosure
+                    Layout.alignment: Qt.AlignVCenter
                     text: root.expanded ? "−" : "+"
                     color: Theme.accent
                     font.pixelSize: 17
@@ -72,8 +77,9 @@ Item {
             }
         }
 
-        ColumnLayout {
+        Column {
             id: body
+            width: parent.width
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             spacing: 10
