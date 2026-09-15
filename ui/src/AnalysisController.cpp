@@ -1701,15 +1701,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             // MotionMatcher fails closed instead of silently returning
             // plausible-looking but wrong pairs.
             params.requireAppearance = true;
-            // OSNet is the identity gate, not a cosmetic label. A loose 0.55
-            // threshold lets visually similar people through; keep only a
-            // stronger appearance agreement and give it enough influence in
-            // the final score to suppress cross-person pose coincidences.
-            params.minAppearanceSimilarity = 0.78;
-            // ReID is an identity gate. It should veto a different person,
-            // but must not erase a valid movement when lighting/crop changes
-            // make the embedding less confident.
-            params.appearanceWeight = 0.30;
+            // OSNet is the identity gate, not a cosmetic label. The compact
+            // x0.25 export used by the desktop build is intentionally noisy;
+            // 0.78 lets visually similar faces through (as with two bearded
+            // actors in the same clip). Keep only a high-confidence match and
+            // give appearance enough influence to veto a pose-only false hit.
+            params.minAppearanceSimilarity = 0.88;
+            params.appearanceWeight = 0.40;
             foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows);
             pfcore::MotionRanker::rank(foundMatches, windows);
             matches = static_cast<int>(foundMatches.size());

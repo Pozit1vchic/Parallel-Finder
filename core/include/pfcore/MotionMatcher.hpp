@@ -98,8 +98,11 @@ struct MotionMatcherParams {
     bool requireSameTrackWithinSource = true;
     bool allowStaticFrames = false;
     bool requireAppearance = false;
-    double minAppearanceSimilarity = 0.68;
-    double appearanceWeight = 0.20;
+    // Appearance is an identity gate, not a cosmetic score. Keep the core
+    // default conservative so callers do not accidentally publish pose-only
+    // matches between visually similar people.
+    double minAppearanceSimilarity = 0.80;
+    double appearanceWeight = 0.30;
 };
 
 struct MotionMatch {

@@ -104,8 +104,8 @@ Rectangle {
                         Text {
                             width: parent.width
                             text: modelData.identityVerified === true
-                                ? "ReID · один человек подтверждён"
-                                : "ReID не применён · pose-only"
+                                ? "ReID · подтверждён (" + Math.round(Number(modelData.appearanceSimilarity || 0) * 100) + "%)"
+                                : "ReID · личность не подтверждена"
                             color: modelData.identityVerified === true ? Theme.sage : Theme.textDisabled
                             font.pixelSize: 10
                             elide: Text.ElideRight
