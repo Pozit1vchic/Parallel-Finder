@@ -220,6 +220,13 @@ Rectangle {
                 title: L10n.t("search.advanced")
                 expanded: root.advancedOpen
                 onToggled: root.advancedOpen = expanded
+                Text {
+                    width: parent.width
+                    text: L10n.t("search.advancedHint")
+                    color: Theme.textSecondary
+                    font.pixelSize: 10
+                    wrapMode: Text.WordWrap
+                }
                 Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: modelCard.implicitHeight + 24
                     Column { id: modelCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
                         Text { text: L10n.t("settings.poseModel"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
@@ -259,24 +266,12 @@ Rectangle {
                     Column { id: similarityCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
                         Text { text: L10n.t("search.similarityGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfSliderField { width: parent.width; label: L10n.t("search.similarity"); from: 0.5; to: 0.99; stepSize: 0.01; value: Analysis.similarityThreshold; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("search.similarityHint"); Accessible.name: L10n.t("search.similarity"); onValueEdited: { root.markCustom(); Analysis.similarityThreshold = nextValue } }
-                        PfSliderField { width: parent.width; label: L10n.t("search.candidate"); from: 0.2; to: 0.95; stepSize: 0.01; value: Analysis.candidateThreshold; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("search.candidateHint"); Accessible.name: L10n.t("search.candidate"); onValueEdited: { root.markCustom(); Analysis.candidateThreshold = nextValue } }
                     }
                 }
                 Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: spacingCard.implicitHeight + 24
                     Column { id: spacingCard; anchors.fill: parent; anchors.margins: 12; spacing: 9
                         Text { text: L10n.t("search.spacingGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfSliderField { width: parent.width; label: L10n.t("search.repeatGap"); from: 0; to: 30; stepSize: 0.5; value: Analysis.repeatGap; decimals: 1; suffix: L10n.t("common.seconds"); tooltipText: L10n.t("search.repeatGapHint"); Accessible.name: L10n.t("search.repeatGap"); onValueEdited: { root.markCustom(); Analysis.repeatGap = nextValue } }
-                        PfSliderField { width: parent.width; label: L10n.t("search.sameFileGap"); from: 0; to: 15; stepSize: 0.5; value: Analysis.sameFileGap; decimals: 1; suffix: L10n.t("common.seconds"); tooltipText: L10n.t("search.sameFileGapHint"); Accessible.name: L10n.t("search.sameFileGap"); onValueEdited: { root.markCustom(); Analysis.sameFileGap = nextValue } }
-                        PfSliderField { width: parent.width; label: L10n.t("search.crossFileGap"); from: 0; to: 15; stepSize: 0.5; value: Analysis.crossFileGap; decimals: 1; suffix: L10n.t("common.seconds"); tooltipText: L10n.t("search.crossFileGapHint"); Accessible.name: L10n.t("search.crossFileGap"); onValueEdited: { root.markCustom(); Analysis.crossFileGap = nextValue } }
-                        PfSliderField { width: parent.width; label: L10n.t("search.duplicateWindow"); from: 0.25; to: 8; stepSize: 0.25; value: Analysis.duplicateWindow; decimals: 2; suffix: L10n.t("common.seconds"); tooltipText: L10n.t("search.duplicateWindowHint"); Accessible.name: L10n.t("search.duplicateWindow"); onValueEdited: { root.markCustom(); Analysis.duplicateWindow = nextValue } }
-                    }
-                }
-                Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: rankingCard.implicitHeight + 24
-                    Column { id: rankingCard; anchors.fill: parent; anchors.margins: 12; spacing: 9
-                        Text { text: L10n.t("search.rankingGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        PfSliderField { width: parent.width; label: L10n.t("search.noise"); from: 0; to: 2; stepSize: 0.05; value: Analysis.noiseFactor; decimals: 2; tooltipText: L10n.t("search.noiseHint"); Accessible.name: L10n.t("search.noise"); onValueEdited: { root.markCustom(); Analysis.noiseFactor = nextValue } }
-                        PfSliderField { width: parent.width; label: L10n.t("search.maxResults"); from: 10; to: 500; stepSize: 10; value: Analysis.maxUniqueResults; decimals: 0; integer: true; tooltipText: L10n.t("search.maxResultsHint"); Accessible.name: L10n.t("search.maxResults"); onValueEdited: { root.markCustom(); Analysis.maxUniqueResults = Math.round(nextValue) } }
-                        PfSliderField { width: parent.width; label: L10n.t("search.timeWeight"); from: 0; to: 1; stepSize: 0.05; value: Analysis.timeWeight; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("search.timeWeightHint"); Accessible.name: L10n.t("search.timeWeight"); onValueEdited: { root.markCustom(); Analysis.timeWeight = nextValue } }
                     }
                 }
             }

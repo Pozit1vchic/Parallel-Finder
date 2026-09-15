@@ -57,7 +57,8 @@
 
 1. Добавьте один или несколько роликов через «Источники».
 2. Выберите профиль точности и состав анализа.
-3. При необходимости раскройте «Дополнительные настройки».
+3. При необходимости раскройте компактные «Дополнительные настройки» — там
+   только три понятных регулятора; наведите указатель, чтобы увидеть пояснение.
 4. Запустите анализ.
 5. Нажмите пару справа, чтобы открыть стоп-кадры A/B.
 6. Отметьте результаты и выберите JSON/CSV/TXT или FFmpeg для нарезки.
@@ -125,6 +126,11 @@ python D:\Parallel-Finder\tools\model_export\export_pose_release.py `
 подменяет выбор молча на CPU. Скачанный runtime применяется после перезапуска,
 потому что DLL ONNX Runtime нельзя безопасно заменить внутри уже запущенного
 процесса.
+
+Официальные источники для ручной установки: [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads),
+[TensorRT](https://developer.nvidia.com/tensorrt-getting-started) и таблицы
+совместимости [CUDA EP](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html) /
+[TensorRT EP](https://onnxruntime.ai/docs/execution-providers/TensorRT-ExecutionProvider.html).
 
 ## Как устроен matcher
 

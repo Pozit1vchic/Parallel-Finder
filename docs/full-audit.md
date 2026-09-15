@@ -4,7 +4,8 @@
 
 Ветка: `main`
 
-Последний рабочий commit: `607fcf6` (`verify model provider pipeline and release assets`)
+Последняя проверенная ревизия включает изменения после `607fcf6`: matcher,
+FFmpeg-cut и perceptual opacity/tooltip UI были перепроверены локальной сборкой.
 
 Этот документ сверяет текущий код с замечаниями из переписки и разделяет
 реализацию, частичную готовность и то, что пока нельзя честно назвать
@@ -57,8 +58,11 @@ editable sliders, выбор режимов, моделей, provider и accent 
 | Самосравнения и близкие повторы | **Готово** | Scene/track guards, same-source floor 5 с, repeat gaps и NMS/dedup. Порог всё равно нужно калибровать на реальном материале. |
 | Результаты сортируются по реальной схожести | **Готово** | Сначала calibrated similarity descending, затем детерминированные tie-breakers. |
 | Экспортная папка не выбиралась | **Готово на уровне path handling** | `QUrl::toLocalFile()`/нормализация применяются и в QML, и перед FFmpeg/exporter; создаётся папка с понятной ошибкой. Нужен ручной тест через native FolderDialog. |
+| FFmpeg писал `*.mp4.part` и не выбирал контейнер | **Готово на уровне кода** | Временный файл теперь `*.part.mp4`, то есть расширение контейнера сохраняется; прямой FFmpeg smoke создал MP4-файл. Полный клип через GUI на Windows ещё требует ручного сценария. |
 | EDL/FCP/AEP убрать, FFmpeg добавить | **Готово в UI** | UI оставляет JSON/CSV/TXT/FFMPEG; legacy API в C++ сохранён для совместимости. |
 | Accent color в Settings | **Готово** | Orange/blue/violet/teal сохраняются через `QtCore.Settings` и меняют `Theme.accent`. |
+| Прозрачность панелей 25–100% | **Готово на уровне кода** | Диапазон расширен до 25–100%; цветовая альфа откалибрована нелинейно, чтобы 70–80% визуально не выглядели как почти прозрачные панели. |
+| Подсказки для параметров анализа | **Готово на уровне кода** | `PfSliderField` показывает app-style `ToolTip` при наведении на label, rail или числовое поле. Визуально на целевом DPI ещё нужно проверить. |
 | Тесты не должны попадать в Git | **Готово** | `/tests/` добавлен в `.gitignore`, tracked test files удалены из индекса, локальная папка сохранена. CMake не падает без неё. |
 | README проекта и профиля | **Готово** | Проектный README переписан, добавлен copy-ready `PROFILE_README.md`. |
 
@@ -70,7 +74,9 @@ editable sliders, выбор режимов, моделей, provider и accent 
 2. Motion activity: средняя delta-K, active-transition ratio и trajectory range.
 3. Не менее `minTemporalFrames = 12` непустых кадров с возрастающими timestamp.
 4. Непрерывная temporal run с cosine threshold.
-5. Constrained DTW и dense prefilter вместо endpoint-only сравнения.
+5. Constrained DTW и dense prefilter вместо endpoint-only сравнения; в descriptor
+   добавлена относительная траектория центра/масштаба тела, чтобы нормализация не
+   стирала реальное перемещение.
 6. Same-source gap floor 5 секунд, scene guard и same-track guard.
 7. NMS по overlap и дополнительная дедупликация близких окон.
 8. Optional appearance cosine gate, если ReID-эмбеддинги действительно есть.
@@ -105,9 +111,14 @@ precision/recall.
   сейчас отвечает HTTP 404; поэтому UI-кнопка runtime корректно показывает
   ошибку, но скачать provider ей пока неоткуда.
 - CPU analysis smoke с `yolo26m-pose-640-b1.onnx` прочитал 1 файл / 235 кадров
-  во всех четырёх режимах. Без ReID это было `pose-only`; после подключения
-  `person-reid-osnet.onnx` статус стал `ReID: применён`. На коротком клипе
-  найдено 0 пар — это pipeline smoke, а не accuracy benchmark.
+  во всех четырёх режимах. После подключения `person-reid-osnet.onnx` статус
+  стал `ReID: применён`. На коротком клипе найдено 0 пар — это pipeline smoke,
+  а не accuracy benchmark.
+- Прогон большого `Soldier Boy (The Boys) _ Scenepack 4K.mp4` на CPU не
+  уложился в текущий 120-секундный headless timeout и был остановлен без
+  частичного результата. Это честный сигнал о стоимости полного CPU-прогона,
+  а не подтверждение качества matcher; для него нужен GPU-runtime или отдельный
+  длительный benchmark с сохранением промежуточного прогресса.
 
 ### Не подтверждено внешним окружением
 

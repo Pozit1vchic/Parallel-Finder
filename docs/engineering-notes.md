@@ -25,8 +25,9 @@ Applied in the current UI pass:
 
 - `PfSlider` and `PfCheckBox` are reusable QML controls instead of duplicated
   hand-built styling.
-- all nine matcher values have named backend properties and are copied into
-  `MotionMatcherParams` at analysis start;
+- all matcher values have named backend properties and are copied into
+  `MotionMatcherParams` at analysis start; the rail intentionally exposes only
+  three high-signal controls and lets presets own the rest;
 - the left rail scrolls instead of clipping controls;
 - empty state, settings and result states are explicit states, not fake data;
 - the core remains Qt-free and the app/UI bridge owns presentation concerns.
@@ -81,5 +82,6 @@ Stage 4 audit and implementation notes:
   NVENC → AMF → QSV → CPU for exact cuts. Optional output ceilings prevent
   upscaling while preserving aspect ratio; fast stream-copy mode rejects a
   resize request because filtering would invalidate `-c copy`.
-- Settings schema 3 persists all nine matcher controls. Writes use `QSaveFile`
+- Settings schema 3 persists the full backend parameter set for compatibility.
+  The current UI exposes a compact subset. Writes use `QSaveFile`
   and now check directory creation and the byte count returned by the write.

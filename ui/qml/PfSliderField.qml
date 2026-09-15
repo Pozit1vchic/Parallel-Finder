@@ -41,6 +41,15 @@ Item {
         root.valueEdited(next)
     }
 
+    // The explanation belongs to the whole control, not only the tiny rail.
+    // This keeps the interaction discoverable when the pointer is over the
+    // label or the editable number as well.
+    HoverHandler { id: hintHover }
+    ToolTip.visible: hintHover.hovered && root.tooltipText.length > 0
+    ToolTip.text: root.tooltipText
+    ToolTip.delay: 350
+    ToolTip.timeout: 6000
+
     onValueChanged: if (!valueField.activeFocus) valueField.text = root.displayNumber(root.value)
 
     Row {

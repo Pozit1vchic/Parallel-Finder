@@ -83,19 +83,20 @@ elevated surface in the center column.
 The primary action is `Добавить видео`. Folder selection and clearing are
 secondary. The source list is compact and visibly selected. The rail starts
 with two high-level controls: an accuracy preset (quick, balanced, high
-precision) and frame-processing quality (fast, balanced, maximum). The full
-set of nine matcher controls must map to `MotionMatcherParams`, show an inline
-editable value beside the slider, and expose a short tooltip. They, together
-with the scene detector, live in a closed-by-default “Advanced analysis
-  settings” disclosure. Model selection and all operational controls stay on
-  the main workspace; Settings remains focused on provider and system
-  resources. Controls are grouped by intent rather than a wall of duplicated
-labels:
+precision) and frame-processing quality (fast, balanced, maximum). The main
+rail exposes only the controls a user can tune without knowing matcher
+internals: similarity threshold, repeat gap and scene threshold. Each control
+has an inline editable value and a short tooltip. Hidden implementation
+parameters are selected by the accuracy preset and are not duplicated in the
+UI. These compact controls live in a closed-by-default “Advanced analysis
+settings” disclosure. Model selection and all operational controls stay on the
+main workspace; Settings remains focused on provider and system resources.
 
-1. Similarity: similarity threshold, candidate threshold.
-2. Spacing: repeat gap, same-file gap, cross-file gap, duplicate window.
-3. Ranking: noise factor, maximum unique results, time weight.
-4. Scene detection: scene-change threshold.
+Controls are grouped by intent rather than a wall of duplicated labels:
+
+1. Similarity: similarity threshold.
+2. Spacing: repeat gap.
+3. Scene detection: scene-change threshold.
 
 ### Empty analysis state
 

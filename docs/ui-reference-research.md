@@ -46,7 +46,7 @@ reviewed in one file and does not depend on a hidden UI framework.
 The window is a motion-analysis workbench, not a generic dashboard. Therefore:
 
 - the central comparison stage is the visual anchor;
-- the left rail owns sources and the nine matcher parameters;
+- the left rail owns sources and the compact set of high-signal matcher parameters;
 - the right rail owns result selection, filters and export;
 - the six statistics are a hairline-separated strip, not six floating cards;
 - rails use equal vertical margins and the central stage gets the most space.

@@ -33,8 +33,9 @@ class CutService {
 public:
     explicit CutService(std::string ffmpegExecutable = "ffmpeg");
 
-    // Runs ffmpeg without a shell. Output is written to a sibling .part file
-    // and moved into place only after a successful process exit.
+    // Runs ffmpeg without a shell. Output is written to a sibling temporary
+    // file that keeps the media extension (for example clip.part.mp4) and is
+    // moved into place only after a successful process exit.
     [[nodiscard]] CutResult cut(const CutRequest& request) const;
 
 private:

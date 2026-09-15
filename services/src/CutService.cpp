@@ -84,7 +84,13 @@ CutResult CutService::cut(const CutRequest& request) const
     }
 
     const double duration = request.endSeconds - request.startSeconds;
-    const auto temporaryPath = request.outputPath.string() + ".part";
+    // Keep the real media extension on the temporary file.  FFmpeg selects
+    // its muxer from the output suffix; `clip.mp4.part` has no known format
+    // and produces "Unable to choose an output format" on Windows.
+    const std::string extension = request.outputPath.extension().string();
+    const std::string temporaryName = request.outputPath.stem().string()
+        + ".part" + (extension.empty() ? std::string(".mp4") : extension);
+    const auto temporaryPath = request.outputPath.parent_path() / temporaryName;
     std::filesystem::remove(temporaryPath, filesystemError);
 
     std::vector<std::string> encoders;
@@ -118,7 +124,7 @@ CutResult CutService::cut(const CutRequest& request) const
                 arguments << QStringLiteral("-vf") << filter;
             }
         }
-        arguments << QString::fromStdWString(std::filesystem::path(temporaryPath).wstring());
+        arguments << QString::fromStdWString(temporaryPath.wstring());
 
         QProcess process;
         process.setProgram(QString::fromStdString(ffmpegExecutable_));

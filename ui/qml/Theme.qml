@@ -9,9 +9,16 @@ QtObject {
     readonly property color canvas: "#0C0D0B"
     readonly property color rail: "#11120F"
     property real surfaceOpacity: 1.0
-    property color panel: Qt.rgba(0.09, 0.094, 0.075, surfaceOpacity)
+    // The slider is intentionally perceptual: dark surfaces otherwise look
+    // almost transparent even when the value says 70–80%. Keep 25% as a
+    // genuinely light surface, while the middle of the range remains legible.
+    readonly property real surfaceAlpha: {
+        const normalized = Math.max(0, Math.min(1, (surfaceOpacity - 0.25) / 0.75))
+        return 0.30 + 0.70 * Math.pow(normalized, 0.65)
+    }
+    property color panel: Qt.rgba(0.09, 0.094, 0.075, surfaceAlpha)
     readonly property color heroPanel: panel
-    property color panelAlt: Qt.rgba(0.118, 0.122, 0.098, surfaceOpacity)
+    property color panelAlt: Qt.rgba(0.118, 0.122, 0.098, surfaceAlpha)
     readonly property color surfaceRaised: panelAlt
     readonly property color surfaceMuted: "#272820"
     readonly property color well: "#0A0B09"

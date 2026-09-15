@@ -1550,8 +1550,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             const bool appearanceReady = reidReady && std::any_of(windows.begin(), windows.end(),
                 [](const auto& window) { return !window.appearanceEmbedding.empty(); });
             params.requireAppearance = appearanceReady;
-            params.minAppearanceSimilarity = 0.55;
-            params.appearanceWeight = 0.20;
+            // OSNet is the identity gate, not a cosmetic label. A loose 0.55
+            // threshold lets visually similar people through; keep only a
+            // stronger appearance agreement and give it enough influence in
+            // the final score to suppress cross-person pose coincidences.
+            params.minAppearanceSimilarity = 0.68;
+            params.appearanceWeight = 0.30;
             foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows);
             pfcore::MotionRanker::rank(foundMatches, windows);
             matches = static_cast<int>(foundMatches.size());

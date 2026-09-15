@@ -75,6 +75,33 @@ struct MotionActivity {
     double trajectoryRange = 0.0;
 };
 
+struct FrameRoot {
+    double x = 0.0;
+    double y = 0.0;
+    double scale = 1.0;
+};
+
+FrameRoot frameRoot(const PoseFrame& frame)
+{
+    if (frame.keypoints.empty()) return {};
+    double cx = 0.0;
+    double cy = 0.0;
+    double weight = 0.0;
+    for (const auto& point : frame.keypoints) {
+        const double confidence = std::max(0.0, point.confidence);
+        cx += point.x * confidence;
+        cy += point.y * confidence;
+        weight += confidence;
+    }
+    if (weight <= 1e-9) weight = static_cast<double>(frame.keypoints.size());
+    cx /= weight;
+    cy /= weight;
+    double scale = 0.0;
+    for (const auto& point : frame.keypoints)
+        scale = std::max(scale, std::hypot(point.x - cx, point.y - cy));
+    return {cx, cy, std::max(scale, 1e-6)};
+}
+
 MotionActivity motionActivity(const MotionWindow& window,
                               const std::vector<NormalizedPose>& poses)
 {
@@ -102,6 +129,31 @@ MotionActivity motionActivity(const MotionWindow& window,
             ++rangePoints;
         }
     }
+    // A pose normalizer intentionally removes translation and scale. Keep a
+    // separate relative root trajectory for the motion gate so a person
+    // walking through the frame is not mistaken for a static pose.
+    const FrameRoot baseRoot = frameRoot(window.frames.front());
+    double rootMinX = 0.0, rootMaxX = 0.0, rootMinY = 0.0, rootMaxY = 0.0;
+    double rootMinScale = 0.0, rootMaxScale = 0.0;
+    if (!window.frames.empty()) {
+        const double baseScale = std::max(baseRoot.scale, 1e-6);
+        for (const auto& frame : window.frames) {
+            const FrameRoot root = frameRoot(frame);
+            const double relativeX = (root.x - baseRoot.x) / baseScale;
+            const double relativeY = (root.y - baseRoot.y) / baseScale;
+            const double relativeScale = std::log(std::max(root.scale, 1e-6) / baseScale);
+            rootMinX = std::min(rootMinX, relativeX);
+            rootMaxX = std::max(rootMaxX, relativeX);
+            rootMinY = std::min(rootMinY, relativeY);
+            rootMaxY = std::max(rootMaxY, relativeY);
+            rootMinScale = std::min(rootMinScale, relativeScale);
+            rootMaxScale = std::max(rootMaxScale, relativeScale);
+        }
+        const double rootRange = std::hypot(rootMaxX - rootMinX, rootMaxY - rootMinY)
+            + 0.5 * std::abs(rootMaxScale - rootMinScale);
+        rangeSum += rootRange;
+        ++rangePoints;
+    }
     for (std::size_t frame = 1; frame < poses.size(); ++frame) {
         const auto& previous = poses[frame - 1];
         const auto& current = poses[frame];
@@ -121,7 +173,15 @@ MotionActivity motionActivity(const MotionWindow& window,
         // Normalize the requested sum by the number of observed joints.  This
         // is the same delta-K signal, without making the threshold model-size
         // dependent.
-        const double mean = delta / static_cast<double>(valid);
+        const FrameRoot previousRoot = frameRoot(window.frames[frame - 1]);
+        const FrameRoot currentRoot = frameRoot(window.frames[frame]);
+        const double rootScale = std::max({baseRoot.scale, previousRoot.scale,
+                                           currentRoot.scale, 1e-6});
+        const double rootDelta = std::hypot(currentRoot.x - previousRoot.x,
+                                            currentRoot.y - previousRoot.y) / rootScale
+            + 0.5 * std::abs(std::log(std::max(currentRoot.scale, 1e-6)
+                                      / std::max(previousRoot.scale, 1e-6)));
+        const double mean = delta / static_cast<double>(valid) + rootDelta;
         total += mean;
         // Detector jitter is normally a few thousandths of a normalized
         // body unit. Require materially larger transitions and a sustained
@@ -140,6 +200,8 @@ std::vector<Descriptor> describe(const std::vector<NormalizedPose>& normalized,
 {
     std::vector<Descriptor> result;
     result.reserve(normalized.size());
+    const FrameRoot baseRoot = window.frames.empty() ? FrameRoot{}
+        : frameRoot(window.frames.front());
     for (std::size_t frameIndex = 0; frameIndex < normalized.size(); ++frameIndex) {
         const auto& pose = normalized[frameIndex];
         if (pose.empty()) { result.emplace_back(); continue; }
@@ -162,6 +224,28 @@ std::vector<Descriptor> describe(const std::vector<NormalizedPose>& normalized,
             descriptor.push_back(std::clamp(velocityX, -4.0, 4.0));
             descriptor.push_back(std::clamp(velocityY, -4.0, 4.0));
         }
+        // Add a relative root/scale channel after the normalized joints. It
+        // carries translation and zoom motion, but never absolute image
+        // coordinates, so the same movement remains comparable in another
+        // crop or camera framing.
+        const FrameRoot currentRoot = frameRoot(window.frames[frameIndex]);
+        const double baseScale = std::max(baseRoot.scale, 1e-6);
+        const double rootX = (currentRoot.x - baseRoot.x) / baseScale;
+        const double rootY = std::log(std::max(currentRoot.scale, 1e-6) / baseScale);
+        double rootVelocityX = 0.0;
+        double rootVelocityY = 0.0;
+        if (frameIndex > 0) {
+            const FrameRoot previousRoot = frameRoot(window.frames[frameIndex - 1]);
+            const double previousScale = std::max(previousRoot.scale, 1e-6);
+            const double dt = std::max(1e-3, window.frames[frameIndex].timestampSeconds
+                - window.frames[frameIndex - 1].timestampSeconds);
+            rootVelocityX = (rootX - (previousRoot.x - baseRoot.x) / baseScale) / dt;
+            rootVelocityY = (rootY - std::log(previousScale / baseScale)) / dt;
+        }
+        descriptor.push_back(std::clamp(rootX, -8.0, 8.0));
+        descriptor.push_back(std::clamp(rootY, -4.0, 4.0));
+        descriptor.push_back(std::clamp(rootVelocityX, -8.0, 8.0));
+        descriptor.push_back(std::clamp(rootVelocityY, -8.0, 8.0));
         result.push_back(std::move(descriptor));
     }
     return result;
@@ -169,10 +253,39 @@ std::vector<Descriptor> describe(const std::vector<NormalizedPose>& normalized,
 
 double frameDistance(const Descriptor& left, const Descriptor& right)
 {
-    if (left.empty() || right.empty() || left.size() != right.size()) return 1.0;
-    double sum = 0.0;
-    for (std::size_t i = 0; i < left.size(); ++i) sum += std::abs(left[i] - right[i]);
-    return sum / static_cast<double>(left.size());
+    if (left.empty() || right.empty() || left.size() != right.size()
+        || left.size() % 4U != 0U) return 1.0;
+
+    // Descriptors are interleaved as x/y position and x/y velocity for each
+    // joint.  A flat L1 average over all four values made unrelated poses
+    // look deceptively close: most normalized coordinates are small and
+    // exp(-distance) turned that small error into an 85–95% score.  Keep the
+    // spatial and temporal errors separate and normalize velocity to its
+    // bounded [-4, 4] range.
+    double positionError = 0.0;
+    double velocityError = 0.0;
+    const std::size_t joints = left.size() / 4U;
+    for (std::size_t joint = 0; joint < joints; ++joint) {
+        const std::size_t offset = joint * 4U;
+        positionError += std::hypot(left[offset] - right[offset],
+                                    left[offset + 1U] - right[offset + 1U]);
+        velocityError += std::hypot(left[offset + 2U] - right[offset + 2U],
+                                    left[offset + 3U] - right[offset + 3U]) / 8.0;
+    }
+    const double spatial = positionError / static_cast<double>(joints);
+    const double temporal = velocityError / static_cast<double>(joints);
+    return std::clamp(0.78 * spatial + 0.22 * temporal, 0.0, 1.0);
+}
+
+double frameSimilarity(const Descriptor& left, const Descriptor& right)
+{
+    if (left.empty() || right.empty() || left.size() != right.size()) return 0.0;
+    const double distance = frameDistance(left, right);
+    if (!std::isfinite(distance)) return 0.0;
+    // The exponential is intentionally steeper than the old exp(-distance).
+    // A frame must agree in both joint layout and instantaneous velocity to
+    // contribute to a temporal run.
+    return std::clamp(std::exp(-3.0 * distance), 0.0, 1.0);
 }
 
 double noiseFloor(const std::vector<Descriptor>& descriptors)
@@ -212,23 +325,8 @@ double coarseSimilarity(const std::vector<Descriptor>& left,
             ++used;
         }
     }
-    return used == 0 ? 0.0 : std::clamp(std::exp(-(distance / static_cast<double>(used))), 0.0, 1.0);
-}
-
-double cosineSimilarity(const Descriptor& left, const Descriptor& right)
-{
-    if (left.empty() || right.empty() || left.size() != right.size()) return 0.0;
-    double dot = 0.0;
-    double leftNorm = 0.0;
-    double rightNorm = 0.0;
-    for (std::size_t i = 0; i < left.size(); ++i) {
-        dot += left[i] * right[i];
-        leftNorm += left[i] * left[i];
-        rightNorm += right[i] * right[i];
-    }
-    const double denominator = std::sqrt(leftNorm * rightNorm);
-    if (denominator <= 1e-12) return 0.0;
-    return std::clamp(dot / denominator, -1.0, 1.0);
+    return used == 0 ? 0.0 : std::clamp(std::exp(-3.0 * distance
+                                                        / static_cast<double>(used)), 0.0, 1.0);
 }
 
 double shapeSimilarity(const std::vector<NormalizedPose>& left,
@@ -287,9 +385,9 @@ double temporalCosineScore(const std::vector<Descriptor>& left,
             / std::max<std::size_t>(1, samples - 1);
         const std::size_t ri = (sample * (right.size() - 1))
             / std::max<std::size_t>(1, samples - 1);
-        const double cosine = cosineSimilarity(left[li], right[ri]);
-        if (cosine <= 0.0) continue;
-        score += cosine;
+        const double similarity = frameSimilarity(left[li], right[ri]);
+        if (similarity <= 0.0) continue;
+        score += similarity;
         ++used;
     }
     return used == 0 ? 0.0 : std::clamp(score / static_cast<double>(used), 0.0, 1.0);
@@ -329,6 +427,26 @@ bool hasDistinctTemporalSamples(const MotionWindow& window,
     return usable >= params.minTemporalFrames;
 }
 
+bool hasTemporalDiversity(const std::vector<Descriptor>& descriptors)
+{
+    // Counting timestamps alone is not enough: a detector can copy one pose
+    // into dozens of frames. Require several genuinely new descriptor states
+    // across the window. The threshold is below a meaningful body movement
+    // but above ordinary one-frame keypoint jitter.
+    if (descriptors.size() < 6) return false;
+    constexpr double noveltyThreshold = 0.015;
+    const Descriptor* anchor = nullptr;
+    std::size_t distinctStates = 0;
+    for (const auto& descriptor : descriptors) {
+        if (descriptor.empty()) continue;
+        if (!anchor || frameDistance(*anchor, descriptor) >= noveltyThreshold) {
+            anchor = &descriptor;
+            ++distinctStates;
+        }
+    }
+    return distinctStates >= 4;
+}
+
 bool hasTemporalRun(const std::vector<Descriptor>& left,
                    const std::vector<Descriptor>& right,
                    const MotionWindow& leftWindow,
@@ -348,7 +466,7 @@ bool hasTemporalRun(const std::vector<Descriptor>& left,
             / std::max<std::size_t>(1, samples - 1);
         const std::size_t rightIndex = (sample * (right.size() - 1))
             / std::max<std::size_t>(1, samples - 1);
-        if (cosineSimilarity(left[leftIndex], right[rightIndex])
+        if (frameSimilarity(left[leftIndex], right[rightIndex])
             >= params.temporalSimilarityThreshold) {
             if (run == 0) runStartSample = sample;
             ++run;
@@ -486,6 +604,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         || !hasDistinctTemporalSamples(right, b, params)
         || !hasTemporalSupport(left, params)
         || !hasTemporalSupport(right, params)
+        || (!staticPair && (!hasTemporalDiversity(a) || !hasTemporalDiversity(b)))
         || (!staticPair && motionGateFails)) {
         result.similarity = 0.0;
         return result;
@@ -532,7 +651,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     const double durationDenominator = std::max({leftDuration, rightDuration, 1e-9});
     const double timePenalty = params.timeWeight
         * std::abs(leftDuration - rightDuration) / durationDenominator;
-    const double dtwScore = std::clamp(std::exp(-result.dtwDistance), 0.0, 1.0);
+    const double dtwScore = std::clamp(std::exp(-3.0 * result.dtwDistance), 0.0, 1.0);
     const double temporalScore = temporalCosineScore(a, b);
     const double anatomyScore = shapeSimilarity(leftPrepared.poses, rightPrepared.poses);
     // DTW captures trajectory distance, cosine captures frame-wise direction,
@@ -626,7 +745,8 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             || !hasDistinctTemporalSamples(windows[index], prepared[index].descriptors, params_)
             || (!staticWindow && (prepared[index].motionDelta < params_.motionDeltaThreshold
                                   || prepared[index].activeTransitionRatio < params_.minActiveTransitionRatio
-                                  || prepared[index].trajectoryRange < params_.minMotionRange))
+                                  || prepared[index].trajectoryRange < params_.minMotionRange
+                                  || !hasTemporalDiversity(prepared[index].descriptors)))
             || !hasTemporalSupport(windows[index], params_)) {
             prepared[index].descriptors.clear();
             continue;

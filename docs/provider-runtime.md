@@ -37,3 +37,22 @@ DLL выбранного Execution Provider. Указывайте размер �
 Если release-манифест недоступен, приложение не делает вид, что скачивание
 сработало: в настройках показывается причина (нет сети, HTTP-ошибка или
 отсутствует asset).
+
+## Где брать CUDA и TensorRT
+
+Не скачивайте отдельные DLL из случайных архивов. Используйте официальные
+страницы NVIDIA и сверяйте версии с таблицей ONNX Runtime:
+
+- [CUDA Toolkit — официальный Download Center NVIDIA](https://developer.nvidia.com/cuda-downloads)
+- [TensorRT — официальный Getting Started / Download NVIDIA](https://developer.nvidia.com/tensorrt-getting-started)
+- [Требования CUDA Execution Provider в ONNX Runtime](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)
+- [Требования TensorRT Execution Provider в ONNX Runtime](https://onnxruntime.ai/docs/execution-providers/TensorRT-ExecutionProvider.html)
+
+Для CUDA/TensorRT нужны не только Toolkit: должны совпасть NVIDIA-драйвер,
+CUDA, cuDNN, TensorRT и сборка ONNX Runtime. На практике для этой сборки
+нужно выбрать одну согласованную матрицу версий, а не ставить «самые новые»
+компоненты независимо. Поэтому Parallel Finder сначала
+делает preflight реальным EP-сеансом и не помечает backend готовым только по
+наличию одной DLL. В текущем репозитории архивы провайдеров ещё не опубликованы
+в GitHub Release; кнопка загрузки честно сообщает HTTP 404, пока владелец не
+создаст `providers.json` и assets релиза.
