@@ -527,6 +527,21 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     noiseFactor_ = std::clamp(settings.noiseFactor, 0.0, 2.0);
     maxUniqueResults_ = std::clamp(static_cast<int>(settings.maxUniqueResults), 10, 500);
     timeWeight_ = std::clamp(settings.timeWeight, 0.0, 1.0);
+    // Settings written by releases before the temporal matcher calibration
+    // used .85/.55 as the balanced preset. Migrate that exact preset once so
+    // an existing installation does not keep the old zero-result gate.
+    const bool legacyBalanced = std::abs(similarityThreshold_ - 0.85) < 1e-6
+        && std::abs(candidateThreshold_ - 0.55) < 1e-6
+        && std::abs(repeatGap_ - 6.0) < 1e-6
+        && std::abs(sameFileGap_ - 2.0) < 1e-6
+        && std::abs(duplicateWindow_ - 1.5) < 1e-6
+        && std::abs(noiseFactor_ - 1.0) < 1e-6
+        && maxUniqueResults_ == 100
+        && std::abs(timeWeight_ - 0.25) < 1e-6;
+    if (legacyBalanced) {
+        similarityThreshold_ = 0.78;
+        candidateThreshold_ = 0.50;
+    }
     providerChoice_ = QString::fromStdString(settings.provider);
     // Keep headless diagnostics explicit without changing the persisted
     // provider selected in the UI.  This is also useful on machines where
@@ -572,7 +587,7 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
         && near(duplicateWindow_, 1.0) && near(noiseFactor_, 0.70)
         && maxUniqueResults_ == 200 && near(timeWeight_, 0.40)) {
         accuracyPreset_ = QStringLiteral("precise");
-    } else if (!near(similarityThreshold_, 0.85) || !near(candidateThreshold_, 0.55)
+    } else if (!near(similarityThreshold_, 0.78) || !near(candidateThreshold_, 0.50)
         || !near(repeatGap_, 6.0) || !near(sameFileGap_, 2.0)
         || !near(duplicateWindow_, 1.5) || !near(noiseFactor_, 1.0)
         || maxUniqueResults_ != 100 || !near(timeWeight_, 0.25)) {
@@ -1221,7 +1236,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         std::string settingsError;
         const pfservices::Settings settings = pfservices::SettingsStore().load(settingsError);
         (void)settingsError;
-        const auto model = findPoseModel();
+        auto model = findPoseModel();
         if (model.empty()) {
             QMetaObject::invokeMethod(this, [this] {
                 busy_ = false;
@@ -1230,6 +1245,29 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 setStatus(QStringLiteral("Модель поз не найдена. Укажите её в settings.json или в папке models."));
             }, Qt::QueuedConnection);
             return;
+        }
+        // Fixed-batch exports are intended for GPU execution. ONNX Runtime's
+        // CPU EP still computes every padded slot, so running a b8/b16 model
+        // one frame at a time is slower than the matching b1 export. When the
+        // user explicitly runs CPU (or Auto resolves to CPU), prefer the b1
+        // sibling if it is installed; this keeps the UI choice usable instead
+        // of turning a four-minute clip into an apparent hang.
+        const auto requestedProvider = pfgpu::parseProvider(providerChoice.toStdString());
+        const bool cpuOnly = providerChoice == QStringLiteral("cpu")
+            || (providerChoice == QStringLiteral("auto")
+                && requestedProvider.has_value()
+                && pfgpu::resolveProvider(*requestedProvider) == pfgpu::Provider::Cpu);
+        const std::string modelFilename = model.filename().string();
+        if (cpuOnly && (modelFilename.find("-b8") != std::string::npos
+                        || modelFilename.find("-b16") != std::string::npos)) {
+            auto cpuModel = model;
+            const auto marker = cpuModel.filename().string().find("-b8") != std::string::npos
+                ? "-b8" : "-b16";
+            auto name = cpuModel.filename().string();
+            name.replace(name.find(marker), std::char_traits<char>::length(marker), "-b1");
+            cpuModel.replace_filename(name);
+            std::error_code modelError;
+            if (std::filesystem::is_regular_file(cpuModel, modelError)) model = cpuModel;
         }
         for (const QString& path : paths) {
             try {
@@ -1260,6 +1298,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 poseParams.provider = *provider;
             }
             poseParams.intraOpThreads = settings.processingThreads;
+            // Fixed-batch exports (for example `*-b8.onnx`) are processed in
+            // real batches below. A b1 model keeps the exact same path.
+            const std::string modelName = model.filename().string();
+            if (modelName.find("-b16") != std::string::npos) poseParams.profile = "b16";
+            else if (modelName.find("-b8") != std::string::npos) poseParams.profile = "b8";
+            else poseParams.profile = "b1";
             pose = std::make_unique<pfgpu::PoseEstimator>(model.string(), poseParams);
         }
         const auto reidModel = findBodyReIdModel();
@@ -1287,7 +1331,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 const auto info = decoder.info();
                 std::vector<pfcore::MotionWindow> cachedWindows;
                 bool cacheHit = false;
-                std::string cacheKey = "motion-v6|" + model.string() + "|"
+                // Bump whenever the detector/window contract changes. Reusing
+                // a pre-ReID or pre-batched cache can silently produce empty
+                // track windows and make a valid source look matchless.
+                std::string cacheKey = "motion-v7|" + model.string() + "|"
                     + providerChoice.toStdString() + "|reid="
                     + (reidModelPresent ? reidModel.string() : std::string("none")) + "|"
                     + "quality=" + qualityProfile.toStdString() + "|mirror="
@@ -1328,6 +1375,78 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 // optional model affordable while providing several samples per
                 // one-second temporal window.
                 const std::size_t reidStride = qualityProfile == QStringLiteral("fast") ? 3U : 2U;
+                struct PendingPoseSample {
+                    double timestamp = 0.0;
+                    int width = 0;
+                    int height = 0;
+                    std::size_t sampleIndex = 0;
+                    std::vector<std::uint8_t> rgba;
+                };
+                std::vector<PendingPoseSample> pendingPose;
+                const std::size_t poseBatchSize = pose ? std::max<std::size_t>(1, pose->params().batchSize) : 1U;
+                const auto processPose = [&](const PendingPoseSample& sample,
+                                              const std::vector<pfgpu::PoseDetection>& detections) {
+                    poseDetections += static_cast<int>(detections.size());
+                    std::vector<pfcore::PersonDetection> frameDetections;
+                    frameDetections.reserve(detections.size());
+                    const bool sampleAppearance = reid
+                        && ((sample.sampleIndex - 1U) % reidStride == 0U);
+                    std::vector<pfgpu::ReIdImage> reidImages;
+                    if (sampleAppearance) reidImages.reserve(detections.size());
+                    for (const auto& detection : detections) {
+                        pfcore::PersonDetection person;
+                        person.timestampSeconds = sample.timestamp;
+                        person.box = {detection.left, detection.top, detection.right, detection.bottom};
+                        person.confidence = detection.confidence;
+                        for (std::size_t i = 0; i + 2 < detection.keypoints.size(); i += 3) {
+                            person.keypoints.push_back({detection.keypoints[i], detection.keypoints[i + 1], detection.keypoints[i + 2]});
+                            person.keypointConfidence += detection.keypoints[i + 2];
+                        }
+                        if (!person.keypoints.empty())
+                            person.keypointConfidence /= static_cast<double>(person.keypoints.size());
+                        if (mirrorPoses) {
+                            for (auto& point : person.keypoints) point.x = 1.0 - point.x;
+                        }
+                        frameDetections.push_back(std::move(person));
+                        if (sampleAppearance) {
+                            reidImages.push_back({sample.width, sample.height, sample.rgba.data(),
+                                                  detection.left, detection.top,
+                                                  detection.right, detection.bottom});
+                        }
+                    }
+                    if (sampleAppearance && !reidImages.empty()) {
+                        try {
+                            const auto embeddings = reid->inferBatch(reidImages);
+                            for (std::size_t detection = 0;
+                                 detection < std::min(embeddings.size(), frameDetections.size());
+                                 ++detection) {
+                                frameDetections[detection].appearanceEmbedding = embeddings[detection];
+                                frameDetections[detection].appearanceConfidence = embeddings[detection].empty() ? 0.0 : 1.0;
+                            }
+                        } catch (const std::exception& exception) {
+                            reidFailure = QString::fromUtf8(exception.what());
+                            reid.reset();
+                            reidReady = false;
+                        }
+                    }
+                    const double frameDuration = previousPoseTimestamp >= 0.0
+                        ? std::max(0.0, sample.timestamp - previousPoseTimestamp)
+                        : (info.frameRate > 0.0 ? 1.0 / info.frameRate : 0.0);
+                    tracker.update(sample.timestamp, frameDuration, frameDetections);
+                    previousPoseTimestamp = sample.timestamp;
+                };
+                const auto flushPoseBatch = [&] {
+                    if (pendingPose.empty() || !pose) return;
+                    std::vector<pfgpu::PoseImage> images;
+                    images.reserve(pendingPose.size());
+                    for (const auto& sample : pendingPose)
+                        images.push_back({sample.width, sample.height, sample.rgba.data()});
+                    const auto batchDetections = pose->inferBatch(images);
+                    for (std::size_t index = 0;
+                         index < std::min(batchDetections.size(), pendingPose.size()); ++index)
+                        processPose(pendingPose[index], batchDetections[index]);
+                    pendingPose.clear();
+                };
                 while (decoder.readNext(frame)) {
                     ++processedFrames;
                     if (processedFrames % 10 == 0 || processedFrames == totalFramesEstimate) {
@@ -1346,59 +1465,21 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         while (nextSceneSample <= frame.timestampSeconds + 1e-9);
                     }
                     if (pose && !cacheHit && (poseSampleIndex++ % poseStride) == 0U) {
-                        pfgpu::PoseImage image{frame.width, frame.height, frame.rgba.data()};
-                        const auto detections = pose->infer(image);
-                        poseDetections += static_cast<int>(detections.size());
-                        std::vector<pfcore::PersonDetection> frameDetections;
-                        frameDetections.reserve(detections.size());
-                        const bool sampleAppearance = reid && ((poseSampleIndex - 1U) % reidStride == 0U);
-                        std::vector<pfgpu::ReIdImage> reidImages;
-                        if (sampleAppearance) reidImages.reserve(detections.size());
-                        for (const auto& detection : detections) {
-                            pfcore::PersonDetection person;
-                            person.timestampSeconds = frame.timestampSeconds;
-                            person.box = {detection.left, detection.top, detection.right, detection.bottom};
-                            person.confidence = detection.confidence;
-                            for (std::size_t i = 0; i + 2 < detection.keypoints.size(); i += 3) {
-                                person.keypoints.push_back({detection.keypoints[i], detection.keypoints[i + 1], detection.keypoints[i + 2]});
-                                person.keypointConfidence += detection.keypoints[i + 2];
-                            }
-                            if (!person.keypoints.empty()) {
-                                person.keypointConfidence /= static_cast<double>(person.keypoints.size());
-                            }
-                            if (mirrorPoses) {
-                                for (auto& point : person.keypoints) point.x = 1.0 - point.x;
-                            }
-                            frameDetections.push_back(std::move(person));
-                            if (sampleAppearance) {
-                                reidImages.push_back({frame.width, frame.height, frame.rgba.data(),
-                                                      detection.left, detection.top,
-                                                      detection.right, detection.bottom});
-                            }
+                        if (poseBatchSize <= 1) {
+                            PendingPoseSample sample{frame.timestampSeconds, frame.width, frame.height,
+                                                     poseSampleIndex, frame.rgba};
+                            pfgpu::PoseImage image{sample.width, sample.height, sample.rgba.data()};
+                            processPose(sample, pose->infer(image));
+                        } else {
+                            PendingPoseSample sample{frame.timestampSeconds, frame.width, frame.height,
+                                                     poseSampleIndex, frame.rgba};
+                            pendingPose.push_back(std::move(sample));
+                            if (pendingPose.size() >= poseBatchSize) flushPoseBatch();
                         }
-                        if (sampleAppearance && !reidImages.empty()) {
-                            try {
-                                const auto embeddings = reid->inferBatch(reidImages);
-                                for (std::size_t detection = 0;
-                                     detection < std::min(embeddings.size(), frameDetections.size());
-                                     ++detection) {
-                                    frameDetections[detection].appearanceEmbedding = embeddings[detection];
-                                    frameDetections[detection].appearanceConfidence = embeddings[detection].empty() ? 0.0 : 1.0;
-                                }
-                            } catch (const std::exception& exception) {
-                                reidFailure = QString::fromUtf8(exception.what());
-                                reid.reset();
-                                reidReady = false;
-                            }
-                        }
-                        const double frameDuration = previousPoseTimestamp >= 0.0
-                            ? std::max(0.0, frame.timestampSeconds - previousPoseTimestamp)
-                            : (info.frameRate > 0.0 ? 1.0 / info.frameRate : 0.0);
-                        tracker.update(frame.timestampSeconds, frameDuration, frameDetections);
-                        previousPoseTimestamp = frame.timestampSeconds;
                     }
                     lastFrame = std::move(frame);
                 }
+                flushPoseBatch();
                 std::vector<pfcore::SceneSample> samples;
                 samples.reserve(sceneBuffers.size());
                 for (std::size_t sample = 0; sample < sceneBuffers.size(); ++sample)
@@ -1555,7 +1636,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             // stronger appearance agreement and give it enough influence in
             // the final score to suppress cross-person pose coincidences.
             params.minAppearanceSimilarity = 0.68;
-            params.appearanceWeight = 0.30;
+            // ReID is an identity gate. It should veto a different person,
+            // but must not erase a valid movement when lighting/crop changes
+            // make the embedding less confident.
+            params.appearanceWeight = 0.18;
             foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows);
             pfcore::MotionRanker::rank(foundMatches, windows);
             matches = static_cast<int>(foundMatches.size());
@@ -1605,13 +1689,25 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 resultRecords.back() = record;
             }
         }
+        if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
+            qInfo().noquote() << "PF_DEBUG_ANALYSIS files=" << files
+                              << "scenes=" << scenes
+                              << "poseDetections=" << poseDetections
+                              << "windows=" << static_cast<qulonglong>(windows.size())
+                              << "matches=" << matches;
+        }
         const QString reidStatus = reidReady
             ? QStringLiteral("ReID: включён")
             : (reidModelPresent
                 ? QStringLiteral("ReID: отключён (%1)").arg(reidFailure.isEmpty()
                     ? QStringLiteral("ошибка модели") : reidFailure)
                 : QStringLiteral("ReID: модель не найдена, pose-only режим"));
-        QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, matches, resultRecords, foundMatches, error, processedFrames, totalFramesEstimate, sourceFps, reidStatus] {
+        const QString debugSummary = qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")
+            ? QStringLiteral(" · debug: windows=%1 detections=%2")
+                .arg(static_cast<qulonglong>(windows.size()))
+                .arg(poseDetections)
+            : QString();
+        QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, matches, resultRecords, foundMatches, error, processedFrames, totalFramesEstimate, sourceFps, reidStatus, debugSummary] {
             fileCount_ = files; frameCount_ = frames; durationSeconds_ = duration; sceneCount_ = scenes;
             poseDetectionCount_ = poseDetections;
             matchCount_ = matches;
@@ -1624,7 +1720,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             emit analysisStateChanged();
             setProgress(1.0, error.isEmpty() ? QStringLiteral("Анализ завершён") : QStringLiteral("Анализ остановлен"), processedFrames, totalFramesEstimate);
             busy_ = false; emit busyChanged();
-            setStatus(error.isEmpty() ? QStringLiteral("Анализ сцен завершён · ") + reidStatus
+            setStatus(error.isEmpty() ? QStringLiteral("Анализ сцен завершён · ") + reidStatus + debugSummary
                                       : QStringLiteral("Анализ остановлен: ") + error);
         }, Qt::QueuedConnection);
         } catch (const std::exception& exception) {

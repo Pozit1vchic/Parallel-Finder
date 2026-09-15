@@ -44,6 +44,7 @@ public:
     bool backendIsGpu() const;
     Q_INVOKABLE bool backendAvailable(const QString& backend) const;
     Q_INVOKABLE QString backendReason(const QString& backend) const;
+    Q_INVOKABLE QString providerGuideUrl(const QString& backend) const;
     Q_INVOKABLE void downloadProvider(const QString& backend);
     bool providerDownloading() const noexcept { return providerDownloading_; }
     double providerDownloadProgress() const noexcept { return providerDownloadProgress_; }

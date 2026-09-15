@@ -15,13 +15,13 @@ Rectangle {
         "yolov8n-pose.onnx", "yolov8s-pose.onnx", "yolov8m-pose.onnx", "yolov8l-pose.onnx", "yolov8x-pose.onnx",
         "yolo11n-pose.onnx", "yolo11s-pose.onnx", "yolo11m-pose.onnx", "yolo11l-pose.onnx", "yolo11x-pose.onnx",
         "yolo26n-pose.onnx", "yolo26s-pose.onnx", "yolo26m-pose.onnx", "yolo26l-pose.onnx", "yolo26x-pose.onnx",
-        "yolo26m-pose-640-b1.onnx"
+        "yolo26m-pose-640-b1.onnx", "yolo26m-pose-640-b8.onnx"
     ]
     property var modelBaseLabels: [
         "YOLOv8 · nano", "YOLOv8 · small", "YOLOv8 · medium", "YOLOv8 · large", "YOLOv8 · xlarge",
         "YOLO11 · nano", "YOLO11 · small", "YOLO11 · medium", "YOLO11 · large", "YOLO11 · xlarge",
         "YOLO26 · nano", "YOLO26 · small", "YOLO26 · medium", "YOLO26 · large", "YOLO26 · xlarge",
-        "YOLO26 · medium · 640 · batch 1"
+        "YOLO26 · medium · 640 · batch 1", "YOLO26 · medium · 640 · batch 8"
     ]
     property var modelLabels: []
     signal filesRequested(var urls)
@@ -67,7 +67,7 @@ Rectangle {
             Analysis.duplicateWindow = 1.0; Analysis.noiseFactor = 0.70
             Analysis.maxUniqueResults = 200; Analysis.timeWeight = 0.40
         } else {
-            Analysis.similarityThreshold = 0.85; Analysis.candidateThreshold = 0.55
+            Analysis.similarityThreshold = 0.78; Analysis.candidateThreshold = 0.50
             Analysis.repeatGap = 6.0; Analysis.sameFileGap = 2.0; Analysis.crossFileGap = 0.0
             Analysis.duplicateWindow = 1.5; Analysis.noiseFactor = 1.0
             Analysis.maxUniqueResults = 100; Analysis.timeWeight = 0.25

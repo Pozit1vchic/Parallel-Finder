@@ -9,6 +9,7 @@ Parallel Finder запускает модели ONNX с выходом YOLO-pose
 yolov8n-pose.onnx  yolov8s-pose.onnx  yolov8m-pose.onnx  yolov8l-pose.onnx  yolov8x-pose.onnx
 yolo11n-pose.onnx  yolo11s-pose.onnx  yolo11m-pose.onnx  yolo11l-pose.onnx  yolo11x-pose.onnx
 yolo26n-pose.onnx  yolo26s-pose.onnx  yolo26m-pose.onnx  yolo26l-pose.onnx  yolo26x-pose.onnx
+yolo26m-pose-640-b1.onnx  yolo26m-pose-640-b8.onnx
 ```
 
 Есть два рабочих места (приоритет сверху вниз):
@@ -53,8 +54,10 @@ python tools\model_export\export_pose_release.py `
 
 ### Аудит совместимости
 
-* В каталог UI включены только статические batch-1 файлы. Batch-8/16 требуют
-  отдельного профиля PoseEstimator и намеренно не выдаются как совместимые.
+* Batch-1 — универсальный профиль для CPU. `yolo26m-pose-640-b8.onnx` выдаётся
+  отдельным профилем и обрабатывается настоящими `inferBatch`-пачками на GPU;
+  при CPU анализе приложение использует установленный b1-сосед, чтобы не
+  считать padding-слоты впустую.
 * `.pt` и произвольные ONNX без YOLO-pose выхода на 17 keypoints не считаются
   рабочими моделями; ошибка графа показывается до запуска анализа.
 * Выбранный провайдер (`dml`, `cuda`, `tensorrt`, `cpu`) передаётся в
@@ -111,7 +114,7 @@ SHA-256; без записи в manifest сеть не используется.
 результат помечается как `pose-only`, а фильтр личности отключается. Когда
 модель доступна, для каждого `trackId` строится усреднённый L2-нормированный
 прототип; совпадение допускается только при cosine similarity не ниже
-`0.68`, после чего appearance-сигнал получает 30% итогового score. Это более
+`0.68`, после чего appearance-сигнал получает 18% итогового score. Это более
 строгий identity-gate против похожих поз разных людей, но не доказательство
 личности: порог всё равно нужно калибровать на своих положительных и
 отрицательных парах.

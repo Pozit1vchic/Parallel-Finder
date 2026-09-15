@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <cstdio>
 #include <limits>
 #include <stdexcept>
 #include <string_view>
@@ -151,6 +153,18 @@ std::vector<std::vector<PoseDetection>> decodeOutput(
             return tensor.values[batch * attributes * candidates + attribute * candidates + candidate];
         return tensor.values[batch * attributes * candidates + candidate * attributes + attribute];
     };
+    if (std::getenv("PF_DEBUG_POSE") != nullptr) {
+        static bool printed = false;
+        if (!printed) {
+            printed = true;
+            float maxConfidence = 0.0F;
+            for (std::size_t candidate = 0; candidate < candidates; ++candidate)
+                maxConfidence = std::max(maxConfidence, at(0, candidate, 4));
+            std::fprintf(stderr, "PF_DEBUG_POSE shape=%zu x %zu x %zu endToEnd=%d maxConf=%f threshold=%f\n",
+                         batchCount, candidates, attributes, endToEnd ? 1 : 0,
+                         maxConfidence, params.confidenceThreshold);
+        }
+    }
     for (std::size_t batch = 0; batch < transforms.size(); ++batch) {
         const auto& transform = transforms[batch];
         for (std::size_t candidate = 0; candidate < candidates; ++candidate) {

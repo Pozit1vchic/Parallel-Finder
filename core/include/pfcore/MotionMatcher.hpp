@@ -40,8 +40,8 @@ struct MotionWindow {
 };
 
 struct MotionMatcherParams {
-    double similarityThreshold = 0.85;
-    double candidateThreshold = 0.55;
+    double similarityThreshold = 0.78;
+    double candidateThreshold = 0.50;
     double minRepeatGapSec = 6.0;
     double sameFileGapSec = 2.0;
     double crossFileGapSec = 0.0;
@@ -79,9 +79,14 @@ struct MotionMatcherParams {
     // a contiguous run of similar frames.  Short clips may satisfy the
     // duration alternative when the selected quality profile samples fewer
     // than 18 pose frames per second.
-    double temporalSimilarityThreshold = 0.82;
-    std::size_t minTemporalFrames = 12;
-    double minTemporalDurationSec = 0.75;
+    // Frame similarity is calibrated from both pose and velocity errors.  A
+    // 0.72 run threshold leaves room for detector jitter while the window,
+    // diversity and DTW gates still reject isolated or static matches.
+    double temporalSimilarityThreshold = 0.72;
+    // Eight independent observations are the minimum. The duration floor
+    // prevents a short burst from degenerating into a single-frame match.
+    std::size_t minTemporalFrames = 8;
+    double minTemporalDurationSec = 0.30;
     // Same-source windows never match inside this hard floor.  It prevents a
     // static shot from being paired with a nearby overlapping crop.
     double sameSourceGapFloorSec = 5.0;
@@ -93,7 +98,7 @@ struct MotionMatcherParams {
     bool requireSameTrackWithinSource = true;
     bool allowStaticFrames = false;
     bool requireAppearance = false;
-    double minAppearanceSimilarity = 0.55;
+    double minAppearanceSimilarity = 0.68;
     double appearanceWeight = 0.20;
 };
 

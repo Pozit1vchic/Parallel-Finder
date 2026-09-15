@@ -1,0 +1,25 @@
+{
+  "providers": [
+    {
+      "provider": "cuda",
+      "archive": "parallel-finder-runtime-cuda-win64.zip",
+      "sizeBytes": 0,
+      "sha256": "REPLACE_WITH_SHA256",
+      "downloadUrl": "https://github.com/Pozit1vchic/Parallel-Finder/releases/download/runtime-v1/parallel-finder-runtime-cuda-win64.zip"
+    },
+    {
+      "provider": "tensorrt",
+      "archive": "parallel-finder-runtime-tensorrt-win64.zip",
+      "sizeBytes": 0,
+      "sha256": "REPLACE_WITH_SHA256",
+      "downloadUrl": "https://github.com/Pozit1vchic/Parallel-Finder/releases/download/runtime-v1/parallel-finder-runtime-tensorrt-win64.zip"
+    },
+    {
+      "provider": "dml",
+      "archive": "parallel-finder-runtime-directml-win64.zip",
+      "sizeBytes": 0,
+      "sha256": "REPLACE_WITH_SHA256",
+      "downloadUrl": "https://github.com/Pozit1vchic/Parallel-Finder/releases/download/runtime-v1/parallel-finder-runtime-directml-win64.zip"
+    }
+  ]
+}

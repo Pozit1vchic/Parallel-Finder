@@ -20,6 +20,7 @@ namespace pfui {
 namespace {
 constexpr QChar kSeparator = QChar(0x00B7); // middle dot: "CUDA · RTX 4070"
 constexpr auto kProviderManifestUrl = "https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/providers.json";
+constexpr auto kProviderManifestFallbackUrl = "https://raw.githubusercontent.com/Pozit1vchic/Parallel-Finder/main/providers/providers.json";
 
 QString displayBackend(const QString& backend)
 {
@@ -94,6 +95,18 @@ bool AppInfo::backendAvailable(const QString& backend) const
     return provider.has_value() && pfgpu::isProviderAvailable(*provider);
 }
 
+QString AppInfo::providerGuideUrl(const QString& backend) const
+{
+    const QString key = backend.trimmed().toLower();
+    if (key == QStringLiteral("cuda"))
+        return QStringLiteral("https://developer.nvidia.com/cuda-downloads");
+    if (key == QStringLiteral("tensorrt"))
+        return QStringLiteral("https://developer.nvidia.com/tensorrt-getting-started");
+    if (key == QStringLiteral("dml"))
+        return QStringLiteral("https://onnxruntime.ai/docs/execution-providers/DirectML-ExecutionProvider.html");
+    return QStringLiteral("https://onnxruntime.ai/docs/install/");
+}
+
 QString AppInfo::backendReason(const QString& backend) const
 {
     const auto provider = pfgpu::parseProvider(backend.toStdString());
@@ -120,8 +133,16 @@ void AppInfo::downloadProvider(const QString& backend)
 
     QThread* thread = QThread::create([this, provider] {
         std::string error;
-        const auto asset = pfservices::ProviderStore::fetchManifest(
-            kProviderManifestUrl, provider.toStdString(), error);
+        std::string manifestUrl = qEnvironmentVariable("PF_PROVIDER_MANIFEST_URL").toStdString();
+        if (manifestUrl.empty()) manifestUrl = kProviderManifestUrl;
+        auto asset = pfservices::ProviderStore::fetchManifest(
+            manifestUrl, provider.toStdString(), error);
+        if (!asset && manifestUrl == kProviderManifestUrl) {
+            std::string fallbackError;
+            asset = pfservices::ProviderStore::fetchManifest(
+                kProviderManifestFallbackUrl, provider.toStdString(), fallbackError);
+            if (!asset && !fallbackError.empty()) error += "; fallback: " + fallbackError;
+        }
         if (!asset) {
             const QString message = QString::fromStdString(error);
             QMetaObject::invokeMethod(this, [this, message] {

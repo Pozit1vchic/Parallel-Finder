@@ -238,6 +238,14 @@ Popup {
                                 enabled: !AppInfo.providerDownloading
                                 onClicked: AppInfo.downloadProvider(Analysis.providerChoice)
                             }
+                            PfButton {
+                                Layout.preferredWidth: 136
+                                Layout.minimumWidth: 0
+                                compact: true
+                                quiet: true
+                                text: L10n.t("settings.providerGuide")
+                                onClicked: Qt.openUrlExternally(AppInfo.providerGuideUrl(Analysis.providerChoice))
+                            }
                             Text {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0

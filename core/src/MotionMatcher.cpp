@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <cstdio>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
@@ -285,7 +287,7 @@ double frameSimilarity(const Descriptor& left, const Descriptor& right)
     // The exponential is intentionally steeper than the old exp(-distance).
     // A frame must agree in both joint layout and instantaneous velocity to
     // contribute to a temporal run.
-    return std::clamp(std::exp(-3.0 * distance), 0.0, 1.0);
+    return std::clamp(std::exp(-2.0 * distance), 0.0, 1.0);
 }
 
 double noiseFloor(const std::vector<Descriptor>& descriptors)
@@ -454,45 +456,76 @@ bool hasTemporalRun(const std::vector<Descriptor>& left,
                    const MotionMatcherParams& params)
 {
     if (left.empty() || right.empty()) return false;
-    const std::size_t samples = std::min(left.size(), right.size());
-    if (samples < 3) return false;
+    const std::size_t leftSamples = left.size();
+    const std::size_t rightSamples = right.size();
+    if (leftSamples < 3 || rightSamples < 3) return false;
+    const std::size_t band = std::max<std::size_t>(2,
+        static_cast<std::size_t>(std::ceil(
+            static_cast<double>(std::max(leftSamples, rightSamples))
+            * std::max(0.10, params.sakoeChibaRatio * 2.0))));
     std::size_t run = 0;
     std::size_t bestRun = 0;
-    std::size_t runStartSample = 0;
-    std::size_t bestStartSample = 0;
-    std::size_t bestEndSample = 0;
-    for (std::size_t sample = 0; sample < samples; ++sample) {
-        const std::size_t leftIndex = (sample * (left.size() - 1))
-            / std::max<std::size_t>(1, samples - 1);
-        const std::size_t rightIndex = (sample * (right.size() - 1))
-            / std::max<std::size_t>(1, samples - 1);
-        if (frameSimilarity(left[leftIndex], right[rightIndex])
-            >= params.temporalSimilarityThreshold) {
-            if (run == 0) runStartSample = sample;
+    std::size_t runStartLeft = 0;
+    std::size_t runStartRight = 0;
+    std::size_t bestStartLeft = 0;
+    std::size_t bestEndLeft = 0;
+    std::size_t bestStartRight = 0;
+    std::size_t bestEndRight = 0;
+    std::size_t previousRight = 0;
+    bool havePrevious = false;
+    double maximumSimilarity = 0.0;
+    for (std::size_t leftIndex = 0; leftIndex < leftSamples; ++leftIndex) {
+        const std::size_t expectedRight = (leftIndex * (rightSamples - 1))
+            / std::max<std::size_t>(1, leftSamples - 1);
+        const std::size_t begin = expectedRight > band ? expectedRight - band : 0;
+        const std::size_t end = std::min(rightSamples - 1, expectedRight + band);
+        double bestSimilarity = 0.0;
+        std::size_t rightIndex = begin;
+        for (std::size_t candidate = begin; candidate <= end; ++candidate) {
+            // A source observation may be used at most once in the temporal
+            // alignment. Allowing `candidate == previousRight` turns one
+            // frame into a cheap match for an entire sequence—the exact
+            // single-frame failure mode this matcher is meant to prevent.
+            if (havePrevious && candidate <= previousRight) continue;
+            const double similarity = frameSimilarity(left[leftIndex], right[candidate]);
+            maximumSimilarity = std::max(maximumSimilarity, similarity);
+            if (similarity > bestSimilarity) {
+                bestSimilarity = similarity;
+                rightIndex = candidate;
+            }
+        }
+        if (bestSimilarity >= params.temporalSimilarityThreshold) {
+            if (run == 0) {
+                runStartLeft = leftIndex;
+                runStartRight = rightIndex;
+            }
             ++run;
             if (run > bestRun) {
                 bestRun = run;
-                bestStartSample = runStartSample;
-                bestEndSample = sample;
+                bestStartLeft = runStartLeft;
+                bestEndLeft = leftIndex;
+                bestStartRight = runStartRight;
+                bestEndRight = rightIndex;
             }
+            previousRight = rightIndex;
+            havePrevious = true;
         } else {
             run = 0;
+            havePrevious = false;
         }
     }
-    const auto sampleTimestamp = [](const MotionWindow& window, std::size_t sample,
-                                    std::size_t sampleCount) {
-        const std::size_t index = (sample * (window.frames.size() - 1))
-            / std::max<std::size_t>(1, sampleCount - 1);
-        return window.frames[index].timestampSeconds;
-    };
     const double runDuration = std::min(
-        sampleTimestamp(leftWindow, bestEndSample, samples)
-            - sampleTimestamp(leftWindow, bestStartSample, samples),
-        sampleTimestamp(rightWindow, bestEndSample, samples)
-            - sampleTimestamp(rightWindow, bestStartSample, samples));
+        leftWindow.frames[std::min(bestEndLeft, leftWindow.frames.size() - 1)].timestampSeconds
+            - leftWindow.frames[std::min(bestStartLeft, leftWindow.frames.size() - 1)].timestampSeconds,
+        rightWindow.frames[std::min(bestEndRight, rightWindow.frames.size() - 1)].timestampSeconds
+            - rightWindow.frames[std::min(bestStartRight, rightWindow.frames.size() - 1)].timestampSeconds);
     const bool enoughFrames = bestRun >= params.minTemporalFrames
         || (bestRun >= std::max<std::size_t>(6, params.minTemporalFrames / 3)
             && runDuration + 1e-9 >= params.minTemporalDurationSec);
+    if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
+        std::fprintf(stderr, "PF_DEBUG_MATCHER temporal max=%.3f bestRun=%zu duration=%.3f threshold=%.3f\n",
+                     maximumSimilarity, bestRun, runDuration, params.temporalSimilarityThreshold);
+    }
     return enoughFrames;
 }
 
@@ -564,8 +597,14 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         && params.requireSameTrackWithinSource
         && left.trackId != 0 && right.trackId != 0
         && left.trackId != right.trackId) {
-        result.similarity = 0.0;
-        return result;
+        const bool sameAppearance = !left.appearanceEmbedding.empty()
+            && !right.appearanceEmbedding.empty()
+            && appearanceCosine(left.appearanceEmbedding, right.appearanceEmbedding)
+                >= params.minAppearanceSimilarity;
+        if (!sameAppearance) {
+            result.similarity = 0.0;
+            return result;
+        }
     }
     const bool hasAppearance = !left.appearanceEmbedding.empty()
         && !right.appearanceEmbedding.empty();
@@ -590,22 +629,38 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         return result;
     }
     const bool staticPair = left.staticFrameSet || right.staticFrameSet;
+    const bool leftSamples = hasDistinctTemporalSamples(left, a, params);
+    const bool rightSamples = hasDistinctTemporalSamples(right, b, params);
+    const bool leftSupport = hasTemporalSupport(left, params);
+    const bool rightSupport = hasTemporalSupport(right, params);
+    const bool leftDiversity = staticPair || hasTemporalDiversity(a);
+    const bool rightDiversity = staticPair || hasTemporalDiversity(b);
+    const bool temporalRun = hasTemporalRun(a, b, left, right, params);
     const bool motionGateFails = leftPrepared.motionDelta < params.motionDeltaThreshold
         || rightPrepared.motionDelta < params.motionDeltaThreshold
         || leftPrepared.activeTransitionRatio < params.minActiveTransitionRatio
         || rightPrepared.activeTransitionRatio < params.minActiveTransitionRatio
         || leftPrepared.trajectoryRange < params.minMotionRange
         || rightPrepared.trajectoryRange < params.minMotionRange
-        || !hasTemporalRun(a, b, left, right, params);
+        || !temporalRun;
     if (left.staticFrameSet != right.staticFrameSet
         || (staticPair && !params.allowStaticFrames)
         || a.empty() || b.empty()
-        || !hasDistinctTemporalSamples(left, a, params)
-        || !hasDistinctTemporalSamples(right, b, params)
-        || !hasTemporalSupport(left, params)
-        || !hasTemporalSupport(right, params)
-        || (!staticPair && (!hasTemporalDiversity(a) || !hasTemporalDiversity(b)))
+        || !leftSamples || !rightSamples
+        || !leftSupport || !rightSupport
+        || !leftDiversity || !rightDiversity
         || (!staticPair && motionGateFails)) {
+        if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
+            std::fprintf(stderr,
+                         "PF_DEBUG_MATCHER reject a=%zu b=%zu samples=%d/%d support=%d/%d diversity=%d/%d motion=%.4f/%.4f range=%.4f/%.4f active=%.3f/%.3f run=%d\n",
+                         leftIndex, rightIndex, leftSamples ? 1 : 0, rightSamples ? 1 : 0,
+                         leftSupport ? 1 : 0, rightSupport ? 1 : 0,
+                         leftDiversity ? 1 : 0, rightDiversity ? 1 : 0,
+                         leftPrepared.motionDelta, rightPrepared.motionDelta,
+                         leftPrepared.trajectoryRange, rightPrepared.trajectoryRange,
+                         leftPrepared.activeTransitionRatio,
+                         rightPrepared.activeTransitionRatio, temporalRun ? 1 : 0);
+        }
         result.similarity = 0.0;
         return result;
     }
@@ -730,6 +785,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     if (windows.size() < 2) return matches;
 
     std::vector<PreparedWindow> prepared(windows.size());
+    std::size_t preparedCount = 0;
     std::size_t embeddingDimension = 0;
     for (std::size_t index = 0; index < windows.size(); ++index) {
         if (windows[index].frames.empty()) continue;
@@ -751,6 +807,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             prepared[index].descriptors.clear();
             continue;
         }
+        ++preparedCount;
         for (const auto& descriptor : prepared[index].descriptors)
             embeddingDimension = std::max(embeddingDimension, descriptor.size());
     }
@@ -782,19 +839,34 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         }
     }
 
+    std::size_t gapPassed = 0;
+    std::size_t coarsePassed = 0;
+    std::size_t compared = 0;
+    std::size_t trackRejected = 0;
+    std::size_t sceneRejected = 0;
+    std::size_t staticRejected = 0;
     for (const std::uint64_t key : candidatePairs) {
         const std::size_t i = static_cast<std::size_t>(key >> 32U);
         const std::size_t j = static_cast<std::size_t>(key & 0xffffffffULL);
         if (i >= windows.size() || j >= windows.size() || i >= j) continue;
         const bool sameSource = windows[i].sourceId == windows[j].sourceId;
-        if (windows[i].staticFrameSet != windows[j].staticFrameSet) continue;
+        if (windows[i].staticFrameSet != windows[j].staticFrameSet) { ++staticRejected; continue; }
         if (sameSource && params_.requireSameTrackWithinSource
             && windows[i].trackId != 0 && windows[j].trackId != 0
             && windows[i].trackId != windows[j].trackId) {
-            continue;
+            const bool sameAppearance = !windows[i].appearanceEmbedding.empty()
+                && !windows[j].appearanceEmbedding.empty()
+                && appearanceCosine(windows[i].appearanceEmbedding,
+                                    windows[j].appearanceEmbedding)
+                    >= params_.minAppearanceSimilarity;
+            if (!sameAppearance) {
+                ++trackRejected;
+                continue;
+            }
         }
         if (sameSource && windows[i].hasSceneIndex && windows[j].hasSceneIndex
             && windows[i].sceneIndex == windows[j].sceneIndex) {
+            ++sceneRejected;
             continue;
         }
         const double leftStart = windows[i].frames.front().timestampSeconds;
@@ -805,10 +877,18 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                         params_.minRepeatGapSec})
             : params_.crossFileGapSec;
         if (gap < requiredGap) continue;
+        ++gapPassed;
         if (coarseSimilarity(prepared[i].descriptors, prepared[j].descriptors)
             < params_.candidateThreshold) continue;
+        ++coarsePassed;
+        ++compared;
         MotionMatch candidate = comparePrepared(windows[i], windows[j], prepared[i], prepared[j],
                                                 params_, i, j);
+        if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
+            std::fprintf(stderr, "PF_DEBUG_MATCHER compared a=%zu b=%zu similarity=%.3f dtw=%.3f appearance=%.3f\n",
+                         i, j, candidate.similarity, candidate.dtwDistance,
+                         candidate.appearanceSimilarity);
+        }
         if (candidate.similarity >= params_.similarityThreshold) matches.push_back(candidate);
     }
     std::sort(matches.begin(), matches.end(), [](const auto& a, const auto& b) {
@@ -862,6 +942,13 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if (unique.size() >= params_.maxUniqueResults) break;
     }
     matches = std::move(unique);
+    if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
+        std::fprintf(stderr,
+                     "PF_DEBUG_MATCHER windows=%zu prepared=%zu candidates=%zu trackRejected=%zu sceneRejected=%zu staticRejected=%zu gapPassed=%zu coarsePassed=%zu compared=%zu accepted=%zu\n",
+                     windows.size(), preparedCount, candidatePairs.size(), trackRejected,
+                     sceneRejected, staticRejected, gapPassed, coarsePassed, compared,
+                     matches.size());
+    }
     return matches;
 }
 

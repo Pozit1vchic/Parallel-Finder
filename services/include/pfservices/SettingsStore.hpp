@@ -17,8 +17,8 @@ struct Settings {
     double sceneThreshold = 27.0;
     std::size_t sceneMinFrames = 8;
     double sceneAdaptiveMultiplier = 3.0;
-    double similarityThreshold = 0.85;
-    double candidateThreshold = 0.55;
+    double similarityThreshold = 0.78;
+    double candidateThreshold = 0.50;
     double minRepeatGapSec = 6.0;
     double sameFileGapSec = 2.0;
     double crossFileGapSec = 0.0;

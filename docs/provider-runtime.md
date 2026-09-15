@@ -3,9 +3,17 @@
 Выбор CUDA/TensorRT/DirectML теперь проверяется реальным ONNX Runtime-сеансом.
 Если нужных DLL нет, в окне настроек появляется кнопка «Скачать runtime».
 
-Загрузка выполняется только по HTTPS из release-манифеста:
+Загрузка выполняется только по HTTPS. Сначала приложение проверяет release-манифест:
 
 `https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/providers.json`
+
+Если release ещё не создан, оно пробует тот же файл в ветке `main`:
+`https://raw.githubusercontent.com/Pozit1vchic/Parallel-Finder/main/providers/providers.json`.
+Для внутренней сборки URL можно переопределить переменной
+`PF_PROVIDER_MANIFEST_URL`. В репозитории есть шаблон
+[`providers/providers.example.json`](../providers/providers.example.json), но он
+намеренно не выдаётся приложению как готовый runtime: архивы и SHA-256 должны
+быть реальными.
 
 Пример файла:
 
@@ -36,7 +44,9 @@ DLL выбранного Execution Provider. Указывайте размер �
 
 Если release-манифест недоступен, приложение не делает вид, что скачивание
 сработало: в настройках показывается причина (нет сети, HTTP-ошибка или
-отсутствует asset).
+отсутствует asset), а рядом доступна официальная инструкция для выбранного
+провайдера. Кнопка «Скачать runtime» становится настоящей установкой только
+после публикации архивов и `providers.json` владельцем репозитория.
 
 ## Где брать CUDA и TensorRT
 

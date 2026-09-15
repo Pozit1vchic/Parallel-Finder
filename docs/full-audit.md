@@ -4,8 +4,9 @@
 
 Ветка: `main`
 
-Последняя проверенная ревизия включает изменения после `607fcf6`: matcher,
-FFmpeg-cut и perceptual opacity/tooltip UI были перепроверены локальной сборкой.
+Последняя проверенная ревизия включает изменения после `e30b0fd`: matcher,
+кэш анализа, provider-download fallback и batch-путь для GPU-моделей были
+перепроверены локальной сборкой.
 
 Этот документ сверяет текущий код с замечаниями из переписки и разделяет
 реализацию, частичную готовность и то, что пока нельзя честно назвать
@@ -49,11 +50,11 @@ editable sliders, выбор режимов, моделей, provider и accent 
 | Тень и анимация модального окна | **Готово** | `MultiEffect` shadow + opacity/scale transitions 150–180 мс. |
 | Случайные консольные окна | **Готово на уровне кода** | Нет `AllocConsole`/`system`; FFmpeg и runtime распаковываются через `QProcess` с `CREATE_NO_WINDOW`. Реальный запуск portable exe надо проверить вручную. |
 | Provider выбирается, но не применяется | **Частично** | Выбор передаётся в pose/ReID estimator и проходит preflight; CPU/CUDA negative smoke теперь завершается сразу и не ждёт 120-секундный таймер. CUDA/TensorRT/DML end-to-end зависят от DLL, драйвера и release-архива. После скачивания требуется перезапуск. |
-| Кнопка скачать runtime | **Частично** | HTTPS manifest, progress и атомарная установка реализованы. В GitHub пока нет опубликованного `providers.json`, поэтому сетевой сценарий не доказан. |
+| Кнопка скачать runtime | **Частично** | Кнопка проверяет интернет, release-manifest и fallback на `main/providers/providers.json`, показывает прогресс и атомарно устанавливает bundle. В GitHub пока нет опубликованного `providers.json`, поэтому сетевой сценарий не доказан; рядом добавлена официальная инструкция. |
 | Модель выбирается, но неизвестно, работает ли | **Частично** | UI проверяет файл и формат, выбор блокируется на загрузке, runtime получает путь. Нужен реальный ONNX batch-1 и запуск inference на машине пользователя. |
 | Автоскачивание моделей из GitHub | **Частично** | `manifest.json`, `.part`, SHA-256, size и local model roots реализованы. Локально экспортированы 15 ONNX и создан `release-models/manifest.json`, но реальный Release ещё не опубликован. |
 | Один человек сравнивался с другим | **Частично** | Внутри одного файла работает `trackId`; локальный OSNet body-ReID теперь подключается и проходит inference smoke. Identity benchmark на размеченных людях ещё не выполнен. |
-| Матчер сравнивал один кадр со всеми | **Готово в архитектуре** | Окна 2–4 секунды, минимум 12 разных timestamped descriptors, dense coarse sketch из 16 samples и temporal run gate. Нужен benchmark на реальном наборе. |
+| Матчер сравнивал один кадр со всеми | **Готово в архитектуре** | Окна 2–4 секунды, минимум 8 разных timestamped descriptors, dense coarse sketch из 16 samples и temporal run gate. Выровненный DTW запрещает повторно использовать один и тот же right-frame (`candidate <= previousRight` отбрасывается). Нужен benchmark на размеченном наборе. |
 | `static · static` и `mixed · mixed` давали мусор | **Готово для обычного режима** | Motion windows проходят delta/active-transition/range gates; static/static удаляется в motion mode. Явный static mode сохраняет осознанные static-пары. UI убирает двойной `mixed`. |
 | Самосравнения и близкие повторы | **Готово** | Scene/track guards, same-source floor 5 с, repeat gaps и NMS/dedup. Порог всё равно нужно калибровать на реальном материале. |
 | Результаты сортируются по реальной схожести | **Готово** | Сначала calibrated similarity descending, затем детерминированные tie-breakers. |
@@ -72,7 +73,7 @@ editable sliders, выбор режимов, моделей, provider и accent 
 
 1. Нормализация поз и анатомический penalty по topology/proportions.
 2. Motion activity: средняя delta-K, active-transition ratio и trajectory range.
-3. Не менее `minTemporalFrames = 12` непустых кадров с возрастающими timestamp.
+3. Не менее `minTemporalFrames = 8` непустых кадров с возрастающими timestamp.
 4. Непрерывная temporal run с cosine threshold.
 5. Constrained DTW и dense prefilter вместо endpoint-only сравнения; в descriptor
    добавлена относительная траектория центра/масштаба тела, чтобы нормализация не
@@ -110,10 +111,14 @@ precision/recall.
 - URL `https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/providers.json`
   сейчас отвечает HTTP 404; поэтому UI-кнопка runtime корректно показывает
   ошибку, но скачать provider ей пока неоткуда.
-- CPU analysis smoke с `yolo26m-pose-640-b1.onnx` прочитал 1 файл / 235 кадров
-  во всех четырёх режимах. После подключения `person-reid-osnet.onnx` статус
-  стал `ReID: применён`. На коротком клипе найдено 0 пар — это pipeline smoke,
-  а не accuracy benchmark.
+- CPU analysis smoke на 30-секундном фрагменте (`1801` кадров) с
+  `yolo26m-pose-640-b1.onnx` построил `45` окон и, после подключения
+  `person-reid-osnet.onnx`, нашёл `1` пару в `motion`-режиме. Это подтверждает
+  прохождение pipeline и temporal gates, но не является accuracy benchmark.
+- Для `yolo26m-pose-640-b8.onnx` добавлен настоящий `inferBatch`-путь. На CPU
+  приложение автоматически выбирает установленный `b1`-сосед: CPU не должен
+  вычислять восемь padding-слотов ради GPU-профиля. На CUDA/TensorRT b8 можно
+  использовать как ускоренный профиль, если runtime действительно доступен.
 - Прогон большого `Soldier Boy (The Boys) _ Scenepack 4K.mp4` на CPU не
   уложился в текущий 120-секундный headless timeout и был остановлен без
   частичного результата. Это честный сигнал о стоимости полного CPU-прогона,

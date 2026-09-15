@@ -45,6 +45,9 @@ foreach ($mode in $Modes) {
     $psi.EnvironmentVariables['PF_ORT_DLL'] = $env:PF_ORT_DLL
     $psi.EnvironmentVariables['PF_MODEL_PATH'] = $env:PF_MODEL_PATH
     $psi.EnvironmentVariables['PF_PROVIDER'] = 'cpu'
+    if ($env:PF_DEBUG_ANALYSIS) { $psi.EnvironmentVariables['PF_DEBUG_ANALYSIS'] = $env:PF_DEBUG_ANALYSIS }
+    if ($env:PF_DEBUG_POSE) { $psi.EnvironmentVariables['PF_DEBUG_POSE'] = $env:PF_DEBUG_POSE }
+    if ($env:PF_DEBUG_MATCHER) { $psi.EnvironmentVariables['PF_DEBUG_MATCHER'] = $env:PF_DEBUG_MATCHER }
     if ($env:PF_REID_MODEL_PATH) { $psi.EnvironmentVariables['PF_REID_MODEL_PATH'] = $env:PF_REID_MODEL_PATH }
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $psi

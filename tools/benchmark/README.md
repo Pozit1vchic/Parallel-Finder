@@ -23,3 +23,15 @@ powershell -ExecutionPolicy Bypass -File tools/benchmark/run_analysis_smoke.ps1 
 Скрипт использует `PF_ANALYSIS_MODE` только для headless smoke-запуска и не
 перезаписывает пользовательские настройки. Результаты прогона не добавляются
 в Git: это локальная диагностика, а не тестовый fixture.
+
+Для диагностики нулевого результата можно временно включить счётчики без
+изменения пользовательского интерфейса:
+
+```powershell
+$env:PF_DEBUG_ANALYSIS = '1' # окна и число детекций
+$env:PF_DEBUG_MATCHER = '1'  # gates, temporal run, accepted pairs
+$env:PF_DEBUG_POSE = '1'     # форма выхода YOLO и confidence
+```
+
+Эти переменные не включаются по умолчанию и не должны использоваться как
+метрика precision/recall.

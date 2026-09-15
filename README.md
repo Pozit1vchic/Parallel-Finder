@@ -122,10 +122,12 @@ python D:\Parallel-Finder\tools\model_export\export_pose_release.py `
 | **CPU** | любой компьютер | fallback без GPU |
 
 Ручной выбор провайдера действительно передаётся в `PoseEstimator` и
-`ReIdEstimator`. Если runtime недоступен, интерфейс показывает причину и не
-подменяет выбор молча на CPU. Скачанный runtime применяется после перезапуска,
-потому что DLL ONNX Runtime нельзя безопасно заменить внутри уже запущенного
-процесса.
+`ReIdEstimator`. Если runtime недоступен, интерфейс показывает причину, кнопку
+«Скачать runtime» и официальное руководство — выбор не подменяется молча на
+CPU. Скачанный runtime применяется после перезапуска, потому что DLL ONNX
+Runtime нельзя безопасно заменить внутри уже запущенного процесса. Для кнопки
+нужны реальные архивы и `providers.json` в GitHub Release; шаблон находится в
+[`providers/providers.example.json`](providers/providers.example.json).
 
 Официальные источники для ручной установки: [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads),
 [TensorRT](https://developer.nvidia.com/tensorrt-getting-started) и таблицы
@@ -144,7 +146,7 @@ video → decode → scenes → YOLO-pose → trackId → optional body-ReID
                          gap rules → NMS → ranking
 ```
 
-В обычном режиме matcher отбрасывает статичные окна, требует минимум 12
+В обычном режиме matcher отбрасывает статичные окна, требует минимум 8
 различных временных дескрипторов и устойчивую последовательность похожих
 кадров. Внутри одного файла учитываются `trackId`, scene boundary и минимальный
 зазор. Между разными файлами идентичность усиливается body-ReID, если модель
