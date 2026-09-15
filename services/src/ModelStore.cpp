@@ -13,6 +13,9 @@
 #include <QUrl>
 
 #include <cstdlib>
+#include <algorithm>
+#include <cctype>
+#include <limits>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -21,6 +24,42 @@
 
 namespace pfservices {
 namespace {
+
+// Keep streamed model/provider assets bounded even when a manifest omits its
+// size or the server returns an unexpectedly large response.
+constexpr std::uint64_t kMaxDownloadBytes = 4ULL * 1024ULL * 1024ULL * 1024ULL;
+constexpr qsizetype kMaxManifestBytes = 8 * 1024 * 1024;
+
+bool safeAssetFilename(const std::string& filename)
+{
+    if (filename.empty() || filename.size() > 255 || filename == "." || filename == "..")
+        return false;
+    const std::filesystem::path path(filename);
+    if (path.filename() != path || path.has_root_path() || path.has_parent_path()) return false;
+    return std::all_of(filename.begin(), filename.end(), [](const unsigned char value) {
+        return value >= 0x20U && value != 0x7fU && value != ':' && value != '\\' && value != '/';
+    });
+}
+
+bool trustedHost(const QUrl& url)
+{
+    const QString host = url.host().trimmed().toLower();
+    return !host.isEmpty()
+        && (host == QStringLiteral("github.com")
+            || host == QStringLiteral("raw.githubusercontent.com")
+            || host == QStringLiteral("objects.githubusercontent.com")
+            || host == QStringLiteral("githubusercontent.com")
+            || host.endsWith(QStringLiteral(".github.com"))
+            || host.endsWith(QStringLiteral(".githubusercontent.com")));
+}
+
+bool validSha256(const std::string& value)
+{
+    if (value.size() != 64) return false;
+    return std::all_of(value.begin(), value.end(), [](const unsigned char character) {
+        return std::isxdigit(character) != 0;
+    });
+}
 
 std::vector<std::filesystem::path> candidateRoots(const std::filesystem::path& executableDirectory)
 {
@@ -35,8 +74,10 @@ std::vector<std::filesystem::path> candidateRoots(const std::filesystem::path& e
 std::optional<ModelAsset> assetFromObject(const QJsonObject& object,
                                           const std::string& requestedFilename)
 {
+    if (!safeAssetFilename(requestedFilename)) return std::nullopt;
     const auto filename = object.value(QStringLiteral("filename"));
-    if (!filename.isString() || filename.toString().toStdString() != requestedFilename)
+    if (!filename.isString() || filename.toString().toStdString() != requestedFilename
+        || !safeAssetFilename(filename.toString().toStdString()))
         return std::nullopt;
     ModelAsset asset;
     asset.filename = requestedFilename;
@@ -45,7 +86,11 @@ std::optional<ModelAsset> assetFromObject(const QJsonObject& object,
     const auto size = object.contains(QStringLiteral("sizeBytes"))
         ? object.value(QStringLiteral("sizeBytes"))
         : object.value(QStringLiteral("size"));
-    if (size.isDouble() && size.toInteger() > 0) asset.sizeBytes = static_cast<std::uint64_t>(size.toInteger());
+    if (size.isDouble() && size.toInteger() > 0) {
+        const auto declaredSize = size.toInteger();
+        if (declaredSize > static_cast<qint64>(kMaxDownloadBytes)) return std::nullopt;
+        asset.sizeBytes = static_cast<std::uint64_t>(declaredSize);
+    }
     const auto url = object.contains(QStringLiteral("downloadUrl"))
         ? object.value(QStringLiteral("downloadUrl"))
         : object.value(QStringLiteral("url"));
@@ -96,6 +141,10 @@ bool ModelStore::verifySha256(const std::filesystem::path& path,
                               std::string& error)
 {
     if (expected.empty()) return true;
+    if (!validSha256(expected)) {
+        error = "model SHA-256 metadata is malformed";
+        return false;
+    }
     QFile file(QString::fromStdWString(path.wstring()));
     if (!file.open(QIODevice::ReadOnly)) {
         error = "open model for hash: " + file.errorString().toStdString();
@@ -123,6 +172,18 @@ std::optional<std::filesystem::path> ModelStore::resolve(
     const std::filesystem::path& executableDirectory,
     std::string& error)
 {
+    if (!safeAssetFilename(asset.filename)) {
+        error = "model filename is unsafe";
+        return std::nullopt;
+    }
+    if (asset.sizeBytes > kMaxDownloadBytes) {
+        error = "model exceeds the maximum supported download size";
+        return std::nullopt;
+    }
+    if (!asset.sha256.empty() && !validSha256(asset.sha256)) {
+        error = "model SHA-256 metadata is malformed";
+        return std::nullopt;
+    }
     std::ostringstream checked;
     for (const auto& root : candidateRoots(executableDirectory)) {
         const auto candidate = root / asset.filename;
@@ -156,6 +217,10 @@ std::optional<ModelAsset> ModelStore::readManifest(const std::filesystem::path& 
         error = "open model manifest: " + file.errorString().toStdString();
         return std::nullopt;
     }
+    if (file.size() < 0 || file.size() > kMaxManifestBytes) {
+        error = "model manifest is too large";
+        return std::nullopt;
+    }
     return assetFromManifestBytes(file.readAll(), filename, error);
 }
 
@@ -165,8 +230,9 @@ std::optional<ModelAsset> ModelStore::fetchManifest(const std::string& url,
 {
     const QUrl requestUrl(QString::fromStdString(url));
     if (!requestUrl.isValid()
-        || requestUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0) {
-        error = "model manifest requires an HTTPS URL";
+        || requestUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0
+        || !trustedHost(requestUrl)) {
+        error = "model manifest requires an HTTPS GitHub URL";
         return std::nullopt;
     }
     QNetworkAccessManager manager;
@@ -190,6 +256,16 @@ std::optional<ModelAsset> ModelStore::fetchManifest(const std::string& url,
         reply->deleteLater();
         return std::nullopt;
     }
+    if (!trustedHost(reply->url())) {
+        error = "model manifest redirected to an untrusted host";
+        reply->deleteLater();
+        return std::nullopt;
+    }
+    if (reply->bytesAvailable() > kMaxManifestBytes) {
+        error = "model manifest is too large";
+        reply->deleteLater();
+        return std::nullopt;
+    }
     if (status < 200 || status >= 300) {
         error = "fetch model manifest: HTTP " + std::to_string(status);
         reply->deleteLater();
@@ -205,6 +281,14 @@ bool ModelStore::download(const ModelAsset& asset,
                           DownloadProgress progress,
                           std::string& error)
 {
+    if (!safeAssetFilename(asset.filename)) {
+        error = "model filename is unsafe";
+        return false;
+    }
+    if (asset.sizeBytes > kMaxDownloadBytes) {
+        error = "model exceeds the maximum supported download size";
+        return false;
+    }
     if (asset.downloadUrl.empty()) {
         error = "model download URL is empty";
         return false;
@@ -212,6 +296,18 @@ bool ModelStore::download(const ModelAsset& asset,
     const QUrl url(QString::fromStdString(asset.downloadUrl));
     if (!url.isValid() || url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0) {
         error = "model download requires an HTTPS URL";
+        return false;
+    }
+    if (!trustedHost(url)) {
+        error = "model download requires an HTTPS GitHub URL";
+        return false;
+    }
+    if (asset.sha256.empty() && asset.sizeBytes == 0) {
+        error = "model manifest has no integrity metadata (sizeBytes or sha256)";
+        return false;
+    }
+    if (!asset.sha256.empty() && !validSha256(asset.sha256)) {
+        error = "model SHA-256 metadata is malformed";
         return false;
     }
 
@@ -225,15 +321,25 @@ bool ModelStore::download(const ModelAsset& asset,
         }
     }
     if (std::filesystem::is_regular_file(destination, filesystemError)) {
+        if (std::filesystem::file_size(destination, filesystemError) > kMaxDownloadBytes) {
+            error = "existing model exceeds the maximum supported download size";
+            return false;
+        }
         if ((asset.sizeBytes == 0 || std::filesystem::file_size(destination, filesystemError) == asset.sizeBytes)
             && verifySha256(destination, asset.sha256, error)) return true;
     }
+    error.clear();
 
     const auto partPath = destination.string() + ".part";
     QFile part(QString::fromStdString(partPath));
     qint64 offset = 0;
     if (part.exists()) {
         offset = part.size();
+        if (offset < 0 || static_cast<std::uint64_t>(offset) > kMaxDownloadBytes) {
+            error = "partial model exceeds the maximum supported download size";
+            part.close();
+            return false;
+        }
         if (!part.open(QIODevice::ReadWrite | QIODevice::Append)) {
             error = "open partial model: " + part.errorString().toStdString();
             return false;
@@ -262,6 +368,10 @@ bool ModelStore::download(const ModelAsset& asset,
             reply->abort();
             return;
         }
+        if (!trustedHost(reply->url())) {
+            reply->abort();
+            return;
+        }
         if (offset > 0 && status == 200) {
             part.resize(0);
             offset = 0;
@@ -269,9 +379,21 @@ bool ModelStore::download(const ModelAsset& asset,
         const qint64 total = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
         if (total > 0 && status == 206) expectedTotal = offset + total;
         else if (total > 0) expectedTotal = total;
+        if (expectedTotal > static_cast<qint64>(kMaxDownloadBytes)
+            || (expectedTotal > 0 && expectedTotal < offset)) {
+            reply->abort();
+        }
     });
     QObject::connect(reply, &QNetworkReply::readyRead, [&] {
         const QByteArray data = reply->readAll();
+        const qint64 currentSize = part.size();
+        if (currentSize < 0 || static_cast<std::uint64_t>(currentSize) > kMaxDownloadBytes
+            || static_cast<std::uint64_t>(data.size())
+                > kMaxDownloadBytes - static_cast<std::uint64_t>(currentSize)) {
+            error = "model download exceeds the maximum supported size";
+            reply->abort();
+            return;
+        }
         if (part.write(data) != data.size()) reply->abort();
     });
     QObject::connect(reply, &QNetworkReply::downloadProgress,
@@ -295,12 +417,20 @@ bool ModelStore::download(const ModelAsset& asset,
         return false;
     }
     if (networkError != QNetworkReply::NoError) {
-        error = "download model: " + networkMessage;
+        if (error.empty()) error = "download model: " + networkMessage;
         reply->deleteLater();
         part.close();
         return false;
     }
     const QByteArray tail = reply->readAll();
+    if (part.size() < 0 || static_cast<std::uint64_t>(part.size()) > kMaxDownloadBytes
+        || static_cast<std::uint64_t>(tail.size())
+            > kMaxDownloadBytes - static_cast<std::uint64_t>(part.size())) {
+        error = "model download exceeds the maximum supported size";
+        reply->deleteLater();
+        part.close();
+        return false;
+    }
     if (!tail.isEmpty() && part.write(tail) != tail.size()) {
         error = "write partial model: " + part.errorString().toStdString();
         reply->deleteLater();

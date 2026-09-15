@@ -12,6 +12,7 @@
 #include <QJsonObject>
 #include <QUrl>
 #include <QStandardPaths>
+#include <QSaveFile>
 #include <QQmlEngine>
 #include <QThread>
 #include <QVariantMap>
@@ -50,6 +51,19 @@ bool isSafeModelFilename(const QString& filename)
     return !filename.isEmpty() && filename.endsWith(QStringLiteral(".onnx"), Qt::CaseInsensitive)
         && !filename.contains(QStringLiteral(".."))
         && !filename.contains(QLatin1Char('/')) && !filename.contains(QLatin1Char('\\'));
+}
+
+bool isSafeExportPrefix(const QString& value)
+{
+    if (value.isEmpty() || value == QStringLiteral(".") || value == QStringLiteral("..")
+        || value.size() > 64) return false;
+    for (const QChar character : value) {
+        if (!(character.isLetterOrNumber() || character == QLatin1Char('_')
+              || character == QLatin1Char('-') || character == QLatin1Char('.'))) {
+            return false;
+        }
+    }
+    return true;
 }
 
 std::filesystem::path userModelsRoot()
@@ -123,14 +137,11 @@ std::optional<pfservices::ModelAsset> findLocalOrRemoteAsset(const QString& file
             asset->downloadUrl = std::string(kModelReleaseBase) + asset->filename;
         return asset;
     }
-    // A release without a manifest remains usable, but the UI reports that
-    // the download is unverified. Once manifest.json is published, SHA-256
-    // and size validation are applied automatically.
-    pfservices::ModelAsset fallback;
-    fallback.filename = requested;
-    fallback.downloadUrl = std::string(kModelReleaseBase) + requested;
+    // Never silently install an unverified release asset.  A missing or
+    // unreachable manifest is an installation error, not permission to trust
+    // arbitrary bytes at a predictable GitHub URL.
     error = remoteError.empty() ? error : remoteError;
-    return fallback;
+    return std::nullopt;
 }
 
 QString localPathFromInput(const QString& value)
@@ -276,9 +287,10 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
     std::size_t offset = 0;
     std::uint32_t version = 0, windowCount = 0;
     if (!readBytes(input, offset, version) || version != 6
-        || !readBytes(input, offset, windowCount) || windowCount > 1'000'000U) return false;
+        || !readBytes(input, offset, windowCount) || windowCount > 100'000U) return false;
     windows.clear();
     windows.reserve(windowCount);
+    std::uint64_t totalFrames = 0;
     for (std::uint32_t windowIndex = 0; windowIndex < windowCount; ++windowIndex) {
         std::uint32_t sourceSize = 0;
         if (!readBytes(input, offset, sourceSize) || sourceSize > 16U * 1024U
@@ -301,6 +313,7 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
             || !std::isfinite(window.sceneEndSeconds)) return false;
         std::uint32_t embeddingSize = 0;
         if (!readBytes(input, offset, window.appearanceConfidence)
+            || !std::isfinite(window.appearanceConfidence)
             || !readBytes(input, offset, embeddingSize)
             || embeddingSize > 4096U) return false;
         window.appearanceEmbedding.resize(embeddingSize);
@@ -308,17 +321,22 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
             if (!readBytes(input, offset, value) || !std::isfinite(value)) return false;
         }
         std::uint32_t frameCount = 0;
-        if (!readBytes(input, offset, frameCount) || frameCount > 100'000U) return false;
+        if (!readBytes(input, offset, frameCount) || frameCount > 100'000U
+            || totalFrames > 2'000'000ULL - frameCount) return false;
+        totalFrames += frameCount;
         window.frames.reserve(frameCount);
         for (std::uint32_t frameIndex = 0; frameIndex < frameCount; ++frameIndex) {
             pfcore::PoseFrame frame;
             std::uint32_t pointCount = 0;
             if (!readBytes(input, offset, frame.timestampSeconds)
+                || !std::isfinite(frame.timestampSeconds)
                 || !readBytes(input, offset, pointCount) || pointCount > 128U) return false;
             frame.keypoints.resize(pointCount);
             for (auto& point : frame.keypoints) {
                 if (!readBytes(input, offset, point.x) || !readBytes(input, offset, point.y)
-                    || !readBytes(input, offset, point.confidence)) return false;
+                    || !readBytes(input, offset, point.confidence)
+                    || !std::isfinite(point.x) || !std::isfinite(point.y)
+                    || !std::isfinite(point.confidence)) return false;
             }
             window.frames.push_back(std::move(frame));
         }
@@ -840,8 +858,9 @@ void AnalysisController::selectModel(const QString& filename)
         std::string manifestError;
         auto asset = findLocalOrRemoteAsset(requested, manifestError);
         if (!asset.has_value()) {
-            const QString message = QStringLiteral("Модель отсутствует в release: ")
-                + requested;
+            const QString message = QStringLiteral("Не удалось получить проверенный manifest для ")
+                + requested + (manifestError.empty()
+                    ? QString() : QStringLiteral(": ") + QString::fromStdString(manifestError));
             QMetaObject::invokeMethod(this, [this, message] {
                 modelDownloading_ = false;
                 modelDownloadingName_.clear();
@@ -974,12 +993,21 @@ bool AnalysisController::exportResults(const QString& format,
         }
         const QString requestedPrefix = prefix.trimmed().isEmpty()
             ? QStringLiteral("scene_") : prefix.trimmed();
+        if (!isSafeExportPrefix(requestedPrefix)) {
+            emit exportFinished(false, QStringLiteral(
+                "Префикс содержит недопустимые символы: разрешены буквы, цифры, ., _ и -"));
+            return false;
+        }
         if (!QDir().mkpath(folder)) {
             emit exportFinished(false, QStringLiteral("Не удалось создать папку экспорта: ") + folder);
             return false;
         }
         const pfservices::CutMode mode = cutMode == 1
             ? pfservices::CutMode::Fast : pfservices::CutMode::Exact;
+        // Exporting the whole detected shot could produce one-minute files
+        // from a short match. Keep a useful amount of context while making
+        // the export predictable and quick to inspect.
+        constexpr double kExportClipSeconds = 25.0;
         const pfservices::CutService cutter;
         int written = 0;
         for (std::size_t index = 0; index < selected.size(); ++index) {
@@ -1006,14 +1034,16 @@ bool AnalysisController::exportResults(const QString& format,
                 ++written;
                 return true;
             };
-            const double leftStart = match.leftSceneEndSeconds > match.leftSceneStartSeconds
-                ? match.leftSceneStartSeconds : match.leftStartSeconds;
-            const double leftEnd = match.leftSceneEndSeconds > match.leftSceneStartSeconds
+            const double leftStart = std::max(0.0, match.leftStartSeconds);
+            const double leftSceneEnd = match.leftSceneEndSeconds > leftStart
                 ? match.leftSceneEndSeconds : match.leftEndSeconds;
-            const double rightStart = match.rightSceneEndSeconds > match.rightSceneStartSeconds
-                ? match.rightSceneStartSeconds : match.rightStartSeconds;
-            const double rightEnd = match.rightSceneEndSeconds > match.rightSceneStartSeconds
+            const double leftEnd = std::min(std::max(leftStart + 0.001, leftSceneEnd),
+                                            leftStart + kExportClipSeconds);
+            const double rightStart = std::max(0.0, match.rightStartSeconds);
+            const double rightSceneEnd = match.rightSceneEndSeconds > rightStart
                 ? match.rightSceneEndSeconds : match.rightEndSeconds;
+            const double rightEnd = std::min(std::max(rightStart + 0.001, rightSceneEnd),
+                                             rightStart + kExportClipSeconds);
             if (!cutOne(match.leftSourceId, leftStart, leftEnd, QStringLiteral("A")))
                 return false;
             if (!cutOne(match.rightSourceId, rightStart, rightEnd, QStringLiteral("B")))
@@ -1032,8 +1062,14 @@ bool AnalysisController::exportResults(const QString& format,
     options.numbering = numberingMode == 1 ? pfexporters::NumberingMode::RenumberSorted
                                            : pfexporters::NumberingMode::AsInVideo;
     options.cutMode = cutMode == 1 ? pfexporters::CutMode::Fast : pfexporters::CutMode::Exact;
+    const QString exportPrefix = prefix.trimmed().isEmpty() ? QStringLiteral("frame_") : prefix.trimmed();
+    if (!isSafeExportPrefix(exportPrefix)) {
+        emit exportFinished(false, QStringLiteral(
+            "Префикс содержит недопустимые символы: разрешены буквы, цифры, ., _ и -"));
+        return false;
+    }
     options.outputFolder = localPathFromInput(outputFolder).toStdString();
-    options.filePrefix = prefix.trimmed().isEmpty() ? "frame_" : prefix.trimmed().toStdString();
+    options.filePrefix = exportPrefix.toStdString();
     options.framesPerSecond = sourceFps_;
     std::string error;
     const bool ok = pfexporters::writeResults(selected, options, error);
@@ -1049,11 +1085,11 @@ bool AnalysisController::exportTheme(const QString& path, const QVariantMap& the
     QJsonObject object = QJsonObject::fromVariantMap(theme);
     object.insert(QStringLiteral("schema"), QStringLiteral("parallel-finder-theme"));
     object.insert(QStringLiteral("version"), 1);
-    QFile file(localPath);
+    QSaveFile file(localPath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
-    const bool written = file.write(QJsonDocument(object).toJson(QJsonDocument::Indented)) >= 0;
-    file.close();
-    return written;
+    const QByteArray data = QJsonDocument(object).toJson(QJsonDocument::Indented);
+    if (file.write(data) != data.size()) return false;
+    return file.commit();
 }
 
 QVariantMap AnalysisController::importTheme(const QString& path) const
@@ -1062,6 +1098,7 @@ QVariantMap AnalysisController::importTheme(const QString& path) const
     if (localPath.startsWith(QStringLiteral("file:"))) localPath = QUrl(localPath).toLocalFile();
     QFile file(localPath);
     if (!file.open(QIODevice::ReadOnly)) return {};
+    if (file.size() < 0 || file.size() > 4 * 1024 * 1024) return {};
     QJsonParseError parseError;
     const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) return {};
@@ -1199,6 +1236,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     emit busyChanged();
     setProgress(0.0, QStringLiteral("Подготавливаем анализ"), 0, 0);
     setStatus(QStringLiteral("Декодируем кадры и ищем смены сцен…"));
+    const auto cancel = std::make_shared<std::atomic_bool>(false);
+    analysisCancel_ = cancel;
     const double similarityThreshold = similarityThreshold_;
     const double candidateThreshold = candidateThreshold_;
     const double repeatGap = repeatGap_;
@@ -1214,7 +1253,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     const bool normalizeSize = normalizeSize_;
     const bool mirrorPoses = mirrorPoses_;
     const QString previewToken = QString::number(QDateTime::currentMSecsSinceEpoch());
-    QThread* thread = QThread::create([this, paths = normalized, similarityThreshold, candidateThreshold, repeatGap,
+    QThread* thread = QThread::create([this, cancel, paths = normalized, similarityThreshold, candidateThreshold, repeatGap,
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
                                         maxUniqueResults, timeWeight, providerChoice,
                                         qualityProfile, analysisMode, normalizeSize, mirrorPoses, previewToken] {
@@ -1234,13 +1273,20 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         qlonglong totalFramesEstimate = 0;
         qlonglong processedFrames = 0;
         std::string settingsError;
+        const auto isCancelled = [&cancel] {
+            return cancel && cancel->load(std::memory_order_relaxed);
+        };
+        const auto markCancelled = [&error, &isCancelled] {
+            if (error.isEmpty() && isCancelled()) error = QStringLiteral("Остановлено пользователем");
+        };
         const pfservices::Settings settings = pfservices::SettingsStore().load(settingsError);
         (void)settingsError;
         auto model = findPoseModel();
         if (model.empty()) {
-            QMetaObject::invokeMethod(this, [this] {
+            QMetaObject::invokeMethod(this, [this, cancel] {
                 busy_ = false;
                 emit busyChanged();
+                if (analysisCancel_ == cancel) analysisCancel_.reset();
                 setProgress(0.0, QStringLiteral("Модель не найдена"), 0, 0);
                 setStatus(QStringLiteral("Модель поз не найдена. Укажите её в settings.json или в папке models."));
             }, Qt::QueuedConnection);
@@ -1270,6 +1316,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             if (std::filesystem::is_regular_file(cpuModel, modelError)) model = cpuModel;
         }
         for (const QString& path : paths) {
+            if (isCancelled()) { markCancelled(); break; }
             try {
                 pfcore::VideoDecoder probe;
                 probe.open(path.toStdString());
@@ -1325,6 +1372,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         }
         std::vector<pfcore::MotionWindow> windows;
         for (const QString& path : paths) {
+            if (isCancelled()) { markCancelled(); break; }
             try {
                 pfcore::VideoDecoder decoder;
                 decoder.open(path.toStdString());
@@ -1383,7 +1431,19 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     std::vector<std::uint8_t> rgba;
                 };
                 std::vector<PendingPoseSample> pendingPose;
-                const std::size_t poseBatchSize = pose ? std::max<std::size_t>(1, pose->params().batchSize) : 1U;
+                const std::size_t requestedPoseBatch = pose
+                    ? std::max<std::size_t>(1, pose->params().batchSize) : 1U;
+                // A fixed-batch model must keep its source frames alive until
+                // inference returns.  Bound that staging buffer so a 4K clip
+                // cannot turn a b8/b16 model into a multi-hundred-megabyte
+                // allocation before ONNX Runtime even starts.
+                constexpr std::uint64_t kPoseBatchMemoryBudget = 128ULL * 1024ULL * 1024ULL;
+                const std::uint64_t frameBytes = std::max<std::uint64_t>(1,
+                    static_cast<std::uint64_t>(std::max(1, info.width))
+                    * static_cast<std::uint64_t>(std::max(1, info.height)) * 4ULL);
+                const std::size_t memoryBoundBatch = static_cast<std::size_t>(std::max<std::uint64_t>(
+                    1, kPoseBatchMemoryBudget / frameBytes));
+                const std::size_t poseBatchSize = std::min(requestedPoseBatch, memoryBoundBatch);
                 const auto processPose = [&](const PendingPoseSample& sample,
                                               const std::vector<pfgpu::PoseDetection>& detections) {
                     poseDetections += static_cast<int>(detections.size());
@@ -1448,6 +1508,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     pendingPose.clear();
                 };
                 while (decoder.readNext(frame)) {
+                    if (isCancelled()) { markCancelled(); break; }
                     ++processedFrames;
                     if (processedFrames % 10 == 0 || processedFrames == totalFramesEstimate) {
                         const double localProgress = totalFramesEstimate > 0
@@ -1479,7 +1540,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     }
                     lastFrame = std::move(frame);
                 }
-                flushPoseBatch();
+                if (!isCancelled()) flushPoseBatch();
+                markCancelled();
+                if (!error.isEmpty()) break;
                 std::vector<pfcore::SceneSample> samples;
                 samples.reserve(sceneBuffers.size());
                 for (std::size_t sample = 0; sample < sceneBuffers.size(); ++sample)
@@ -1513,6 +1576,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     for (const auto& boundary : sceneBoundaries) sceneStarts.push_back(boundary.timestampSeconds);
                     const double lastTimestamp = samples.empty() ? info.durationSeconds : samples.back().timestampSeconds;
                     for (std::size_t sceneIndex = 0; sceneIndex < sceneStarts.size(); ++sceneIndex) {
+                        if (isCancelled()) { markCancelled(); break; }
                         const double sceneStart = sceneStarts[sceneIndex];
                         const double sceneEnd = sceneIndex + 1 < sceneStarts.size()
                             ? sceneStarts[sceneIndex + 1] : std::max(info.durationSeconds, lastTimestamp + 0.001);
@@ -1521,6 +1585,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         // discarded all other people and made the result set
                         // look like one person was present in the whole clip.
                         for (const auto& track : tracker.tracks()) {
+                            if (isCancelled()) { markCancelled(); break; }
                             pfcore::MotionWindow window;
                             window.sourceId = path.toStdString();
                             window.trackId = track.id;
@@ -1548,6 +1613,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                 if (window.frames.size() < 2) return;
                                 std::size_t start = 0;
                                 while (start < window.frames.size()) {
+                                    if (isCancelled()) { markCancelled(); break; }
                                     const double startTime = window.frames[start].timestampSeconds;
                                     if (startTime + minimumWindowSeconds > sceneEnd + 1e-9) break;
                                     std::size_t end = start;
@@ -1614,7 +1680,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 break;
             }
         }
-        if (error.isEmpty() && windows.size() >= 2) {
+        markCancelled();
+        if (error.isEmpty() && windows.size() >= 2 && !isCancelled()) {
             pfcore::MotionMatcherParams params;
             params.similarityThreshold = similarityThreshold;
             params.candidateThreshold = candidateThreshold;
@@ -1628,18 +1695,20 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.allowStaticFrames = analysisMode == QStringLiteral("static")
                 || analysisMode == QStringLiteral("combined");
             params.normalizeSize = normalizeSize;
-            const bool appearanceReady = reidReady && std::any_of(windows.begin(), windows.end(),
-                [](const auto& window) { return !window.appearanceEmbedding.empty(); });
-            params.requireAppearance = appearanceReady;
+            // If a ReID model is installed, pose-only cross-person matches
+            // are too dangerous to show. A missing/broken model is reported
+            // explicitly in the status bar; it must not silently lower the
+            // identity gate back to a loose pose-only search.
+            params.requireAppearance = reidModelPresent;
             // OSNet is the identity gate, not a cosmetic label. A loose 0.55
             // threshold lets visually similar people through; keep only a
             // stronger appearance agreement and give it enough influence in
             // the final score to suppress cross-person pose coincidences.
-            params.minAppearanceSimilarity = 0.68;
+            params.minAppearanceSimilarity = 0.78;
             // ReID is an identity gate. It should veto a different person,
             // but must not erase a valid movement when lighting/crop changes
             // make the embedding less confident.
-            params.appearanceWeight = 0.18;
+            params.appearanceWeight = 0.30;
             foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows);
             pfcore::MotionRanker::rank(foundMatches, windows);
             matches = static_cast<int>(foundMatches.size());
@@ -1707,7 +1776,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 .arg(static_cast<qulonglong>(windows.size()))
                 .arg(poseDetections)
             : QString();
-        QMetaObject::invokeMethod(this, [this, files, frames, duration, scenes, poseDetections, matches, resultRecords, foundMatches, error, processedFrames, totalFramesEstimate, sourceFps, reidStatus, debugSummary] {
+        QMetaObject::invokeMethod(this, [this, cancel, files, frames, duration, scenes, poseDetections, matches, resultRecords, foundMatches, error, processedFrames, totalFramesEstimate, sourceFps, reidStatus, debugSummary] {
             fileCount_ = files; frameCount_ = frames; durationSeconds_ = duration; sceneCount_ = scenes;
             poseDetectionCount_ = poseDetections;
             matchCount_ = matches;
@@ -1718,27 +1787,30 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             emit resultsChanged();
             analysisCompleted_ = error.isEmpty();
             emit analysisStateChanged();
-            setProgress(1.0, error.isEmpty() ? QStringLiteral("Анализ завершён") : QStringLiteral("Анализ остановлен"), processedFrames, totalFramesEstimate);
+            setProgress(error.isEmpty() ? 1.0 : progress_, error.isEmpty() ? QStringLiteral("Анализ завершён") : QStringLiteral("Анализ остановлен"), processedFrames, totalFramesEstimate);
             busy_ = false; emit busyChanged();
+            if (analysisCancel_ == cancel) analysisCancel_.reset();
             setStatus(error.isEmpty() ? QStringLiteral("Анализ сцен завершён · ") + reidStatus + debugSummary
                                       : QStringLiteral("Анализ остановлен: ") + error);
         }, Qt::QueuedConnection);
         } catch (const std::exception& exception) {
             const QString message = QString::fromUtf8(exception.what());
-            QMetaObject::invokeMethod(this, [this, message] {
+            QMetaObject::invokeMethod(this, [this, cancel, message] {
                 busy_ = false;
                 analysisCompleted_ = false;
                 emit analysisStateChanged();
                 emit busyChanged();
+                if (analysisCancel_ == cancel) analysisCancel_.reset();
                 setProgress(0.0, QStringLiteral("Ошибка анализа"), 0, 0);
                 setStatus(QStringLiteral("Анализ не запущен: ") + message);
             }, Qt::QueuedConnection);
         } catch (...) {
-            QMetaObject::invokeMethod(this, [this] {
+            QMetaObject::invokeMethod(this, [this, cancel] {
                 busy_ = false;
                 analysisCompleted_ = false;
                 emit analysisStateChanged();
                 emit busyChanged();
+                if (analysisCancel_ == cancel) analysisCancel_.reset();
                 setProgress(0.0, QStringLiteral("Ошибка анализа"), 0, 0);
                 setStatus(QStringLiteral("Анализ не запущен: неизвестная ошибка"));
             }, Qt::QueuedConnection);
@@ -1746,6 +1818,14 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
+}
+
+void AnalysisController::stopAnalysis()
+{
+    if (!busy_ || !analysisCancel_) return;
+    analysisCancel_->store(true, std::memory_order_relaxed);
+    setStatus(QStringLiteral("Останавливаем анализ…"));
+    setProgress(progress_, QStringLiteral("Останавливаем анализ"), processedFrames_, totalFrames_);
 }
 
 } // namespace pfui

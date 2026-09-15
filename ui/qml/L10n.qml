@@ -82,6 +82,7 @@ QtObject {
             "search.mirrorHint": "Проверяет также зеркально отражённое движение. Это помогает при смене ракурса или стороны кадра.",
             "search.start": "Запустить анализ",
             "search.restart": "Запустить снова",
+            "search.stop": "Стоп",
             "search.running": "Идёт анализ…",
 
             "stats.files": "Файлы",
@@ -200,7 +201,8 @@ QtObject {
             "export.folder": "Папка вывода",
             "export.prefix": "Префикс файлов",
             "export.chooseFolder": "Выбрать папку",
-            "export.hint": "EDL, FCPXML и AEP используют FPS исходного материала. Файлы сохраняются в выбранную папку.",
+            "export.hint": "Файл результата будет сохранён в выбранную папку.",
+            "export.ffmpegHint": "FFmpeg создаст отдельные MP4-клипы примерно по 25 секунд от начала совпадения.",
             "export.prepare": "Экспортировать",
             "export.done": "Экспорт завершён",
             "export.failed": "Экспорт не выполнен"
@@ -278,6 +280,7 @@ QtObject {
             "search.mirrorHint": "Also tests the mirrored movement. Useful when the camera side or screen direction changes.",
             "search.start": "Start analysis",
             "search.restart": "Run again",
+            "search.stop": "Stop",
             "search.running": "Analysis running…",
             "stats.files": "Files",
             "stats.frames": "Frames",
@@ -390,7 +393,8 @@ QtObject {
             "export.folder": "Output folder",
             "export.prefix": "File prefix",
             "export.chooseFolder": "Choose folder",
-            "export.hint": "EDL, FCPXML and AEP use the source frame rate. Files are written to the selected folder.",
+            "export.hint": "The result file will be saved to the selected folder.",
+            "export.ffmpegHint": "FFmpeg creates separate MP4 clips of about 25 seconds from each match start.",
             "export.prepare": "Export"
         }
     })

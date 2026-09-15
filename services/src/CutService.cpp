@@ -1,7 +1,10 @@
 #include <pfservices/CutService.hpp>
 
 #include <QFile>
+#include <QCoreApplication>
+#include <QFileInfo>
 #include <QProcess>
+#include <QStandardPaths>
 #include <QStringList>
 
 #include <algorithm>
@@ -17,6 +20,8 @@
 namespace pfservices {
 namespace {
 
+constexpr int kFfmpegTimeoutMs = 180000;
+
 QString seconds(double value)
 {
     return QString::number(value, 'f', 6);
@@ -27,6 +32,17 @@ std::string processError(QProcess& process)
     const QByteArray standardError = process.readAllStandardError();
     if (!standardError.isEmpty()) return standardError.toStdString();
     return process.errorString().toStdString();
+}
+
+QString resolveFfmpegExecutable(const std::string& configured)
+{
+    const QString requested = QString::fromStdString(configured);
+    if (QFileInfo(requested).isAbsolute()) return requested;
+    const QString appLocal = QCoreApplication::applicationDirPath()
+        + QLatin1Char('/') + requested;
+    if (QFileInfo(appLocal).isFile()) return appLocal;
+    const QString fromPath = QStandardPaths::findExecutable(requested);
+    return fromPath.isEmpty() ? requested : fromPath;
 }
 
 } // namespace
@@ -43,6 +59,7 @@ CutResult CutService::cut(const CutRequest& request) const
         result.error = "ffmpeg executable is empty";
         return result;
     }
+    const QString ffmpegProgram = resolveFfmpegExecutable(ffmpegExecutable_);
     if (request.inputPath.empty() || request.outputPath.empty()) {
         result.error = "input and output paths are required";
         return result;
@@ -127,7 +144,7 @@ CutResult CutService::cut(const CutRequest& request) const
         arguments << QString::fromStdWString(temporaryPath.wstring());
 
         QProcess process;
-        process.setProgram(QString::fromStdString(ffmpegExecutable_));
+        process.setProgram(ffmpegProgram);
         process.setArguments(arguments);
 #if defined(_WIN32)
         // ffmpeg is a console executable. CREATE_NO_WINDOW keeps its stderr
@@ -143,10 +160,10 @@ CutResult CutService::cut(const CutRequest& request) const
             result.error = processError(process);
             return result;
         }
-        if (!process.waitForFinished(-1)) {
+        if (!process.waitForFinished(kFfmpegTimeoutMs)) {
             process.kill();
             process.waitForFinished(1000);
-            result.error = "ffmpeg did not finish: " + processError(process);
+            result.error = "ffmpeg timed out after 180 seconds: " + processError(process);
             return result;
         }
         result.exitCode = process.exitCode();

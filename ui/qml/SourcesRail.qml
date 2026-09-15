@@ -284,12 +284,32 @@ Rectangle {
         Rectangle { anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; height: 1; color: Theme.hairline }
         Column {
             anchors.fill: parent; anchors.topMargin: 10; spacing: 5
-            PfButton {
+            RowLayout {
                 width: parent.width
-                text: root.sourceFiles.length === 0 ? L10n.t("sources.add") : (Analysis.busy ? L10n.t("search.running") : (Analysis.modelDownloading ? L10n.t("settings.modelDownloading") : L10n.t("search.start")))
-                enabled: root.sourceFiles.length === 0 || (!Analysis.busy && !Analysis.modelDownloading)
-                onClicked: root.sourceFiles.length === 0 ? root.filesRequested([]) : root.analyzeRequested()
-                Accessible.name: text
+                spacing: 7
+                PfButton {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    Layout.preferredHeight: 42
+                    text: root.sourceFiles.length === 0
+                        ? L10n.t("sources.add")
+                        : (Analysis.modelDownloading
+                            ? L10n.t("settings.modelDownloading")
+                            : L10n.t("search.start"))
+                    enabled: root.sourceFiles.length === 0 || (!Analysis.busy && !Analysis.modelDownloading)
+                    onClicked: root.sourceFiles.length === 0 ? root.filesRequested([]) : root.analyzeRequested()
+                    Accessible.name: text
+                }
+                PfButton {
+                    Layout.preferredWidth: 82
+                    Layout.minimumWidth: 76
+                    Layout.preferredHeight: 42
+                    visible: Analysis.busy
+                    text: L10n.t("search.stop")
+                    quiet: true
+                    onClicked: Analysis.stopAnalysis()
+                    Accessible.name: text
+                }
             }
             Text {
                 width: parent.width; text: Analysis.busy

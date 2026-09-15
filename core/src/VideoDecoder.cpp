@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -17,6 +18,8 @@ extern "C" {
 
 namespace pfcore {
 namespace {
+
+constexpr std::uint64_t kMaxDecodedFramePixels = 64ULL * 1024ULL * 1024ULL;
 
 std::string ffError(int code)
 {
@@ -93,6 +96,12 @@ void VideoDecoder::open(const std::string& path)
     if ((result = avcodec_parameters_to_context(impl_->codec, stream->codecpar)) < 0) {
         close(); throw std::runtime_error("copy decoder parameters: " + ffError(result));
     }
+    if (impl_->codec->width <= 0 || impl_->codec->height <= 0
+        || static_cast<std::uint64_t>(impl_->codec->width)
+            * static_cast<std::uint64_t>(impl_->codec->height) > kMaxDecodedFramePixels) {
+        close();
+        throw std::runtime_error("video frame dimensions exceed the safe decode limit");
+    }
     if ((result = avcodec_open2(impl_->codec, decoder, nullptr)) < 0) {
         close(); throw std::runtime_error("open decoder: " + ffError(result));
     }
@@ -144,6 +153,11 @@ bool VideoDecoder::readNext(DecodedFrame& output)
         int result = avcodec_receive_frame(impl_->codec, impl_->decoded);
         if (result == 0) {
             const AVFrame* source = impl_->decoded;
+            if (source->width <= 0 || source->height <= 0
+                || static_cast<std::uint64_t>(source->width)
+                    * static_cast<std::uint64_t>(source->height) > kMaxDecodedFramePixels) {
+                throw std::runtime_error("decoded frame dimensions exceed the safe limit");
+            }
             const auto pixelFormat = static_cast<AVPixelFormat>(source->format);
             if (!impl_->scaler || impl_->scalerWidth != source->width
                 || impl_->scalerHeight != source->height || impl_->scalerFormat != pixelFormat) {
@@ -156,7 +170,11 @@ bool VideoDecoder::readNext(DecodedFrame& output)
                 impl_->scalerFormat = pixelFormat;
             }
             output.width = source->width; output.height = source->height;
-            output.rgba.resize(static_cast<std::size_t>(output.width) * output.height * 4);
+            const auto pixels = static_cast<std::size_t>(output.width)
+                * static_cast<std::size_t>(output.height);
+            if (pixels > std::numeric_limits<std::size_t>::max() / 4U)
+                throw std::runtime_error("decoded frame buffer size overflow");
+            output.rgba.resize(pixels * 4U);
             std::uint8_t* dst[] = { output.rgba.data() }; int stride[] = { output.width * 4 };
             if (sws_scale(impl_->scaler, source->data, source->linesize, 0,
                           source->height, dst, stride) <= 0) {

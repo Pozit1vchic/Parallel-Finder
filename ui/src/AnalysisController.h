@@ -5,6 +5,7 @@
 #include <QStringList>
 
 #include <memory>
+#include <atomic>
 #include <vector>
 
 #include "pfcore/MotionMatcher.hpp"
@@ -132,6 +133,7 @@ public:
     Q_INVOKABLE void inspectFiles(const QStringList& paths);
     Q_INVOKABLE QStringList filesInFolder(const QString& folder) const;
     Q_INVOKABLE void analyzeFiles(const QStringList& paths);
+    Q_INVOKABLE void stopAnalysis();
 
 signals:
     void summaryChanged();
@@ -196,6 +198,9 @@ private:
     double noiseFactor_ = 1.0;
     int maxUniqueResults_ = 100;
     double timeWeight_ = 0.25;
+    // Shared with the worker thread so Stop can request a cooperative
+    // cancellation without touching QObject state from the worker.
+    std::shared_ptr<std::atomic_bool> analysisCancel_;
 };
 
 } // namespace pfui

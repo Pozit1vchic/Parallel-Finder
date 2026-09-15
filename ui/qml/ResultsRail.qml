@@ -47,25 +47,32 @@ Rectangle {
     onSortDescendingChanged: rebuild()
     Component.onCompleted: rebuild()
 
-    Column { anchors.fill: parent; anchors.margins: 16; spacing: 12
-        Row { width: parent.width
-            Column { width: parent.width - 36; spacing: 4
-                Text { text: L10n.t("results.title"); color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
-                Text { text: root.results.length > 0 ? root.results.length + " " + L10n.t("results.found") : L10n.t("results.emptyHint"); color: Theme.textSecondary; font.pixelSize: 11 }
-            }
+    ColumnLayout { anchors.fill: parent; anchors.margins: 16; spacing: 12
+        ColumnLayout { Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 4
+            Text { Layout.fillWidth: true; text: L10n.t("results.title"); color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold; elide: Text.ElideRight }
+            Text { Layout.fillWidth: true; text: root.results.length > 0 ? root.results.length + " " + L10n.t("results.found") : L10n.t("results.emptyHint"); color: Theme.textSecondary; font.pixelSize: 11; elide: Text.ElideRight }
         }
-        Row { width: parent.width; spacing: 6; height: root.visibleResults.length > 0 ? 28 : 0; visible: root.visibleResults.length > 0
-            PfIconButton { width: 28; height: 28; iconSource: "qrc:/qt/qml/PfUi/qml/assets/chevron-left.svg"; accessibleName: L10n.t("results.previous"); enabled: root.visibleResults.length > 0; onClicked: root.selectPrevious() }
-            Item { width: parent.width - 68; height: 1 }
-            PfIconButton { width: 28; height: 28; iconSource: "qrc:/qt/qml/PfUi/qml/assets/chevron-right.svg"; accessibleName: L10n.t("results.next"); enabled: root.visibleResults.length > 0; onClicked: root.selectNext() }
+        RowLayout { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.preferredHeight: root.visibleResults.length > 0 ? 28 : 0; visible: root.visibleResults.length > 0; spacing: 6
+            PfIconButton { Layout.preferredWidth: 28; Layout.preferredHeight: 28; iconSource: "qrc:/qt/qml/PfUi/qml/assets/chevron-left.svg"; accessibleName: L10n.t("results.previous"); enabled: root.visibleResults.length > 0; onClicked: root.selectPrevious() }
+            Item { Layout.fillWidth: true; Layout.minimumWidth: 0 }
+            PfIconButton { Layout.preferredWidth: 28; Layout.preferredHeight: 28; iconSource: "qrc:/qt/qml/PfUi/qml/assets/chevron-right.svg"; accessibleName: L10n.t("results.next"); enabled: root.visibleResults.length > 0; onClicked: root.selectNext() }
         }
-        Rectangle { width: parent.width; height: root.visibleResults.length > 0 ? 1 : 0; visible: root.visibleResults.length > 0; color: Theme.hairline }
-        Row { width: parent.width; spacing: 6; height: root.visibleResults.length > 0 ? 46 : 0; visible: root.visibleResults.length > 0
-            PfButton { width: (parent.width - 6) / 2; text: root.sortDescending ? L10n.t("results.sort") + " ↓" : L10n.t("results.sort") + " ↑"; quiet: true; onClicked: root.sortDescending = !root.sortDescending }
-            PfButton { width: (parent.width - 6) / 2; text: L10n.t("results.export"); enabled: Object.keys(root.selectedRows).length > 0; quiet: Object.keys(root.selectedRows).length === 0; onClicked: root.exportRequested() }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: root.visibleResults.length > 0 ? 1 : 0; visible: root.visibleResults.length > 0; color: Theme.hairline }
+        RowLayout { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.preferredHeight: root.visibleResults.length > 0 ? 46 : 0; visible: root.visibleResults.length > 0; spacing: 6
+            PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.sortDescending ? L10n.t("results.sort") + " ↓" : L10n.t("results.sort") + " ↑"; quiet: true; onClicked: root.sortDescending = !root.sortDescending }
+            PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("results.export"); enabled: Object.keys(root.selectedRows).length > 0; quiet: Object.keys(root.selectedRows).length === 0; onClicked: root.exportRequested() }
         }
         ListView {
-            id: resultList; width: parent.width; height: Math.max(80, parent.height - (root.visibleResults.length > 0 ? 112 : 54)); clip: true; spacing: 5; model: root.visibleResults; focus: true; activeFocusOnTab: true
+            id: resultList
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.minimumWidth: 0
+            Layout.minimumHeight: 80
+            clip: true
+            spacing: 5
+            model: root.visibleResults
+            focus: true
+            activeFocusOnTab: true
             Accessible.name: L10n.t("results.title")
             Keys.onUpPressed: { root.selectPrevious(); event.accepted = true }
             Keys.onDownPressed: { root.selectNext(); event.accepted = true }

@@ -169,17 +169,22 @@ void AppInfo::downloadProvider(const QString& backend)
                     emit providerDownloadChanged();
                 }, Qt::QueuedConnection);
             }, error);
-        if (ok) {
+        bool installed = ok;
+        if (installed) {
             std::ofstream active(destination.parent_path() / "active.txt",
                                  std::ios::binary | std::ios::trunc);
             active << provider.toStdString();
+            if (!active) {
+                installed = false;
+                error = "runtime installed, but provider activation marker could not be written";
+            }
         }
-        const QString message = ok
+        const QString message = installed
             ? QStringLiteral("Runtime установлен. Перезапустите приложение, чтобы применить провайдер.")
             : QStringLiteral("Не удалось установить runtime: ") + QString::fromStdString(error);
-        QMetaObject::invokeMethod(this, [this, ok, message] {
+        QMetaObject::invokeMethod(this, [this, installed, message] {
             providerDownloading_ = false;
-            providerDownloadProgress_ = ok ? 1.0 : 0.0;
+            providerDownloadProgress_ = installed ? 1.0 : 0.0;
             providerDownloadStatus_ = message;
             emit providerDownloadChanged();
         }, Qt::QueuedConnection);

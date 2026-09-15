@@ -42,10 +42,12 @@ Backend performance note:
   all-pairs result semantics (a window may appear in multiple matches) without
   paying the quadratic DTW cost for every possible pair.
 - `pfservices::ModelStore` treats a release manifest as untrusted input: only
-  HTTPS URLs are accepted, downloads resume into `*.part`, declared size and
-  SHA-256 are checked, and only then is the file installed under the local
-  models directory. A missing network or manifest leaves the explicit local
-  model path usable.
+  HTTPS GitHub URLs are accepted, model filenames are basename-only, manifests
+  and streamed assets have hard size limits, downloads resume into `*.part`,
+  declared size and SHA-256 are checked, and only then is the file installed
+  under the local models directory. A missing network or manifest leaves the
+  explicit local model path usable; it never silently installs an unverified
+  fallback asset.
 - `pfgpu::PoseEstimator` validates the loaded static input shape before the
   first frame. The profile controls fixed batch (`b1`, `b8`, `b16`), short final
   batches repeat their last frame, and the decoder accepts both end-to-end
@@ -78,7 +80,9 @@ Stage 4 audit and implementation notes:
   plus the adjacent `parallel_data.json` sidecar.
 - `CutService` uses QProcess without a shell, captures stderr, and applies
   `CREATE_NO_WINDOW` on Windows so ffmpeg never flashes a console window
-  over the Qt UI; encoder fallback remains explicit.
+  over the Qt UI; the app-local executable is preferred over PATH, encoder
+  fallback remains explicit, and a bounded timeout prevents a stuck encoder
+  from holding the analysis worker forever.
   NVENC → AMF → QSV → CPU for exact cuts. Optional output ceilings prevent
   upscaling while preserving aspect ratio; fast stream-copy mode rejects a
   resize request because filtering would invalidate `-c copy`.

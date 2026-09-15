@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <cstdio>
 #include <limits>
@@ -65,14 +66,30 @@ FloatTensor makeInputBatch(const std::vector<PoseImage>& images,
         const LetterboxTransform transform = makeTransform(image, params);
         transforms.push_back(transform);
         const std::size_t batchBase = batch * 3U * plane;
+        // The old loop recomputed two floating-point divisions for every
+        // output pixel.  Precompute the source lookup tables once per image;
+        // this is a measurable win on the CPU provider and does not change
+        // the exact letterbox mapping.
+        std::vector<int> sourceX(static_cast<std::size_t>(params.inputWidth), -1);
+        std::vector<int> sourceY(static_cast<std::size_t>(params.inputHeight), -1);
+        for (int x = 0; x < params.inputWidth; ++x) {
+            const float value = (static_cast<float>(x) - transform.padX) / transform.scale;
+            if (value >= 0.0F && value < image.width)
+                sourceX[static_cast<std::size_t>(x)] = std::clamp(
+                    static_cast<int>(value), 0, image.width - 1);
+        }
         for (int y = 0; y < params.inputHeight; ++y) {
-            const float sourceY = (static_cast<float>(y) - transform.padY) / transform.scale;
-            if (sourceY < 0.0F || sourceY >= image.height) continue;
-            const int sy = std::clamp(static_cast<int>(sourceY), 0, image.height - 1);
+            const float value = (static_cast<float>(y) - transform.padY) / transform.scale;
+            if (value >= 0.0F && value < image.height)
+                sourceY[static_cast<std::size_t>(y)] = std::clamp(
+                    static_cast<int>(value), 0, image.height - 1);
+        }
+        for (int y = 0; y < params.inputHeight; ++y) {
+            const int sy = sourceY[static_cast<std::size_t>(y)];
+            if (sy < 0) continue;
             for (int x = 0; x < params.inputWidth; ++x) {
-                const float sourceX = (static_cast<float>(x) - transform.padX) / transform.scale;
-                if (sourceX < 0.0F || sourceX >= image.width) continue;
-                const int sx = std::clamp(static_cast<int>(sourceX), 0, image.width - 1);
+                const int sx = sourceX[static_cast<std::size_t>(x)];
+                if (sx < 0) continue;
                 const auto* pixel = image.rgba + (static_cast<std::size_t>(sy) * image.width + sx) * 4U;
                 const std::size_t offset = static_cast<std::size_t>(y) * params.inputWidth + x;
                 tensor.values[batchBase + offset] = pixel[0] / 255.0F;
@@ -229,6 +246,9 @@ PoseEstimator::PoseEstimator(std::string modelPath, PoseEstimatorParams params)
     : modelPath_(std::move(modelPath)), params_(std::move(params))
 {
     if (modelPath_.empty() || params_.inputWidth <= 0 || params_.inputHeight <= 0
+        || params_.inputWidth > 4096 || params_.inputHeight > 4096
+        || static_cast<std::uint64_t>(params_.inputWidth)
+            * static_cast<std::uint64_t>(params_.inputHeight) > 64ULL * 1024ULL * 1024ULL
         || params_.keypointCount == 0 || params_.confidenceThreshold < 0.0F
         || params_.confidenceThreshold > 1.0F || params_.nmsIouThreshold <= 0.0F
         || params_.nmsIouThreshold > 1.0F || params_.batchSize > 64

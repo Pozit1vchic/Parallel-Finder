@@ -8,6 +8,8 @@ namespace pfgpu {
 
 namespace {
 
+constexpr std::size_t kMaxTensorElements = 64ULL * 1024ULL * 1024ULL;
+
 bool readTensorSpec(const OrtApi& api, const OrtTypeInfo* typeInfo,
                     TensorSpec& destination, std::string& error)
 {
@@ -15,6 +17,10 @@ bool readTensorSpec(const OrtApi& api, const OrtTypeInfo* typeInfo,
     if (!checkStatus(api, api.CastTypeInfoToTensorInfo(typeInfo, &tensorInfo), error)) return false;
     std::size_t rank = 0;
     if (!checkStatus(api, api.GetDimensionsCount(tensorInfo, &rank), error)) return false;
+    if (rank == 0 || rank > 8) {
+        error = "tensor rank is outside the supported range";
+        return false;
+    }
     destination.shape.resize(rank);
     return checkStatus(api, api.GetDimensions(tensorInfo, destination.shape.data(), rank), error);
 }
@@ -33,6 +39,10 @@ SessionSpec describeSession(const SessionHandle& session)
     if (!inputOk) return result;
     std::size_t outputCount = 0;
     if (!checkStatus(*api, api->SessionGetOutputCount(session.session, &outputCount), result.error)) return result;
+    if (outputCount == 0 || outputCount > 64) {
+        result.error = "model output count is outside the supported range";
+        return result;
+    }
     result.outputs.resize(outputCount);
     for (std::size_t i = 0; i < outputCount; ++i) {
         OrtTypeInfo* outputInfo = nullptr;
@@ -57,6 +67,10 @@ InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
             result.error = "inference input shape is invalid"; return result;
         }
         elements *= static_cast<std::size_t>(dimension);
+        if (elements > kMaxTensorElements) {
+            result.error = "inference input tensor is too large";
+            return result;
+        }
     }
     if (elements != input.values.size()) { result.error = "input shape does not match value count"; return result; }
 
@@ -130,6 +144,12 @@ InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
         }
         std::size_t count = 0;
         if (!checkStatus(*api, api->GetTensorShapeElementCount(shapeInfo, &count), result.error)) { api->ReleaseTensorTypeAndShapeInfo(shapeInfo); api->ReleaseValue(value); continue; }
+        if (count > kMaxTensorElements) {
+            result.error = "model output tensor is too large";
+            api->ReleaseTensorTypeAndShapeInfo(shapeInfo);
+            api->ReleaseValue(value);
+            continue;
+        }
         // GetTensorMutableData returns a pointer owned by ORT.  Passing a
         // pointer to our vector here does not make ORT write into that vector;
         // the API overwrites the pointer argument.  Copy the returned buffer

@@ -783,6 +783,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
 {
     std::vector<MotionMatch> matches;
     if (windows.size() < 2) return matches;
+    matches.reserve(std::min(params_.maxUniqueResults, windows.size()));
 
     std::vector<PreparedWindow> prepared(windows.size());
     std::size_t preparedCount = 0;
@@ -828,6 +829,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     std::unordered_set<std::uint64_t> candidatePairs;
     const std::size_t candidateCount = std::min<std::size_t>(windows.size(),
         std::max<std::size_t>(8, std::min<std::size_t>(32, windows.size())));
+    candidatePairs.reserve(preparedCount * std::min<std::size_t>(candidateCount, 32U));
     for (std::size_t i = 0; i < windows.size(); ++i) {
         if (prepared[i].descriptors.empty()) continue;
         for (const auto neighbour : index.query(prepared[i].embedding, candidateCount, candidateCount * 2)) {

@@ -86,6 +86,8 @@ FloatTensor makeInput(const ReIdImage& image, const InputShape& shape, bool chan
 std::vector<float> normalizedEmbedding(const FloatTensor& tensor)
 {
     if (tensor.values.empty()) throw std::runtime_error("ReIdEstimator: model returned an empty embedding");
+    if (tensor.values.size() < 32 || tensor.values.size() > 4096)
+        throw std::runtime_error("ReIdEstimator: model output is not a body embedding");
     std::vector<float> embedding = tensor.values;
     double norm = 0.0;
     for (const float value : embedding) {

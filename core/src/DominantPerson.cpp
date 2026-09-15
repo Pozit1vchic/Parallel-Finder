@@ -63,6 +63,27 @@ double keypointScore(const PersonDetection& left, const PersonDetection& right) 
     return std::exp(-4.0 * (weightedDistance / weight));
 }
 
+double appearanceScore(const PersonDetection& left, const PersonDetection& right) noexcept
+{
+    if (left.appearanceEmbedding.empty() || right.appearanceEmbedding.empty()
+        || left.appearanceEmbedding.size() != right.appearanceEmbedding.size()) {
+        return -1.0;
+    }
+    double dot = 0.0;
+    double leftNorm = 0.0;
+    double rightNorm = 0.0;
+    for (std::size_t index = 0; index < left.appearanceEmbedding.size(); ++index) {
+        const float a = left.appearanceEmbedding[index];
+        const float b = right.appearanceEmbedding[index];
+        if (!std::isfinite(a) || !std::isfinite(b)) return -1.0;
+        dot += static_cast<double>(a) * b;
+        leftNorm += static_cast<double>(a) * a;
+        rightNorm += static_cast<double>(b) * b;
+    }
+    if (leftNorm <= 1e-12 || rightNorm <= 1e-12) return -1.0;
+    return std::clamp(dot / std::sqrt(leftNorm * rightNorm), -1.0, 1.0);
+}
+
 } // namespace
 
 double PersonTrack::totalTimeSeconds() const noexcept
@@ -137,14 +158,32 @@ void DominantPersonTracker::update(double timestampSeconds,
             const double iou = last.box.iou(detections[detection].box);
             const double center = centerDistanceScore(last.box, detections[detection].box);
             const double keypoints = keypointScore(last, detections[detection]);
+            // ReID is sampled every few frames for throughput. Use the latest
+            // available embedding in the track instead of treating an
+            // unsampled frame as an identity-free observation.
+            const PersonDetection* appearanceReference = &last;
+            for (auto observation = tracks_[track].observations.rbegin();
+                 observation != tracks_[track].observations.rend(); ++observation) {
+                if (!observation->appearanceEmbedding.empty()) {
+                    appearanceReference = &*observation;
+                    break;
+                }
+            }
+            const double appearance = appearanceScore(*appearanceReference, detections[detection]);
             // IoU is still the strongest signal, but center/keypoint continuity
             // keeps an ID stable when a person turns or the detector jitters.
             // The gate prevents a stale track from stealing a new person merely
             // because their boxes overlap for one frame.
+            // Once both observations have a body-ReID embedding, a low
+            // identity similarity must veto the geometric match. This keeps
+            // two people from swapping track IDs when they cross or stand in
+            // the same shot.
+            if (appearance >= 0.0 && appearance < 0.45) continue;
             const bool gated = iou >= iouThreshold_
                 || (center >= 0.42 && keypoints >= 0.38);
             if (!gated) continue;
-            const double score = 0.55 * iou + 0.25 * center + 0.20 * keypoints;
+            const double score = 0.48 * iou + 0.22 * center + 0.18 * keypoints
+                + (appearance >= 0.0 ? 0.12 * std::max(0.0, appearance) : 0.0);
             candidates.push_back({score, track, detection});
         }
     }

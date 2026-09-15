@@ -9,10 +9,14 @@
 #include <QStandardPaths>
 
 #include <filesystem>
+#include <algorithm>
 #include <utility>
 
 namespace pfservices {
 namespace {
+
+constexpr std::size_t kMaxCacheLimitBytes = 64ULL * 1024ULL * 1024ULL * 1024ULL;
+constexpr qsizetype kMaxSettingsBytes = 1 * 1024 * 1024;
 
 QJsonObject toJson(const Settings& settings)
 {
@@ -23,7 +27,8 @@ QJsonObject toJson(const Settings& settings)
     json[QStringLiteral("theme")] = QString::fromStdString(settings.theme);
     json[QStringLiteral("modelPath")] = QString::fromStdString(settings.modelPath);
     json[QStringLiteral("cachePath")] = QString::fromStdString(settings.cachePath);
-    json[QStringLiteral("cacheLimitBytes")] = static_cast<qint64>(settings.cacheLimitBytes);
+    json[QStringLiteral("cacheLimitBytes")] = static_cast<qint64>(
+        std::min(settings.cacheLimitBytes, kMaxCacheLimitBytes));
     json[QStringLiteral("processingThreads")] = static_cast<qint64>(settings.processingThreads);
     json[QStringLiteral("sceneThreshold")] = settings.sceneThreshold;
     json[QStringLiteral("sceneMinFrames")] = static_cast<qint64>(settings.sceneMinFrames);
@@ -78,6 +83,10 @@ Settings SettingsStore::load(std::string& error) const
         error = "open settings: " + file.errorString().toStdString();
         return settings;
     }
+    if (file.size() < 0 || file.size() > kMaxSettingsBytes) {
+        error = "settings file is too large";
+        return settings;
+    }
     QJsonParseError parseError;
     const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
@@ -102,8 +111,11 @@ Settings SettingsStore::load(std::string& error) const
     const auto mirrorPoses = json.value(QStringLiteral("mirrorPoses"));
     if (mirrorPoses.isBool()) settings.mirrorPoses = mirrorPoses.toBool();
     const auto cacheLimit = json.value(QStringLiteral("cacheLimitBytes"));
-    if (cacheLimit.isDouble() && cacheLimit.toInteger() > 0)
-        settings.cacheLimitBytes = static_cast<std::size_t>(cacheLimit.toInteger());
+    if (cacheLimit.isDouble() && cacheLimit.toInteger() > 0) {
+        const auto value = cacheLimit.toInteger();
+        settings.cacheLimitBytes = static_cast<std::size_t>(std::min<qint64>(
+            value, static_cast<qint64>(kMaxCacheLimitBytes)));
+    }
     const auto processingThreads = json.value(QStringLiteral("processingThreads"));
     if (processingThreads.isDouble() && processingThreads.toInteger() >= 0
         && processingThreads.toInteger() <= 256)

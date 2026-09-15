@@ -103,7 +103,7 @@ Popup {
         Text {
             width: parent.width
             text: root.exportStatus || (exportFormat.currentText === "FFMPEG"
-                ? "FFmpeg создаст отдельный MP4-клип для каждой стороны выбранной параллели и вырежет полный интервал сцены."
+                ? L10n.t("export.ffmpegHint")
                 : L10n.t("export.hint"))
             color: root.exportStatus ? Theme.accent : Theme.textSecondary
             font.pixelSize: 11

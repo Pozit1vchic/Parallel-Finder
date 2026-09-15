@@ -1,9 +1,11 @@
 #include "pfservices/PfCache.hpp"
 
 #include <QCryptographicHash>
+#include <QCoreApplication>
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
@@ -15,6 +17,8 @@ namespace {
 
 constexpr std::array<char, 8> kMagic {'P', 'F', 'C', 'A', 'C', 'H', 'E', '1'};
 constexpr std::uint32_t kVersion = 1;
+constexpr std::uint64_t kMaxCacheEntryBytes = 512ULL * 1024ULL * 1024ULL;
+std::atomic_uint64_t kTemporaryCounter {0};
 
 template <typename T>
 void writeScalar(std::ostream& stream, T value)
@@ -63,7 +67,9 @@ bool PfCache::readEntry(const std::filesystem::path& path, const std::string& ke
     std::uint64_t payloadSize = 0;
     if (!readScalar(stream, version) || !readScalar(stream, keySize) || !readScalar(stream, payloadSize)
         || version != kVersion || keySize != key.size()
-        || payloadSize > limitBytes_ || keySize > 1024U) return false;
+        || payloadSize > limitBytes_ || payloadSize > kMaxCacheEntryBytes
+        || payloadSize > std::numeric_limits<std::size_t>::max()
+        || keySize > 1024U) return false;
     std::string storedKey(keySize, '\0');
     if (!stream.read(storedKey.data(), static_cast<std::streamsize>(storedKey.size()))
         || storedKey != key) return false;
@@ -75,7 +81,8 @@ bool PfCache::readEntry(const std::filesystem::path& path, const std::string& ke
 bool PfCache::writeEntry(const std::filesystem::path& path, const std::string& key,
                          const std::vector<std::uint8_t>& payload, std::string& error) const
 {
-    if (key.empty() || key.size() > 1024U || payload.size() > limitBytes_) {
+    if (key.empty() || key.size() > 1024U || payload.size() > limitBytes_
+        || payload.size() > kMaxCacheEntryBytes) {
         error = "cache entry exceeds PFCACHE1 limits";
         return false;
     }
@@ -85,7 +92,9 @@ bool PfCache::writeEntry(const std::filesystem::path& path, const std::string& k
         error = "create cache directory: " + filesystemError.message();
         return false;
     }
-    const auto temporary = path.string() + ".tmp";
+    const auto temporary = path.string() + ".tmp."
+        + std::to_string(QCoreApplication::applicationPid()) + "."
+        + std::to_string(kTemporaryCounter.fetch_add(1, std::memory_order_relaxed));
     std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
     if (!stream) {
         error = "open cache entry for write failed";

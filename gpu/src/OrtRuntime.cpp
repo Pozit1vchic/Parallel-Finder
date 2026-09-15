@@ -76,6 +76,12 @@ struct RuntimeState {
 #endif
 };
 
+bool safeProviderName(const std::string& provider)
+{
+    return provider == "dml" || provider == "cuda"
+        || provider == "tensorrt" || provider == "cpu";
+}
+
 RuntimeState& state()
 {
     static RuntimeState s;
@@ -87,7 +93,14 @@ RuntimeState& state()
 HMODULE loadLibrary(const std::filesystem::path& path, std::string& error)
 {
     ::SetLastError(ERROR_SUCCESS);
-    HMODULE module = ::LoadLibraryW(path.wstring().c_str());
+    // Keep dependency resolution next to the selected runtime instead of the
+    // current working directory/PATH.  This prevents a stray DLL from being
+    // injected when the app is launched from a writable folder.
+    HMODULE module = path.is_absolute()
+        ? ::LoadLibraryExW(path.wstring().c_str(), nullptr,
+                           LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR
+                           | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)
+        : ::LoadLibraryW(path.wstring().c_str());
     if (module) {
         return module;
     }
@@ -105,14 +118,17 @@ std::optional<std::filesystem::path> findRuntimeIn(const std::filesystem::path& 
 {
     std::error_code error;
     if (!std::filesystem::is_directory(root, error)) return std::nullopt;
+    if (std::filesystem::is_symlink(root, error)) return std::nullopt;
     const auto direct = root / "onnxruntime.dll";
-    if (std::filesystem::is_regular_file(direct, error)) return direct;
+    if (!std::filesystem::is_symlink(direct, error)
+        && std::filesystem::is_regular_file(direct, error)) return direct;
 
     std::filesystem::directory_options options =
         std::filesystem::directory_options::skip_permission_denied;
     std::filesystem::recursive_directory_iterator it(root, options, error), end;
     std::size_t visited = 0;
     for (; it != end && !error && visited < 256; it.increment(error), ++visited) {
+        if (it->is_symlink(error)) continue;
         if (!it->is_regular_file(error)) continue;
         if (it->path().filename() == "onnxruntime.dll") return it->path();
     }
@@ -146,12 +162,13 @@ void loadRuntime(RuntimeState& s)
                 std::ifstream active(providerRoot / "active.txt");
                 std::string activeProvider;
                 std::getline(active, activeProvider);
-                if (!activeProvider.empty()) {
+                if (safeProviderName(activeProvider)) {
                     if (const auto activeRuntime = findRuntimeIn(providerRoot / activeProvider))
                         candidates.push_back(*activeRuntime);
                 }
                 for (const auto& entry : std::filesystem::directory_iterator(providerRoot, iterationError)) {
                     if (iterationError) break;
+                    if (entry.is_symlink(iterationError)) continue;
                     if (!entry.is_directory(iterationError)) continue;
                     if (const auto bundledRuntime = findRuntimeIn(entry.path()))
                         candidates.push_back(*bundledRuntime);

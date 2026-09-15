@@ -30,7 +30,17 @@ std::string normalizePath(const std::string& path)
 std::string modelIdentity(const ModelRef& model)
 {
     if (model.isPath()) {
-        return "path:" + normalizePath(model.path);
+        const std::filesystem::path path(model.path);
+        std::error_code sizeError;
+        const auto size = std::filesystem::file_size(path, sizeError);
+        std::error_code timeError;
+        const auto writeTime = std::filesystem::last_write_time(path, timeError);
+        // Include cheap file metadata so replacing an ONNX asset at the same
+        // path cannot silently reuse an old ORT session.
+        return "path:" + normalizePath(model.path) + "|size="
+            + std::to_string(sizeError ? 0ULL : static_cast<unsigned long long>(size))
+            + "|mtime=" + std::to_string(timeError ? 0LL
+                : static_cast<long long>(writeTime.time_since_epoch().count()));
     }
     const std::size_t hash = std::hash<std::string> {}(model.bytes);
     return "mem:" + model.tag + ":" + std::to_string(hash) + ":"
