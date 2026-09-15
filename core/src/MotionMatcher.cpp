@@ -325,13 +325,19 @@ double frameDistance(const Descriptor& left, const Descriptor& right)
             || !std::isfinite(right[offset]) || !std::isfinite(right[offset + 1U])) {
             continue;
         }
+        // Velocities are expressed in normalized body units per second.  A
+        // divisor of 8 made ordinary 0.1–0.3 units/s movements almost
+        // indistinguishable (frameSimilarity stayed near 1.0 for unrelated
+        // scenes).  Keep a moderate robust scale instead: small detector
+        // jitter is still cheap, while the direction/amplitude of a real
+        // gesture contributes materially to the distance.
         velocityError += std::hypot(left[offset] - right[offset],
-                                    left[offset + 1U] - right[offset + 1U]) / 8.0;
+                                    left[offset + 1U] - right[offset + 1U]) / 2.0;
         ++comparableJoints;
         if (std::isfinite(left[offset + 2U]) && std::isfinite(left[offset + 3U])
             && std::isfinite(right[offset + 2U]) && std::isfinite(right[offset + 3U])) {
             accelerationError += std::hypot(left[offset + 2U] - right[offset + 2U],
-                                            left[offset + 3U] - right[offset + 3U]) / 16.0;
+                                            left[offset + 3U] - right[offset + 3U]) / 4.0;
             ++comparableVelocities;
         }
     }

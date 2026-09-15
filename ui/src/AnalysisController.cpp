@@ -634,10 +634,14 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     maxUniqueResults_ = std::clamp(static_cast<int>(settings.maxUniqueResults), 10, 500);
     timeWeight_ = std::clamp(settings.timeWeight, 0.0, 1.0);
     // Settings written by releases before the temporal matcher calibration
-    // used .85/.55 as the balanced preset. Migrate that exact preset once so
-    // an existing installation does not keep the old zero-result gate.
-    const bool legacyBalanced = std::abs(similarityThreshold_ - 0.85) < 1e-6
-        && std::abs(candidateThreshold_ - 0.55) < 1e-6
+    // used .85/.55 (or .78/.50) as the balanced preset. Migrate those exact
+    // profiles once so an existing installation does not keep thresholds
+    // calibrated against the old, appearance-inflated score.
+    const bool legacyBalanced =
+        ((std::abs(similarityThreshold_ - 0.85) < 1e-6
+          && std::abs(candidateThreshold_ - 0.55) < 1e-6)
+         || (std::abs(similarityThreshold_ - 0.78) < 1e-6
+             && std::abs(candidateThreshold_ - 0.50) < 1e-6))
         && std::abs(repeatGap_ - 6.0) < 1e-6
         && std::abs(sameFileGap_ - 2.0) < 1e-6
         && std::abs(duplicateWindow_ - 1.5) < 1e-6
@@ -645,19 +649,34 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
         && maxUniqueResults_ == 100
         && std::abs(timeWeight_ - 0.25) < 1e-6;
     if (legacyBalanced) {
-        similarityThreshold_ = 0.72;
-        candidateThreshold_ = 0.50;
+        similarityThreshold_ = 0.76;
+        candidateThreshold_ = 0.55;
     }
     // Scores are now motion-only (ReID is an identity gate), so migrate the
     // old presets that were tuned against the inflated appearance score.
-    const bool legacyFast = std::abs(similarityThreshold_ - 0.72) < 1e-6
-        && std::abs(candidateThreshold_ - 0.40) < 1e-6
+    const bool legacyFast =
+        ((std::abs(similarityThreshold_ - 0.72) < 1e-6
+          && std::abs(candidateThreshold_ - 0.40) < 1e-6)
+         || (std::abs(similarityThreshold_ - 0.65) < 1e-6
+             && std::abs(candidateThreshold_ - 0.45) < 1e-6))
         && std::abs(repeatGap_ - 8.0) < 1e-6
         && std::abs(sameFileGap_ - 3.0) < 1e-6
         && maxUniqueResults_ == 50;
     if (legacyFast) {
-        similarityThreshold_ = 0.65;
-        candidateThreshold_ = 0.45;
+        similarityThreshold_ = 0.70;
+        candidateThreshold_ = 0.48;
+    }
+    const bool legacyPrecise = std::abs(similarityThreshold_ - 0.65) < 1e-6
+        && std::abs(candidateThreshold_ - 0.50) < 1e-6
+        && std::abs(repeatGap_ - 4.0) < 1e-6
+        && std::abs(sameFileGap_ - 1.5) < 1e-6
+        && std::abs(duplicateWindow_ - 1.0) < 1e-6
+        && std::abs(noiseFactor_ - 0.70) < 1e-6
+        && maxUniqueResults_ == 200
+        && std::abs(timeWeight_ - 0.40) < 1e-6;
+    if (legacyPrecise) {
+        similarityThreshold_ = 0.84;
+        candidateThreshold_ = 0.68;
     }
     providerChoice_ = QString::fromStdString(settings.provider);
     // Keep headless diagnostics explicit without changing the persisted
@@ -706,17 +725,17 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     processingThreads_ = static_cast<int>(std::clamp<std::size_t>(settings.processingThreads, 0, 256));
     sceneThreshold_ = settings.sceneThreshold;
     const auto near = [](double left, double right) { return std::abs(left - right) < 1e-6; };
-    if (near(similarityThreshold_, 0.65) && near(candidateThreshold_, 0.45)
+    if (near(similarityThreshold_, 0.70) && near(candidateThreshold_, 0.48)
         && near(repeatGap_, 8.0) && near(sameFileGap_, 3.0)
         && near(duplicateWindow_, 2.0) && near(noiseFactor_, 1.25)
         && maxUniqueResults_ == 50 && near(timeWeight_, 0.10)) {
         accuracyPreset_ = QStringLiteral("fast");
-    } else if (near(similarityThreshold_, 0.82) && near(candidateThreshold_, 0.65)
+    } else if (near(similarityThreshold_, 0.84) && near(candidateThreshold_, 0.68)
         && near(repeatGap_, 4.0) && near(sameFileGap_, 1.5)
         && near(duplicateWindow_, 1.0) && near(noiseFactor_, 0.70)
         && maxUniqueResults_ == 200 && near(timeWeight_, 0.40)) {
         accuracyPreset_ = QStringLiteral("precise");
-    } else if (!near(similarityThreshold_, 0.72) || !near(candidateThreshold_, 0.50)
+    } else if (!near(similarityThreshold_, 0.76) || !near(candidateThreshold_, 0.55)
         || !near(repeatGap_, 6.0) || !near(sameFileGap_, 2.0)
         || !near(duplicateWindow_, 1.5) || !near(noiseFactor_, 1.0)
         || maxUniqueResults_ != 100 || !near(timeWeight_, 0.25)) {
@@ -1916,10 +1935,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             // plausible-looking but wrong pairs.
             params.requireAppearance = true;
             // OSNet is the identity gate, not a cosmetic label. The compact
-            // x0.25 export used by the desktop build is intentionally noisy;
-            // keep the identity threshold high. ReID is a hard identity gate
-            // only; the percentage in the result rail remains motion-only.
-            params.minAppearanceSimilarity = 0.84;
+            // export used by the desktop build loses roughly 10–15 points of
+            // cosine similarity across cuts, lighting and profile views. A
+            // .76 floor keeps the same actor linkable while the motion score,
+            // temporal run and direction gates reject look-alike actors. ReID
+            // never inflates the percentage shown in the result rail.
+            params.minAppearanceSimilarity = 0.76;
             params.appearanceWeight = 0.0;
             foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows);
             pfcore::MotionRanker::rank(foundMatches, windows);
