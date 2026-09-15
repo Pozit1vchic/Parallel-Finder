@@ -146,7 +146,7 @@ void VideoDecoder::close() noexcept { if (impl_) impl_->reset(); }
 bool VideoDecoder::isOpen() const noexcept { return impl_ && impl_->codec != nullptr; }
 const VideoInfo& VideoDecoder::info() const { if (!isOpen()) throw std::logic_error("decoder is not open"); return impl_->metadata; }
 
-bool VideoDecoder::readNext(DecodedFrame& output)
+bool VideoDecoder::readNext(DecodedFrame& output, bool convertToRgba)
 {
     if (!isOpen()) throw std::logic_error("decoder is not open");
     for (;;) {
@@ -157,6 +157,16 @@ bool VideoDecoder::readNext(DecodedFrame& output)
                 || static_cast<std::uint64_t>(source->width)
                     * static_cast<std::uint64_t>(source->height) > kMaxDecodedFramePixels) {
                 throw std::runtime_error("decoded frame dimensions exceed the safe limit");
+            }
+            output.width = source->width;
+            output.height = source->height;
+            const AVStream* stream = impl_->format->streams[impl_->streamIndex];
+            const int64_t pts = source->best_effort_timestamp == AV_NOPTS_VALUE ? 0 : source->best_effort_timestamp;
+            output.timestampSeconds = pts * av_q2d(stream->time_base);
+            if (!convertToRgba) {
+                output.rgba.clear();
+                av_frame_unref(impl_->decoded);
+                return true;
             }
             const auto pixelFormat = static_cast<AVPixelFormat>(source->format);
             if (!impl_->scaler || impl_->scalerWidth != source->width
@@ -169,7 +179,6 @@ bool VideoDecoder::readNext(DecodedFrame& output)
                 impl_->scalerHeight = source->height;
                 impl_->scalerFormat = pixelFormat;
             }
-            output.width = source->width; output.height = source->height;
             const auto pixels = static_cast<std::size_t>(output.width)
                 * static_cast<std::size_t>(output.height);
             if (pixels > std::numeric_limits<std::size_t>::max() / 4U)
@@ -180,9 +189,6 @@ bool VideoDecoder::readNext(DecodedFrame& output)
                           source->height, dst, stride) <= 0) {
                 throw std::runtime_error("convert decoded frame to RGBA failed");
             }
-            const AVStream* stream = impl_->format->streams[impl_->streamIndex];
-            const int64_t pts = source->best_effort_timestamp == AV_NOPTS_VALUE ? 0 : source->best_effort_timestamp;
-            output.timestampSeconds = pts * av_q2d(stream->time_base);
             av_frame_unref(impl_->decoded);
             return true;
         }

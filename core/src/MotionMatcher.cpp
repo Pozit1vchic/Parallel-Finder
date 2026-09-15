@@ -35,11 +35,11 @@ double appearanceCosine(const std::vector<float>& left,
     return std::clamp(dot / std::sqrt(leftNorm * rightNorm), -1.0, 1.0);
 }
 
-// Tracker IDs are only meaningful inside a continuous shot.  The detector
-// runs before scene boundaries are known, so a person in the next shot can
-// inherit the previous shot's numeric ID when the boxes happen to overlap.
-// Treat a scene transition as an identity boundary unless body-ReID confirms
-// that the two observations are still the same person.
+// Tracker IDs are local to one source.  A different ID in the same source is
+// a different detected person; ReID must not be allowed to merge two IDs just
+// because two actors wear similar clothes or make a similar pose.  A scene
+// transition with the *same* ID is the only case where ReID may confirm a
+// continuation, because the tracker can reuse an ID after a cut.
 bool differentTrackSegment(const MotionWindow& left, const MotionWindow& right)
 {
     if (left.trackId != right.trackId) return true;
@@ -608,6 +608,16 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     if (left.sourceId == right.sourceId
         && params.requireSameTrackWithinSource
         && left.trackId != 0 && right.trackId != 0
+        && left.trackId != right.trackId) {
+        // A body-ReID model is not a license to merge two independent tracks
+        // from the same clip.  This is the false-positive pattern seen when
+        // two actors have a similar silhouette or wardrobe.
+        result.similarity = 0.0;
+        return result;
+    }
+    if (left.sourceId == right.sourceId
+        && params.requireSameTrackWithinSource
+        && left.trackId != 0 && right.trackId != 0
         && differentTrackSegment(left, right)) {
         const bool sameAppearance = !left.appearanceEmbedding.empty()
             && !right.appearanceEmbedding.empty()
@@ -620,14 +630,18 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     }
     const bool hasAppearance = !left.appearanceEmbedding.empty()
         && !right.appearanceEmbedding.empty();
-    if (params.requireAppearance && !hasAppearance) {
+    const bool enoughAppearanceEvidence = left.appearanceConfidence
+            + 1e-9 >= params.minAppearanceEvidence
+        && right.appearanceConfidence + 1e-9 >= params.minAppearanceEvidence;
+    if (params.requireAppearance && (!hasAppearance || !enoughAppearanceEvidence)) {
         result.similarity = 0.0;
         return result;
     }
     if (hasAppearance) {
         result.appearanceSimilarity = appearanceCosine(left.appearanceEmbedding,
                                                        right.appearanceEmbedding);
-        result.appearanceVerified = result.appearanceSimilarity >= params.minAppearanceSimilarity;
+        result.appearanceVerified = enoughAppearanceEvidence
+            && result.appearanceSimilarity >= params.minAppearanceSimilarity;
         if (params.requireAppearance && !result.appearanceVerified) {
             result.similarity = 0.0;
             return result;
@@ -771,7 +785,8 @@ void MotionMatcher::setParams(MotionMatcherParams params)
         throw std::invalid_argument("MotionMatcher: invalid temporal parameters");
     if (!(params.minAppearanceSimilarity >= -1.0
           && params.minAppearanceSimilarity <= 1.0)
-        || !(params.appearanceWeight >= 0.0 && params.appearanceWeight <= 1.0))
+        || !(params.appearanceWeight >= 0.0 && params.appearanceWeight <= 1.0)
+        || !(params.minAppearanceEvidence >= 0.0 && params.minAppearanceEvidence <= 1.0))
         throw std::invalid_argument("MotionMatcher: invalid appearance parameters");
     params_ = params;
 }
@@ -811,6 +826,10 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         prepared[index].trajectoryRange = activity.trajectoryRange;
         const bool staticWindow = windows[index].staticFrameSet;
         if ((staticWindow && !params_.allowStaticFrames)
+            || (params_.requireAppearance
+                && (windows[index].appearanceEmbedding.empty()
+                    || windows[index].appearanceConfidence + 1e-9
+                        < params_.minAppearanceEvidence))
             || !hasDistinctTemporalSamples(windows[index], prepared[index].descriptors, params_)
             || (!staticWindow && (prepared[index].motionDelta < params_.motionDeltaThreshold
                                   || prepared[index].activeTransitionRatio < params_.minActiveTransitionRatio
@@ -865,6 +884,12 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if (i >= windows.size() || j >= windows.size() || i >= j) continue;
         const bool sameSource = windows[i].sourceId == windows[j].sourceId;
         if (windows[i].staticFrameSet != windows[j].staticFrameSet) { ++staticRejected; continue; }
+        if (sameSource && params_.requireSameTrackWithinSource
+            && windows[i].trackId != 0 && windows[j].trackId != 0
+            && windows[i].trackId != windows[j].trackId) {
+            ++trackRejected;
+            continue;
+        }
         if (sameSource && params_.requireSameTrackWithinSource
             && windows[i].trackId != 0 && windows[j].trackId != 0
             && differentTrackSegment(windows[i], windows[j])) {

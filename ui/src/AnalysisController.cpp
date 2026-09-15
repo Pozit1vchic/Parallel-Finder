@@ -1382,7 +1382,11 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 // Bump whenever the detector/window contract changes. Reusing
                 // a pre-ReID or pre-batched cache can silently produce empty
                 // track windows and make a valid source look matchless.
-                std::string cacheKey = "motion-v7|" + model.string() + "|"
+                // The cache contains derived identity and motion windows.
+                // Bump this contract whenever association or the identity
+                // policy changes; otherwise a stricter matcher can still
+                // display candidates produced by an older pipeline.
+                std::string cacheKey = "motion-v8|" + model.string() + "|"
                     + providerChoice.toStdString() + "|reid="
                     + (reidModelPresent ? reidModel.string() : std::string("none")) + "|"
                     + "quality=" + qualityProfile.toStdString() + "|mirror="
@@ -1412,17 +1416,27 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 pfcore::DecodedFrame lastFrame;
                 pfcore::DecodedFrame frame;
                 std::size_t poseSampleIndex = 0;
+                std::size_t decodedFrameIndex = 0;
                 double nextSceneSample = 0.0;
                 double previousPoseTimestamp = -1.0;
                 // The profile names are user-facing contracts: fast samples
                 // every fifth frame, medium every third, maximum every frame.
                 const std::size_t poseStride = qualityProfile == QStringLiteral("fast") ? 5U
                     : qualityProfile == QStringLiteral("medium") ? 3U : 1U;
-                // Appearance is more stable than frame-to-frame pose and does
-                // not need to run at the full detector cadence. This keeps the
-                // optional model affordable while providing several samples per
-                // one-second temporal window.
-                const std::size_t reidStride = qualityProfile == QStringLiteral("fast") ? 3U : 2U;
+                // The scene detector works on one thumbnail per second.
+                // Convert a nearby decoded frame, rather than every full
+                // source frame, so high-resolution CPU analysis is not
+                // dominated by discarded RGBA conversions.
+                const std::size_t sceneSampleStride = std::max<std::size_t>(1,
+                    static_cast<std::size_t>(std::llround(std::max(1.0, info.frameRate))));
+                // Appearance changes much more slowly than pose. Sampling it
+                // by elapsed time, rather than every second pose sample,
+                // prevents "maximum" mode from spending most of its runtime
+                // re-identifying nearly identical frames. The 0.5 s floor
+                // still gives several independent crops per motion window.
+                const double reidIntervalSeconds = qualityProfile == QStringLiteral("fast") ? 0.80
+                    : qualityProfile == QStringLiteral("medium") ? 0.60 : 0.50;
+                double nextReIdTimestamp = -std::numeric_limits<double>::infinity();
                 struct PendingPoseSample {
                     double timestamp = 0.0;
                     int width = 0;
@@ -1450,9 +1464,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     std::vector<pfcore::PersonDetection> frameDetections;
                     frameDetections.reserve(detections.size());
                     const bool sampleAppearance = reid
-                        && ((sample.sampleIndex - 1U) % reidStride == 0U);
+                        && sample.timestamp + 1e-9 >= nextReIdTimestamp;
+                    if (sampleAppearance)
+                        nextReIdTimestamp = sample.timestamp + reidIntervalSeconds;
                     std::vector<pfgpu::ReIdImage> reidImages;
+                    std::vector<std::size_t> reidDetectionIndices;
                     if (sampleAppearance) reidImages.reserve(detections.size());
+                    if (sampleAppearance) reidDetectionIndices.reserve(detections.size());
                     for (const auto& detection : detections) {
                         pfcore::PersonDetection person;
                         person.timestampSeconds = sample.timestamp;
@@ -1468,20 +1486,33 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             for (auto& point : person.keypoints) point.x = 1.0 - point.x;
                         }
                         frameDetections.push_back(std::move(person));
-                        if (sampleAppearance) {
+                        // A tiny or low-confidence person crop is mostly
+                        // background. Feeding it into ReID is both slow and a
+                        // frequent source of false identity similarity.
+                        const float cropWidth = std::max(0.0F, detection.right - detection.left);
+                        const float cropHeight = std::max(0.0F, detection.bottom - detection.top);
+                        const bool viableReIdCrop = sampleAppearance
+                            && detection.confidence >= 0.40F
+                            && cropWidth >= std::max(24.0F, sample.width * 0.035F)
+                            && cropHeight >= std::max(48.0F, sample.height * 0.08F)
+                            && cropHeight / std::max(cropWidth, 1.0F) >= 0.85F
+                            && cropHeight / std::max(cropWidth, 1.0F) <= 5.0F;
+                        if (viableReIdCrop) {
                             reidImages.push_back({sample.width, sample.height, sample.rgba.data(),
                                                   detection.left, detection.top,
                                                   detection.right, detection.bottom});
+                            reidDetectionIndices.push_back(frameDetections.size() - 1U);
                         }
                     }
                     if (sampleAppearance && !reidImages.empty()) {
                         try {
                             const auto embeddings = reid->inferBatch(reidImages);
-                            for (std::size_t detection = 0;
-                                 detection < std::min(embeddings.size(), frameDetections.size());
-                                 ++detection) {
-                                frameDetections[detection].appearanceEmbedding = embeddings[detection];
-                                frameDetections[detection].appearanceConfidence = embeddings[detection].empty() ? 0.0 : 1.0;
+                            for (std::size_t image = 0;
+                                 image < std::min(embeddings.size(), reidDetectionIndices.size());
+                                 ++image) {
+                                const std::size_t detection = reidDetectionIndices[image];
+                                frameDetections[detection].appearanceEmbedding = embeddings[image];
+                                frameDetections[detection].appearanceConfidence = embeddings[image].empty() ? 0.0 : 1.0;
                             }
                         } catch (const std::exception& exception) {
                             reidFailure = QString::fromUtf8(exception.what());
@@ -1507,7 +1538,14 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         processPose(pendingPose[index], batchDetections[index]);
                     pendingPose.clear();
                 };
-                while (decoder.readNext(frame)) {
+                for (;;) {
+                    const bool samplePose = pose && !cacheHit
+                        && (poseSampleIndex % poseStride) == 0U;
+                    if (pose && !cacheHit) ++poseSampleIndex;
+                    const bool sampleScene = decodedFrameIndex == 0U
+                        || (decodedFrameIndex % sceneSampleStride) == 0U;
+                    if (!decoder.readNext(frame, samplePose || sampleScene)) break;
+                    ++decodedFrameIndex;
                     if (isCancelled()) { markCancelled(); break; }
                     ++processedFrames;
                     if (processedFrames % 10 == 0 || processedFrames == totalFramesEstimate) {
@@ -1525,7 +1563,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         do { nextSceneSample += 1.0; }
                         while (nextSceneSample <= frame.timestampSeconds + 1e-9);
                     }
-                    if (pose && !cacheHit && (poseSampleIndex++ % poseStride) == 0U) {
+                    if (samplePose && !frame.rgba.empty()) {
                         if (poseBatchSize <= 1) {
                             PendingPoseSample sample{frame.timestampSeconds, frame.width, frame.height,
                                                      poseSampleIndex, frame.rgba};
@@ -1538,7 +1576,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             if (pendingPose.size() >= poseBatchSize) flushPoseBatch();
                         }
                     }
-                    lastFrame = std::move(frame);
+                    if (!frame.rgba.empty()) lastFrame = std::move(frame);
                 }
                 if (!isCancelled()) flushPoseBatch();
                 markCancelled();

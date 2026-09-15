@@ -103,6 +103,10 @@ struct MotionMatcherParams {
     // matches between visually similar people.
     double minAppearanceSimilarity = 0.80;
     double appearanceWeight = 0.30;
+    // Fraction of a window's track observations that actually contributed a
+    // valid ReID embedding. A single lucky/blurred crop must not establish an
+    // identity for a whole temporal segment.
+    double minAppearanceEvidence = 0.45;
 };
 
 struct MotionMatch {

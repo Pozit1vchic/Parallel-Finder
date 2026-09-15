@@ -41,8 +41,10 @@ public:
     const VideoInfo& info() const;
 
     // Returns false at end of stream. Throws std::runtime_error for decode
-    // errors. Frames are converted to tightly packed RGBA8.
-    bool readNext(DecodedFrame& frame);
+    // errors. Set convertToRgba to false when only timestamp/stream progress
+    // is needed: decoding still advances normally, but avoids allocating and
+    // converting a full RGBA frame that the caller will discard.
+    bool readNext(DecodedFrame& frame, bool convertToRgba = true);
     void seek(double timestampSeconds);
     void rewind();
 
