@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -96,6 +97,28 @@ HMODULE loadLibrary(const std::filesystem::path& path, std::string& error)
     return nullptr;
 }
 
+// Provider archives are allowed to contain a small directory wrapper (for
+// example `onnxruntime-win-x64-gpu/onnxruntime.dll`).  Resolve that layout
+// without requiring the user to edit PATH or move files by hand.  Keep the
+// search bounded to the provider directory and never follow symlinks.
+std::optional<std::filesystem::path> findRuntimeIn(const std::filesystem::path& root)
+{
+    std::error_code error;
+    if (!std::filesystem::is_directory(root, error)) return std::nullopt;
+    const auto direct = root / "onnxruntime.dll";
+    if (std::filesystem::is_regular_file(direct, error)) return direct;
+
+    std::filesystem::directory_options options =
+        std::filesystem::directory_options::skip_permission_denied;
+    std::filesystem::recursive_directory_iterator it(root, options, error), end;
+    std::size_t visited = 0;
+    for (; it != end && !error && visited < 256; it.increment(error), ++visited) {
+        if (!it->is_regular_file(error)) continue;
+        if (it->path().filename() == "onnxruntime.dll") return it->path();
+    }
+    return std::nullopt;
+}
+
 void loadRuntime(RuntimeState& s)
 {
     std::vector<std::filesystem::path> candidates;
@@ -105,11 +128,6 @@ void loadRuntime(RuntimeState& s)
         candidates.emplace_back(override_path);
         explicitPath = true;
     } else {
-        // Prefer a side-by-side GPU bundle when it is present. Loading the
-        // generic CPU/DML DLL first makes later CUDA/TensorRT selection look
-        // like a UI bug because an already loaded runtime cannot gain EPs.
-        const std::filesystem::path gpuRuntime = R"(D:\PF_CUDA\onnxruntime.dll)";
-        if (std::filesystem::is_regular_file(gpuRuntime)) candidates.push_back(gpuRuntime);
         wchar_t modulePath[MAX_PATH] {};
         const DWORD length = ::GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
         if (length > 0 && length < MAX_PATH) {
@@ -129,25 +147,29 @@ void loadRuntime(RuntimeState& s)
                 std::string activeProvider;
                 std::getline(active, activeProvider);
                 if (!activeProvider.empty()) {
-                    const auto activeRuntime = providerRoot / activeProvider / "onnxruntime.dll";
-                    if (std::filesystem::is_regular_file(activeRuntime))
-                        candidates.push_back(activeRuntime);
+                    if (const auto activeRuntime = findRuntimeIn(providerRoot / activeProvider))
+                        candidates.push_back(*activeRuntime);
                 }
                 for (const auto& entry : std::filesystem::directory_iterator(providerRoot, iterationError)) {
                     if (iterationError) break;
                     if (!entry.is_directory(iterationError)) continue;
-                    const auto bundledRuntime = entry.path() / "onnxruntime.dll";
-                    if (std::filesystem::is_regular_file(bundledRuntime))
-                        candidates.push_back(bundledRuntime);
+                    if (const auto bundledRuntime = findRuntimeIn(entry.path()))
+                        candidates.push_back(*bundledRuntime);
                 }
             }
-            if (std::filesystem::is_regular_file(appRuntime)) candidates.push_back(appRuntime);
             if (const char* root = std::getenv(kProviderRootEnvVar); root && *root) {
                 const auto overrideRoot = std::filesystem::path(root);
-                const auto overrideRuntime = overrideRoot / "onnxruntime.dll";
-                if (std::filesystem::is_regular_file(overrideRuntime))
-                    candidates.push_back(overrideRuntime);
+                if (const auto overrideRuntime = findRuntimeIn(overrideRoot))
+                    candidates.push_back(*overrideRuntime);
             }
+
+            // Legacy developer bundle.  It is intentionally after the
+            // downloaded active provider, otherwise a stale CPU/GPU DLL in
+            // D:\PF_CUDA would win and make the provider selector appear to
+            // have no effect.
+            const std::filesystem::path gpuRuntime = R"(D:\PF_CUDA\onnxruntime.dll)";
+            if (std::filesystem::is_regular_file(gpuRuntime)) candidates.push_back(gpuRuntime);
+            if (std::filesystem::is_regular_file(appRuntime)) candidates.push_back(appRuntime);
         }
         candidates.emplace_back(L"onnxruntime.dll");
     }

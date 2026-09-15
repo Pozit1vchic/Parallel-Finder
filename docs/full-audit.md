@@ -4,7 +4,7 @@
 
 Ветка: `main`
 
-Последний рабочий commit: `0e4cd85`
+Последний рабочий commit: см. `git log -1` после текущей ревизии
 
 Этот документ сверяет текущий код с замечаниями из переписки и разделяет
 реализацию, частичную готовность и то, что пока нельзя честно назвать
@@ -26,8 +26,8 @@ Core-пайплайн больше не сводится к сравнению �
 scene/track ограничения, DTW и NMS. UI содержит рабочие состояния, preview A/B,
 editable sliders, выбор режимов, моделей, provider и accent color. Главные
 неподтверждённые места находятся за пределами чистой сборки: GitHub Release с
-реальными пакетами, body-ReID на настоящей модели, все GPU-провайдеры на целевых
-драйверах и визуальная проверка на реальном DPI.
+реальными пакетами, body-ReID на размеченном identity-set, все GPU-провайдеры
+на целевых драйверах и визуальная проверка на реальном DPI.
 
 ## Матрица пользовательских замечаний
 
@@ -47,11 +47,11 @@ editable sliders, выбор режимов, моделей, provider и accent 
 | Settings дублировал анализ | **Готово** | В Settings оставлены provider, cache path/limit, threads и оформление; оперативные параметры находятся в левом rail. |
 | Тень и анимация модального окна | **Готово** | `MultiEffect` shadow + opacity/scale transitions 150–180 мс. |
 | Случайные консольные окна | **Готово на уровне кода** | Нет `AllocConsole`/`system`; FFmpeg и runtime распаковываются через `QProcess` с `CREATE_NO_WINDOW`. Реальный запуск portable exe надо проверить вручную. |
-| Provider выбирается, но не применяется | **Частично** | Выбор передаётся в pose/ReID estimator и проходит preflight. CUDA/TensorRT/DML end-to-end зависят от DLL, драйвера и release-архива. После скачивания требуется перезапуск. |
+| Provider выбирается, но не применяется | **Частично** | Выбор передаётся в pose/ReID estimator и проходит preflight; CPU/CUDA negative smoke теперь завершается сразу и не ждёт 120-секундный таймер. CUDA/TensorRT/DML end-to-end зависят от DLL, драйвера и release-архива. После скачивания требуется перезапуск. |
 | Кнопка скачать runtime | **Частично** | HTTPS manifest, progress и атомарная установка реализованы. В GitHub пока нет опубликованного `providers.json`, поэтому сетевой сценарий не доказан. |
 | Модель выбирается, но неизвестно, работает ли | **Частично** | UI проверяет файл и формат, выбор блокируется на загрузке, runtime получает путь. Нужен реальный ONNX batch-1 и запуск inference на машине пользователя. |
-| Автоскачивание моделей из GitHub | **Частично** | `manifest.json`, `.part`, SHA-256, size и local model roots реализованы. Реальный Release отсутствует, поэтому 100% end-to-end ещё нет. |
-| Один человек сравнивался с другим | **Частично** | Внутри одного файла работает `trackId`; между файлами нужен body-ReID. Без ReID приложение честно показывает `pose-only`, но не может доказать identity. |
+| Автоскачивание моделей из GitHub | **Частично** | `manifest.json`, `.part`, SHA-256, size и local model roots реализованы. Локально экспортированы 15 ONNX и создан `release-models/manifest.json`, но реальный Release ещё не опубликован. |
+| Один человек сравнивался с другим | **Частично** | Внутри одного файла работает `trackId`; локальный OSNet body-ReID теперь подключается и проходит inference smoke. Identity benchmark на размеченных людях ещё не выполнен. |
 | Матчер сравнивал один кадр со всеми | **Готово в архитектуре** | Окна 2–4 секунды, минимум 12 разных timestamped descriptors, dense coarse sketch из 16 samples и temporal run gate. Нужен benchmark на реальном наборе. |
 | `static · static` и `mixed · mixed` давали мусор | **Готово для обычного режима** | Motion windows проходят delta/active-transition/range gates; static/static удаляется в motion mode. Явный static mode сохраняет осознанные static-пары. UI убирает двойной `mixed`. |
 | Самосравнения и близкие повторы | **Готово** | Scene/track guards, same-source floor 5 с, repeat gaps и NMS/dedup. Порог всё равно нужно калибровать на реальном материале. |
@@ -93,13 +93,30 @@ precision/recall.
 - provider choice доходит до обеих inference-сессий;
 - недоступность backend показывается явно, без тихого fallback.
 
+### Фактический локальный прогон 15 сентября 2026
+
+- `D:\YOLO_Download_Project\models` содержит 15 исходных `*.pt`; после установки
+  `onnx` скрипт экспорта успешно создал 15 ONNX-файлов и SHA-256 manifest в
+  локальном, игнорируемом Git каталоге `D:\Parallel-Finder\release-models`.
+- `onnxruntime.dll` из `D:\msys2\ucrt64\bin` загрузился как ORT 1.26.0,
+  но на этом ПК доступны только `cpu`; CUDA, TensorRT и DirectML сообщили
+  отсутствие устройства/EP. Это не проверка NVIDIA-драйвера с GPU runtime.
+- URL `https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/providers.json`
+  сейчас отвечает HTTP 404; поэтому UI-кнопка runtime корректно показывает
+  ошибку, но скачать provider ей пока неоткуда.
+- CPU analysis smoke с `yolo26m-pose-640-b1.onnx` прочитал 1 файл / 235 кадров
+  во всех четырёх режимах. Без ReID это было `pose-only`; после подключения
+  `person-reid-osnet.onnx` статус стал `ReID: применён`. На коротком клипе
+  найдено 0 пар — это pipeline smoke, а не accuracy benchmark.
+
 ### Не подтверждено внешним окружением
 
 - реальный GitHub Release с `manifest.json`;
 - `providers.json` и архивы CUDA/TensorRT/DirectML;
 - запуск каждой модели из каталога пользователя;
-- body-ReID на OSNet/FastReID ONNX;
+- identity benchmark body-ReID на размеченных людях;
 - совместимость конкретной версии NVIDIA driver + ORT + TensorRT.
+- совместимость body-ReID на нескольких камерах/одежде и выбранный threshold.
 
 ## UI-аудит
 
@@ -130,14 +147,18 @@ ctest --test-dir build/ucrt64-release --output-on-failure   3/3 PASS
 cmake -S . -B build/no-tests -G Ninja -DBUILD_TESTING=ON   CONFIGURE PASS
 ```
 
-Эти проверки подтверждают компиляцию, QML loading и smoke lifecycle. Они не
-заменяют end-to-end видео, provider, ReID и визуальную проверку на мониторе.
+Эти проверки подтверждают компиляцию, QML loading, smoke lifecycle и реальный
+CPU pipeline. Они не заменяют end-to-end GPU, body-ReID, accuracy benchmark и
+визуальную проверку на мониторе.
 
 ## Следующие приоритеты
 
-1. Опубликовать GitHub Release с ONNX, `manifest.json`, `providers.json` и
-   SHA-256.
-2. Добавить совместимую body-ReID модель и прогнать identity benchmark.
+1. С авторизованным GitHub-токеном опубликовать Release с локальными ONNX,
+   `manifest.json`, `providers.json` и SHA-256. Анонимный GitHub API сейчас
+   возвращает `404` для `releases/latest`, то есть публичного Release ещё нет;
+   без credentials агент не может безопасно создать его от имени владельца.
+2. Включить проверенный OSNet ONNX в release-manifest и прогнать identity
+   benchmark на размеченных людях.
 3. Собрать небольшой размеченный набор видео и измерить precision/recall,
    static false-positive rate и duplicate rate.
 4. Проверить portable-папку без консольного окна на чистой Windows-машине.

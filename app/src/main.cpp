@@ -99,6 +99,12 @@ int main(int argc, char* argv[])
         QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
         timeout.start();
         analysis->analyzeFiles(paths);
+        // Validation failures (missing model/provider or invalid input) are
+        // reported synchronously and deliberately never toggle `busy`.  Do
+        // not make headless diagnostics wait for the full timeout in that
+        // case; the UI path already displays the status immediately.
+        if (!analysis->busy())
+            QTimer::singleShot(0, &loop, &QEventLoop::quit);
         loop.exec();
         std::printf("ParallelFinder analysis smoke %s\n", analysis->busy() ? "timeout" : "ok");
         std::printf("  status : %s\n", qPrintable(analysis->status()));

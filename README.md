@@ -79,7 +79,7 @@
 Приложение ожидает **ONNX**, а не `.pt`. Исходные веса можно держать в:
 
 ```text
-D:\YOLO\_Download_Project\models
+D:\YOLO_Download_Project\models
 ```
 
 Для runtime приложение проверяет в первую очередь:
@@ -103,7 +103,7 @@ https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/manifest
 
 ```powershell
 python D:\Parallel-Finder\tools\model_export\export_pose_release.py `
-  --input-dir 'D:\YOLO\_Download_Project\models' `
+  --input-dir 'D:\YOLO_Download_Project\models' `
   --output-dir 'D:\Parallel-Finder\release-models'
 ```
 
@@ -182,6 +182,12 @@ D:\Parallel-Finder\build\ucrt64-release\ParallelFinder.exe --pf-smoke
 
 Последний локальный прогон подтвердил сборку, QML smoke и core-проверки: **3/3**.
 Это не заменяет проверку настоящего видео на целевых GPU.
+
+Для воспроизводимой проверки реального видео по всем режимам используйте
+[`tools/benchmark/run_analysis_smoke.ps1`](tools/benchmark/run_analysis_smoke.ps1).
+Скрипт явно получает модель и `onnxruntime.dll`, затем запускает `motion`,
+`static`, `clips` и `combined`. Precision/recall без размеченного датасета
+README намеренно не обещает.
 
 ## Карта репозитория
 

@@ -65,9 +65,10 @@ std::vector<std::filesystem::path> modelRoots()
     if (const char* root = std::getenv("PF_MODEL_ROOT"); root && *root)
         roots.emplace_back(root);
     roots.emplace_back(R"(D:\PF_CUDA\models)");
-    // Developer/download workspace used by the model preparation script.
-    // Keeping it as a read-only fallback makes the catalog reflect the files
-    // the user already downloaded without requiring a PATH edit.
+    // Developer/download workspace used by the model preparation script. Keep
+    // the historical typo as a compatibility fallback, but prefer the real
+    // path so downloaded weights are visible without a PATH edit.
+    roots.emplace_back(R"(D:\YOLO_Download_Project\models)");
     roots.emplace_back(R"(D:\YOLO\_Download_Project\models)");
     return roots;
 }
@@ -399,6 +400,7 @@ std::filesystem::path findBodyReIdModel()
     if (const char* root = std::getenv("PF_MODEL_ROOT"); root && *root)
         roots.emplace_back(root);
     roots.emplace_back(R"(D:\PF_CUDA\models)");
+    roots.emplace_back(R"(D:\YOLO_Download_Project\models)");
     roots.emplace_back(R"(D:\YOLO\_Download_Project\models)");
     const std::vector<std::string> preferred {
         "person-reid-osnet.onnx", "osnet_x1_0.onnx", "osnet.onnx",
@@ -526,12 +528,27 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     maxUniqueResults_ = std::clamp(static_cast<int>(settings.maxUniqueResults), 10, 500);
     timeWeight_ = std::clamp(settings.timeWeight, 0.0, 1.0);
     providerChoice_ = QString::fromStdString(settings.provider);
+    // Keep headless diagnostics explicit without changing the persisted
+    // provider selected in the UI.  This is also useful on machines where
+    // only the CPU runtime is installed.
+    const QString envProvider = qEnvironmentVariable("PF_PROVIDER").toLower();
+    if (envProvider == QStringLiteral("auto") || envProvider == QStringLiteral("cpu")
+        || envProvider == QStringLiteral("dml") || envProvider == QStringLiteral("cuda")
+        || envProvider == QStringLiteral("tensorrt"))
+        providerChoice_ = envProvider;
     qualityProfile_ = QStringLiteral("maximum");
     if (settings.qualityProfile == "fast" || settings.qualityProfile == "medium" || settings.qualityProfile == "maximum")
         qualityProfile_ = QString::fromStdString(settings.qualityProfile);
     if (settings.analysisMode == "motion" || settings.analysisMode == "static"
         || settings.analysisMode == "clips" || settings.analysisMode == "combined")
         analysisMode_ = QString::fromStdString(settings.analysisMode);
+    // Headless benchmark/smoke runs can select a mode without mutating the
+    // user's persisted UI preferences.  The normal application path leaves
+    // this unset and uses the saved sidebar choice.
+    const QString envMode = qEnvironmentVariable("PF_ANALYSIS_MODE");
+    if (envMode == QStringLiteral("motion") || envMode == QStringLiteral("static")
+        || envMode == QStringLiteral("clips") || envMode == QStringLiteral("combined"))
+        analysisMode_ = envMode;
     normalizeSize_ = settings.normalizeSize;
     mirrorPoses_ = settings.mirrorPoses;
     modelPath_ = QString::fromStdString(settings.modelPath);
