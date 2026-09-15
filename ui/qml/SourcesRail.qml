@@ -29,7 +29,7 @@ Rectangle {
     signal clearRequested()
     signal removeRequested(int index)
     signal analyzeRequested()
-    width: Theme.sidePanelWidth; color: Theme.rail; radius: Theme.radiusCard; border.color: Theme.border
+    implicitWidth: Theme.sidePanelWidth; color: Theme.rail; radius: Theme.radiusCard; border.color: Theme.border
     layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowPanel; shadowBlur: 0.75; shadowVerticalOffset: 10 }
 
     function sourceName(path) {

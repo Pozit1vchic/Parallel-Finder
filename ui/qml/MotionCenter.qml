@@ -1,13 +1,14 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Effects
+import QtQuick.Layouts
 import PfUi
 import PfUiBridge
 
 // The center is intentionally a viewport, not a dashboard. Once a pair is
 // selected the A/B surfaces take all available height; the old timeline strip
 // was removed because it duplicated result timestamps and stole preview area.
-Column {
+ColumnLayout {
     id: root
     focus: true
     activeFocusOnTab: true
@@ -18,12 +19,13 @@ Column {
     signal analyzeRequested()
     spacing: 12
 
-    StatsStrip { width: parent.width; analysis: Analysis }
+    StatsStrip { Layout.fillWidth: true; Layout.preferredHeight: 68; analysis: Analysis }
 
     Rectangle {
         id: comparisonPanel
-        width: parent.width
-        height: parent.height - 80
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        Layout.minimumHeight: 220
         color: Theme.panel
         radius: Theme.radiusCard
         border.color: Theme.border
@@ -75,7 +77,8 @@ Column {
 
             Item {
                 width: parent.width
-                height: 20
+                height: (Analysis.busy || root.analysisCompleted) ? 20 : 0
+                visible: Analysis.busy || root.analysisCompleted
                 Text {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
@@ -98,7 +101,8 @@ Column {
 
             Rectangle {
                 width: parent.width
-                height: 8
+                height: (Analysis.busy || root.analysisCompleted) ? 8 : 0
+                visible: Analysis.busy || root.analysisCompleted
                 radius: 4
                 color: Theme.surfaceMuted
                 border.width: 1
@@ -117,7 +121,7 @@ Column {
             Rectangle {
                 id: stage
                 width: parent.width
-                height: Math.max(220, parent.height - 78)
+                height: Math.max(220, parent.height - ((Analysis.busy || root.analysisCompleted) ? 78 : 50))
                 color: Theme.well
                 radius: Theme.radiusButton
                 border.color: Theme.hairline

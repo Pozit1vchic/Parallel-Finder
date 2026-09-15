@@ -67,8 +67,8 @@ Item {
             background: Rectangle {
                 radius: Theme.radiusButton
                 color: header.hovered ? Theme.surfaceRaised : "transparent"
-                border.width: header.activeFocus ? 2 : 1
-                border.color: header.activeFocus ? Theme.accent : Theme.hairline
+                border.width: header.visualFocus ? 2 : 1
+                border.color: header.visualFocus ? Theme.accent : Theme.hairline
             }
         }
 

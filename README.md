@@ -1,90 +1,181 @@
 # Parallel Finder
 
-**Локальный инструмент для поиска повторяющихся движений в видео.**
+> **Ищет не похожий кадр, а повторяющееся движение.**
+>
+> Локальное Windows-приложение для монтажа, раскадровки и поиска параллелей
+> между сценами. Видео не отправляются в облако: кадры, позы и результаты
+> обрабатываются на вашем компьютере.
 
-Parallel Finder сравнивает временные фрагменты двух источников, учитывает
-траекторию позы, движение, временной контекст и, при наличии модели, внешний
-вид человека. Результат — реальные пары `A[t₀…t₁] ↔ B[t₂…t₃]` с кадрами,
-таймкодами, оценкой схожести и экспортом.
+<p align="center">
+  <strong>Qt 6 · C++23 · QML · ONNX Runtime · FFmpeg · Windows</strong><br>
+  <sub>Состояние: рабочий прототип, готовый к реальной проверке на ваших видео и GPU.</sub>
+</p>
 
-[![CI](https://github.com/Pozit1vchic/Parallel-Finder/actions/workflows/ci.yml/badge.svg)](https://github.com/Pozit1vchic/Parallel-Finder/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-orange.svg)](LICENSE)
-[![Qt](https://img.shields.io/badge/Qt-6.5%2B-41CD52.svg)](https://www.qt.io/)
-[![C%2B%2B](https://img.shields.io/badge/C%2B%2B-23-00599C.svg)](https://en.cppreference.com/w/cpp/23)
+<p align="center">
+  <a href="LICENSE">AGPL-3.0</a> ·
+  <a href="docs/full-audit.md">технический аудит</a> ·
+  <a href="docs/models.md">модели</a> ·
+  <a href="docs/provider-runtime.md">GPU-runtime</a>
+</p>
 
-> **Честный статус.** Проект находится на стадии рабочего прототипа и
-> подготовки релиза. Локальные unit/UI/smoke-проверки проходят, но это не
-> доказывает работу на каждой видеокарте, реальном GitHub Release или любой
-> ONNX-модели. Эти границы описаны ниже.
+---
 
-## Что уже есть
+## Зачем он нужен
 
-- Qt 6 / QML-интерфейс с тремя рабочими зонами: источники, сравнение, результаты.
-- Реальные источники видео, выбор папки, предпросмотр A/B и таймкоды.
-- Трекинг всех обнаруженных людей, а не только одного «главного» персонажа.
-- Фильтр самосравнений, статики, коротких совпадений и перекрывающихся результатов.
-- HNSW-style prefilter → ограниченный DTW → ранжирование.
-- Опциональный body-ReID для отсечения совпадений разных людей.
-- ONNX Runtime с `auto`, DirectML, CUDA, TensorRT и CPU-провайдерами.
-- Кэш признаков `PFCACHE1`, настройки, экспорт JSON/CSV/TXT/EDL/FCPXML/AEP.
-- Автоматическое скачивание отсутствующих ONNX-моделей из GitHub Releases.
+Обычный поиск дублей сравнивает отдельные картинки и быстро начинает считать
+«параллелью» два неподвижных кадра. Parallel Finder смотрит на короткое
+временное окно: проверяет движение позы, непрерывность серии кадров, сцену,
+трек человека и временной зазор. Результат можно открыть как пару
+`A 00:02:48 ↔ B 00:02:59`, а не как безымянный процент.
 
-## Что проект не обещает
+### В двух словах
 
-- `.pt`-файлы не запускаются напрямую: нужен ONNX-экспорт.
-- CUDA и TensorRT не появятся от одного выбора в меню: нужны совместимые
-  runtime/DLL и драйверы на машине пользователя.
-- Body-ReID не распознаёт личность по лицу. Без OSNet/FastReID ONNX работает
-  прозрачный режим `pose-only`.
-- Наличие unit-теста не заменяет проверку на настоящем видео и конкретном GPU.
-- В репозитории пока нет опубликованного GitHub Release с моделями; поэтому
-  сетевое скачивание станет работоспособным после загрузки release assets.
+1. Добавьте один или несколько роликов.
+2. Выберите профиль поиска и, если нужно, раскройте «Дополнительные настройки».
+3. Запустите анализ.
+4. Нажмите результат справа — приложение покажет стоп-кадры A/B и таймкоды.
+5. Отметьте нужные пары и экспортируйте метаданные или нарезку через FFmpeg.
 
-## Как устроен проект
+## Что уже работает
+
+- адаптивное QML-рабочее пространство: источники, сравнение и результаты;
+- стоп-кадр A/B по выбранному результату, масштабирование и сброс вида;
+- сцены, позы, треки людей, временные окна и дедупликация перекрытий;
+- фильтрация статики, коротких одиночных совпадений и самосравнения;
+- опциональный body-ReID: без модели результат честно помечается как `pose-only`;
+- ONNX Runtime с выбором `auto`, DirectML, CUDA, TensorRT и CPU;
+- кэш признаков `PFCACHE1` и повторное использование уже обработанных данных;
+- экспорт из интерфейса в JSON, CSV, TXT и FFmpeg-нарезки;
+- автоматическая загрузка отсутствующих ONNX-моделей из GitHub Releases.
+
+> **Важно:** галочка в списке не создаёт CUDA или TensorRT. Приложение реально
+> проверяет runtime и драйвер, а при проблеме показывает понятный статус вместо
+> сырых сообщений ONNX Runtime.
+
+## Быстрый старт для пользователя
+
+### 1. Скачайте или соберите приложение
+
+Готовый exe после сборки находится здесь:
 
 ```text
-video files
-    │
-    ▼
-VideoDecoder → SceneDetector → PoseEstimator → PersonTracker
-                                               │
-                         optional Body-ReID ──┘
-    │
-    ▼
-Motion windows → prefilter → temporal checks → DTW → NMS/ranking
-    │                                      │
-    ├── PFCACHE1                           ├── QML comparison view
-    └── exporters                           └── JSON/CSV/TXT/EDL/FCPXML/AEP
+D:\Parallel-Finder\build\ucrt64-release\ParallelFinder.exe
 ```
 
-| Каталог | Ответственность |
+Запускать его можно двойным щелчком. Для анализа также понадобятся FFmpeg и
+совместимый ONNX Runtime; portable-релиз должен лежать в одной папке с нужными
+DLL.
+
+### 2. Положите модели в понятное место
+
+Исходные модели из вашей папки:
+
+```text
+D:\YOLO\_Download_Project\models
+```
+
+Файл `.pt` нужен для подготовки релиза, но приложение запускает **ONNX**, а не
+PyTorch-веса. Локальный каталог, который приложение проверяет первым:
+
+```text
+%LocalAppData%\ParallelFinder\models
+```
+
+После выбора отсутствующей модели в интерфейсе появится `↓ скачать`. Загрузка
+идёт во временный `.part`-файл, затем проверяется SHA-256 и только после этого
+модель становится доступной.
+
+Подробная схема экспорта и публикации: [`docs/models.md`](docs/models.md).
+
+### 3. Добавьте видео и запустите анализ
+
+Перетащите файлы в блок «Источники» или нажмите «Добавить видео». В профилях:
+
+| Профиль | Когда выбирать |
 | --- | --- |
-| `app/` | Тонкая точка входа Windows-приложения |
-| `core/` | Декодирование, сцены, трекинг, matcher, ranking, jobs |
-| `gpu/` | ONNX Runtime, провайдеры, pose и body-ReID |
-| `services/` | ModelStore, PFCACHE1, settings, thumbnails, ffmpeg cuts |
-| `exporters/` | JSON, CSV, TXT, EDL, FCPXML, AEP/JSX |
-| `ui/` | QML-компоненты и C++ bridge |
-| `tests/` | GoogleTest, QTest и smoke-проверки |
-| `tools/model_export/` | Экспорт `.pt` → ONNX и генерация release manifest |
-| `docs/` | Контракты, решения, аудит и release-инструкции |
+| **Быстрый поиск** | много материала, нужен широкий первый проход |
+| **Баланс** | обычный рабочий вариант |
+| **Высокая точность** | мало материала, важнее чистота выдачи |
 
-`core/` и `exporters/` не зависят от Qt. Это проверяется отдельным
-`pfcore_qt_ban`-guard при сборке.
+Если результатов слишком много — увеличьте порог схожести и зазор повторов.
+Если пропускаются нужные движения — снизьте порог кандидата или выберите
+«Баланс».
 
-## Быстрый старт для разработки
+## Модели и автоматическое скачивание
+
+Приложение читает release-манифест:
+
+```text
+https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/manifest.json
+```
+
+В релиз должны попасть ONNX-файлы и `manifest.json`, например:
+
+```text
+yolov8n-pose.onnx
+yolo11m-pose.onnx
+yolo26m-pose-640-b1.onnx
+manifest.json
+```
+
+Подготовка пакета из `.pt`:
+
+```powershell
+python D:\Parallel-Finder\tools\model_export\export_pose_release.py `
+  --input-dir 'D:\YOLO\_Download_Project\models' `
+  --output-dir 'D:\Parallel-Finder\release-models'
+```
+
+Затем загрузите содержимое `release-models` в один GitHub Release. Если
+`manifest.json` ещё не опубликован, приложение не будет делать вид, что сеть
+работает: в настройках появится сообщение, что пакет пока отсутствует.
+
+## Вычислительные провайдеры
+
+| Выбор | Железо | Что должно быть установлено |
+| --- | --- | --- |
+| **Auto** | лучший доступный вариант | приложение само выполняет probe |
+| **DirectML** | AMD / Intel / NVIDIA | DirectML EP и рабочий ONNX Runtime |
+| **CUDA** | NVIDIA | CUDA EP, драйвер и совместимые DLL |
+| **TensorRT** | NVIDIA, максимум скорости | TensorRT + CUDA + совместимый runtime |
+| **CPU** | любой компьютер | CPU-вариант ONNX Runtime |
+
+Вручную выбранный, но недоступный backend не подменяется молча другим. Это
+важно для честного сравнения скорости и качества.
+
+## Как устроен поиск повторов
+
+```text
+видео
+  ↓
+декодер → детектор сцен → поза → trackId человека
+                              ↓
+                       optional body-ReID
+  ↓
+окна движения → быстрый prefilter → temporal window → DTW → NMS/ranking
+  ↓                                                   ↓
+кэш PFCACHE1                                      A/B preview + export
+```
+
+Одиночный кадр не становится результатом сам по себе. Финальная пара должна
+пройти серию последовательных проверок:
+
+- движение выше порога на обеих сторонах;
+- несколько соседних кадров с устойчивым сходством;
+- достаточный временной зазор внутри исходника;
+- тот же `trackId`, если человек отслеживался;
+- отсутствие перекрытия с уже выбранным результатом;
+- дополнительная проверка body-ReID, если модель установлена.
+
+## Сборка для разработчика
 
 ### Требования
 
 - Windows 10/11;
-- MSYS2 **UCRT64** — не MINGW64 и не CLANG64;
+- MSYS2 **UCRT64**;
 - CMake 3.25+, Ninja, GCC;
 - Qt 6.5+ (`base`, `declarative`, `shadertools`);
-- FFmpeg;
-- ONNX Runtime;
-- GoogleTest для тестов.
-
-Установить базовые пакеты в MSYS2 UCRT64:
+- FFmpeg, ONNX Runtime, GoogleTest.
 
 ```bash
 pacman -S --needed \
@@ -99,9 +190,7 @@ pacman -S --needed \
   mingw-w64-ucrt-x86_64-onnxruntime
 ```
 
-### Сборка и проверки
-
-Из корня репозитория:
+### Сборка и проверка
 
 ```bash
 cmake --preset ucrt64-release
@@ -109,144 +198,74 @@ cmake --build --preset ucrt64-release
 ctest --preset ucrt64-release --output-on-failure
 ```
 
-Debug-вариант:
-
-```bash
-cmake --preset ucrt64-debug
-cmake --build --preset ucrt64-debug
-ctest --preset ucrt64-debug --output-on-failure
-```
-
-Запуск собранного приложения:
+Локальный smoke-запуск:
 
 ```text
-build/ucrt64-release/ParallelFinder.exe
+D:\Parallel-Finder\build\ucrt64-release\ParallelFinder.exe --pf-smoke
 ```
 
-`QT_QPA_PLATFORM=offscreen` используется только тестами. Такой тест проверяет
-загрузку QML и базовый жизненный цикл, но не заменяет просмотр интерфейса на
-целевом мониторе.
+`QT_QPA_PLATFORM=offscreen` используется только автоматическими тестами. Это
+проверяет загрузку QML и жизненный цикл приложения, но не заменяет визуальную
+проверку на целевом мониторе, DPI и видеокарте.
 
-## Модели: от ваших `.pt` до автоматической загрузки
-
-Ваш исходный каталог:
+## Структура репозитория
 
 ```text
-D:\YOLO\_Download_Project\models
+app/                 точка входа Windows-приложения
+core/                декодер, сцены, трекинг, matcher и ranking
+gpu/                 ONNX Runtime, pose и body-ReID
+services/            модели, кэш, runtime и FFmpeg cuts
+exporters/           форматы экспорта
+ui/qml/              интерфейс и визуальные компоненты
+ui/src/              C++ bridge для QML
+tests/               unit, QML и smoke-проверки
+tools/model_export/  подготовка ONNX-релиза из .pt
+docs/                дизайн-контракт и инженерные решения
 ```
 
-Исходные `.pt` нужны только для подготовки release. В корне проекта есть
-скрипт, который экспортирует все `*pose*.pt` в статический batch-1 ONNX
-640×640, считает SHA-256 и создаёт `manifest.json`:
+`core/` и `exporters/` не зависят от Qt. При сборке это проверяется отдельным
+guard `pfcore_qt_ban`.
 
-```powershell
-$env:PYTHONPATH = 'D:\PythonLibs'
+## Если что-то пошло не так
 
-python D:\Parallel-Finder\tools\model_export\export_pose_release.py `
-  --input-dir 'D:\YOLO\_Download_Project\models' `
-  --output-dir 'D:\Parallel-Finder\release-models'
-```
-
-Затем создайте GitHub Release в
-`https://github.com/Pozit1vchic/Parallel-Finder/releases` и загрузите **все**
-файлы из `release-models/` как assets одного релиза:
-
-```text
-yolov8*-pose.onnx
-yolo11*-pose.onnx
-yolo26*-pose.onnx
-manifest.json
-```
-
-Приложение получает manifest по адресу:
-
-```text
-https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/manifest.json
-```
-
-При выборе отсутствующей модели UI показывает `↓ скачать`, загрузка идёт с
-прогрессом, а готовый файл устанавливается в:
-
-```text
-%LocalAppData%\ParallelFinder\models
-```
-
-Класть модель рядом с exe не нужно. Для локальной разработки можно использовать:
-
-```powershell
-$env:PF_MODEL_ROOT = 'D:\PF_CUDA\models'
-$env:PF_MODEL_PATH = 'D:\PF_CUDA\models\yolo26m-pose-640-b1.onnx'
-```
-
-Полная спецификация: [`docs/models.md`](docs/models.md) и
-[`tools/model_export/README.md`](tools/model_export/README.md).
-
-## Провайдеры вычислений
-
-| Выбор | Для чего | Условие |
-| --- | --- | --- |
-| `auto` | Выбрать лучший доступный backend | Probe ONNX Runtime |
-| `dml` | DirectML для AMD/Intel/NVIDIA | DirectML EP и совместимый runtime |
-| `cuda` | CUDA для NVIDIA | CUDA EP, DLL и драйвер |
-| `tensorrt` | TensorRT для NVIDIA | TensorRT + CUDA + совместимый engine/runtime |
-| `cpu` | Универсальный fallback | Только ONNX Runtime CPU |
-
-При ручном выборе недоступного backend анализ останавливается с причиной.
-Тихого переключения на CPU нет.
-
-## Как matcher отсекает мусор
-
-Одиночное похожее изображение не считается параллелью. Перед финальным score:
-
-1. окно должно иметь достаточную длину;
-2. должна быть непрерывная серия похожих кадров;
-3. обе стороны должны иметь реальное движение, а не только detector jitter;
-4. самосравнение, близкие интервалы и та же сцена отбрасываются;
-5. внутри одного исходника проверяется одинаковый `trackId`;
-6. перекрывающиеся результаты проходят deduplication/NMS;
-7. при доступном ReID применяется дополнительная проверка внешнего вида.
-
-Пороговые значения можно менять в Advanced-настройках основного окна.
-
-## Что именно проверяют тесты
-
-| Проверка | Покрывает | Не доказывает |
-| --- | --- | --- |
-| `pf_tests` | core, services, cache, exporter, matcher | качество на любом реальном фильме |
-| `pfui_tests` | загрузку QML-модуля и bridge | визуальную полировку на каждом DPI |
-| `app_smoke` | старт приложения в тестовом окружении | полный Windows portable bundle |
-| CI | Debug/Release сборку в MSYS2 UCRT64 | CUDA/TensorRT на вашей машине |
-
-Реальный release-чеклист:
-
-- [ ] опубликован GitHub Release с ONNX и `manifest.json`;
-- [ ] отсутствующая модель скачивается до 100%;
-- [ ] повторный выбор использует локальный файл без сети;
-- [ ] повреждённый файл отклоняется по SHA-256;
-- [ ] проверены `dml`, `cuda`, `tensorrt`, `cpu` на целевых системах;
-- [ ] проверено хотя бы одно короткое и одно длинное видео;
-- [ ] body-ReID проверен с реальной OSNet/FastReID ONNX-моделью;
-- [ ] собрана portable-папка с Qt/FFmpeg/ORT DLL.
+| Симптом | Что проверить |
+| --- | --- |
+| Модель помечена `↓ скачать` | есть ли интернет и опубликован ли `manifest.json` |
+| CUDA/TensorRT недоступны | версия ONNX Runtime, DLL, драйвер NVIDIA |
+| много `static` | увеличьте порог схожести, зазор и включите точный профиль |
+| результатов слишком мало | снизьте порог кандидата, выберите «Баланс» |
+| `pose-only` | установите совместимую body-ReID ONNX-модель |
+| FFmpeg-нарезка не создаётся | добавьте `ffmpeg.exe` в `PATH` или portable-папку |
 
 ## Документация
 
-- [`docs/design.md`](docs/design.md) — визуальный контракт интерфейса.
-- [`docs/ui-audit.md`](docs/ui-audit.md) — аудит QML и остаточные UI-ограничения.
-- [`docs/decisions.md`](docs/decisions.md) — архитектурные решения и параметры.
-- [`docs/models.md`](docs/models.md) — каталог моделей и GitHub Release workflow.
-- [`docs/full-audit.md`](docs/full-audit.md) — сводный технический аудит.
-- [`docs/model-audit.md`](docs/model-audit.md) — аудит model/provider/cache pipeline.
-- [`docs/provider-runtime.md`](docs/provider-runtime.md) — формат release-манифеста
-  и установка CUDA/TensorRT/DirectML runtime.
-- [`docs/engineering-notes.md`](docs/engineering-notes.md) — инженерные правила.
+- [`docs/design.md`](docs/design.md) — визуальный контракт интерфейса;
+- [`docs/ui-audit.md`](docs/ui-audit.md) — аудит QML и остаточные ограничения;
+- [`docs/decisions.md`](docs/decisions.md) — архитектурные решения и параметры;
+- [`docs/models.md`](docs/models.md) — модели и GitHub Release workflow;
+- [`docs/provider-runtime.md`](docs/provider-runtime.md) — runtime-пакеты GPU;
+- [`docs/full-audit.md`](docs/full-audit.md) — полный технический аудит;
+- [`tools/model_export/README.md`](tools/model_export/README.md) — экспорт весов.
 
-## Лицензирование
+## Честные границы проекта
 
-- Код проекта: [AGPL-3.0](LICENSE).
-- YOLO-pose веса: не входят в Git и должны распространяться с соблюдением их
-  лицензии и условий исходного проекта.
-- Qt: динамическая линковка по LGPL-варианту поставки Qt.
-- ONNX Runtime: MIT.
-- FFmpeg-сборка может включать GPL-компоненты (`x264`, `x265`, `xvid`).
+Это не маркетинговый релиз. Unit/UI/smoke-тесты подтверждают сборку и базовые
+контракты, но не гарантируют одинаковое качество на каждом фильме, драйвере и
+модели. Перед публикацией portable-версии нужно отдельно проверить:
 
-Перед распространением portable-релиза проверьте состав DLL и лицензий.
+- реальный GitHub Release с ONNX-весами и runtime-пакетами;
+- DirectML, CUDA, TensorRT и CPU на целевых машинах;
+- короткое и длинное видео с несколькими людьми;
+- body-ReID на настоящей OSNet/FastReID ONNX-модели;
+- состав Qt/FFmpeg/ORT DLL и лицензии.
+
+## Лицензии
+
+- код проекта — [AGPL-3.0](LICENSE);
+- веса YOLO-pose и body-ReID — по лицензиям исходных проектов;
+- Qt поставляется по совместимой LGPL-схеме;
+- ONNX Runtime — MIT;
+- FFmpeg-сборка может включать GPL-компоненты.
+
+Перед распространением portable-папки проверьте лицензии всех приложенных
+моделей, DLL и кодеков.

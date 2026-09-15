@@ -115,6 +115,25 @@ Popup {
         customizationStore.surfaceOpacity = Theme.surfaceOpacity
         root.themeStatus = L10n.t("settings.resetDone")
     }
+    function providerStatusText(id) {
+        const key = String(id || "auto").toLowerCase()
+        if (key === "auto") return L10n.t("settings.providerAutoHint")
+        if (AppInfo.backendAvailable(key)) return "✓ " + L10n.t("settings.providerReady")
+        const reason = String(AppInfo.backendReason(key) || "").toLowerCase()
+        if (key === "cuda" && (reason.indexOf("cuda") >= 0 || reason.indexOf("onnxruntime") >= 0)) return L10n.t("settings.providerCudaMissing")
+        if (key === "tensorrt" && (reason.indexOf("tensorrt") >= 0 || reason.indexOf("onnxruntime") >= 0)) return L10n.t("settings.providerTensorRtMissing")
+        if (key === "dml" && (reason.indexOf("directml") >= 0 || reason.indexOf("dml") >= 0)) return L10n.t("settings.providerDmlMissing")
+        return L10n.t("settings.providerUnavailable")
+    }
+    function providerDownloadText(raw) {
+        const status = String(raw || "")
+        if (!status.length) return L10n.t("settings.providerDownloadHint")
+        const lower = status.toLowerCase()
+        if (lower.indexOf("404") >= 0 || lower.indexOf("providers.json") >= 0) return L10n.t("settings.providerManifestMissing")
+        if (lower.indexOf("internet") >= 0 || lower.indexOf("network") >= 0 || lower.indexOf("transfer") >= 0) return L10n.t("settings.providerNetworkError")
+        if (lower.indexOf("downloaded") >= 0 || lower.indexOf("готов") >= 0) return L10n.t("settings.providerDownloadDone")
+        return L10n.t("settings.providerDownloadHint")
+    }
 
     contentItem: Column {
         spacing: 0
@@ -179,11 +198,9 @@ Popup {
                         Text {
                             Layout.fillWidth: true
                             text: Analysis.providerChoice === "auto"
-                                ? L10n.t("settings.providerHint")
-                                : (AppInfo.backendAvailable(Analysis.providerChoice)
-                                    ? "✓ " + Analysis.providerChoice.toUpperCase() + " доступен"
-                                    : "Провайдер недоступен: " + (AppInfo.backendReason(Analysis.providerChoice) || "нет совместимого runtime"))
-                            color: AppInfo.backendAvailable(Analysis.providerChoice) ? Theme.sage : Theme.accent
+                                ? L10n.t("settings.providerAutoHint")
+                                : root.providerStatusText(Analysis.providerChoice)
+                            color: Analysis.providerChoice === "auto" || AppInfo.backendAvailable(Analysis.providerChoice) ? Theme.sage : Theme.accent
                             font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap
                         }
                         RowLayout {
@@ -203,7 +220,7 @@ Popup {
                             Text {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
-                                text: AppInfo.providerDownloadStatus
+                                text: root.providerDownloadText(AppInfo.providerDownloadStatus)
                                 color: Theme.textSecondary
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 11

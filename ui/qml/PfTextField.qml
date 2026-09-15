@@ -17,8 +17,8 @@ TextField {
 
     background: Rectangle {
         radius: Theme.radiusButton
-        color: control.activeFocus ? Theme.surfaceRaised : Theme.well
-        border.width: control.activeFocus ? 2 : 1
-        border.color: control.activeFocus ? Theme.accent : Theme.hairline
+        color: control.visualFocus ? Theme.surfaceRaised : Theme.well
+        border.width: control.visualFocus ? 2 : 1
+        border.color: control.visualFocus ? Theme.accent : Theme.hairline
     }
 }

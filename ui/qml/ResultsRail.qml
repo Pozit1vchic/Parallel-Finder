@@ -13,7 +13,7 @@ Rectangle {
     signal exportSelectionChanged(var rows)
     signal resultSelected(int index)
     signal exportRequested()
-    width: Theme.sidePanelWidth; color: Theme.rail; radius: Theme.radiusCard; border.color: Theme.border
+    implicitWidth: Theme.sidePanelWidth; color: Theme.rail; radius: Theme.radiusCard; border.color: Theme.border
     layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowPanel; shadowBlur: 0.75; shadowVerticalOffset: 10 }
     property var visibleResults: []
 
@@ -54,18 +54,18 @@ Rectangle {
                 Text { text: root.results.length > 0 ? root.results.length + " " + L10n.t("results.found") : L10n.t("results.emptyHint"); color: Theme.textSecondary; font.pixelSize: 11 }
             }
         }
-        Row { width: parent.width; spacing: 6; height: 28
+        Row { width: parent.width; spacing: 6; height: root.visibleResults.length > 0 ? 28 : 0; visible: root.visibleResults.length > 0
             PfIconButton { width: 28; height: 28; iconSource: "qrc:/qt/qml/PfUi/qml/assets/chevron-left.svg"; accessibleName: L10n.t("results.previous"); enabled: root.visibleResults.length > 0; onClicked: root.selectPrevious() }
             Item { width: parent.width - 68; height: 1 }
             PfIconButton { width: 28; height: 28; iconSource: "qrc:/qt/qml/PfUi/qml/assets/chevron-right.svg"; accessibleName: L10n.t("results.next"); enabled: root.visibleResults.length > 0; onClicked: root.selectNext() }
         }
-        Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-        Row { width: parent.width; spacing: 6
+        Rectangle { width: parent.width; height: root.visibleResults.length > 0 ? 1 : 0; visible: root.visibleResults.length > 0; color: Theme.hairline }
+        Row { width: parent.width; spacing: 6; height: root.visibleResults.length > 0 ? 46 : 0; visible: root.visibleResults.length > 0
             PfButton { width: (parent.width - 6) / 2; text: root.sortDescending ? L10n.t("results.sort") + " ↓" : L10n.t("results.sort") + " ↑"; quiet: true; onClicked: root.sortDescending = !root.sortDescending }
             PfButton { width: (parent.width - 6) / 2; text: L10n.t("results.export"); enabled: Object.keys(root.selectedRows).length > 0; quiet: Object.keys(root.selectedRows).length === 0; onClicked: root.exportRequested() }
         }
         ListView {
-            id: resultList; width: parent.width; height: parent.height - 112; clip: true; spacing: 5; model: root.visibleResults; focus: true; activeFocusOnTab: true
+            id: resultList; width: parent.width; height: Math.max(80, parent.height - (root.visibleResults.length > 0 ? 112 : 54)); clip: true; spacing: 5; model: root.visibleResults; focus: true; activeFocusOnTab: true
             Accessible.name: L10n.t("results.title")
             Keys.onUpPressed: { root.selectPrevious(); event.accepted = true }
             Keys.onDownPressed: { root.selectNext(); event.accepted = true }
@@ -106,7 +106,7 @@ Rectangle {
                     }
                 }
             }
-            Text { anchors.centerIn: parent; visible: root.visibleResults.length === 0; width: parent.width - 28; text: root.results.length === 0 ? L10n.t("results.emptyBody") : L10n.t("results.emptyHint"); color: Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: 11 }
+            Text { anchors.centerIn: parent; visible: root.visibleResults.length === 0; width: parent.width - 28; text: root.results.length === 0 ? L10n.t("results.emptyBody") : L10n.t("results.emptyHint"); color: Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap; font.pixelSize: 12; lineHeight: 1.25 }
         }
     }
 

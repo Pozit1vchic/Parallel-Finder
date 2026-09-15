@@ -37,7 +37,7 @@ Button {
     background: Rectangle {
         radius: Theme.radiusButton
         color: control.down ? Theme.accentMuted : control.hovered ? Theme.surfaceRaised : "transparent"
-        border.width: control.activeFocus ? 2 : control.hovered ? 1 : 0
-        border.color: control.activeFocus ? Theme.accent : Theme.hairline
+        border.width: control.visualFocus ? 2 : control.hovered ? 1 : 0
+        border.color: control.visualFocus ? Theme.accent : Theme.hairline
     }
 }

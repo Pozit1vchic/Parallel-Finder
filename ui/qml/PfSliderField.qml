@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Layouts
 import PfUi
 
 // A compact After-Effects-style numeric control: the rail remains quick for
@@ -57,14 +58,15 @@ Item {
         }
     }
 
-    Row {
+    RowLayout {
         anchors.top: labelRow.bottom
         anchors.topMargin: 4
         width: parent.width
         spacing: 8
         PfSlider {
             id: slider
-            width: Math.max(80, parent.width - valueField.width - suffixText.implicitWidth - 8)
+            Layout.fillWidth: true
+            Layout.minimumWidth: 48
             from: root.from
             to: root.to
             stepSize: root.stepSize
@@ -75,7 +77,10 @@ Item {
         }
         PfTextField {
             id: valueField
-            width: 62
+            Layout.preferredWidth: 62
+            Layout.minimumWidth: 54
+            Layout.maximumWidth: 72
+            Layout.alignment: Qt.AlignVCenter
             height: 24
             implicitHeight: 24
             text: root.displayNumber(root.value)
@@ -93,12 +98,13 @@ Item {
         }
         Text {
             id: suffixText
-            width: root.suffix.length ? implicitWidth : 0
+            Layout.minimumWidth: root.suffix.length ? implicitWidth : 0
+            Layout.maximumWidth: root.suffix.length ? implicitWidth : 0
             text: root.suffix
             color: Theme.textSecondary
             font.family: Theme.fontFamily
             font.pixelSize: 10
-            anchors.verticalCenter: valueField.verticalCenter
+            Layout.alignment: Qt.AlignVCenter
         }
     }
 }

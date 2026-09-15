@@ -29,14 +29,14 @@ ComboBox {
         height: 12
         source: "qrc:/qt/qml/PfUi/qml/assets/chevron-right.svg"
         rotation: 90
-        opacity: control.enabled ? (control.hovered || control.activeFocus ? 0.95 : 0.65) : 0.3
+        opacity: control.enabled ? (control.hovered || control.visualFocus ? 0.95 : 0.65) : 0.3
     }
 
     background: Rectangle {
         radius: Theme.radiusButton
-        color: control.activeFocus ? Theme.surfaceRaised : (control.hovered ? Theme.surfaceRaised : Theme.well)
-        border.width: control.activeFocus ? 2 : 1
-        border.color: control.activeFocus ? Theme.accent : Theme.hairline
+        color: control.visualFocus ? Theme.surfaceRaised : (control.hovered ? Theme.surfaceRaised : Theme.well)
+        border.width: control.visualFocus ? 2 : 1
+        border.color: control.visualFocus ? Theme.accent : Theme.hairline
     }
 
     delegate: ItemDelegate {

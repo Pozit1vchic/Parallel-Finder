@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
+import QtQuick.Layouts
 import PfUi
 import PfUiBridge
 
@@ -17,7 +18,6 @@ ApplicationWindow {
     property var sourceFiles: []
     property int selectedResultIndex: -1
     property var selectedExportRows: ({})
-    property real railWidth: Math.max(272, Math.min(300, width * 0.22))
     property var selectedRecord: null
 
     function addFiles(urls) {
@@ -65,15 +65,25 @@ ApplicationWindow {
     Connections { target: Analysis; function onResultsChanged() { root.syncResultsSelection() } }
 
     Rectangle { anchors.fill: parent; color: Theme.canvas
-        Column { anchors.fill: parent; spacing: 0
-            TopBar { width: parent.width; height: Theme.topBarHeight; busy: Analysis.busy; onSettingsRequested: settingsDialog.open() }
-            Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-            Row {
+        ColumnLayout { anchors.fill: parent; spacing: 0
+            TopBar { Layout.fillWidth: true; Layout.preferredHeight: Theme.topBarHeight; Layout.minimumHeight: Theme.topBarHeight; busy: Analysis.busy; onSettingsRequested: settingsDialog.open() }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.hairline }
+            Item {
                 id: workspace
-                width: parent.width - 40; height: parent.height - Theme.topBarHeight - 33
-                anchors.horizontalCenter: parent.horizontalCenter; anchors.topMargin: 16; spacing: 14
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.margins: 16
+                Layout.minimumHeight: 260
+                RowLayout {
+                    anchors.fill: parent
+                    spacing: 14
                 SourcesRail {
-                    id: sourcesRail; width: root.railWidth; height: parent.height; sourceFiles: root.sourceFiles
+                    id: sourcesRail
+                    Layout.minimumWidth: 246
+                    Layout.preferredWidth: Theme.sidePanelWidth
+                    Layout.maximumWidth: 310
+                    Layout.fillHeight: true
+                    sourceFiles: root.sourceFiles
                     onFilesRequested: function(urls) { if (urls && urls.length > 0) root.addFiles(urls); else fileDialog.open() }
                     onFolderRequested: folderDialog.open()
                     onClearRequested: { root.sourceFiles = []; root.syncResultsSelection(); Analysis.inspectFiles([]) }
@@ -81,15 +91,23 @@ ApplicationWindow {
                     onAnalyzeRequested: Analysis.analyzeFiles(root.sourceFiles)
                 }
                 MotionCenter {
-                    id: motionCenter; width: parent.width - root.railWidth * 2 - 28; height: parent.height
+                    id: motionCenter
+                    Layout.minimumWidth: 420
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
                     sourceFiles: root.sourceFiles; selectedRecord: root.selectedRecord; onAddRequested: fileDialog.open(); onAnalyzeRequested: Analysis.analyzeFiles(root.sourceFiles)
                 }
                 ResultsRail {
-                    id: resultsRail; width: root.railWidth; height: parent.height
+                    id: resultsRail
+                    Layout.minimumWidth: 246
+                    Layout.preferredWidth: Theme.sidePanelWidth
+                    Layout.maximumWidth: 310
+                    Layout.fillHeight: true
                     results: Analysis.results; selectedRows: root.selectedExportRows; selectedIndex: root.selectedResultIndex
                     onExportSelectionChanged: root.selectedExportRows = rows
                     onResultSelected: root.selectResult(index)
                     onExportRequested: exportDialog.open()
+                }
                 }
             }
         }
