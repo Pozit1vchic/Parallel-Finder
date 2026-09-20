@@ -153,7 +153,13 @@ int main(int argc, char* argv[])
             app.exit(0);
         }, Qt::QueuedConnection);
         QTimer::singleShot(15000, &app, [&app] { app.exit(3); });
-        window->requestUpdate();
+        QTimer::singleShot(100, window, [window] {
+            // A hidden launcher can suppress the first native ShowWindow call.
+            // The render probe must expose the window, not merely load QML.
+            window->hide();
+            window->show();
+            window->requestUpdate();
+        });
     }
     return app.exec();
 }
