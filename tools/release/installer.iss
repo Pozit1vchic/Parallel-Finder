@@ -22,6 +22,7 @@ OutputBaseFilename=ParallelFinder-{#AppVersion}-Setup-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\..\app\ParallelFinder.ico
 LicenseFile={#StageDir}\LICENSE
 UninstallDisplayIcon={app}\ParallelFinder.exe
 CloseApplications=yes
