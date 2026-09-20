@@ -50,12 +50,12 @@ CheckBox {
             sourceSize.width: 13
             sourceSize.height: 13
             visible: control.checked
-            layer.enabled: true
+            layer.enabled: GraphicsInfo.api !== GraphicsInfo.Software
             layer.effect: MultiEffect { colorization: 1; colorizationColor: Theme.canvas }
         }
     }
 
-    contentItem: Text {
+    contentItem: Text { font.family: Theme.fontFamily;
         text: control.text
         color: control.enabled ? Theme.textSecondary : Theme.textDisabled
         verticalAlignment: Text.AlignVCenter

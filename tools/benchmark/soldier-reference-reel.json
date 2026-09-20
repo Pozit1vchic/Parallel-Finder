@@ -1,0 +1,6 @@
+{
+  "description": "48-second diagnostic reel made from six eight-second source intervals: [75,83], [90,98], [59,67], [258,266], [171,179], [256,264]. The last and fourth intervals overlap, so duplicated-footage matches are NOT evidence of gesture quality.",
+  "positiveAnchorsSeconds": [[4, 12], [20, 28], [36, 44]],
+  "anchorToleranceSeconds": 2.0,
+  "notes": "This only validates retrieval near user-labelled anchors. Check the original source separately and inspect clips for precision."
+}

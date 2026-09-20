@@ -47,6 +47,7 @@ QJsonObject toJson(const Settings& settings)
     json[QStringLiteral("analysisMode")] = QString::fromStdString(settings.analysisMode);
     json[QStringLiteral("normalizeSize")] = settings.normalizeSize;
     json[QStringLiteral("mirrorPoses")] = settings.mirrorPoses;
+    json[QStringLiteral("costumeMode")] = settings.costumeMode;
     return json;
 }
 
@@ -110,6 +111,8 @@ Settings SettingsStore::load(std::string& error) const
     if (normalizeSize.isBool()) settings.normalizeSize = normalizeSize.toBool();
     const auto mirrorPoses = json.value(QStringLiteral("mirrorPoses"));
     if (mirrorPoses.isBool()) settings.mirrorPoses = mirrorPoses.toBool();
+    const auto costumeMode = json.value(QStringLiteral("costumeMode"));
+    if (costumeMode.isBool()) settings.costumeMode = costumeMode.toBool();
     const auto cacheLimit = json.value(QStringLiteral("cacheLimitBytes"));
     if (cacheLimit.isDouble() && cacheLimit.toInteger() > 0) {
         const auto value = cacheLimit.toInteger();

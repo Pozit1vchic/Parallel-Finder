@@ -7,6 +7,8 @@ import PfUi
 Button {
     id: control
     property bool quiet: false
+    property bool primary: false
+    property bool selected: false
     property bool sageAction: false
     property bool compact: false
     // Two-line labels are intentional in the narrow rail.  Give the text a
@@ -20,12 +22,14 @@ Button {
     bottomPadding: compact ? 5 : 6
     hoverEnabled: true
     activeFocusOnTab: true
+    scale: down && !Theme.reducedMotion ? 0.98 : 1
+    Behavior on scale { NumberAnimation { duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
     Layout.minimumWidth: 0
 
     contentItem: Text {
         text: control.text
         color: !control.enabled ? Theme.textDisabled
-              : control.quiet ? Theme.textSecondary : Theme.canvas
+              : control.primary ? Theme.canvas : control.selected ? Theme.accent : Theme.textPrimary
         font.family: Theme.fontFamily
         font.pixelSize: control.compact ? 10 : 12
         font.weight: Font.DemiBold
@@ -42,10 +46,11 @@ Button {
     background: Rectangle {
         radius: Theme.radiusButton
         color: !control.enabled ? Theme.surfaceMuted
-              : control.down ? (control.sageAction ? Theme.sagePressed : Theme.accentPressed)
-              : control.hovered ? (control.sageAction ? Theme.sageBright : Theme.accentBright)
-              : control.quiet ? Theme.surfaceRaised : (control.sageAction ? Theme.sage : Theme.accent)
-        border.width: control.visualFocus ? 2 : control.quiet ? 1 : 0
-        border.color: control.visualFocus ? Theme.accent : control.hovered ? Theme.hairlineStrong : Theme.hairline
+              : control.primary ? (control.down ? Theme.accentPressed : control.hovered ? Theme.accentBright : Theme.accent)
+              : control.down || control.selected ? Theme.accentMuted : control.hovered ? Theme.surfaceMuted : Theme.surfaceRaised
+        border.width: control.visualFocus ? 2 : 1
+        border.color: control.visualFocus || control.selected || control.hovered ? Theme.accent : Theme.hairline
+        Behavior on color { ColorAnimation { duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
+        Behavior on border.color { ColorAnimation { duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
     }
 }

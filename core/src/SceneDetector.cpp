@@ -141,10 +141,12 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
     recent.reserve(5);
     std::size_t framesSinceBoundary = minSceneFrames_;
     for (std::size_t i = 1; i < samples.size(); ++i) {
-        const double localMean = recent.empty()
-            ? deltas[i]
-            : std::accumulate(recent.begin(), recent.end(), 0.0)
-                / static_cast<double>(recent.size());
+        // A cut is an outlier, not the normal motion level of the next shot.
+        // A rolling mean containing the previous cut hid nearby real cuts.
+        auto sortedRecent = recent;
+        std::sort(sortedRecent.begin(), sortedRecent.end());
+        const double localMean = sortedRecent.empty() ? deltas[i]
+            : sortedRecent[sortedRecent.size() / 2];
         const bool adaptivePass = adaptiveMultiplier_ == 0.0 || recent.empty()
             || deltas[i] >= localMean * adaptiveMultiplier_;
         const bool validTimestamp = samples[i].timestampSeconds >= samples[i - 1].timestampSeconds;
@@ -154,6 +156,8 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
                                   boundaryScore(deltas[i], threshold_)});
             framesSinceBoundary = 0;
             recent.clear();
+            ++framesSinceBoundary;
+            continue;
         }
         ++framesSinceBoundary;
         recent.push_back(deltas[i]);
@@ -224,6 +228,35 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
             return std::abs(left.timestampSeconds - right.timestampSeconds) < 1e-9;
         }), boundaries.end());
     return boundaries;
+}
+
+std::vector<float> sceneContext(std::span<const SceneSample> samples,
+                                double startSeconds, double endSeconds)
+{
+    std::vector<float> histogram(44, 0.0F);
+    std::size_t count = 0;
+    for (const auto& sample : samples) {
+        if (sample.timestampSeconds < startSeconds || sample.timestampSeconds > endSeconds
+            || sample.width <= 0 || sample.height <= 0
+            || sample.rgba.size() < static_cast<std::size_t>(sample.width) * sample.height * 4) continue;
+        for (int y = sample.height / 8; y < sample.height * 7 / 8; ++y) {
+            for (int x = 0; x < sample.width; ++x) {
+                if (x > sample.width / 4 && x < sample.width * 3 / 4) continue;
+                const auto i = (static_cast<std::size_t>(y) * sample.width + x) * 4;
+                const auto hsv = toHsv(sample.rgba[i], sample.rgba[i+1], sample.rgba[i+2]);
+                if (hsv.value < 16) continue;
+                const int h = std::clamp(static_cast<int>(hsv.hue * 12), 0, 11);
+                const int s = std::clamp(static_cast<int>(hsv.saturation * 3 / 256), 0, 2);
+                const int v = std::clamp(static_cast<int>(hsv.value * 8 / 256), 0, 7);
+                histogram[h * 3 + s] += 0.75F;
+                histogram[36 + v] += 0.25F;
+                ++count;
+            }
+        }
+    }
+    if (count < 32) return {};
+    for (auto& value : histogram) value /= static_cast<float>(count);
+    return histogram;
 }
 
 } // namespace pfcore

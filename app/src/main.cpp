@@ -2,6 +2,8 @@
 #include <QGuiApplication>
 #include <QDebug>
 #include <QEventLoop>
+#include <QElapsedTimer>
+#include <QJsonDocument>
 #include <QQmlApplicationEngine>
 #include <QTimer>
 #include <QString>
@@ -92,7 +94,10 @@ int main(int argc, char* argv[])
         QEventLoop loop;
         QTimer timeout;
         timeout.setSingleShot(true);
-        timeout.setInterval(120000);
+        const int requestedTimeout = qEnvironmentVariableIntValue("PF_ANALYSIS_TIMEOUT_SEC");
+        timeout.setInterval((requestedTimeout > 0 ? std::min(requestedTimeout, 3600) : 120) * 1000);
+        QElapsedTimer elapsed;
+        elapsed.start();
         QObject::connect(analysis, &pfui::AnalysisController::busyChanged, &loop, [&] {
             if (!analysis->busy()) loop.quit();
         });
@@ -111,7 +116,14 @@ int main(int argc, char* argv[])
         std::printf("  files  : %d\n", analysis->fileCount());
         std::printf("  frames : %lld\n", static_cast<long long>(analysis->frameCount()));
         std::printf("  pairs  : %d\n", analysis->matchCount());
-        return analysis->busy() ? 1 : 0;
+        std::printf("  elapsed_ms : %lld\n", static_cast<long long>(elapsed.elapsed()));
+        if (qEnvironmentVariableIsSet("PF_ANALYSIS_JSON")) {
+            const auto json = QJsonDocument::fromVariant(analysis->results()).toJson(QJsonDocument::Compact);
+            std::printf("  results_json : %s\n", json.constData());
+        }
+        const int minimumPairs = qEnvironmentVariableIntValue("PF_ANALYSIS_MIN_PAIRS");
+        return analysis->busy() || !analysis->analysisCompleted()
+            || analysis->matchCount() < minimumPairs ? 1 : 0;
     }
 
     QQmlApplicationEngine engine;

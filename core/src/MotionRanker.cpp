@@ -16,6 +16,12 @@ void MotionRanker::rank(std::vector<MotionMatch>& matches,
             match.rankScore = match.similarity;
             continue;
         }
+        if (windows[match.leftIndex].staticFrameSet && windows[match.rightIndex].staticFrameSet) {
+            match.directionLabel = "static";
+            match.gestureLabel = "static";
+            match.rankScore = match.similarity;
+            continue;
+        }
         const auto classification = classifier.classify(windows[match.leftIndex],
                                                          windows[match.rightIndex]);
         match.directionLabel = MovementClassifier::directionName(classification.direction);

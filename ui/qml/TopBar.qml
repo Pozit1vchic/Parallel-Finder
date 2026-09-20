@@ -21,38 +21,40 @@ Item {
     }
     function backendStatus(id) {
         const key = String(id || "auto").toLowerCase()
-        if (key === "auto") return AppInfo.backendIsGpu ? "GPU готов" : "CPU готов"
-        return AppInfo.backendAvailable(key) ? "готов" : "недоступен"
+        if (key === "auto") return "Готов к работе"
+        return AppInfo.backendAvailable(key) ? "Готов к работе" : "Недоступен"
     }
 
     Rectangle { anchors.fill: parent; color: Theme.canvas }
     Row {
-        anchors.left: parent.left; anchors.leftMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 14
-        Text { text: L10n.t("app.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 22 }
-        Rectangle { width: 1; height: 22; color: Theme.hairline; anchors.verticalCenter: parent.verticalCenter }
-        Text { text: L10n.t("top.workspace"); color: Theme.textSecondary; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
+        anchors.left: parent.left; anchors.leftMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 12; height: 40
+        Text { text: L10n.t("app.title"); color: "#F4F4F5"; font.family: Theme.fontFamily; font.pixelSize: 15; font.weight: Font.DemiBold; font.letterSpacing: -0.15; anchors.verticalCenter: parent.verticalCenter }
+        Rectangle { width: 1; height: 16; color: "#27272A"; anchors.verticalCenter: parent.verticalCenter }
+        Text { font.family: Theme.fontFamily; text: L10n.t("top.workspace"); color: "#A1A1AA"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
     }
     RowLayout {
         anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 14
-        Text { Layout.alignment: Qt.AlignVCenter; text: root.busy ? L10n.t("top.analyzing") : L10n.t("top.ready"); color: root.busy ? Theme.accent : Theme.textSecondary; font.pixelSize: 11 }
+        Text { font.family: Theme.fontFamily; Layout.alignment: Qt.AlignVCenter; text: root.busy ? L10n.t("top.analyzing") : L10n.t("top.ready"); color: root.busy ? Theme.accent : Theme.textSecondary; font.pixelSize: 11 }
         Rectangle {
             Layout.alignment: Qt.AlignVCenter
             Layout.preferredWidth: 226
             Layout.minimumWidth: 168
             Layout.maximumWidth: 250
-            width: 226; height: 28; radius: 14
+            width: 226; height: 28; radius: 8
             color: AppInfo.backendIsGpu ? Theme.sageMuted : Theme.surfaceRaised; border.color: Theme.border
-            RowLayout { anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 7
-                Rectangle { Layout.alignment: Qt.AlignVCenter; Layout.preferredWidth: 5; Layout.preferredHeight: 5; radius: 3; color: AppInfo.backendIsGpu ? Theme.sage : Theme.textDisabled }
-                Text {
+            RowLayout { anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 8
+                Rectangle { Layout.alignment: Qt.AlignVCenter; Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: Analysis.providerChoice === "auto" || AppInfo.backendAvailable(Analysis.providerChoice) ? "#22C55E" : Theme.textDisabled
+                    SequentialAnimation on opacity { running: AppInfo.backendIsGpu && !Theme.reducedMotion && root.Window.active; loops: Animation.Infinite; NumberAnimation { to: 0.5; duration: 1100 } NumberAnimation { to: 1; duration: 1100 } }
+                }
+                Text { font.family: Theme.fontFamily;
                     id: gpuLabel
                     Layout.fillWidth: true
                     text: Analysis.providerChoice === "auto"
                         ? backendLabel("auto") + " · " + backendStatus("auto")
                         : backendLabel(Analysis.providerChoice) + " · " + backendStatus(Analysis.providerChoice)
                     color: Analysis.providerChoice !== "auto" && !AppInfo.backendAvailable(Analysis.providerChoice)
-                        ? Theme.accent : (AppInfo.backendIsGpu ? Theme.sageBright : Theme.textSecondary)
-                    font.pixelSize: 10
+                        ? Theme.accent : "#E4E4E7"
+                    font.pixelSize: 12
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideRight
@@ -68,6 +70,6 @@ Item {
                      : (AppInfo.backendReason(Analysis.providerChoice) || "runtime не найден"))
             HoverHandler { id: gpuHover }
         }
-        PfButton { Layout.alignment: Qt.AlignVCenter; text: L10n.t("top.settings"); quiet: true; onClicked: root.settingsRequested() }
+        PfIconButton { Layout.alignment: Qt.AlignVCenter; iconSource: "qrc:/qt/qml/PfUi/qml/assets/settings.svg"; accessibleName: L10n.t("top.settings"); onClicked: root.settingsRequested() }
     }
 }

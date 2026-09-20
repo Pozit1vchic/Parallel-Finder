@@ -31,8 +31,8 @@ Rectangle {
                 Column {
                     anchors.left: parent.left; anchors.right: parent.right; anchors.leftMargin: 14; anchors.rightMargin: 10
                     anchors.verticalCenter: parent.verticalCenter; spacing: 4
-                    Text { width: parent.width; text: modelData.label; color: Theme.textDisabled; font.pixelSize: 10; elide: Text.ElideRight; clip: true }
-                    Text { width: parent.width; text: modelData.value; color: index === 3 ? Theme.accent : Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 21; elide: Text.ElideRight; clip: true }
+                    Text { font.family: Theme.fontFamily; width: parent.width; text: modelData.label; color: Theme.textDisabled; font.pixelSize: 10; elide: Text.ElideRight; clip: true }
+                    Text { width: parent.width; text: modelData.value; color: index === 3 ? Theme.accent : Theme.textPrimary; font.family: Theme.monoFont; font.pixelSize: 18; elide: Text.ElideRight; clip: true }
                 }
             }
         }

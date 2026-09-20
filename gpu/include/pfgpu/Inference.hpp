@@ -17,6 +17,7 @@ struct InferenceResult {
     bool ok = false;
     std::string error;
     std::vector<FloatTensor> outputs;
+    std::vector<std::string> outputNames;
 };
 
 struct TensorSpec {

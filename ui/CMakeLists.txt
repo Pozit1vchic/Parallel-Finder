@@ -34,6 +34,8 @@ qt_add_qml_module(pfui
     OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/PfUi
     QML_FILES ${PFUI_QML_FILES}
     RESOURCES
+        qml/fonts/JetBrainsMono-Regular.ttf
+        qml/fonts/OFL.txt
         qml/pf_logo.png
         qml/assets/film.svg
         qml/assets/plus.svg

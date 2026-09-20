@@ -1,13 +1,12 @@
-// Parallel-Finder design tokens — Claude/Anthropic style (spec section 5).
-// Nothing is hardcoded in views: all colors/radii/spacings come from here.
+// Editing workspace tokens: quiet controls, one primary action, numeric type.
 pragma Singleton
 import QtQuick
 
 QtObject {
     // Palette
-    readonly property color background: "#0C0D0B"       // true black work surface
-    readonly property color canvas: "#0C0D0B"
-    readonly property color rail: "#11120F"
+    readonly property color background: "#0C0D10"
+    readonly property color canvas: background
+    readonly property color rail: "#141418"
     property real surfaceOpacity: 1.0
     // The slider is intentionally perceptual: dark surfaces otherwise look
     // almost transparent even when the value says 70–80%. Keep 25% as a
@@ -16,15 +15,15 @@ QtObject {
         const normalized = Math.max(0, Math.min(1, (surfaceOpacity - 0.25) / 0.75))
         return 0.30 + 0.70 * Math.pow(normalized, 0.65)
     }
-    property color panel: Qt.rgba(0.09, 0.094, 0.075, surfaceAlpha)
+    property color panel: Qt.rgba(0.071, 0.071, 0.086, surfaceAlpha)
     readonly property color heroPanel: panel
-    property color panelAlt: Qt.rgba(0.118, 0.122, 0.098, surfaceAlpha)
+    property color panelAlt: Qt.rgba(0.110, 0.110, 0.133, surfaceAlpha)
     readonly property color surfaceRaised: panelAlt
-    readonly property color surfaceMuted: "#272820"
-    readonly property color well: "#0A0B09"
-    readonly property color border: Qt.rgba(245, 241, 236, 0.06)
-    readonly property color hairline: Qt.rgba(245, 241, 236, 0.10)
-    readonly property color hairlineStrong: Qt.rgba(245, 241, 236, 0.18)
+    readonly property color surfaceMuted: "#27272E"
+    readonly property color well: "#101014"
+    readonly property color border: Qt.rgba(1, 1, 1, 0.06)
+    readonly property color hairline: Qt.rgba(1, 1, 1, 0.10)
+    readonly property color hairlineStrong: "#3F3F46"
     property color accent: "#D97757"             // terracotta / A
     readonly property color accentBright: Qt.lighter(accent, 1.12)
     readonly property color accentPressed: Qt.darker(accent, 1.25)
@@ -34,12 +33,16 @@ QtObject {
     readonly property color sagePressed: Qt.darker(sage, 1.25)
     readonly property color sageMuted: Qt.rgba(sage.r, sage.g, sage.b, 0.11)
     readonly property color textPrimary: "#F5F1EC"
-    readonly property color textSecondary: "#ACA89F"
-    readonly property color textDisabled: "#77766F"
+    readonly property color textSecondary: "#A1A1AA"
+    readonly property color textDisabled: "#71717A"
 
     // Typography
-    property string fontFamily: "Segoe UI"
-    readonly property string displayFont: "Georgia"
+    property string fontFamily: "Segoe UI Variable"
+    readonly property string displayFont: fontFamily
+    readonly property string monoFont: numericFont.name
+    property FontLoader numericFont: FontLoader { source: "fonts/JetBrainsMono-Regular.ttf" }
+    property bool reducedMotion: false
+    readonly property int motionDuration: reducedMotion ? 0 : 120
     readonly property int fontSizeSmall: 12
     readonly property int fontSizeBody: 13
     readonly property int fontSizeTitle: 18

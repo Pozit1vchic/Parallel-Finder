@@ -29,6 +29,7 @@ struct PersonDetection {
     // the observation so a track prototype can be built after association.
     std::vector<float> appearanceEmbedding;
     double appearanceConfidence = 0.0;
+    std::vector<float> faceEmbedding;
 };
 
 struct PersonTrack {
@@ -64,5 +65,18 @@ private:
 // person track.  Keep the historical type name as the implementation/API
 // compatibility surface for existing integrations.
 using PersonTracker = DominantPersonTracker;
+
+struct IdentitySummary {
+    std::vector<float> body;
+    std::vector<float> face;
+    double bodyEvidence = 0;
+    double faceEvidence = 0;
+    double duration = 0;
+    double area = 0;
+};
+
+// Select the longest identity, without allowing a body-only intermediate
+// track to join two groups whose reliable face observations disagree.
+std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities);
 
 } // namespace pfcore

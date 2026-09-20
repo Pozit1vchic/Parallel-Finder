@@ -17,6 +17,7 @@ Item {
     property real displayScale: 1
     property int decimals: 2
     property bool integer: false
+    // Submission is emitted once by editingFinished, including Enter.
     signal valueEdited(real nextValue)
 
     implicitHeight: labelText.implicitHeight + 4 + 24 + 13
@@ -30,6 +31,7 @@ Item {
 
     function parseInput(rawText) {
         const normalized = String(rawText || "").replace(",", ".").replace(/[^0-9+\-.]/g, "")
+        if (!normalized.length || !(root.displayScale > 0)) return Number(root.value)
         const parsed = Number(normalized)
         if (!Number.isFinite(parsed)) return Number(root.value)
         return Math.max(root.from, Math.min(root.to, parsed / root.displayScale))
@@ -95,7 +97,8 @@ Item {
             implicitHeight: 24
             text: root.displayNumber(root.value)
             horizontalAlignment: Text.AlignRight
-            font.pixelSize: 10
+            font.family: Theme.monoFont
+            font.pixelSize: 11
             validator: DoubleValidator {
                 bottom: root.from * root.displayScale
                 top: root.to * root.displayScale
@@ -103,7 +106,6 @@ Item {
                 notation: DoubleValidator.StandardNotation
             }
             Accessible.name: root.label + " value"
-            onAccepted: root.commitInput()
             onEditingFinished: root.commitInput()
         }
         Text {
@@ -128,8 +130,8 @@ Item {
             Layout.minimumWidth: 0
             text: root.displayNumber(root.from) + (root.suffix.length ? root.suffix : "")
             color: Theme.textDisabled
-            font.family: Theme.fontFamily
-            font.pixelSize: 9
+            font.family: Theme.monoFont
+            font.pixelSize: 10
             elide: Text.ElideRight
         }
         Item { Layout.fillWidth: true }
@@ -137,8 +139,8 @@ Item {
             Layout.minimumWidth: 0
             text: root.displayNumber(root.to) + (root.suffix.length ? root.suffix : "")
             color: Theme.textDisabled
-            font.family: Theme.fontFamily
-            font.pixelSize: 9
+            font.family: Theme.monoFont
+            font.pixelSize: 10
             horizontalAlignment: Text.AlignRight
             elide: Text.ElideLeft
         }

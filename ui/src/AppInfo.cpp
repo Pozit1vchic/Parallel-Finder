@@ -19,7 +19,7 @@
 namespace pfui {
 namespace {
 constexpr QChar kSeparator = QChar(0x00B7); // middle dot: "CUDA · RTX 4070"
-constexpr auto kProviderManifestUrl = "https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/providers.json";
+constexpr auto kProviderManifestUrl = "https://github.com/Pozit1vchic/Parallel-Finder/releases/download/runtime-v1/providers.json";
 constexpr auto kProviderManifestFallbackUrl = "https://raw.githubusercontent.com/Pozit1vchic/Parallel-Finder/main/providers/providers.json";
 
 QString displayBackend(const QString& backend)

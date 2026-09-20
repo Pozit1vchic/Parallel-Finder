@@ -5,6 +5,10 @@ param(
     [string]$Model = "D:\\PF_CUDA\\models\\yolo26m-pose-640-b1.onnx",
     [string]$OrtDll = "D:\\msys2\\ucrt64\\bin\\onnxruntime.dll",
     [string]$ReIdModel = "",
+    [ValidateRange(1, 3600)][int]$TimeoutSec = 120,
+    [ValidateRange(0, 10000)][int]$MinimumPairs = 0,
+    [double]$ExpectedOffsetSec = -1,
+    [string]$ReportPath = "",
     [string[]]$Modes = @("motion", "static", "clips", "combined")
 )
 
@@ -45,6 +49,9 @@ foreach ($mode in $Modes) {
     $psi.EnvironmentVariables['PF_ORT_DLL'] = $env:PF_ORT_DLL
     $psi.EnvironmentVariables['PF_MODEL_PATH'] = $env:PF_MODEL_PATH
     $psi.EnvironmentVariables['PF_PROVIDER'] = 'cpu'
+    $psi.EnvironmentVariables['PF_ANALYSIS_TIMEOUT_SEC'] = [string]$TimeoutSec
+    $psi.EnvironmentVariables['PF_ANALYSIS_MIN_PAIRS'] = [string]$MinimumPairs
+    $psi.EnvironmentVariables['PF_ANALYSIS_JSON'] = '1'
     if ($env:PF_DEBUG_ANALYSIS) { $psi.EnvironmentVariables['PF_DEBUG_ANALYSIS'] = $env:PF_DEBUG_ANALYSIS }
     if ($env:PF_DEBUG_POSE) { $psi.EnvironmentVariables['PF_DEBUG_POSE'] = $env:PF_DEBUG_POSE }
     if ($env:PF_DEBUG_MATCHER) { $psi.EnvironmentVariables['PF_DEBUG_MATCHER'] = $env:PF_DEBUG_MATCHER }
@@ -65,6 +72,22 @@ foreach ($mode in $Modes) {
     if ($process.ExitCode -ne 0) {
         throw "Analysis smoke failed for mode '$mode' (exit $($process.ExitCode))"
     }
+    if ($ExpectedOffsetSec -ge 0 -or $ReportPath) {
+        $jsonLine = ($stdout -split '\r?\n' | Where-Object { $_ -match '^\s*results_json :' } | Select-Object -First 1)
+        if (-not $jsonLine) { throw 'Missing results JSON; rebuild the executable.' }
+        $pairs = @((($jsonLine -replace '^\s*results_json :\s*', '') | ConvertFrom-Json))
+        if ($ReportPath) {
+            $report = @{ video=$Video; mode=$mode; results=$pairs }
+            $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $ReportPath -Encoding UTF8
+        }
+    }
+    if ($ExpectedOffsetSec -ge 0) {
+        $correct = @($pairs | Where-Object {
+            [Math]::Abs(($_.rightStart - $_.leftStart) - $ExpectedOffsetSec) -le 0.5
+        })
+        if ($correct.Count -eq 0) { throw "No pair has the expected repeat offset $ExpectedOffsetSec seconds." }
+    }
+    $process.Dispose()
 }
 
 Remove-Item Env:PF_ANALYSIS_MODE -ErrorAction SilentlyContinue

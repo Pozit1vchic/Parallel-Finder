@@ -113,6 +113,7 @@ InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
     const OrtStatus* runStatus = api->Run(session.session, nullptr, inputNames, inputValues, 1,
                                            outputNames.data(), outputNames.size(), outputs.data());
     const bool ran = checkStatus(*api, const_cast<OrtStatus*>(runStatus), result.error);
+    for (const char* name : outputNames) result.outputNames.emplace_back(name);
     for (char* name : ownedNames) freeAllocated(name);
     freeAllocated(inputName);
     api->ReleaseValue(inputValue);

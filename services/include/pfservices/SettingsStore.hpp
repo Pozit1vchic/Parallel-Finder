@@ -33,6 +33,8 @@ struct Settings {
     std::string analysisMode = "motion";
     bool normalizeSize = true;
     bool mirrorPoses = true;
+    // Explicit costume matching: do not infer actor identity from a mask.
+    bool costumeMode = false;
 };
 
 class SettingsStore {

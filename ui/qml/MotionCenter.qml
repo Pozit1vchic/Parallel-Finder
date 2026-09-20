@@ -30,13 +30,6 @@ ColumnLayout {
         radius: Theme.radiusCard
         border.color: Theme.border
         clip: true
-        layer.enabled: true
-        layer.effect: MultiEffect {
-            shadowEnabled: true
-            shadowColor: Theme.shadowPanel
-            shadowBlur: 0.72
-            shadowVerticalOffset: 12
-        }
 
         Column {
             anchors.fill: parent
@@ -46,7 +39,7 @@ ColumnLayout {
             Item {
                 width: parent.width
                 height: 24
-                Text {
+                Text { font.family: Theme.fontFamily;
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     text: L10n.t("center.comparison")
@@ -55,7 +48,7 @@ ColumnLayout {
                     font.weight: Font.DemiBold
                     verticalAlignment: Text.AlignVCenter
                 }
-                Text {
+                Text { font.family: Theme.fontFamily;
                     id: stateText
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
@@ -63,7 +56,7 @@ ColumnLayout {
                     text: Analysis.busy
                         ? L10n.status(Analysis.progressStage)
                         : root.selectedRecord
-                            ? Math.round(Number(root.selectedRecord.similarity || 0) * 100) + "% " + L10n.t("center.similarity")
+                            ? (root.selectedRecord.headOnlyComparison === true ? "Положение головы · кандидат" : root.selectedRecord.matchType === "pose" ? "Похожая поза · кандидат" : "Повтор движения · кандидат")
                             : root.analysisCompleted
                                 ? (Analysis.matchCount > 0 ? L10n.t("center.completedTitle") : L10n.t("center.noMatchesStatus"))
                                 : root.sourceFiles.length > 0 ? L10n.t("center.readyStatus") : L10n.t("center.waiting")
@@ -79,7 +72,7 @@ ColumnLayout {
                 width: parent.width
                 height: (Analysis.busy || root.analysisCompleted) ? 20 : 0
                 visible: Analysis.busy || root.analysisCompleted
-                Text {
+                Text { font.family: Theme.fontFamily;
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     text: L10n.t("stats.progress")
@@ -87,7 +80,7 @@ ColumnLayout {
                     font.pixelSize: 10
                     verticalAlignment: Text.AlignVCenter
                 }
-                Text {
+                Text { font.family: Theme.fontFamily;
                     id: progressText
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
@@ -174,7 +167,7 @@ ColumnLayout {
                             horizontalAlignment: Text.AlignHCenter
                             wrapMode: Text.WordWrap
                         }
-                        Text {
+                        Text { font.family: Theme.fontFamily;
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: Analysis.busy
                                 ? L10n.t("center.analyzingHint")
@@ -200,7 +193,7 @@ ColumnLayout {
                             text: root.analysisCompleted ? L10n.t("search.restart") : L10n.t("search.start")
                             onClicked: root.analyzeRequested()
                         }
-                        Text {
+                        Text { font.family: Theme.fontFamily;
                             anchors.horizontalCenter: parent.horizontalCenter
                             visible: Analysis.busy
                             text: L10n.status(Analysis.progressStage) + " · " + Math.round(Analysis.progress * 100) + "%"

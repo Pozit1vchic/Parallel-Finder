@@ -37,6 +37,10 @@ struct MotionWindow {
     // the optional ReID model was unavailable and the result is pose-only.
     std::vector<float> appearanceEmbedding;
     double appearanceConfidence = 0.0;
+    std::vector<float> faceEmbedding;
+    double faceConfidence = 0.0;
+    // Recomputed from thumbnails even on a cache hit; not an identity vector.
+    std::vector<float> sceneContext;
 };
 
 struct MotionMatcherParams {
@@ -115,6 +119,9 @@ struct MotionMatcherParams {
     // It is not calculated per pose frame because ReID is sampled less often.
     // A single lucky/blurred crop must not establish an identity.
     double minAppearanceEvidence = 0.45;
+    double minFaceSimilarity = 0.363;
+    double sameSceneContextThreshold = 0.90;
+    double sameSceneContextGapSec = 30.0;
 };
 
 struct MotionMatch {
@@ -138,6 +145,9 @@ struct MotionMatch {
     double rankScore = 0.0;
     double appearanceSimilarity = 0.0;
     bool appearanceVerified = false;
+    bool faceVerified = false;
+    // Head-only geometry is not a measurement of the whole body pose.
+    bool headOnlyComparison = false;
 };
 
 class MotionMatcher {

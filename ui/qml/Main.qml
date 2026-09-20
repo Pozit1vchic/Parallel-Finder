@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
+import QtQuick.Effects
 import QtQuick.Layouts
 import PfUi
 import PfUiBridge
@@ -64,7 +65,20 @@ ApplicationWindow {
 
     Connections { target: Analysis; function onResultsChanged() { root.syncResultsSelection() } }
 
-    Rectangle { anchors.fill: parent; color: Theme.canvas
+    function resultKeysEnabled() {
+        if (settingsDialog.visible || exportDialog.visible || root.selectedRecord === null) return false
+        for (let item = root.activeFocusItem; item; item = item.parent) {
+            if (item === sourcesRail) return false
+            if (item.cursorPosition !== undefined || item instanceof ComboBox || item instanceof Slider) return false
+        }
+        return true
+    }
+    Shortcut { sequence: "Up"; enabled: root.resultKeysEnabled(); onActivated: resultsRail.selectPrevious() }
+    Shortcut { sequence: "Down"; enabled: root.resultKeysEnabled(); onActivated: resultsRail.selectNext() }
+
+    Rectangle { id: workspaceSurface; anchors.fill: parent; color: Theme.canvas
+        layer.enabled: (settingsDialog.visible || exportDialog.visible) && GraphicsInfo.api !== GraphicsInfo.Software
+        layer.effect: MultiEffect { blurEnabled: true; blurMax: 12; blur: 1.0; colorization: 0.6; colorizationColor: "black" }
         ColumnLayout { anchors.fill: parent; spacing: 0
             TopBar { Layout.fillWidth: true; Layout.preferredHeight: Theme.topBarHeight; Layout.minimumHeight: Theme.topBarHeight; busy: Analysis.busy; onSettingsRequested: settingsDialog.open() }
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.hairline }

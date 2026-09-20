@@ -63,18 +63,18 @@ double keypointScore(const PersonDetection& left, const PersonDetection& right) 
     return std::exp(-4.0 * (weightedDistance / weight));
 }
 
-double appearanceScore(const PersonDetection& left, const PersonDetection& right) noexcept
+double embeddingScore(const std::vector<float>& left, const std::vector<float>& right) noexcept
 {
-    if (left.appearanceEmbedding.empty() || right.appearanceEmbedding.empty()
-        || left.appearanceEmbedding.size() != right.appearanceEmbedding.size()) {
+    if (left.empty() || right.empty()
+        || left.size() != right.size()) {
         return -1.0;
     }
     double dot = 0.0;
     double leftNorm = 0.0;
     double rightNorm = 0.0;
-    for (std::size_t index = 0; index < left.appearanceEmbedding.size(); ++index) {
-        const float a = left.appearanceEmbedding[index];
-        const float b = right.appearanceEmbedding[index];
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        const float a = left[index];
+        const float b = right[index];
         if (!std::isfinite(a) || !std::isfinite(b)) return -1.0;
         dot += static_cast<double>(a) * b;
         leftNorm += static_cast<double>(a) * a;
@@ -169,7 +169,17 @@ void DominantPersonTracker::update(double timestampSeconds,
                     break;
                 }
             }
-            const double appearance = appearanceScore(*appearanceReference, detections[detection]);
+            const double appearance = embeddingScore(appearanceReference->appearanceEmbedding,
+                                                       detections[detection].appearanceEmbedding);
+            double face = -1.0;
+            if (!detections[detection].faceEmbedding.empty()) {
+                for (auto observation = tracks_[track].observations.rbegin();
+                     observation != tracks_[track].observations.rend(); ++observation) {
+                    if (observation->faceEmbedding.empty()) continue;
+                    face = embeddingScore(observation->faceEmbedding, detections[detection].faceEmbedding);
+                    break;
+                }
+            }
             // IoU is still the strongest signal, but center/keypoint continuity
             // keeps an ID stable when a person turns or the detector jitters.
             // The gate prevents a stale track from stealing a new person merely
@@ -178,7 +188,8 @@ void DominantPersonTracker::update(double timestampSeconds,
             // identity similarity must veto the geometric match. This keeps
             // two people from swapping track IDs when they cross or stand in
             // the same shot.
-            if (appearance >= 0.0 && appearance < 0.45) continue;
+            if (face > -1.0 && face < 0.363) continue;
+            if (face <= -1.0 && appearance >= 0.0 && appearance < 0.45) continue;
             const bool gated = iou >= iouThreshold_
                 || (center >= 0.42 && keypoints >= 0.38);
             if (!gated) continue;
@@ -231,6 +242,78 @@ std::optional<PersonTrack> DominantPersonTracker::dominant() const
         return left.id > right.id;
     });
     return *best;
+}
+
+std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities)
+{
+    const auto count = identities.size();
+    std::vector<bool> selected(count, false);
+    if (!count) return selected;
+    const auto faceReady = [&](std::size_t i) {
+        return identities[i].faceEvidence >= 0.45
+            && embeddingScore(identities[i].face, identities[i].face) > 0.99;
+    };
+    const auto bodyReady = [&](std::size_t i) {
+        return identities[i].bodyEvidence >= 0.45
+            && embeddingScore(identities[i].body, identities[i].body) > 0.99;
+    };
+    struct Edge { std::size_t a, b; double score; bool face; };
+    std::vector<Edge> edges;
+    for (std::size_t a = 0; a < count; ++a) for (std::size_t b = a + 1; b < count; ++b) {
+        const bool face = faceReady(a) && faceReady(b);
+        if (!face && !(bodyReady(a) && bodyReady(b))) continue;
+        const double score = face ? embeddingScore(identities[a].face, identities[b].face)
+                                  : embeddingScore(identities[a].body, identities[b].body);
+        if (score >= (face ? 0.363 : 0.76)) edges.push_back({a, b, score, face});
+    }
+    // Build reliable face groups before allowing weaker clothing links.
+    std::stable_sort(edges.begin(), edges.end(), [](const Edge& a, const Edge& b) {
+        if (a.face != b.face) return a.face > b.face;
+        if (a.score != b.score) return a.score > b.score;
+        if (a.a != b.a) return a.a < b.a;
+        return a.b < b.b;
+    });
+    std::vector<std::size_t> owner(count);
+    std::vector<std::vector<std::size_t>> members(count);
+    for (std::size_t i = 0; i < count; ++i) { owner[i] = i; members[i].push_back(i); }
+    for (const auto& edge : edges) {
+        const auto a = owner[edge.a], b = owner[edge.b];
+        if (a == b) continue;
+        bool conflict = false;
+        for (const auto left : members[a]) {
+            if (!faceReady(left)) continue;
+            for (const auto right : members[b]) {
+                if (faceReady(right)
+                    && embeddingScore(identities[left].face, identities[right].face) < 0.363) {
+                    conflict = true; break;
+                }
+            }
+            if (conflict) break;
+        }
+        if (conflict) continue;
+        for (const auto i : members[b]) { owner[i] = a; members[a].push_back(i); }
+        members[b].clear();
+    }
+    std::size_t best = 0;
+    double bestDuration = -1, bestArea = -1;
+    bool bestEvidence = false;
+    for (std::size_t group = 0; group < count; ++group) {
+        if (members[group].empty()) continue;
+        double duration = 0, area = 0;
+        bool evidence = false;
+        for (const auto i : members[group]) {
+            duration += std::max(0.0, identities[i].duration);
+            area += std::max(0.0, identities[i].area);
+            evidence = evidence || faceReady(i) || bodyReady(i);
+        }
+        if ((evidence && !bestEvidence)
+            || (evidence == bestEvidence && (duration > bestDuration + 1e-9
+                || (std::abs(duration - bestDuration) <= 1e-9 && area > bestArea)))) {
+            best = group; bestDuration = duration; bestArea = area; bestEvidence = evidence;
+        }
+    }
+    for (const auto i : members[best]) selected[i] = true;
+    return selected;
 }
 
 } // namespace pfcore

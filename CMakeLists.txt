@@ -18,7 +18,7 @@ endif()
 
 include(CTest)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Quick QuickControls2 QuickDialogs2 Qml Gui Network)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 QuickDialogs2 Qml Gui Network)
 qt_standard_project_setup()
 qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0004 NEW)
@@ -33,4 +33,9 @@ add_subdirectory(app)        # ParallelFinder — thin: init → Main
 
 if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
     add_subdirectory(tests)
+endif()
+
+# Additional labelled matcher regressions and benchmark checks.
+if(BUILD_TESTING)
+    add_subdirectory(tools/benchmark)
 endif()

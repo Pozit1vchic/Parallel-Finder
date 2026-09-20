@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import QtQuick.Effects
+import QtQuick.Shapes
 import QtQuick.Layouts
 import PfUi
 import PfUiBridge
@@ -28,7 +28,6 @@ Rectangle {
     signal removeRequested(int index)
     signal analyzeRequested()
     implicitWidth: Theme.sidePanelWidth; color: Theme.rail; radius: Theme.radiusCard; border.color: Theme.border
-    layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowPanel; shadowBlur: 0.75; shadowVerticalOffset: 10 }
 
     function sourceName(path) {
         const pieces = String(path).replace(/\\/g, "/").split("/")
@@ -85,19 +84,21 @@ Rectangle {
             id: content; width: parent.width; spacing: 10
             RowLayout { Layout.fillWidth: true; height: 42
                 ColumnLayout { Layout.fillWidth: true; spacing: 3
-                    Text { id: sourceTitle; text: L10n.t("sources.title"); color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
-                    Text { Layout.fillWidth: true; text: root.sourceFiles.length > 0 ? root.sourceFiles.length + " " + L10n.t("sources.loaded") : L10n.t("sources.subtitle"); color: Theme.textSecondary; font.pixelSize: 11; elide: Text.ElideRight }
+                    Text { font.family: Theme.fontFamily; id: sourceTitle; text: L10n.t("sources.title"); color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
+                    Text { font.family: Theme.fontFamily; Layout.fillWidth: true; text: root.sourceFiles.length > 0 ? root.sourceFiles.length + " " + L10n.t("sources.loaded") : L10n.t("sources.subtitle"); color: Theme.textSecondary; font.pixelSize: 11; elide: Text.ElideRight }
                 }
             }
             DropArea {
+                id: rootDrop
                 Layout.fillWidth: true
                 width: parent.width; height: 102
                 Accessible.name: L10n.t("sources.dropTitle")
                 onDropped: if (drop.hasUrls) root.filesRequested(drop.urls)
-                Rectangle { anchors.fill: parent; radius: Theme.radiusButton; color: parent.containsDrag ? Theme.accentMuted : Theme.well; border.width: 1; border.color: parent.containsDrag ? Theme.accent : Theme.hairlineStrong
+                Rectangle { anchors.fill: parent; radius: Theme.radiusButton; color: parent.containsDrag ? Theme.accentMuted : Theme.well
+                    Shape { anchors.fill: parent; ShapePath { strokeColor: rootDrop.containsDrag ? Theme.accent : Theme.hairlineStrong; strokeWidth: 1; strokeStyle: ShapePath.DashLine; dashPattern: [4, 4]; fillColor: "transparent"; PathRectangle { x: 0.5; y: 0.5; width: rootDrop.width - 1; height: rootDrop.height - 1; radius: Theme.radiusButton } } }
                     Column { anchors.centerIn: parent; width: parent.width - 24; spacing: 7
-                        Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: L10n.t("sources.dropTitle"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap; maximumLineCount: 2; clip: true }
-                        Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: L10n.t("sources.dropHint"); color: Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap; maximumLineCount: 2; clip: true }
+                        Text { font.family: Theme.fontFamily; width: parent.width; horizontalAlignment: Text.AlignHCenter; text: L10n.t("sources.dropTitle"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap; maximumLineCount: 2; clip: true }
+                        Text { font.family: Theme.fontFamily; width: parent.width; horizontalAlignment: Text.AlignHCenter; text: L10n.t("sources.dropHint"); color: Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap; maximumLineCount: 2; clip: true }
                     }
                 }
             }
@@ -118,32 +119,32 @@ Rectangle {
                 Keys.onReturnPressed: if (root.selectedSourceIndex >= 0) root.removeRequested(root.selectedSourceIndex)
                 delegate: Rectangle {
                     width: ListView.view.width; height: 30; radius: 5; color: index === root.selectedSourceIndex ? Theme.accentMuted : (index % 2 === 0 ? Theme.surfaceRaised : "transparent"); Accessible.name: root.sourceName(modelData); Accessible.role: Accessible.ListItem
-                    Text { anchors.left: parent.left; anchors.leftMargin: 9; anchors.right: parent.right; anchors.rightMargin: 7; anchors.verticalCenter: parent.verticalCenter; text: (index + 1) + "  " + root.sourceName(modelData); color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideMiddle }
+                    Text { font.family: Theme.fontFamily; anchors.left: parent.left; anchors.leftMargin: 9; anchors.right: parent.right; anchors.rightMargin: 7; anchors.verticalCenter: parent.verticalCenter; text: (index + 1) + "  " + root.sourceName(modelData); color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideMiddle }
                     MouseArea { anchors.fill: parent; onClicked: root.selectedSourceIndex = index }
                 }
-                Text { anchors.centerIn: parent; visible: root.sourceFiles.length === 0; text: L10n.t("sources.empty"); color: Theme.textDisabled; font.pixelSize: 10 }
+                Text { font.family: Theme.fontFamily; anchors.centerIn: parent; visible: root.sourceFiles.length === 0; text: L10n.t("sources.empty"); color: Theme.textDisabled; font.pixelSize: 10 }
             }
             Rectangle { Layout.fillWidth: true; width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: accuracyCard.implicitHeight + 24
                 Column { id: accuracyCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
-                    Text { text: L10n.t("search.accuracyGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                    Text { width: parent.width; text: L10n.t("search.accuracyHint"); color: Theme.textSecondary; font.pixelSize: 10; wrapMode: Text.WordWrap }
+                    Text { font.family: Theme.fontFamily; text: L10n.t("search.accuracyGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                    Text { font.family: Theme.fontFamily; width: parent.width; text: L10n.t("search.accuracyHint"); color: Theme.textDisabled; font.pixelSize: 10; wrapMode: Text.WordWrap }
                     GridLayout { width: parent.width; columns: 2; columnSpacing: 6; rowSpacing: 6
-                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.presetFast"); quiet: root.accuracyPreset !== "fast"; onClicked: root.applyAccuracyPreset("fast") }
-                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.presetBalanced"); quiet: root.accuracyPreset !== "balanced"; onClicked: root.applyAccuracyPreset("balanced") }
-                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.columnSpan: 2; compact: true; text: L10n.t("search.presetPrecise"); quiet: root.accuracyPreset !== "precise"; onClicked: root.applyAccuracyPreset("precise") }
+                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.presetFast"); selected: root.accuracyPreset === "fast"; onClicked: root.applyAccuracyPreset("fast") }
+                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.presetBalanced"); selected: root.accuracyPreset === "balanced"; onClicked: root.applyAccuracyPreset("balanced") }
+                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.columnSpan: 2; compact: true; text: L10n.t("search.presetPrecise"); selected: root.accuracyPreset === "precise"; onClicked: root.applyAccuracyPreset("precise") }
                     }
                 }
             }
             Rectangle { Layout.fillWidth: true; width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: qualityCard.implicitHeight + 24
                 Column { id: qualityCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
                     RowLayout { width: parent.width
-                        Text { Layout.fillWidth: true; text: L10n.t("search.frameProcessing"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold; elide: Text.ElideRight }
-                        Text { text: Analysis.qualityProfile === "fast" ? L10n.t("search.fast") : Analysis.qualityProfile === "medium" ? L10n.t("search.medium") : L10n.t("search.maximum"); color: Theme.sage; font.pixelSize: 10 }
+                        Text { font.family: Theme.fontFamily; Layout.fillWidth: true; text: L10n.t("search.frameProcessing"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                        Text { font.family: Theme.fontFamily; text: Analysis.qualityProfile === "fast" ? L10n.t("search.fast") : Analysis.qualityProfile === "medium" ? L10n.t("search.medium") : L10n.t("search.maximum"); color: Theme.sage; font.pixelSize: 10 }
                     }
                     GridLayout { width: parent.width; columns: 2; columnSpacing: 6; rowSpacing: 6
-                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.fast"); quiet: Analysis.qualityProfile !== "fast"; onClicked: Analysis.qualityProfile = "fast" }
-                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.medium"); quiet: Analysis.qualityProfile !== "medium"; onClicked: Analysis.qualityProfile = "medium" }
-                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.columnSpan: 2; compact: true; text: L10n.t("search.maximum"); quiet: Analysis.qualityProfile !== "maximum"; onClicked: Analysis.qualityProfile = "maximum" }
+                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.fast"); selected: Analysis.qualityProfile === "fast"; onClicked: Analysis.qualityProfile = "fast" }
+                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.medium"); selected: Analysis.qualityProfile === "medium"; onClicked: Analysis.qualityProfile = "medium" }
+                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.columnSpan: 2; compact: true; text: L10n.t("search.maximum"); selected: Analysis.qualityProfile === "maximum"; onClicked: Analysis.qualityProfile = "maximum" }
                     }
                     PfCheckBox { text: L10n.t("search.normalize"); tooltipText: L10n.t("search.normalizeHint"); checked: Analysis.normalizeSize; onToggled: Analysis.normalizeSize = checked }
                     PfCheckBox { text: L10n.t("search.mirror"); tooltipText: L10n.t("search.mirrorHint"); checked: Analysis.mirrorPoses; onToggled: Analysis.mirrorPoses = checked }
@@ -161,14 +162,14 @@ Rectangle {
                     anchors.fill: parent
                     anchors.margins: 12
                     spacing: 8
-                    Text {
+                    Text { font.family: Theme.fontFamily;
                         Layout.fillWidth: true
                         text: L10n.t("search.analysisMode")
                         color: Theme.sage
                         font.pixelSize: 11
                         font.weight: Font.DemiBold
                     }
-                    Text {
+                    Text { font.family: Theme.fontFamily;
                         Layout.fillWidth: true
                         text: L10n.t("search.modeHint")
                         color: Theme.textSecondary
@@ -185,7 +186,7 @@ Rectangle {
                             Layout.minimumWidth: 0
                             compact: true
                             text: L10n.t("search.modeMotion")
-                            quiet: Analysis.analysisMode !== "motion"
+                            selected: Analysis.analysisMode === "motion"
                             onClicked: Analysis.analysisMode = "motion"
                         }
                         PfButton {
@@ -193,7 +194,7 @@ Rectangle {
                             Layout.minimumWidth: 0
                             compact: true
                             text: L10n.t("search.modeStatic")
-                            quiet: Analysis.analysisMode !== "static"
+                            selected: Analysis.analysisMode === "static"
                             onClicked: Analysis.analysisMode = "static"
                         }
                         PfButton {
@@ -201,7 +202,7 @@ Rectangle {
                             Layout.minimumWidth: 0
                             compact: true
                             text: L10n.t("search.modeClips")
-                            quiet: Analysis.analysisMode !== "clips"
+                            selected: Analysis.analysisMode === "clips"
                             onClicked: Analysis.analysisMode = "clips"
                         }
                         PfButton {
@@ -209,7 +210,7 @@ Rectangle {
                             Layout.minimumWidth: 0
                             compact: true
                             text: L10n.t("search.modeCombined")
-                            quiet: Analysis.analysisMode !== "combined"
+                            selected: Analysis.analysisMode === "combined"
                             onClicked: Analysis.analysisMode = "combined"
                         }
                     }
@@ -221,7 +222,7 @@ Rectangle {
                 title: L10n.t("search.advanced")
                 expanded: root.advancedOpen
                 onToggled: root.advancedOpen = expanded
-                Text {
+                Text { font.family: Theme.fontFamily;
                     width: parent.width
                     text: L10n.t("search.advancedHint")
                     color: Theme.textSecondary
@@ -230,7 +231,7 @@ Rectangle {
                 }
                 Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: modelCard.implicitHeight + 24
                     Column { id: modelCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
-                        Text { text: L10n.t("settings.poseModel"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Text { font.family: Theme.fontFamily; text: L10n.t("settings.poseModel"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfComboBox {
                             width: parent.width
                             model: root.modelLabels
@@ -239,7 +240,7 @@ Rectangle {
                             Accessible.name: L10n.t("settings.poseModel")
                             onActivated: Analysis.selectModel(root.modelFiles[currentIndex])
                         }
-                        Text {
+                        Text { font.family: Theme.fontFamily;
                             width: parent.width
                             text: Analysis.modelDownloading
                                 ? (L10n.t("settings.modelDownloading") + "\n" + Analysis.modelDownloadingName
@@ -259,19 +260,19 @@ Rectangle {
                 }
                 Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: sceneCard.implicitHeight + 24
                     Column { id: sceneCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
-                        Text { text: L10n.t("search.sceneGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Text { font.family: Theme.fontFamily; text: L10n.t("search.sceneGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfSliderField { width: parent.width; label: L10n.t("search.sceneThreshold"); from: 8; to: 60; stepSize: 1; value: Analysis.sceneThreshold; decimals: 0; integer: true; tooltipText: L10n.t("search.sceneThresholdHint"); Accessible.name: L10n.t("search.sceneThreshold"); onValueEdited: Analysis.setSceneThreshold(nextValue) }
                     }
                 }
                 Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: similarityCard.implicitHeight + 24
                     Column { id: similarityCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
-                        Text { text: L10n.t("search.similarityGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Text { font.family: Theme.fontFamily; text: L10n.t("search.similarityGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfSliderField { width: parent.width; label: L10n.t("search.similarity"); from: 0.5; to: 0.99; stepSize: 0.01; value: Analysis.similarityThreshold; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("search.similarityHint"); Accessible.name: L10n.t("search.similarity"); onValueEdited: { root.markCustom(); Analysis.similarityThreshold = nextValue } }
                     }
                 }
                 Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: spacingCard.implicitHeight + 24
                     Column { id: spacingCard; anchors.fill: parent; anchors.margins: 12; spacing: 9
-                        Text { text: L10n.t("search.spacingGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Text { font.family: Theme.fontFamily; text: L10n.t("search.spacingGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfSliderField { width: parent.width; label: L10n.t("search.repeatGap"); from: 0; to: 30; stepSize: 0.5; value: Analysis.repeatGap; decimals: 1; suffix: L10n.t("common.seconds"); tooltipText: L10n.t("search.repeatGapHint"); Accessible.name: L10n.t("search.repeatGap"); onValueEdited: { root.markCustom(); Analysis.repeatGap = nextValue } }
                     }
                 }
@@ -292,6 +293,7 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     Layout.preferredHeight: 42
+                    primary: true
                     text: root.sourceFiles.length === 0
                         ? L10n.t("sources.add")
                         : (Analysis.modelDownloading
@@ -312,7 +314,7 @@ Rectangle {
                     Accessible.name: text
                 }
             }
-            Text {
+            Text { font.family: Theme.fontFamily;
                 width: parent.width; text: Analysis.busy
                     ? L10n.status(Analysis.progressStage) + " · " + Math.round(Analysis.progress * 100) + "%"
                     : L10n.status(Analysis.status)

@@ -21,6 +21,11 @@ struct SceneSample {
     std::span<const std::uint8_t> rgba;
 };
 
+// Background colour context, excluding the central actor region and black
+// letterboxing. A heuristic for nearby shots of one setting, not identity.
+std::vector<float> sceneContext(std::span<const SceneSample> samples,
+                                double startSeconds, double endSeconds);
+
 // Scene change detector (stage 2b). Frames are compared in compact HSV space
 // with an adaptive short baseline. Hard cuts and slow fade/dissolve transitions
 // are treated separately; a person briefly leaving the frame is not a scene.

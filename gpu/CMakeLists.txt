@@ -8,6 +8,7 @@ add_library(pfgpu STATIC
     src/Inference.cpp
     src/PoseEstimator.cpp
     src/ReIdEstimator.cpp
+    src/FaceEstimator.cpp
 )
 add_library(pf::gpu ALIAS pfgpu)
 set_target_properties(pfgpu PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)

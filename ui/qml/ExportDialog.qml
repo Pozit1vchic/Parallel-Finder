@@ -7,6 +7,9 @@ import PfUiBridge
 
 Popup {
     id: root
+    objectName: "exportDialog"
+    readonly property int selectedNumbering: exportNumbering.currentIndex
+    readonly property int selectedCutMode: cutMode.currentIndex
     property var rootWindow
     property var selectedRows: ({})
     property string outputFolder: ""
@@ -30,8 +33,8 @@ Popup {
         }
     }
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-    Overlay.modal: Rectangle { color: Theme.overlayDim }
-    background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairline; layer.enabled: true; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowOpacity: 0.78; shadowBlur: 1.0; shadowHorizontalOffset: 0; shadowVerticalOffset: 20 } }
+    Overlay.modal: Rectangle { color: GraphicsInfo.api === GraphicsInfo.Software ? "#99000000" : "transparent" }
+    background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairline; layer.enabled: GraphicsInfo.api !== GraphicsInfo.Software; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowOpacity: 0.78; shadowBlur: 1.0; shadowHorizontalOffset: 0; shadowVerticalOffset: 20 } }
     FolderDialog {
         id: folderDialog
         title: L10n.t("export.chooseFolder")
@@ -85,14 +88,14 @@ Popup {
         PfComboBox { id: exportFormat; width: parent.width; model: ["JSON", "CSV", "TXT", "FFMPEG"]; Accessible.name: L10n.t("export.format") }
         Text { text: L10n.t("export.numbering"); color: Theme.textSecondary; font.pixelSize: 11 }
             Row { width: parent.width; spacing: 8
-                PfButton { width: (parent.width - 8) / 2; text: L10n.t("export.asVideo"); quiet: exportNumbering.currentIndex !== 0; onClicked: exportNumbering.currentIndex = 0 }
-                PfButton { width: (parent.width - 8) / 2; text: L10n.t("export.bySort"); quiet: exportNumbering.currentIndex !== 1; onClicked: exportNumbering.currentIndex = 1 }
+                PfButton { width: (parent.width - 8) / 2; objectName: "videoNumberingButton"; text: L10n.t("export.asVideo"); selected: exportNumbering.currentIndex === 0; onClicked: exportNumbering.currentIndex = 0 }
+                PfButton { width: (parent.width - 8) / 2; objectName: "sortNumberingButton"; text: L10n.t("export.bySort"); selected: exportNumbering.currentIndex === 1; onClicked: exportNumbering.currentIndex = 1 }
             }
         ComboBox { id: exportNumbering; visible: false; model: [0, 1]; currentIndex: 0 }
         Text { text: L10n.t("export.cutMode"); color: Theme.textSecondary; font.pixelSize: 11 }
         Row { width: parent.width; spacing: 8
-            PfButton { width: (parent.width - 8) / 2; text: L10n.t("export.exact"); quiet: cutMode.currentIndex !== 0; onClicked: cutMode.currentIndex = 0 }
-            PfButton { width: (parent.width - 8) / 2; text: L10n.t("export.fast"); quiet: cutMode.currentIndex !== 1; onClicked: cutMode.currentIndex = 1 }
+            PfButton { width: (parent.width - 8) / 2; objectName: "exactCutButton"; text: L10n.t("export.exact"); selected: cutMode.currentIndex === 0; onClicked: cutMode.currentIndex = 0 }
+            PfButton { width: (parent.width - 8) / 2; objectName: "fastCutButton"; text: L10n.t("export.fast"); selected: cutMode.currentIndex === 1; onClicked: cutMode.currentIndex = 1 }
         }
         ComboBox { id: cutMode; visible: false; model: [0, 1]; currentIndex: 0 }
         Row { width: parent.width; spacing: 8
@@ -109,7 +112,7 @@ Popup {
             font.pixelSize: 11
             wrapMode: Text.WordWrap
         }
-        PfButton { width: parent.width; text: L10n.t("export.prepare"); enabled: Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(exportFormat.currentText, exportNumbering.currentIndex, cutMode.currentIndex, root.outputFolder, prefixField.text, root.selectedIndexes()) }
+        PfButton { width: parent.width; primary: true; text: Analysis.exportBusy ? "Экспортируем…" : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(exportFormat.currentText, exportNumbering.currentIndex, cutMode.currentIndex, root.outputFolder, prefixField.text, root.selectedIndexes()) }
     }
 
     function centerInWindow() {

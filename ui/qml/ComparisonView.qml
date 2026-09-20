@@ -73,7 +73,7 @@ Item {
                 height: 24
                 Text { text: root.title; color: root.accentColor; font.family: Theme.displayFont; font.pixelSize: 16; verticalAlignment: Text.AlignVCenter }
                 Item { width: parent.width - timeText.implicitWidth - resetButton.width - 16; height: 1 }
-                Text { id: timeText; text: root.timecode(root.timestamp); color: Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
+                Text { font.family: Theme.fontFamily; id: timeText; text: root.timecode(root.timestamp); color: Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
                 PfIconButton {
                     id: resetButton
                     width: 24
@@ -120,7 +120,7 @@ Item {
                     spacing: 8
                     visible: frameImage.status !== Image.Ready
                     Image { anchors.horizontalCenter: parent.horizontalCenter; source: "qrc:/qt/qml/PfUi/qml/assets/film.svg"; sourceSize.width: 24; sourceSize.height: 24; opacity: 0.72 }
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: frameImage.status === Image.Loading ? L10n.t("timeline.loadingFrame") : L10n.t("timeline.frameUnavailable"); color: Theme.textSecondary; font.pixelSize: 11 }
+                    Text { font.family: Theme.fontFamily; anchors.horizontalCenter: parent.horizontalCenter; text: frameImage.status === Image.Loading ? L10n.t("timeline.loadingFrame") : L10n.t("timeline.frameUnavailable"); color: Theme.textSecondary; font.pixelSize: 11 }
                     Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.timecode(root.timestamp); color: root.accentColor; font.family: Theme.displayFont; font.pixelSize: 16 }
                 }
 
@@ -155,7 +155,7 @@ Item {
             Row {
                 width: parent.width
                 height: 16
-                Text { width: parent.width; text: root.fileName(root.sourcePath); color: Theme.textDisabled; font.pixelSize: 9; elide: Text.ElideMiddle; verticalAlignment: Text.AlignVCenter }
+                Text { font.family: Theme.fontFamily; width: parent.width; text: root.fileName(root.sourcePath); color: Theme.textDisabled; font.pixelSize: 9; elide: Text.ElideMiddle; verticalAlignment: Text.AlignVCenter }
             }
         }
     }

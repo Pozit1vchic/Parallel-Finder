@@ -1,0 +1,9 @@
+{
+  "description": "User-labelled positive anchors from the original Soldier Boy source; inspect temporal neighbourhoods, not just stills.",
+  "sourceFilename": "Soldier Boy (The Boys) _ Scenepack 4K.mp4",
+  "positiveAnchorsSeconds": [[79, 94], [63, 262], [175, 260]],
+  "negativeAnchorsSeconds": [[143, 185], [118, 128], [177, 185], [85, 93], [109, 119]],
+  "anchorToleranceSeconds": 2.0,
+  "negativeExamples": "User screenshots identify cross-person pairs 143/185 and 118/128 as false matches. Unrelated body motions 208/230 still need temporal annotation.",
+  "notes": "Three positive anchors cannot establish overall precision or recall. Do not hard-code these timestamps in the matcher."
+}

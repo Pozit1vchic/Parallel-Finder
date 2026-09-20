@@ -9,6 +9,7 @@ import PfUiBridge
 
 Popup {
     id: root
+    objectName: "settingsDialog"
     property var rootWindow
     property bool userPositioned: false
     property string themeStatus: ""
@@ -37,23 +38,23 @@ Popup {
     transformOrigin: Item.Center
     enter: Transition {
         ParallelAnimation {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 180; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.reducedMotion ? 0 : 120; easing.type: Easing.OutCubic }
             NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: 180; easing.type: Easing.OutCubic }
         }
     }
     exit: Transition {
         ParallelAnimation {
-            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 150; easing.type: Easing.InCubic }
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.reducedMotion ? 0 : 120; easing.type: Easing.InCubic }
             NumberAnimation { property: "scale"; from: 1; to: 0.97; duration: 150; easing.type: Easing.InCubic }
         }
     }
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-    Overlay.modal: Rectangle { color: Theme.overlayDim }
+    Overlay.modal: Rectangle { color: GraphicsInfo.api === GraphicsInfo.Software ? "#99000000" : "transparent" }
     background: Rectangle {
         color: Theme.heroPanel
         radius: Theme.radiusOverlay
         border.color: Theme.hairline
-        layer.enabled: true
+        layer.enabled: GraphicsInfo.api !== GraphicsInfo.Software
         layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowOpacity: 0.78; shadowBlur: 1.0; shadowHorizontalOffset: 0; shadowVerticalOffset: 20 }
     }
 
@@ -61,10 +62,11 @@ Popup {
         id: customizationStore
         category: "ParallelFinder/customization"
         property string language: "ru"
-        property string fontFamily: "Segoe UI"
+        property string fontFamily: "Segoe UI Variable"
         property string customFontPath: ""
         property real surfaceOpacity: 1.0
         property string accentColor: "orange"
+        property bool reducedMotion: false
     }
     FontLoader {
         id: customFont
@@ -93,9 +95,10 @@ Popup {
 
     Component.onCompleted: {
         L10n.language = customizationStore.language
+        Theme.reducedMotion = customizationStore.reducedMotion
         Theme.surfaceOpacity = customizationStore.surfaceOpacity
         root.applyAccent(customizationStore.accentColor)
-        if (!customizationStore.customFontPath.length) Theme.fontFamily = customizationStore.fontFamily
+        if (!customizationStore.customFontPath.length) Theme.fontFamily = ["Segoe UI Variable", "Inter", "Montserrat"].indexOf(customizationStore.fontFamily) >= 0 ? customizationStore.fontFamily : "Segoe UI Variable"
         root.centerInWindow()
     }
     onClosed: {
@@ -109,7 +112,6 @@ Popup {
         // ring just because the popup was opened with the mouse.
         Qt.callLater(function() { root.forceActiveFocus() })
     }
-    Keys.onEscapePressed: root.close()
 
     function centerInWindow() {
         if (!rootWindow || root.userPositioned) return
@@ -117,7 +119,7 @@ Popup {
         root.y = Math.round((rootWindow.height - root.height) / 2)
     }
     function resetAppearance() {
-        Theme.fontFamily = "Segoe UI"
+        Theme.fontFamily = "Segoe UI Variable"
         Theme.surfaceOpacity = 1.0
         root.applyAccent("orange")
         customizationStore.fontFamily = Theme.fontFamily
@@ -156,16 +158,22 @@ Popup {
         return L10n.t("settings.providerDownloadHint")
     }
 
-    contentItem: Column {
+    contentItem: Item {
+        clip: true
+        layer.enabled: root.visible && GraphicsInfo.api !== GraphicsInfo.Software
+        layer.effect: MultiEffect { maskEnabled: true; maskSource: roundedMask }
+        Rectangle { id: roundedMask; anchors.fill: parent; radius: Theme.radiusOverlay; color: "white"; visible: false; layer.enabled: true }
+        Column {
+        anchors.fill: parent
         spacing: 0
         Rectangle {
             width: parent.width
             height: 58
+            radius: GraphicsInfo.api === GraphicsInfo.Software ? Theme.radiusOverlay : 0
             color: Theme.surfaceRaised
-            radius: Theme.radiusOverlay
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.hairline }
             Text { anchors.left: parent.left; anchors.leftMargin: 22; anchors.verticalCenter: parent.verticalCenter; text: L10n.t("settings.windowTitle"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 13; font.weight: Font.DemiBold }
-            PfIconButton { anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter; iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); activeFocusOnTab: false; focusPolicy: Qt.NoFocus; onClicked: root.close() }
+            PfIconButton { anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter; iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); activeFocusOnTab: true; focusPolicy: Qt.StrongFocus; onClicked: root.close() }
             MouseArea {
                 anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.rightMargin: 56
                 property real pressX
@@ -182,30 +190,33 @@ Popup {
         }
         TabBar {
             id: tabs
+            objectName: "settingsTabs"
             width: parent.width
             height: 46
-            background: Rectangle { color: Theme.surfaceRaised; border.color: Theme.hairline }
+            background: Rectangle { color: Theme.surfaceRaised }
             TabButton {
                 id: analysisTab
                 text: L10n.t("settings.tabAnalysis")
-                focusPolicy: Qt.NoFocus
-                activeFocusOnTab: false
+                focusPolicy: Qt.StrongFocus
+                activeFocusOnTab: true
                 contentItem: Text { text: analysisTab.text; color: analysisTab.checked ? Theme.textPrimary : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: analysisTab.checked ? Font.DemiBold : Font.Normal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { color: analysisTab.checked ? Theme.panelAlt : "transparent"; border.color: analysisTab.checked ? Theme.accent : "transparent"; border.width: analysisTab.checked ? 1 : 0; radius: Theme.radiusButton }
+                background: Item { Rectangle { anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; width: parent.width - 44; height: 2; color: Theme.accent; visible: analysisTab.checked } }
             }
             TabButton {
                 id: customizationTab
                 text: L10n.t("settings.tabAppearance")
-                focusPolicy: Qt.NoFocus
-                activeFocusOnTab: false
+                focusPolicy: Qt.StrongFocus
+                activeFocusOnTab: true
                 contentItem: Text { text: customizationTab.text; color: customizationTab.checked ? Theme.textPrimary : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: customizationTab.checked ? Font.DemiBold : Font.Normal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { color: customizationTab.checked ? Theme.panelAlt : "transparent"; border.color: customizationTab.checked ? Theme.accent : "transparent"; border.width: customizationTab.checked ? 1 : 0; radius: Theme.radiusButton }
+                background: Item { Rectangle { anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; width: parent.width - 44; height: 2; color: Theme.accent; visible: customizationTab.checked } }
             }
         }
         StackLayout { id: pages; width: parent.width; height: parent.height - 104; currentIndex: tabs.currentIndex
             Item {
                 Flickable { anchors.fill: parent; anchors.margins: 22; clip: true; contentWidth: width; contentHeight: analysisBody.implicitHeight + 30; boundsBehavior: Flickable.StopAtBounds
                     ColumnLayout { id: analysisBody; width: parent.width; spacing: 14
+                        PfCheckBox { Layout.fillWidth: true; text: "Костюм / маска"; checked: Analysis.costumeMode; enabled: !Analysis.busy; onToggled: Analysis.costumeMode = checked }
+                        Text { Layout.fillWidth: true; text: "Для закрытых лиц: сравнение костюма и движения без распознавания лица. Одинаковый костюм не доказывает, что это один актёр."; color: Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
                         Text { text: L10n.t("settings.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.subtitle"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 13; wrapMode: Text.WordWrap }
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hairline }
@@ -258,7 +269,7 @@ Popup {
                         }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.cache"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout { Layout.fillWidth: true; spacing: 8
-                            PfTextField { Layout.fillWidth: true; text: Analysis.cachePath; placeholderText: L10n.t("settings.cachePlaceholder"); Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }
+                            PfTextField { Layout.fillWidth: true; font.family: Theme.monoFont; text: Analysis.cachePath; placeholderText: L10n.t("settings.cachePlaceholder"); Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }
                             PfButton { Layout.preferredWidth: 96; compact: true; text: L10n.t("settings.choose"); quiet: true; onClicked: cacheDialog.open() }
                         }
                         PfSliderField { Layout.fillWidth: true; label: L10n.t("settings.cacheLimit"); from: 0.25; to: 128; stepSize: 0.25; value: Analysis.cacheLimitGb; decimals: 2; suffix: "GB"; tooltipText: L10n.t("settings.cacheLimitHint"); Accessible.name: L10n.t("settings.cacheLimit"); onValueEdited: Analysis.setCacheLimitGb(nextValue) }
@@ -268,7 +279,8 @@ Popup {
                 }
             }
             Item {
-                Flickable { anchors.fill: parent; anchors.margins: 22; clip: true; contentWidth: width; contentHeight: appearanceBody.implicitHeight + 30; boundsBehavior: Flickable.StopAtBounds
+                PfButton { anchors.left: parent.left; anchors.leftMargin: 22; anchors.bottom: parent.bottom; anchors.bottomMargin: 16; width: 210; compact: true; text: L10n.t("settings.resetAppearance"); quiet: true; onClicked: root.resetAppearance() }
+                Flickable { anchors.fill: parent; anchors.margins: 22; anchors.bottomMargin: 66; clip: true; contentWidth: width; contentHeight: appearanceBody.implicitHeight + 30; boundsBehavior: Flickable.StopAtBounds
                     Column { id: appearanceBody; width: parent.width; spacing: 14
                         Text { text: L10n.t("settings.appearanceTitle"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
                         Text { text: L10n.t("settings.appearanceSubtitle"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
@@ -277,7 +289,7 @@ Popup {
                         PfComboBox { width: parent.width; model: [L10n.t("settings.languageRussian"), L10n.t("settings.languageEnglish")]; currentIndex: L10n.language === "en" ? 1 : 0; Accessible.name: L10n.t("settings.language"); onActivated: { L10n.language = currentIndex === 1 ? "en" : "ru"; customizationStore.language = L10n.language } }
                         Text { text: L10n.t("settings.font"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout { width: parent.width; spacing: 8
-                            PfComboBox { Layout.fillWidth: true; model: ["Segoe UI", "Arial", "Verdana"]; currentIndex: Math.max(0, model.indexOf(Theme.fontFamily)); Accessible.name: L10n.t("settings.font"); onActivated: { Theme.fontFamily = currentText; customizationStore.fontFamily = currentText; customizationStore.customFontPath = "" } }
+                            PfComboBox { Layout.fillWidth: true; model: ["Segoe UI Variable", "Inter", "Montserrat"]; currentIndex: Math.max(0, model.indexOf(Theme.fontFamily)); Accessible.name: L10n.t("settings.font"); onActivated: { Theme.fontFamily = currentText; customizationStore.fontFamily = currentText; customizationStore.customFontPath = "" } }
                             PfButton { Layout.preferredWidth: 132; text: L10n.t("settings.fontAdd"); quiet: true; onClicked: fontDialog.open() }
                         }
                         Text { visible: customFont.status === FontLoader.Ready; text: L10n.t("settings.fontLoaded") + ": " + customFont.name; color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
@@ -286,11 +298,12 @@ Popup {
                         Text { text: L10n.t("settings.surfaceOpacity"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfSliderField { width: parent.width; label: L10n.t("settings.surfaceOpacity"); from: 0.25; to: 1.0; stepSize: 0.01; value: Theme.surfaceOpacity; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("settings.surfaceOpacityHint"); Accessible.name: L10n.t("settings.surfaceOpacity"); onValueEdited: { Theme.surfaceOpacity = nextValue; customizationStore.surfaceOpacity = nextValue } }
                         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-                        PfButton { width: parent.width; text: L10n.t("settings.resetAppearance"); quiet: true; onClicked: root.resetAppearance() }
+                        PfCheckBox { text: "Уменьшить анимации"; checked: Theme.reducedMotion; onToggled: { Theme.reducedMotion = checked; customizationStore.reducedMotion = checked } }
                         Text { width: parent.width; text: root.themeStatus || L10n.t("settings.profileSaved"); color: root.themeStatus ? Theme.accent : Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }
                     }
                 }
             }
+        }
         }
     }
 }
