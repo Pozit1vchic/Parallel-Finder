@@ -8,6 +8,7 @@
 #include <QTimer>
 #include <QString>
 #include <QUrl>
+#include <QQuickWindow>
 
 #include <pfgpu/DeviceInfo.hpp>
 
@@ -135,12 +136,24 @@ int main(int argc, char* argv[])
     // Static QML module resources live under :/qt/qml (QTP0001); make the
     // import path explicit so `import PfUi` resolves regardless of Qt defaults.
     engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+    engine.addImportPath(QCoreApplication::applicationDirPath() + QStringLiteral("/qml"));
     // Load by URL: loadFromModule() needs the module's plugin registered,
     // which shared-Qt builds of static modules do not do automatically.
     engine.load(QUrl(QStringLiteral("qrc:/qt/qml/PfUi/qml/Main.qml")));
     if (engine.rootObjects().isEmpty()) {
         std::fprintf(stderr, "Fatal: failed to load PfUi.Main\n");
         return 1;
+    }
+    // Unlike --pf-smoke, exercise the shipped QML imports and actual renderer.
+    if (args.contains(QStringLiteral("--pf-ui-smoke"))) {
+        auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+        if (!window) return 2;
+        QObject::connect(window, &QQuickWindow::frameSwapped, &app, [&app] {
+            std::printf("ParallelFinder UI smoke: window rendered\n");
+            app.exit(0);
+        }, Qt::QueuedConnection);
+        QTimer::singleShot(15000, &app, [&app] { app.exit(3); });
+        window->requestUpdate();
     }
     return app.exec();
 }

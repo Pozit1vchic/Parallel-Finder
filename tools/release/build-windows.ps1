@@ -15,7 +15,7 @@ try {
     & ctest --preset ucrt64-release --output-on-failure
     if ($LASTEXITCODE) { throw 'Tests failed: refusing to package' }
     Remove-Item Env:QT_QPA_PLATFORM
-    $tag = '0.1.0-rc.1'
+    $tag = '0.1.0-rc.2'
     $run = [guid]::NewGuid().ToString('N').Substring(0,8)
     $stage = Join-Path $root "build/package-$run/ParallelFinder"
     $out = Join-Path $root "release/$tag-$run"
@@ -25,6 +25,7 @@ try {
     Copy-Item -LiteralPath "$root/docs" -Destination (Join-Path $stage "docs") -Recurse
     & "$bin/windeployqt.exe" --release --no-translations --qmldir "$root/ui/qml" --dir $stage "$stage/ParallelFinder.exe"
     if ($LASTEXITCODE) { throw 'Qt deployment failed' }
+    Copy-Item -LiteralPath "$PSScriptRoot/qt.conf" -Destination $stage
     Copy-Item -LiteralPath "$bin/ffmpeg.exe","$bin/onnxruntime.dll" -Destination $stage
     # Follow native PE imports rather than copying an entire developer toolchain.
     $queue = [Collections.Generic.Queue[string]]::new()
@@ -54,6 +55,21 @@ try {
     Copy-Item -LiteralPath "$Toolchain/share/licenses" -Destination (Join-Path $stage 'third-party-licenses') -Recurse
     Copy-Item -LiteralPath "$root/ui/qml/fonts/OFL.txt" -Destination (Join-Path $stage 'third-party-licenses/JetBrainsMono-OFL.txt')
     Copy-Item -LiteralPath "$root/docs/release-audit.md" -Destination (Join-Path $stage 'RELEASE-NOTES.md')
+    # Test real QML loading/rendering without developer import paths or DLL paths.
+    $savedEnv = @{}
+    $envNames = @('PATH','QML_IMPORT_PATH','QML2_IMPORT_PATH','QT_PLUGIN_PATH','QT_QPA_PLATFORM','PF_ORT_DLL')
+    foreach ($name in $envNames) { $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+    try {
+        $env:PATH = "$stage;$env:SystemRoot/System32;$env:SystemRoot"
+        Remove-Item Env:QML_IMPORT_PATH,Env:QML2_IMPORT_PATH,Env:QT_PLUGIN_PATH -ErrorAction SilentlyContinue
+        $env:QT_QPA_PLATFORM = 'windows'
+        $env:PF_ORT_DLL = Join-Path $stage 'onnxruntime.dll'
+        $probe = Start-Process -FilePath "$stage/ParallelFinder.exe" -ArgumentList '--pf-ui-smoke' -WorkingDirectory $out -WindowStyle Hidden -PassThru -RedirectStandardOutput "$out/ui-smoke.log" -RedirectStandardError "$out/ui-smoke-errors.log"
+        if (!$probe.WaitForExit(30000)) { $probe.Kill(); throw 'Packaged UI startup timed out' }
+        if ($probe.ExitCode -ne 0) { throw "Packaged UI startup failed: $($probe.ExitCode); see $out/ui-smoke-errors.log" }
+    } finally {
+        foreach ($name in $envNames) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], 'Process') }
+    }
     $files = Get-ChildItem -LiteralPath $stage -Recurse -File
     $manifest = foreach ($file in $files) {
         [pscustomobject]@{Path=[IO.Path]::GetRelativePath($stage,$file.FullName); Bytes=$file.Length; SHA256=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
