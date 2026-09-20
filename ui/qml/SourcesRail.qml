@@ -7,6 +7,7 @@ import PfUiBridge
 
 Rectangle {
     id: root
+    objectName: "sourcesRail"
     property var sourceFiles: []
     property int selectedSourceIndex: -1
     property bool advancedOpen: false
@@ -148,6 +149,7 @@ Rectangle {
                     }
                     PfCheckBox { text: L10n.t("search.normalize"); tooltipText: L10n.t("search.normalizeHint"); checked: Analysis.normalizeSize; onToggled: Analysis.normalizeSize = checked }
                     PfCheckBox { text: L10n.t("search.mirror"); tooltipText: L10n.t("search.mirrorHint"); checked: Analysis.mirrorPoses; onToggled: Analysis.mirrorPoses = checked }
+                    PfCheckBox { objectName: "costumeModeCheck"; text: L10n.t("search.costume"); tooltipText: L10n.t("search.costumeHint"); checked: Analysis.costumeMode; enabled: !Analysis.busy; onToggled: Analysis.costumeMode = checked }
                 }
             }
             Rectangle {

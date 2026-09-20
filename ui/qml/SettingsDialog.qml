@@ -215,8 +215,6 @@ Popup {
             Item {
                 Flickable { anchors.fill: parent; anchors.margins: 22; clip: true; contentWidth: width; contentHeight: analysisBody.implicitHeight + 30; boundsBehavior: Flickable.StopAtBounds
                     ColumnLayout { id: analysisBody; width: parent.width; spacing: 14
-                        PfCheckBox { Layout.fillWidth: true; text: "Костюм / маска"; checked: Analysis.costumeMode; enabled: !Analysis.busy; onToggled: Analysis.costumeMode = checked }
-                        Text { Layout.fillWidth: true; text: "Для закрытых лиц: сравнение костюма и движения без распознавания лица. Одинаковый костюм не доказывает, что это один актёр."; color: Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
                         Text { text: L10n.t("settings.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.subtitle"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 13; wrapMode: Text.WordWrap }
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hairline }

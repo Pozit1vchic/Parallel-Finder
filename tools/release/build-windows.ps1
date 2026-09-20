@@ -22,6 +22,7 @@ try {
     New-Item -ItemType Directory -Path $stage,$out | Out-Null
     Copy-Item -LiteralPath 'build/ucrt64-release/ParallelFinder.exe' -Destination $stage
     Copy-Item -LiteralPath LICENSE,README.md,AUDIT.md -Destination $stage
+    Copy-Item -LiteralPath "$root/docs" -Destination (Join-Path $stage "docs") -Recurse
     & "$bin/windeployqt.exe" --release --no-translations --qmldir "$root/ui/qml" --dir $stage "$stage/ParallelFinder.exe"
     if ($LASTEXITCODE) { throw 'Qt deployment failed' }
     Copy-Item -LiteralPath "$bin/ffmpeg.exe","$bin/onnxruntime.dll" -Destination $stage
@@ -63,7 +64,12 @@ try {
     if ($LASTEXITCODE) { throw 'ZIP creation failed' }
     & $InnoSetup "/DStageDir=$stage" "/DOutputDir=$out" "$PSScriptRoot/installer.iss"
     if ($LASTEXITCODE) { throw 'Installer compilation failed' }
-    Get-ChildItem -LiteralPath $out -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize
+    & git archive --format=zip "--output=$out/ParallelFinder-$tag-Source.zip" HEAD
+    if ($LASTEXITCODE) { throw 'Source archive failed' }
+    $hashes = Get-ChildItem -LiteralPath $out -File | Get-FileHash -Algorithm SHA256
+    $hashes | ForEach-Object { $_.Hash.ToLowerInvariant() + '  ' + [IO.Path]::GetFileName($_.Path) } |
+        Set-Content -LiteralPath (Join-Path $out 'SHA256SUMS.txt') -Encoding ascii
+    $hashes | Format-Table -AutoSize
     Write-Output "STAGING=$stage"
     Write-Output "ARTIFACTS=$out"
 } finally { Pop-Location }

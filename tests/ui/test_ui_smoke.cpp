@@ -152,6 +152,10 @@ void UiSmokeTests::settingsAndNumericTypography()
     if (!capture.isEmpty()) { QDir().mkpath(capture); QTest::qWait(250); QVERIFY(window->grabWindow().save(capture + "/workspace.png")); }
     auto* popup = window->findChild<QObject*>("settingsDialog");
     QVERIFY(popup);
+    auto* sources = window->findChild<QObject*>("sourcesRail");
+    QVERIFY(sources);
+    QVERIFY(sources->findChild<QObject*>("costumeModeCheck"));
+    QVERIFY(!popup->findChild<QObject*>("costumeModeCheck"));
     QVERIFY(QMetaObject::invokeMethod(popup, "open"));
     QTRY_VERIFY(popup->property("opened").toBool());
     if (!capture.isEmpty()) { QTest::qWait(300); QVERIFY(window->grabWindow().save(capture + "/settings-analysis.png")); }
