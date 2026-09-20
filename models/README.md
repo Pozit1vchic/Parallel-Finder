@@ -2,7 +2,7 @@
 
 Веса моделей **не хранятся в репозитории**. Приложение использует ONNX-экспорт
 YOLO-pose, а не исходные Ultralytics `.pt`. При выборе отсутствующей модели UI
-показывает `↓ скачать`, загружает её из последнего GitHub Release и проверяет
+показывает `↓ скачать`, загружает её из GitHub Release с тегом `v0.1.0-models` и проверяет
 размер/SHA-256 из `manifest.json` до атомарной установки.
 
 Установленные файлы хранятся автоматически в:
@@ -24,7 +24,7 @@ python tools\model_export\export_pose_release.py `
 создаёт рядом `manifest.json`. Создайте Release в
 `Pozit1vchic/Parallel-Finder` и загрузите **все** `.onnx` плюс `manifest.json`
 как assets одного релиза. Имена должны совпадать с manifest: приложение берёт
-их по адресу `releases/latest/download/<filename>`.
+их по адресу `releases/download/v0.1.0-models/<filename>`.
 
 Для разработки можно задать `PF_MODEL_ROOT` на папку с ONNX-файлами, а
 `PF_MODEL_PATH` — на конкретный файл. Ни `.pt`, ни `manifest.json` не нужно

@@ -75,7 +75,7 @@ def main() -> None:
     parser.add_argument("--batch", type=int, choices=(1,), default=1)
     parser.add_argument(
         "--release-base",
-        default="https://github.com/Pozit1vchic/Parallel-Finder/releases/latest/download/",
+        default="https://github.com/Pozit1vchic/Parallel-Finder/releases/download/v0.1.0-models/",
     )
     args = parser.parse_args()
 

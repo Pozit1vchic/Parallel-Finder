@@ -1,16 +1,32 @@
-# GitHub Release publisher
+# Подготовка Windows-сборок
 
-Публикация требует токен GitHub с правом `Contents: write`. Токен не хранится
-в репозитории и не передаётся через Git remote:
+## Локальные ZIP и установщик
+
+Из корня репозитория в PowerShell 7:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools/release/publish-github-release.ps1 `
-  -Token $env:GITHUB_TOKEN `
-  -Tag v0.1.0-models `
-  -AssetsDirectory 'D:\Parallel-Finder\release-models'
+./tools/release/build-windows.ps1
 ```
 
-Перед запуском соберите локальные ONNX и проверьте `manifest.json`. Скрипт
-создаёт release, загружает `.onnx` и JSON-активы, а при ошибке загрузки удаляет
-пустой release. В текущем окружении credentials отсутствуют, поэтому реальная
-публикация не выполняется автоматически.
+Пути к MSYS2 UCRT64, базовым моделям и Inno Setup задаются параметрами скрипта.
+Скрипт сначала собирает приложение и запускает CTest, затем создаёт новую staging-папку и оба артефакта в release/0.1.0-rc.1-<id>. Существующие папки не удаляет. Пакет содержит CPU ONNX Runtime, Qt, FFmpeg и базовые модели; NVIDIA runtime не включается.
+
+**Перед публичной публикацией** закрыть ограничения [предрелизного аудита](../../docs/release-audit.md), в том числе обязательства по лицензиям/соответствующим исходникам. Локальная RC-сборка не равна готовому стабильному выпуску.
+
+ZIP распаковывается целиком; installer устанавливает в пользовательскую папку без администратора. Portable использует пользовательское хранилище настроек и не обещает полную изоляцию от AppData.
+
+## Отдельные релизы данных
+
+- Модели: тег **v0.1.0-models**, assets ONNX и manifest.json. URL внутри manifest тоже должны указывать на этот тег.
+- GPU runtime: тег **runtime-v1**, providers.json и проверенные ZIP. См. [инструкцию](../../docs/runtime-distribution.md).
+- Приложение: отдельный тег; не смешивать его latest со ссылками моделей/runtime.
+
+Экспортёр tools/model_export/export_pose_release.py теперь использует закреплённый model-тег по умолчанию. Старые локальные manifest с releases/latest необходимо пересоздать до публикации.
+
+## Публикация моделей
+
+```powershell
+./tools/release/publish-model-release.ps1 -Tag v0.1.0-models
+```
+
+Требуется GitHub CLI и авторизация владельца. Скрипт проверяет хэши и размеры; авторизация не хранится в Git. Исходные .pt и крупные ONNX не коммитятся. Обычный git push публикует исходники, но не создаёт Release assets.
