@@ -142,7 +142,7 @@ TEST_F(ProviderFactoryTest, MissingGpuEntryPointIsReportedWithItsName)
               std::string::npos)
         << error;
     // And it must say what to do about it, not just what is missing.
-    EXPECT_NE(error.find("1.22+"), std::string::npos) << error;
+    EXPECT_NE(error.find("install the matching GPU runtime"), std::string::npos) << error;
 
     api->ReleaseSessionOptions(options);
 }
