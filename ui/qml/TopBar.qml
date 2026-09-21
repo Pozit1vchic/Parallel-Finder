@@ -21,8 +21,8 @@ Item {
     }
     function backendStatus(id) {
         const key = String(id || "auto").toLowerCase()
-        if (key === "auto") return "Готов к работе"
-        return AppInfo.backendAvailable(key) ? "Готов к работе" : "Недоступен"
+        if (key === "auto") return L10n.t("top.ready")
+        return AppInfo.backendAvailable(key) ? L10n.t("top.ready") : L10n.t("settings.providerUnavailable")
     }
 
     Rectangle { anchors.fill: parent; color: Theme.canvas }
@@ -48,6 +48,7 @@ Item {
                 }
                 Text { font.family: Theme.fontFamily;
                     id: gpuLabel
+                    objectName: "gpuStatusLabel"
                     Layout.fillWidth: true
                     text: Analysis.providerChoice === "auto"
                         ? backendLabel("auto") + " · " + backendStatus("auto")
@@ -66,8 +67,8 @@ Item {
                 ? AppInfo.gpuSummary
                 : backendLabel(Analysis.providerChoice) + " · "
                   + (AppInfo.backendAvailable(Analysis.providerChoice)
-                     ? (AppInfo.gpuDevice || "готов к работе")
-                     : (AppInfo.backendReason(Analysis.providerChoice) || "runtime не найден"))
+                     ? (AppInfo.gpuDevice || L10n.t("top.ready"))
+                     : (AppInfo.backendReason(Analysis.providerChoice) || L10n.t("settings.providerUnavailable")))
             HoverHandler { id: gpuHover }
         }
         PfIconButton { Layout.alignment: Qt.AlignVCenter; iconSource: "qrc:/qt/qml/PfUi/qml/assets/settings.svg"; accessibleName: L10n.t("top.settings"); onClicked: root.settingsRequested() }

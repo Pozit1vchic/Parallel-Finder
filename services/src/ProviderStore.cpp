@@ -12,6 +12,7 @@
 #include <QNetworkRequest>
 #include <QProcess>
 #include <QTimer>
+#include <QTemporaryDir>
 #include <QUrl>
 
 #include <algorithm>
@@ -261,6 +262,55 @@ bool extractArchive(const std::filesystem::path& archive,
 }
 
 } // namespace
+
+bool ProviderStore::downloadDirectMl(const std::filesystem::path& destination,
+                                    ProviderDownloadProgress progress, std::string& error)
+{
+    if (destination.filename() != "dml") { error = "unsafe DirectML destination"; return false; }
+    const auto parent = QString::fromStdWString(destination.parent_path().wstring());
+    if (!QDir().mkpath(parent)) { error = "cannot create provider storage"; return false; }
+    QTemporaryDir temp(parent + QStringLiteral("/dml-download-XXXXXX"));
+    if (!temp.isValid()) { error = "cannot create provider staging"; return false; }
+    const auto root = std::filesystem::path(temp.path().toStdWString());
+    const ModelAsset packages[] = {
+        {"ort.nupkg", "57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681", 12458649,
+         "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.24.4/microsoft.ml.onnxruntime.directml.1.24.4.nupkg"},
+        {"directml.nupkg", "4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9", 202292617,
+         "https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.4/microsoft.ai.directml.1.15.4.nupkg"}
+    };
+    std::uint64_t completed = 0;
+    for (const auto& package : packages) {
+        const auto archive = root / package.filename;
+        if (!ModelStore::download(package, archive, [&](std::uint64_t bytes, std::uint64_t) {
+                if (progress) progress(completed + bytes, 214751266);
+            }, error)) return false;
+        if (!extractArchive(archive, root / (package.filename + ".contents"), error)) return false;
+        completed += package.sizeBytes;
+    }
+    // Only the Windows x64 release DLLs are installed, never ARM/x86/debug/Xbox.
+    const auto ready = root / "ready";
+    std::error_code ec;
+    std::filesystem::create_directory(ready, ec);
+    const std::pair<std::filesystem::path, const char*> files[] = {
+        {root / "ort.nupkg.contents/runtimes/win-x64/native/onnxruntime.dll", "onnxruntime.dll"},
+        {root / "ort.nupkg.contents/runtimes/win-x64/native/onnxruntime_providers_shared.dll", "onnxruntime_providers_shared.dll"},
+        {root / "directml.nupkg.contents/bin/x64-win/DirectML.dll", "DirectML.dll"},
+        {root / "ort.nupkg.contents/LICENSE", "ONNX-Runtime-LICENSE.txt"},
+        {root / "directml.nupkg.contents/LICENSE.txt", "DirectML-LICENSE.txt"}
+    };
+    for (const auto& [source, name] : files) {
+        std::filesystem::copy_file(source, ready / name, ec);
+        if (ec) { error = "prepare DirectML: " + ec.message(); return false; }
+    }
+    // Do not overwrite a runtime potentially loaded in this process.
+    if (std::filesystem::exists(destination, ec)) {
+        error = "DirectML directory already exists; restart the application before retrying";
+        return false;
+    }
+    std::filesystem::rename(ready, destination, ec);
+    if (ec) { error = "install DirectML: " + ec.message(); return false; }
+    return true;
+}
 
 std::optional<ProviderAsset> ProviderStore::fetchManifest(const std::string& url,
                                                           const std::string& provider,

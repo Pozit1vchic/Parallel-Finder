@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QQmlEngine>
 #include <QString>
+#include <QVariantMap>
 
 namespace pfui {
 
@@ -25,6 +26,7 @@ class AppInfo : public QObject {
     Q_PROPERTY(bool providerDownloading READ providerDownloading NOTIFY providerDownloadChanged)
     Q_PROPERTY(double providerDownloadProgress READ providerDownloadProgress NOTIFY providerDownloadChanged)
     Q_PROPERTY(QString providerDownloadStatus READ providerDownloadStatus NOTIFY providerDownloadChanged)
+    Q_PROPERTY(QString providerDownloadState READ providerDownloadState NOTIFY providerDownloadChanged)
 
 public:
     static AppInfo* instance();
@@ -46,9 +48,12 @@ public:
     Q_INVOKABLE QString backendReason(const QString& backend) const;
     Q_INVOKABLE QString providerGuideUrl(const QString& backend) const;
     Q_INVOKABLE void downloadProvider(const QString& backend);
+    Q_INVOKABLE QVariantMap loadPreferences() const;
+    Q_INVOKABLE bool savePreferences(const QVariantMap& preferences);
     bool providerDownloading() const noexcept { return providerDownloading_; }
     double providerDownloadProgress() const noexcept { return providerDownloadProgress_; }
     QString providerDownloadStatus() const { return providerDownloadStatus_; }
+    QString providerDownloadState() const { return providerDownloadState_; }
 
     // Single entry point for the init step: one signal for the whole badge
     // instead of four updates flickering through the UI.
@@ -69,6 +74,7 @@ private:
     bool providerDownloading_ = false;
     double providerDownloadProgress_ = 0.0;
     QString providerDownloadStatus_;
+    QString providerDownloadState_ = QStringLiteral("idle");
 };
 
 } // namespace pfui

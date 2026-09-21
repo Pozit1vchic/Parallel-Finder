@@ -46,6 +46,12 @@ models/*.part
 /PF_CUDA/
 /YOLO_Download_Project/
 /models-cache/
+/providers/dml/
+/providers/cuda/
+/providers/tensorrt/
+/providers/*.staging/
+/providers/*.previous/
+/providers/active.txt
 
 # Runtime state, caches, previews and logs
 /cache/
@@ -54,6 +60,10 @@ models/*.part
 *.dmp
 /settings.json
 settings.local.json
+*.part
+*.tmp
+*.bak
+*.stackdump
 .parallel-finder/
 
 # IDE / compiler tooling

@@ -5,7 +5,7 @@
   #error OutputDir required
 #endif
 #define AppName "Parallel Finder"
-#define AppVersion "0.1.0-rc.2"
+#define AppVersion "0.1.0-rc.3"
 [Setup]
 AppId={{C8F36BC9-6469-42F4-97D1-0421C92638E5}
 AppName={#AppName}
@@ -13,6 +13,7 @@ AppVersion={#AppVersion}
 AppPublisher=Pozit1vchic
 AppPublisherURL=https://github.com/Pozit1vchic/Parallel-Finder
 DefaultDirName={localappdata}\Programs\ParallelFinder
+DisableDirPage=no
 DefaultGroupName=Parallel Finder
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible

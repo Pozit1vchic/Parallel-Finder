@@ -3,7 +3,7 @@ pragma Singleton
 import QtQuick
 
 QtObject {
-    property string language: "ru"
+    property string language: "en"
 
     readonly property var _dict: ({
         ru: {
@@ -131,6 +131,13 @@ QtObject {
             "results.export": "Экспорт",
 
             "settings.windowTitle": "Настройки Parallel Finder",
+            "settings.saveFailed": "Не удалось сохранить настройки: проверьте доступ к AppData.",
+            "settings.reducedMotion": "Уменьшить анимации",
+            "settings.providerDownload": "Скачать компоненты",
+            "settings.providerDownloading": "Скачивание…",
+            "settings.providerChecking": "Проверяем пакет…",
+            "settings.providerRestart": "Компоненты установлены. Закройте и снова откройте приложение.",
+            "settings.gpuSetupSteps": "Для ускорения выберите DirectML (NVIDIA, AMD, Intel), затем скачайте компоненты и перезапустите приложение. Нужны совместимая видеокарта DirectX 12 и драйвер. CUDA и TensorRT требуют отдельных пакетов NVIDIA; они пока не опубликованы. CPU работает без скачивания.",
             "settings.title": "Настройки анализа",
             "settings.subtitle": "Параметры сохраняются для следующих запусков.",
             "settings.environment": "Среда анализа",
@@ -326,6 +333,13 @@ QtObject {
             "results.sort": "Sort",
             "results.export": "Export",
             "settings.windowTitle": "Parallel Finder settings",
+            "settings.saveFailed": "Could not save preferences. Check access to AppData.",
+            "settings.reducedMotion": "Reduce motion",
+            "settings.providerDownload": "Download components",
+            "settings.providerDownloading": "Downloading…",
+            "settings.providerChecking": "Checking package…",
+            "settings.providerRestart": "Components installed. Close and reopen the application.",
+            "settings.gpuSetupSteps": "For GPU acceleration, select DirectML (NVIDIA, AMD, Intel), download components, then restart the app. A compatible DirectX 12 GPU and driver are required. CUDA and TensorRT need separate NVIDIA packages; these have not been published yet. CPU works without downloads.",
             "settings.title": "Analysis settings",
             "settings.subtitle": "These values are saved for future runs.",
             "settings.environment": "Analysis environment",

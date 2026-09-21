@@ -11,6 +11,8 @@
 #include <QtTest/QTest>
 
 #include <AppInfo.h>
+#include <pfservices/SettingsStore.hpp>
+#include <QFileInfo>
 
 class UiSmokeTests : public QObject {
     Q_OBJECT
@@ -24,6 +26,8 @@ private slots:
     void settingsAndNumericTypography();
     void resultNavigationWrapsAndScrolls();
     void exportModesAreSelectable();
+    void advancedOpensOnFirstClickAndStatusTranslates();
+    void directMlDownloadIntegration();
 };
 
 void UiSmokeTests::mainQmlLoadsFromResources()
@@ -213,6 +217,50 @@ void UiSmokeTests::exportModesAreSelectable()
     QCOMPARE(popup->property("selectedNumbering").toInt(), 1);
     QVERIFY(click("videoNumberingButton"));
     QCOMPARE(popup->property("selectedNumbering").toInt(), 0);
+}
+
+void UiSmokeTests::advancedOpensOnFirstClickAndStatusTranslates()
+{
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    auto* window = loadWindow(engine);
+    QVERIFY(window);
+    auto* sources = window->findChild<QObject*>("sourcesRail");
+    auto* section = sources->findChild<QQuickItem*>("advancedSection");
+    QVERIFY(section);
+    auto* button = section->findChild<QQuickItem*>("disclosureButton");
+    QVERIFY(button);
+    QQuickItem* flick = section->parentItem();
+    while (flick && !flick->property("contentY").isValid()) flick = flick->parentItem();
+    QVERIFY(flick);
+    flick->setProperty("contentY", section->y() - 30);
+    QTest::qWait(100);
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+        button->mapToScene(QPointF(button->width()/2, button->height()/2)).toPoint());
+    QTRY_VERIFY(sources->property("advancedOpen").toBool());
+    QVERIFY(section->property("expanded").toBool());
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick\nimport PfUi\nItem { function setLanguage(v) { L10n.language = v } }", QUrl());
+    std::unique_ptr<QObject> control(component.create());
+    QVERIFY(control);
+    auto* label = window->findChild<QObject*>("gpuStatusLabel");
+    QVERIFY(label);
+    QVERIFY(QMetaObject::invokeMethod(control.get(), "setLanguage", Q_ARG(QVariant, "en")));
+    QTRY_VERIFY(label->property("text").toString().contains("Ready"));
+    QVERIFY(QMetaObject::invokeMethod(control.get(), "setLanguage", Q_ARG(QVariant, "ru")));
+    QTRY_VERIFY(label->property("text").toString().contains(QString::fromUtf8("Готов")));
+}
+
+void UiSmokeTests::directMlDownloadIntegration()
+{
+    if (!qEnvironmentVariableIsSet("PF_TEST_DIRECTML_DOWNLOAD")) QSKIP("Opt-in network integration test");
+    auto* info = pfui::AppInfo::instance();
+    info->downloadProvider("dml");
+    QTRY_VERIFY_WITH_TIMEOUT(!info->providerDownloading(), 300000);
+    QCOMPARE(info->providerDownloadState(), QStringLiteral("installed"));
+    const auto root = QString::fromStdString(pfservices::SettingsStore::defaultDirectory());
+    QVERIFY(QFileInfo::exists(root + "/providers/dml/onnxruntime.dll"));
+    QVERIFY(QFileInfo::exists(root + "/providers/dml/DirectML.dll"));
 }
 
 QTEST_MAIN(UiSmokeTests)

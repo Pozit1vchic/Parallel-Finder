@@ -2,12 +2,14 @@
 
 #include <cstddef>
 #include <string>
+#include <QJsonObject>
 
 namespace pfservices {
 
 struct Settings {
     std::string provider = "auto";
-    std::string language = "ru";
+    std::string language = "en";
+    QJsonObject appearance;
     std::string theme = "parallel-dark";
     std::string modelPath;
     std::string cachePath;

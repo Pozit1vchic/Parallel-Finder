@@ -3,6 +3,7 @@
 #include <pfgpu/DeviceInfo.hpp>
 #include <pfgpu/Provider.hpp>
 #include <pfservices/ProviderStore.hpp>
+#include <pfservices/SettingsStore.hpp>
 
 #include <QCoreApplication>
 #include <QDir>
@@ -58,6 +59,26 @@ QString AppInfo::version() const
 {
     const QString v = QCoreApplication::applicationVersion();
     return v.isEmpty() ? QStringLiteral(PF_VERSION) : v;
+}
+
+QVariantMap AppInfo::loadPreferences() const
+{
+    std::string error;
+    const auto settings = pfservices::SettingsStore().load(error);
+    auto result = settings.appearance.toVariantMap();
+    result.insert(QStringLiteral("language"), QString::fromStdString(settings.language));
+    return result;
+}
+
+bool AppInfo::savePreferences(const QVariantMap& preferences)
+{
+    std::string error;
+    pfservices::SettingsStore store;
+    auto settings = store.load(error);
+    settings.language = preferences.value(QStringLiteral("language")).toString() == QStringLiteral("ru") ? "ru" : "en";
+    settings.appearance = QJsonObject::fromVariantMap(preferences);
+    settings.appearance.remove(QStringLiteral("language"));
+    return store.save(settings, error);
 }
 
 QString AppInfo::gpuBackend() const
@@ -127,26 +148,30 @@ void AppInfo::downloadProvider(const QString& backend)
     }
     if (providerDownloading_) return;
     providerDownloading_ = true;
+    providerDownloadState_ = QStringLiteral("checking");
     providerDownloadProgress_ = 0.0;
     providerDownloadStatus_ = QStringLiteral("Проверяем интернет и release-манифест…");
     emit providerDownloadChanged();
 
     QThread* thread = QThread::create([this, provider] {
+        try {
         std::string error;
         std::string manifestUrl = qEnvironmentVariable("PF_PROVIDER_MANIFEST_URL").toStdString();
         if (manifestUrl.empty()) manifestUrl = kProviderManifestUrl;
-        auto asset = pfservices::ProviderStore::fetchManifest(
+        std::optional<pfservices::ProviderAsset> asset;
+        if (provider != QStringLiteral("dml")) asset = pfservices::ProviderStore::fetchManifest(
             manifestUrl, provider.toStdString(), error);
-        if (!asset && manifestUrl == kProviderManifestUrl) {
+        if (provider != QStringLiteral("dml") && !asset && manifestUrl == kProviderManifestUrl) {
             std::string fallbackError;
             asset = pfservices::ProviderStore::fetchManifest(
                 kProviderManifestFallbackUrl, provider.toStdString(), fallbackError);
             if (!asset && !fallbackError.empty()) error += "; fallback: " + fallbackError;
         }
-        if (!asset) {
+        if (!asset && provider != QStringLiteral("dml")) {
             const QString message = QString::fromStdString(error);
             QMetaObject::invokeMethod(this, [this, message] {
                 providerDownloading_ = false;
+                providerDownloadState_ = QStringLiteral("error");
                 providerDownloadStatus_ = QStringLiteral("Не удалось скачать runtime: ") + message;
                 emit providerDownloadChanged();
             }, Qt::QueuedConnection);
@@ -154,21 +179,23 @@ void AppInfo::downloadProvider(const QString& backend)
         }
 
         const std::filesystem::path destination = std::filesystem::path(
-            QCoreApplication::applicationDirPath().toStdWString())
+            QString::fromStdString(pfservices::SettingsStore::defaultDirectory()).toStdWString())
             / "providers" / provider.toStdWString();
-        const bool ok = pfservices::ProviderStore::downloadAndInstall(
-            *asset, destination,
-            [this](std::uint64_t received, std::uint64_t total) {
+        const auto reportProgress = [this](std::uint64_t received, std::uint64_t total) {
                 const double progress = total > 0
                     ? std::clamp(static_cast<double>(received) / static_cast<double>(total), 0.0, 1.0)
                     : 0.0;
                 QMetaObject::invokeMethod(this, [this, progress] {
                     providerDownloadProgress_ = progress;
+                    providerDownloadState_ = QStringLiteral("downloading");
                     providerDownloadStatus_ = QStringLiteral("Скачивание runtime… %1%")
                         .arg(static_cast<int>(std::round(progress * 100.0)));
                     emit providerDownloadChanged();
                 }, Qt::QueuedConnection);
-            }, error);
+            };
+        const bool ok = provider == QStringLiteral("dml")
+            ? pfservices::ProviderStore::downloadDirectMl(destination, reportProgress, error)
+            : pfservices::ProviderStore::downloadAndInstall(*asset, destination, reportProgress, error);
         bool installed = ok;
         if (installed) {
             std::ofstream active(destination.parent_path() / "active.txt",
@@ -184,10 +211,20 @@ void AppInfo::downloadProvider(const QString& backend)
             : QStringLiteral("Не удалось установить runtime: ") + QString::fromStdString(error);
         QMetaObject::invokeMethod(this, [this, installed, message] {
             providerDownloading_ = false;
+            providerDownloadState_ = installed ? QStringLiteral("installed") : QStringLiteral("error");
             providerDownloadProgress_ = installed ? 1.0 : 0.0;
             providerDownloadStatus_ = message;
             emit providerDownloadChanged();
         }, Qt::QueuedConnection);
+        } catch (const std::exception& exception) {
+            const auto message = QString::fromUtf8(exception.what());
+            QMetaObject::invokeMethod(this, [this, message] {
+                providerDownloading_ = false;
+                providerDownloadState_ = QStringLiteral("error");
+                providerDownloadStatus_ = message;
+                emit providerDownloadChanged();
+            }, Qt::QueuedConnection);
+        }
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();

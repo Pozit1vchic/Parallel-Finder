@@ -58,15 +58,28 @@ Popup {
         layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowOpacity: 0.78; shadowBlur: 1.0; shadowHorizontalOffset: 0; shadowVerticalOffset: 20 }
     }
 
-    Settings {
+    QtObject {
         id: customizationStore
-        category: "ParallelFinder/customization"
-        property string language: "ru"
+        property bool loaded: false
+        property string language: "en"
         property string fontFamily: "Segoe UI Variable"
         property string customFontPath: ""
         property real surfaceOpacity: 1.0
         property string accentColor: "orange"
         property bool reducedMotion: false
+        function persist() {
+            if (!loaded) return
+            if (!AppInfo.savePreferences({language: language, fontFamily: fontFamily,
+                customFontPath: customFontPath, surfaceOpacity: surfaceOpacity,
+                accentColor: accentColor, reducedMotion: reducedMotion}))
+                root.themeStatus = L10n.t("settings.saveFailed")
+        }
+        onLanguageChanged: persist()
+        onFontFamilyChanged: persist()
+        onCustomFontPathChanged: persist()
+        onSurfaceOpacityChanged: persist()
+        onAccentColorChanged: persist()
+        onReducedMotionChanged: persist()
     }
     FontLoader {
         id: customFont
@@ -94,12 +107,21 @@ Popup {
     }
 
     Component.onCompleted: {
+        const saved = AppInfo.loadPreferences()
+        customizationStore.language = saved.language === "ru" ? "ru" : "en"
+        if (typeof saved.fontFamily === "string") customizationStore.fontFamily = saved.fontFamily
+        if (typeof saved.customFontPath === "string") customizationStore.customFontPath = saved.customFontPath
+        if (typeof saved.surfaceOpacity === "number") customizationStore.surfaceOpacity = Math.max(0.25, Math.min(1, saved.surfaceOpacity))
+        if (typeof saved.accentColor === "string") customizationStore.accentColor = saved.accentColor
+        if (typeof saved.reducedMotion === "boolean") customizationStore.reducedMotion = saved.reducedMotion
         L10n.language = customizationStore.language
         Theme.reducedMotion = customizationStore.reducedMotion
         Theme.surfaceOpacity = customizationStore.surfaceOpacity
         root.applyAccent(customizationStore.accentColor)
         if (!customizationStore.customFontPath.length) Theme.fontFamily = ["Segoe UI Variable", "Inter", "Montserrat"].indexOf(customizationStore.fontFamily) >= 0 ? customizationStore.fontFamily : "Segoe UI Variable"
         root.centerInWindow()
+        customizationStore.loaded = true
+        customizationStore.persist()
     }
     onClosed: {
         customizationStore.language = L10n.language
@@ -150,12 +172,15 @@ Popup {
     }
     function providerDownloadText(raw) {
         const status = String(raw || "")
+        if (AppInfo.providerDownloadState === "installed") return L10n.t("settings.providerRestart")
+        if (AppInfo.providerDownloadState === "checking") return L10n.t("settings.providerChecking")
+        if (AppInfo.providerDownloadState === "downloading") return L10n.t("settings.providerDownloading") + " " + Math.round(AppInfo.providerDownloadProgress * 100) + "%"
         if (!status.length) return L10n.t("settings.providerDownloadHint")
         const lower = status.toLowerCase()
         if (lower.indexOf("404") >= 0 || lower.indexOf("providers.json") >= 0) return L10n.t("settings.providerManifestMissing")
         if (lower.indexOf("internet") >= 0 || lower.indexOf("network") >= 0 || lower.indexOf("transfer") >= 0) return L10n.t("settings.providerNetworkError")
         if (lower.indexOf("downloaded") >= 0 || lower.indexOf("готов") >= 0) return L10n.t("settings.providerDownloadDone")
-        return L10n.t("settings.providerDownloadHint")
+        return status
     }
 
     contentItem: Item {
@@ -219,6 +244,7 @@ Popup {
                         Text { Layout.fillWidth: true; text: L10n.t("settings.subtitle"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 13; wrapMode: Text.WordWrap }
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hairline }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.environment"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Text { Layout.fillWidth: true; text: L10n.t("settings.gpuSetupSteps"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
                         RowLayout { Layout.fillWidth: true; spacing: 12
                             Text { Layout.preferredWidth: 128; Layout.minimumWidth: 0; text: L10n.t("settings.provider"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 13; verticalAlignment: Text.AlignVCenter; ToolTip.visible: providerHelp.hovered; ToolTip.text: L10n.t("settings.providerHint"); ToolTip.delay: 350; elide: Text.ElideRight }
                             HoverHandler { id: providerHelp }
@@ -243,7 +269,7 @@ Popup {
                                 Layout.preferredWidth: 154
                                 Layout.minimumWidth: 0
                                 compact: true
-                                text: AppInfo.providerDownloading ? "Скачивание…" : "Скачать runtime"
+                                text: AppInfo.providerDownloading ? L10n.t("settings.providerDownloading") : L10n.t("settings.providerDownload")
                                 enabled: !AppInfo.providerDownloading
                                 onClicked: AppInfo.downloadProvider(Analysis.providerChoice)
                             }
@@ -296,7 +322,7 @@ Popup {
                         Text { text: L10n.t("settings.surfaceOpacity"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfSliderField { width: parent.width; label: L10n.t("settings.surfaceOpacity"); from: 0.25; to: 1.0; stepSize: 0.01; value: Theme.surfaceOpacity; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("settings.surfaceOpacityHint"); Accessible.name: L10n.t("settings.surfaceOpacity"); onValueEdited: { Theme.surfaceOpacity = nextValue; customizationStore.surfaceOpacity = nextValue } }
                         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-                        PfCheckBox { text: "Уменьшить анимации"; checked: Theme.reducedMotion; onToggled: { Theme.reducedMotion = checked; customizationStore.reducedMotion = checked } }
+                        PfCheckBox { text: L10n.t("settings.reducedMotion"); checked: Theme.reducedMotion; onToggled: { Theme.reducedMotion = checked; customizationStore.reducedMotion = checked } }
                         Text { width: parent.width; text: root.themeStatus || L10n.t("settings.profileSaved"); color: root.themeStatus ? Theme.accent : Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }
                     }
                 }

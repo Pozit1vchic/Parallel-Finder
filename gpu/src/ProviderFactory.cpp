@@ -168,7 +168,8 @@ bool attachExecutionProvider(const OrtApi& api,
 {
     const std::uint32_t apiVersion = ortRuntimeStatus().apiVersion;
     if (apiVersion >= kEpDeviceApiVersion) {
-        return attachViaEpDeviceApi(api, options, factory, optionsToApply, error);
+        if (attachViaEpDeviceApi(api, options, factory, optionsToApply, error)) return true;
+        // Official GPU builds can expose built-in EPs only via classic factories.
     }
 
     const char* symbol = providerLegacyExportName(factory.provider());
@@ -178,7 +179,7 @@ bool attachExecutionProvider(const OrtApi& api,
         error = "onnxruntime " + ortRuntimeStatus().version + " (OrtApi v"
             + std::to_string(apiVersion) + ") exposes no "
             + (symbol ? symbol : "provider entry point")
-            + " and has no EP-device API (needs ORT 1.22+): install the GPU build of the runtime";
+            + "; no compatible EP device or classic factory was found: install the matching GPU runtime";
         return false;
     }
 
@@ -186,6 +187,11 @@ bool attachExecutionProvider(const OrtApi& api,
     // engine cache, cuDNN tuning) require the OrtApi struct variants, which we
     // deliberately do not depend on — see ProviderFactory.hpp. Our built-in
     // defaults are device_id only, so nothing is silently dropped in practice.
+    if (factory.provider() == Provider::Dml) {
+        if (!checkStatus(api, api.DisableMemPattern(&options), error)
+            || !checkStatus(api, api.SetSessionExecutionMode(&options, ORT_SEQUENTIAL), error)) return false;
+    }
+    error.clear();
     return checkStatus(api, append(&options, deviceIdFrom(optionsToApply)), error);
 }
 

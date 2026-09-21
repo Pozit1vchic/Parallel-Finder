@@ -11,6 +11,9 @@
 #include <QQuickWindow>
 
 #include <pfgpu/DeviceInfo.hpp>
+#include <pfservices/SettingsStore.hpp>
+#include <QFile>
+#include <QDir>
 
 #include <AppInfo.h>
 #include <AnalysisController.h>
@@ -77,6 +80,26 @@ int main(int argc, char* argv[])
     QCoreApplication::setApplicationName(QStringLiteral("ParallelFinder"));
     QGuiApplication::setApplicationVersion(QStringLiteral(PF_VERSION));
 
+    // Downloaded runtimes live in writable per-user storage, not Program Files.
+    if (!qEnvironmentVariableIsSet("PF_PROVIDER_ROOT")) {
+        const auto root = QString::fromStdString(pfservices::SettingsStore::defaultDirectory()) + QStringLiteral("/providers");
+        std::string settingsError;
+        const auto chosen = pfservices::SettingsStore().load(settingsError).provider;
+        const auto appRoot = QCoreApplication::applicationDirPath() + QStringLiteral("/providers/");
+        const auto name = QString::fromStdString(chosen);
+        if (chosen == "cuda" || chosen == "tensorrt" || chosen == "dml") {
+            if (QFile::exists(appRoot + name + "/onnxruntime.dll"))
+                qputenv("PF_PROVIDER_ROOT", (appRoot + name).toUtf8());
+            else if (QFile::exists(root + "/" + name + "/onnxruntime.dll"))
+                qputenv("PF_PROVIDER_ROOT", (root + "/" + name).toUtf8());
+        }
+        QFile marker(root + QStringLiteral("/active.txt"));
+        if (!qEnvironmentVariableIsSet("PF_PROVIDER_ROOT") && marker.open(QIODevice::ReadOnly)) {
+            const auto provider = QString::fromUtf8(marker.read(32)).trimmed();
+            if (provider == "dml" || provider == "cuda" || provider == "tensorrt")
+                qputenv("PF_PROVIDER_ROOT", QDir(root).filePath(provider).toUtf8());
+        }
+    }
     publishGpuInfo();
     pfui::AppInfo::registerQmlTypes();
 

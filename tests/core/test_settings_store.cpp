@@ -3,10 +3,27 @@
 #include <pfservices/SettingsStore.hpp>
 
 #include <QDir>
+#include <QTemporaryDir>
 
 #include <filesystem>
 
 namespace {
+
+TEST(SettingsStore, MissingFileDefaultsToEnglishAndAppearanceRoundTrips)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    pfservices::SettingsStore store((directory.path() + "/settings.json").toStdString());
+    std::string error;
+    auto settings = store.load(error);
+    EXPECT_EQ(settings.language, "en");
+    settings.language = "ru";
+    settings.appearance.insert("accentColor", "blue");
+    ASSERT_TRUE(store.save(settings, error));
+    auto restored = store.load(error);
+    EXPECT_EQ(restored.language, "ru");
+    EXPECT_EQ(restored.appearance.value("accentColor").toString(), "blue");
+}
 
 TEST(SettingsStore, SavesAndLoadsAtomically)
 {

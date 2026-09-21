@@ -21,6 +21,8 @@ using ProviderDownloadProgress = std::function<void(std::uint64_t received,
 
 class ProviderStore {
 public:
+    static bool downloadDirectMl(const std::filesystem::path& destination,
+                                 ProviderDownloadProgress progress, std::string& error);
     // Manifest format: { "providers": [{ "provider":"cuda",
     // "archive":"runtime-cuda.zip", "sha256":"...", "sizeBytes":123,
     // "downloadUrl":"https://..." }] }

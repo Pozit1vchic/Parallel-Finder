@@ -26,6 +26,7 @@ Item {
 
         Button {
             id: header
+            objectName: "disclosureButton"
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             implicitHeight: Math.max(46, titleText.implicitHeight + 16)
@@ -35,13 +36,8 @@ Item {
             Accessible.role: Accessible.Button
             Accessible.name: root.title
             onClicked: {
-                // Keep the component usable on its own as well as from a
-                // parent binding.  The signal lets the owner persist the
-                // state; assigning here makes the visual state update in the
-                // same event loop tick, even when the owner is a plain QML
-                // property rather than a C++ NOTIFY property.
-                root.expanded = !root.expanded
-                root.toggled(root.expanded)
+                // The owner updates expanded; never break its binding here.
+                root.toggled(!root.expanded)
             }
             contentItem: Text {
                 id: titleText

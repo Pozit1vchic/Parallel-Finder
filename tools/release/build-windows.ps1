@@ -15,7 +15,7 @@ try {
     & ctest --preset ucrt64-release --output-on-failure
     if ($LASTEXITCODE) { throw 'Tests failed: refusing to package' }
     Remove-Item Env:QT_QPA_PLATFORM
-    $tag = '0.1.0-rc.2'
+    $tag = '0.1.0-rc.3'
     $run = [guid]::NewGuid().ToString('N').Substring(0,8)
     $stage = Join-Path $root "build/package-$run/ParallelFinder"
     $out = Join-Path $root "release/$tag-$run"

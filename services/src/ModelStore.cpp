@@ -298,7 +298,7 @@ bool ModelStore::download(const ModelAsset& asset,
         error = "model download requires an HTTPS URL";
         return false;
     }
-    if (!trustedHost(url)) {
+    if (!trustedHost(url) && url.host().toLower() != QStringLiteral("api.nuget.org")) {
         error = "model download requires an HTTPS GitHub URL";
         return false;
     }
@@ -368,7 +368,7 @@ bool ModelStore::download(const ModelAsset& asset,
             reply->abort();
             return;
         }
-        if (!trustedHost(reply->url())) {
+        if (!trustedHost(reply->url()) && reply->url().host().toLower() != QStringLiteral("api.nuget.org")) {
             reply->abort();
             return;
         }

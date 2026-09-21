@@ -24,6 +24,7 @@ QJsonObject toJson(const Settings& settings)
     json[QStringLiteral("schemaVersion")] = 5;
     json[QStringLiteral("provider")] = QString::fromStdString(settings.provider);
     json[QStringLiteral("language")] = QString::fromStdString(settings.language);
+    json[QStringLiteral("appearance")] = settings.appearance;
     json[QStringLiteral("theme")] = QString::fromStdString(settings.theme);
     json[QStringLiteral("modelPath")] = QString::fromStdString(settings.modelPath);
     json[QStringLiteral("cachePath")] = QString::fromStdString(settings.cachePath);
@@ -99,6 +100,8 @@ Settings SettingsStore::load(std::string& error) const
     const bool legacySceneScale = !schemaVersion.isDouble() || schemaVersion.toInteger() < 2;
     readString(json, "provider", settings.provider);
     readString(json, "language", settings.language);
+    if (settings.language != "ru" && settings.language != "en") settings.language = "en";
+    settings.appearance = json.value(QStringLiteral("appearance")).toObject();
     readString(json, "theme", settings.theme);
     readString(json, "modelPath", settings.modelPath);
     readString(json, "cachePath", settings.cachePath);

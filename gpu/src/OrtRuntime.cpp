@@ -144,6 +144,11 @@ void loadRuntime(RuntimeState& s)
         candidates.emplace_back(override_path);
         explicitPath = true;
     } else {
+        if (const char* root = std::getenv(kProviderRootEnvVar); root && *root) {
+            const auto overrideRoot = std::filesystem::u8path(root);
+            if (const auto overrideRuntime = findRuntimeIn(overrideRoot))
+                candidates.push_back(*overrideRuntime);
+        }
         wchar_t modulePath[MAX_PATH] {};
         const DWORD length = ::GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
         if (length > 0 && length < MAX_PATH) {
@@ -174,18 +179,6 @@ void loadRuntime(RuntimeState& s)
                         candidates.push_back(*bundledRuntime);
                 }
             }
-            if (const char* root = std::getenv(kProviderRootEnvVar); root && *root) {
-                const auto overrideRoot = std::filesystem::path(root);
-                if (const auto overrideRuntime = findRuntimeIn(overrideRoot))
-                    candidates.push_back(*overrideRuntime);
-            }
-
-            // Legacy developer bundle.  It is intentionally after the
-            // downloaded active provider, otherwise a stale CPU/GPU DLL in
-            // D:\PF_CUDA would win and make the provider selector appear to
-            // have no effect.
-            const std::filesystem::path gpuRuntime = R"(D:\PF_CUDA\onnxruntime.dll)";
-            if (std::filesystem::is_regular_file(gpuRuntime)) candidates.push_back(gpuRuntime);
             if (std::filesystem::is_regular_file(appRuntime)) candidates.push_back(appRuntime);
         }
         candidates.emplace_back(L"onnxruntime.dll");

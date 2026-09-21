@@ -219,11 +219,12 @@ Rectangle {
                 }
             }
             CollapsibleSection {
+                objectName: "advancedSection"
                 Layout.fillWidth: true
                 width: parent.width
                 title: L10n.t("search.advanced")
                 expanded: root.advancedOpen
-                onToggled: root.advancedOpen = expanded
+                onToggled: function(nextExpanded) { root.advancedOpen = nextExpanded }
                 Text { font.family: Theme.fontFamily;
                     width: parent.width
                     text: L10n.t("search.advancedHint")
