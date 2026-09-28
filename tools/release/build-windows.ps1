@@ -9,6 +9,8 @@ $bin = Join-Path $Toolchain 'bin'
 $env:PATH = "$bin;$env:PATH"
 Push-Location $root
 try {
+    & cmake --preset ucrt64-release
+    if ($LASTEXITCODE) { throw 'Configure failed' }
     & cmake --build --preset ucrt64-release -j 4
     if ($LASTEXITCODE) { throw 'Build failed' }
     $env:QT_QPA_PLATFORM = 'offscreen'
@@ -65,8 +67,26 @@ try {
         $env:QT_QPA_PLATFORM = 'windows'
         $env:PF_ORT_DLL = Join-Path $stage 'onnxruntime.dll'
         $probe = Start-Process -FilePath "$stage/ParallelFinder.exe" -ArgumentList '--pf-ui-smoke' -WorkingDirectory $out -WindowStyle Hidden -PassThru -RedirectStandardOutput "$out/ui-smoke.log" -RedirectStandardError "$out/ui-smoke-errors.log"
-        if (!$probe.WaitForExit(30000)) { $probe.Kill(); throw 'Packaged UI startup timed out' }
-        if ($probe.ExitCode -ne 0) { throw "Packaged UI startup failed: $($probe.ExitCode); see $out/ui-smoke-errors.log" }
+        if (!$probe.WaitForExit(30000)) {
+            $probe.Kill()
+            $probe.WaitForExit()
+            throw 'Packaged UI startup timed out'
+        }
+        # Windows PowerShell/.NET can leave ExitCode unpopulated after only the
+        # timed WaitForExit(Int32) call, especially with redirected streams.
+        # Complete the wait and refresh the Process object before reading it.
+        $probe.WaitForExit()
+        $probe.Refresh()
+        $probeExitCode = $probe.ExitCode
+        $smokeErrorPath = Join-Path $out 'ui-smoke-errors.log'
+        if ($null -eq $probeExitCode) {
+            $details = if (Test-Path -LiteralPath $smokeErrorPath) { Get-Content -LiteralPath $smokeErrorPath -Raw } else { '' }
+            throw "Packaged UI startup finished without an exit code. $details"
+        }
+        if ($probeExitCode -ne 0) {
+            $details = if (Test-Path -LiteralPath $smokeErrorPath) { Get-Content -LiteralPath $smokeErrorPath -Raw } else { '' }
+            throw "Packaged UI startup failed: $probeExitCode. $details"
+        }
     } finally {
         foreach ($name in $envNames) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], 'Process') }
     }
@@ -80,7 +100,24 @@ try {
     if ($LASTEXITCODE) { throw 'ZIP creation failed' }
     & $InnoSetup "/DStageDir=$stage" "/DOutputDir=$out" "$PSScriptRoot/installer.iss"
     if ($LASTEXITCODE) { throw 'Installer compilation failed' }
-    & git archive --format=zip "--output=$out/ParallelFinder-$tag-Source.zip" HEAD
+    # Archive the same tracked working-tree sources that were just built.
+    # `git archive HEAD` silently packaged an older revision when local fixes
+    # had not been committed yet.
+    $sourceStage = Join-Path $root "build/source-$run/ParallelFinder-$tag-Source"
+    New-Item -ItemType Directory -Path $sourceStage | Out-Null
+    $trackedFiles = & git ls-files --cached --others --exclude-standard
+    if ($LASTEXITCODE) { throw 'git ls-files failed' }
+    foreach ($relative in $trackedFiles) {
+        if ([string]::IsNullOrWhiteSpace($relative)) { continue }
+        $source = Join-Path $root $relative
+        if (!(Test-Path -LiteralPath $source -PathType Leaf)) { continue }
+        $target = Join-Path $sourceStage $relative
+        $targetDir = Split-Path -Parent $target
+        if ($targetDir) { New-Item -ItemType Directory -Force -Path $targetDir | Out-Null }
+        Copy-Item -LiteralPath $source -Destination $target
+    }
+    $sourceZip = Join-Path $out "ParallelFinder-$tag-Source.zip"
+    & tar.exe -a -cf $sourceZip -C (Split-Path $sourceStage) (Split-Path $sourceStage -Leaf)
     if ($LASTEXITCODE) { throw 'Source archive failed' }
     $hashes = Get-ChildItem -LiteralPath $out -File | Get-FileHash -Algorithm SHA256
     $hashes | ForEach-Object { $_.Hash.ToLowerInvariant() + '  ' + [IO.Path]::GetFileName($_.Path) } |

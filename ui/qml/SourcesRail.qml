@@ -201,14 +201,7 @@ Rectangle {
                         }
                         PfButton {
                             Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                            compact: true
-                            text: L10n.t("search.modeClips")
-                            selected: Analysis.analysisMode === "clips"
-                            onClicked: Analysis.analysisMode = "clips"
-                        }
-                        PfButton {
-                            Layout.fillWidth: true
+                            Layout.columnSpan: 2
                             Layout.minimumWidth: 0
                             compact: true
                             text: L10n.t("search.modeCombined")

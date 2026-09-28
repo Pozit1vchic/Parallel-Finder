@@ -18,7 +18,7 @@ endif()
 
 include(CTest)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 QuickDialogs2 Qml Gui Network)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 QuickDialogs2 Qml Gui Network Multimedia)
 qt_standard_project_setup()
 qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0004 NEW)

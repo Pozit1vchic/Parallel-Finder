@@ -2,6 +2,41 @@
 
 #include <pfcore/MotionIndex.hpp>
 
+TEST(MotionIndex, EqualDistanceClustersDoNotHideExactNeighbors)
+{
+    pfcore::MotionIndex index;
+    for (std::size_t id = 0; id < 240; ++id) {
+        std::vector<double> embedding(120, 0.0);
+        embedding[id / 2] = 1.0;
+        index.add(id, std::move(embedding));
+    }
+    index.build();
+    std::vector<double> query(120, 0.0);
+    query[100] = 1.0;
+    const auto neighbors = index.query(query, 2, 130);
+    ASSERT_EQ(neighbors.size(), 2u);
+    EXPECT_EQ(neighbors[0].id, 200u);
+    EXPECT_EQ(neighbors[1].id, 201u);
+    EXPECT_DOUBLE_EQ(neighbors[0].similarity, 1.0);
+}
+
+TEST(MotionIndex, DegenerateLargeGraphStillFindsExactNeighbors)
+{
+    pfcore::MotionIndex index;
+    for (std::size_t id = 0; id < 600; ++id) {
+        std::vector<double> embedding(300, 0.0);
+        embedding[id / 2] = 1.0;
+        index.add(id, std::move(embedding));
+    }
+    index.build();
+    std::vector<double> query(300, 0.0);
+    query[260] = 1.0;
+    const auto neighbors = index.query(query, 2, 130);
+    ASSERT_EQ(neighbors.size(), 2u);
+    EXPECT_EQ(neighbors[0].id, 520u);
+    EXPECT_EQ(neighbors[1].id, 521u);
+}
+
 TEST(MotionIndex, ReturnsNearestEmbeddingsInStableOrder)
 {
     pfcore::MotionIndex index(4, 16);

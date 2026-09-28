@@ -66,9 +66,11 @@ ApplicationWindow {
     Connections { target: Analysis; function onResultsChanged() { root.syncResultsSelection() } }
 
     function resultKeysEnabled() {
-        if (settingsDialog.visible || exportDialog.visible || root.selectedRecord === null) return false
+        if (settingsDialog.visible || exportDialog.visible || fileDialog.visible
+                || folderDialog.visible || root.selectedRecord === null) return false
         for (let item = root.activeFocusItem; item; item = item.parent) {
-            if (item === sourcesRail) return false
+            // Analyze/add buttons retain focus after a run. Do not disable
+            // result navigation for the entire source panel because of that.
             if (item.cursorPosition !== undefined || item instanceof ComboBox || item instanceof Slider) return false
         }
         return true

@@ -1,0 +1,9 @@
+{
+  "description": "User-provided aiming examples at 00:02, 00:03, 00:04 on 2026-09-28. Treat these as three desired corresponding shots, not evidence of motion from still images alone.",
+  "sourceFilename": "Dean Winchester Season 10 Parallel SCP by @breathefilms.mp4",
+  "userDisplayedSeconds": [2, 3, 4],
+  "positiveAnchorsSeconds": [[2.75, 3.75], [2.75, 4.75], [3.75, 4.75]],
+  "negativeAnchorsSeconds": [[9.5, 28.95], [9.5, 36.5], [36.5, 53.1]],
+  "anchorToleranceSeconds": 0.25,
+  "notes": "Positive anchors refined by inspecting actual frames 66, 90 and 114 (24/1.001 FPS); each matches the supplied screenshot. Exact 2.0 seconds shows the preceding shot, so do not treat rounded player timestamps as exact seek targets. Three pair combinations are inferred from the supplied group. Negative anchors lie inside the earlier disputed result intervals. Do not hard-code these timestamps in production or claim global precision/recall from this small set."
+}

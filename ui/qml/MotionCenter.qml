@@ -15,6 +15,52 @@ ColumnLayout {
     property var sourceFiles: []
     property var selectedRecord: null
     property bool analysisCompleted: Analysis.analysisCompleted && !Analysis.busy
+    property bool pendingPlayback: false
+    property bool pairedPlayback: false
+    property string playbackError: ""
+    onSelectedRecordChanged: stopPair()
+    function stopPair() {
+        pendingPlayback = false
+        pairedPlayback = false
+        leftView.stopPlayback()
+        rightView.stopPlayback()
+    }
+    function startPair() {
+        stopPair()
+        playbackError = ""
+        pendingPlayback = true
+        pairedPlayback = true
+        leftView.preparePlayback()
+        rightView.preparePlayback()
+        tryPlayPair()
+    }
+    function tryPlayPair() {
+        if (pendingPlayback && leftView.playbackReady && rightView.playbackReady) {
+            pendingPlayback = false
+            leftView.playPrepared()
+            rightView.playPrepared()
+        }
+    }
+    function togglePair() {
+        if (!pairedPlayback) startPair()
+        else if (leftView.playing || rightView.playing) {
+            leftView.pausePlayback(); rightView.pausePlayback()
+        } else if (leftView.videoMode && rightView.videoMode && !pendingPlayback) {
+            leftView.playPrepared(); rightView.playPrepared()
+        } else startPair()
+    }
+    function toggleSingle(view) {
+        // Detach the clocks without resetting either player. In particular,
+        // a panel button labelled Pause must not restart that clip.
+        pendingPlayback = false
+        pairedPlayback = false
+        playbackError = ""
+        view.togglePlayback()
+    }
+    function finishPlayback(view) {
+        if (pairedPlayback) stopPair()
+        else view.stopPlayback()
+    }
     signal addRequested()
     signal analyzeRequested()
     spacing: 12
@@ -56,7 +102,8 @@ ColumnLayout {
                     text: Analysis.busy
                         ? L10n.status(Analysis.progressStage)
                         : root.selectedRecord
-                            ? (root.selectedRecord.headOnlyComparison === true ? "Положение головы · кандидат" : root.selectedRecord.matchType === "pose" ? "Похожая поза · кандидат" : "Повтор движения · кандидат")
+                            ? (L10n.matchLabel(root.selectedRecord) + " · " + Math.round(Number(root.selectedRecord.similarity || 0) * 100) + "%"
+                                + "  •  " + L10n.t("results.sceneSimilarity") + " · " + Math.round(Number(root.selectedRecord.sceneSimilarity || 0) * 100) + "%")
                             : root.analysisCompleted
                                 ? (Analysis.matchCount > 0 ? L10n.t("center.completedTitle") : L10n.t("center.noMatchesStatus"))
                                 : root.sourceFiles.length > 0 ? L10n.t("center.readyStatus") : L10n.t("center.waiting")
@@ -125,9 +172,35 @@ ColumnLayout {
                     anchors.margins: 12
                     visible: !!root.selectedRecord
                     Row {
-                        anchors.fill: parent
+                        id: playbackControls
+                        anchors.bottom: parent.bottom
+                        height: visible ? 36 : 0
+                        spacing: 8
+                        visible: !!root.selectedRecord && root.selectedRecord.matchType === "motion"
+                        PfButton {
+                            objectName: "pairPlaybackButton"
+                            compact: true
+                            text: root.pendingPlayback ? L10n.t("timeline.loadingFrame") : (root.pairedPlayback && (leftView.playing || rightView.playing) ? L10n.t("preview.pause") : L10n.t("preview.playPair"))
+                            enabled: !root.pendingPlayback
+                            onClicked: root.togglePair()
+                        }
+                        PfButton { compact: true; text: L10n.t("preview.repeat"); onClicked: root.startPair() }
+                        Text { text: root.playbackError; color: Theme.textSecondary; width: Math.max(0, stage.width - 330); elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
+                    }
+                    Row {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.bottom: playbackControls.top
+                        anchors.bottomMargin: playbackControls.visible ? 8 : 0
                         spacing: 12
                         ComparisonView {
+                            id: leftView
+                            objectName: "leftComparison"
+                            onPreviewRequested: root.toggleSingle(leftView)
+                            onPlaybackReadyChanged: root.tryPlayPair()
+                            onPlaybackFinished: root.finishPlayback(leftView)
+                            onPlaybackFailed: function(message) { root.playbackError = message; root.finishPlayback(leftView) }
                             width: (parent.width - 12) / 2
                             height: parent.height
                             record: root.selectedRecord
@@ -135,6 +208,12 @@ ColumnLayout {
                             accentColor: Theme.accent
                         }
                         ComparisonView {
+                            id: rightView
+                            objectName: "rightComparison"
+                            onPreviewRequested: root.toggleSingle(rightView)
+                            onPlaybackReadyChanged: root.tryPlayPair()
+                            onPlaybackFinished: root.finishPlayback(rightView)
+                            onPlaybackFailed: function(message) { root.playbackError = message; root.finishPlayback(rightView) }
                             width: (parent.width - 12) / 2
                             height: parent.height
                             record: root.selectedRecord

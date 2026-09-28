@@ -12,6 +12,11 @@
 namespace pfcore {
 namespace {
 
+// Small scene packs are cheap to search exactly. A pruned ANN graph can lose
+// entire equal-distance clusters (common with repeated poses), so bounded
+// exact retrieval is preferable here to silently sacrificing recall.
+constexpr std::size_t kExactSearchLimit = 512;
+
 double distance(const std::vector<double>& left, const std::vector<double>& right)
 {
     if (left.empty() || right.empty()) return std::numeric_limits<double>::infinity();
@@ -136,7 +141,7 @@ void MotionIndex::add(std::size_t id, std::vector<double> embedding)
 void MotionIndex::build()
 {
     for (Node& node : nodes_) node.neighbors.clear();
-    if (nodes_.empty()) {
+    if (nodes_.size() <= kExactSearchLimit) {
         built_ = true;
         return;
     }
@@ -182,6 +187,21 @@ std::vector<MotionIndex::Neighbor> MotionIndex::query(const std::vector<double>&
                                                       std::size_t searchWidth) const
 {
     if (!built_ || nodes_.empty() || embedding.empty() || count == 0) return {};
+    const auto exactQuery = [&] {
+        std::vector<Candidate> candidates;
+        candidates.reserve(nodes_.size());
+        for (std::size_t i = 0; i < nodes_.size(); ++i)
+            candidates.emplace_back(distance(embedding, nodes_[i].embedding), i);
+        const auto keep = std::min(count, candidates.size());
+        std::partial_sort(candidates.begin(), candidates.begin() + keep, candidates.end());
+        std::vector<Neighbor> result;
+        result.reserve(keep);
+        for (std::size_t i = 0; i < keep; ++i)
+            result.push_back({nodes_[candidates[i].second].id,
+                std::clamp(std::exp(-candidates[i].first), 0.0, 1.0)});
+        return result;
+    };
+    if (nodes_.size() <= kExactSearchLimit) return exactQuery();
     searchWidth = std::max(searchWidth, count);
     std::size_t current = entryPoint_;
     for (std::size_t level = maxLevel_; level > 0; --level) {
@@ -190,6 +210,14 @@ std::vector<MotionIndex::Neighbor> MotionIndex::query(const std::vector<double>&
     }
     const auto candidates = searchLayer(nodes_, embedding, current, 0,
                                         std::min(searchWidth, nodes_.size()));
+    // A flat, incomplete ANN neighborhood has no useful distance gradient.
+    // Equal-distance pruning can isolate the actual nearest cluster even in
+    // a large graph; use exact retrieval for this degenerate query only.
+    if (candidates.size() < std::min(count, nodes_.size())
+        || (!candidates.empty()
+            && std::abs(distance(embedding, nodes_[candidates.front()].embedding)
+                - distance(embedding, nodes_[candidates.back()].embedding)) <= 1e-12))
+        return exactQuery();
     std::vector<Neighbor> result;
     result.reserve(std::min(count, candidates.size()));
     for (const std::size_t candidate : candidates) {

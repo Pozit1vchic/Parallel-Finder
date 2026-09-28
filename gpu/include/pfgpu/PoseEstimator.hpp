@@ -48,6 +48,11 @@ class PoseEstimator {
 public:
     PoseEstimator(std::string modelPath, PoseEstimatorParams params = {});
 
+    // Creates/validates the ORT session without running a frame. Useful for
+    // showing a truthful "initializing accelerator" stage before video decode.
+    // Repeated calls are cheap because processSessionCache() owns the session.
+    void prepare();
+
     std::vector<PoseDetection> infer(const PoseImage& image);
     std::vector<std::vector<PoseDetection>> inferBatch(const std::vector<PoseImage>& images);
     const std::string& modelPath() const noexcept { return modelPath_; }
@@ -56,7 +61,7 @@ public:
 private:
     std::string modelPath_;
     PoseEstimatorParams params_;
-    SessionCache sessions_;
+    SessionHandle acquireSession();
     std::optional<SessionSpec> sessionSpec_;
 };
 

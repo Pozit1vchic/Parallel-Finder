@@ -47,7 +47,6 @@ public:
 private:
     std::string modelPath_;
     ReIdEstimatorParams params_;
-    SessionCache sessions_;
     std::optional<SessionSpec> sessionSpec_;
     bool channelsFirst_ = true;
 };

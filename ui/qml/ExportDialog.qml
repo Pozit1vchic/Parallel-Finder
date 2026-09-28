@@ -10,6 +10,8 @@ Popup {
     objectName: "exportDialog"
     readonly property int selectedNumbering: exportNumbering.currentIndex
     readonly property int selectedCutMode: cutMode.currentIndex
+    readonly property string selectedFormat: ["FFMPEG", "JSON", "CSV", "TXT"][exportFormat.currentIndex] || "FFMPEG"
+    readonly property string fileBaseName: prefixField.text
     property var rootWindow
     property var selectedRows: ({})
     property string outputFolder: ""
@@ -85,7 +87,7 @@ Popup {
         }
         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
         Text { text: L10n.t("export.format"); color: Theme.textSecondary; font.pixelSize: 11 }
-        PfComboBox { id: exportFormat; width: parent.width; model: ["JSON", "CSV", "TXT", "FFMPEG"]; Accessible.name: L10n.t("export.format") }
+        PfComboBox { id: exportFormat; width: parent.width; model: [L10n.t("export.videoFormat"), "JSON", "CSV", "TXT"]; currentIndex: 0; Accessible.name: L10n.t("export.format") }
         Text { text: L10n.t("export.numbering"); color: Theme.textSecondary; font.pixelSize: 11 }
             Row { width: parent.width; spacing: 8
                 PfButton { width: (parent.width - 8) / 2; objectName: "videoNumberingButton"; text: L10n.t("export.asVideo"); selected: exportNumbering.currentIndex === 0; onClicked: exportNumbering.currentIndex = 0 }
@@ -102,17 +104,18 @@ Popup {
             PfTextField { id: folderField; width: parent.width - 110; text: root.outputFolder; placeholderText: L10n.t("export.folder"); Accessible.name: L10n.t("export.folder"); onEditingFinished: root.outputFolder = text }
             PfButton { width: 102; text: L10n.t("export.chooseFolder"); quiet: true; onClicked: root.chooseFolder() }
         }
-        PfTextField { id: prefixField; width: parent.width; text: "frame_"; placeholderText: L10n.t("export.prefix"); Accessible.name: L10n.t("export.prefix") }
+        PfTextField { id: prefixField; width: parent.width; text: "frame"; placeholderText: L10n.t("export.prefix"); Accessible.name: L10n.t("export.prefix") }
         Text {
             width: parent.width
-            text: root.exportStatus || (exportFormat.currentText === "FFMPEG"
+            text: root.exportStatus || (root.selectedFormat === "FFMPEG"
                 ? L10n.t("export.ffmpegHint")
                 : L10n.t("export.hint"))
             color: root.exportStatus ? Theme.accent : Theme.textSecondary
             font.pixelSize: 11
             wrapMode: Text.WordWrap
         }
-        PfButton { width: parent.width; primary: true; text: Analysis.exportBusy ? "Экспортируем…" : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(exportFormat.currentText, exportNumbering.currentIndex, cutMode.currentIndex, root.outputFolder, prefixField.text, root.selectedIndexes()) }
+        PfButton { width: parent.width; primary: true; text: Analysis.exportBusy ? L10n.t("export.running") + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, cutMode.currentIndex, root.outputFolder, prefixField.text, root.selectedIndexes()) }
+        PfButton { width: parent.width; visible: Analysis.exportBusy; text: L10n.t("export.cancel"); onClicked: Analysis.cancelExport() }
     }
 
     function centerInWindow() {

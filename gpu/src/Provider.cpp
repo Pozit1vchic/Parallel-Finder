@@ -47,7 +47,7 @@ const char* providerEpName(Provider p) noexcept
 const char* providerLegacyExportName(Provider p) noexcept
 {
     switch (p) {
-    case Provider::TensorRt: return "OrtSessionOptionsAppendExecutionProvider_TensorRT";
+    case Provider::TensorRt: return "OrtSessionOptionsAppendExecutionProvider_Tensorrt";
     case Provider::Cuda: return "OrtSessionOptionsAppendExecutionProvider_CUDA";
     case Provider::Dml: return "OrtSessionOptionsAppendExecutionProvider_DML";
     // CPU and Auto have no such entry point.

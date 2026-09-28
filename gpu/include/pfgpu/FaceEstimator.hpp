@@ -11,6 +11,5 @@ public:
 private:
     std::string detector_, recognizer_;
     Provider provider_;
-    SessionCache sessions_;
 };
 }

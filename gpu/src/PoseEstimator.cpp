@@ -257,18 +257,11 @@ PoseEstimator::PoseEstimator(std::string modelPath, PoseEstimatorParams params)
     if (params_.batchSize == 0) params_.batchSize = profileBatchSize(params_.profile);
 }
 
-std::vector<PoseDetection> PoseEstimator::infer(const PoseImage& image)
+SessionHandle PoseEstimator::acquireSession()
 {
-    const auto batches = inferBatch({image});
-    return batches.empty() ? std::vector<PoseDetection> {} : batches.front();
-}
-
-std::vector<std::vector<PoseDetection>> PoseEstimator::inferBatch(const std::vector<PoseImage>& images)
-{
-    if (images.empty()) return {};
-    const auto session = sessions_.getOrCreate(ModelRef::fromPath(modelPath_),
-                                               {params_.provider, 0, params_.profile,
-                                                params_.intraOpThreads});
+    const auto session = processSessionCache().getOrCreate(
+        ModelRef::fromPath(modelPath_),
+        {params_.provider, 0, params_.profile, params_.intraOpThreads});
     if (!session.ok) throw std::runtime_error(session.error);
     if (!sessionSpec_.has_value()) {
         SessionSpec description = describeSession(session.handle);
@@ -286,6 +279,24 @@ std::vector<std::vector<PoseDetection>> PoseEstimator::inferBatch(const std::vec
         if (description.outputs.empty()) throw std::runtime_error("PoseEstimator: model has no outputs");
         sessionSpec_ = std::move(description);
     }
+    return session.handle;
+}
+
+void PoseEstimator::prepare()
+{
+    (void)acquireSession();
+}
+
+std::vector<PoseDetection> PoseEstimator::infer(const PoseImage& image)
+{
+    const auto batches = inferBatch({image});
+    return batches.empty() ? std::vector<PoseDetection> {} : batches.front();
+}
+
+std::vector<std::vector<PoseDetection>> PoseEstimator::inferBatch(const std::vector<PoseImage>& images)
+{
+    if (images.empty()) return {};
+    const SessionHandle session = acquireSession();
 
     std::vector<std::vector<PoseDetection>> detections;
     detections.reserve(images.size());
@@ -295,7 +306,7 @@ std::vector<std::vector<PoseDetection>> PoseEstimator::inferBatch(const std::vec
                                      images.begin() + static_cast<std::ptrdiff_t>(offset + count));
         std::vector<LetterboxTransform> transforms;
         const FloatTensor input = makeInputBatch(chunk, params_.batchSize, params_, transforms);
-        const auto output = runFloat(session.handle, input);
+        const auto output = runFloat(session, input);
         if (!output.ok) throw std::runtime_error(output.error);
         if (output.outputs.empty()) continue;
         const auto chunkDetections = decodeOutput(output.outputs.front(), transforms, params_);

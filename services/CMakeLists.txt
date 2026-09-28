@@ -4,6 +4,9 @@ add_library(pfservices STATIC
     src/ModelStore.cpp
     src/ProviderStore.cpp
     src/CutService.cpp
+    src/ExportQueue.cpp
+    src/FfmpegCapabilities.cpp
+    src/ProviderManager.cpp
     src/PfCache.cpp
 )
 add_library(pf::services ALIAS pfservices)

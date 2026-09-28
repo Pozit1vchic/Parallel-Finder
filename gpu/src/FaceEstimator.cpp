@@ -41,7 +41,7 @@ std::vector<float> FaceEstimator::infer(const ReIdImage& image)
     const double width = std::clamp<double>(image.right, left+1, image.width)-left;
     const double height = std::clamp<double>(image.bottom, top+1, image.height)-top;
     if (width < 32 || height < 32) return {};
-    const auto detector = sessions_.getOrCreate(ModelRef::fromPath(detector_), {provider_,0,"face-detector",1});
+    const auto detector = processSessionCache().getOrCreate(ModelRef::fromPath(detector_), {provider_,0,"face-detector",1});
     if (!detector.ok) throw std::runtime_error(detector.error);
     const auto spec = describeSession(detector.handle);
     if (!spec.ok || spec.input.shape.size() != 4)
@@ -123,7 +123,7 @@ std::vector<float> FaceEstimator::infer(const ReIdImage& image)
     aligned.shape={1,3,112,112}; aligned.values.resize(3*112*112);
     for (int y=0;y<112;++y) for (int x=0;x<112;++x) for (int c=0;c<3;++c)
         aligned.values[c*112*112+y*112+x]=pixel(image,aa*(x-tx)-bb*(y-ty)+sx,bb*(x-tx)+aa*(y-ty)+sy,c);
-    const auto recognizer=sessions_.getOrCreate(ModelRef::fromPath(recognizer_),{provider_,0,"face-recognizer",1});
+    const auto recognizer=processSessionCache().getOrCreate(ModelRef::fromPath(recognizer_),{provider_,0,"face-recognizer",1});
     if (!recognizer.ok) throw std::runtime_error(recognizer.error);
     const auto features=runFloat(recognizer.handle,aligned);
     if (!features.ok) throw std::runtime_error(features.error);

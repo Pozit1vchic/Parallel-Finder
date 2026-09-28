@@ -31,9 +31,12 @@ RestartApplications=no
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 [Files]
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
 Name: "{group}\Parallel Finder"; Filename: "{app}\ParallelFinder.exe"
+Name: "{autodesktop}\Parallel Finder"; Filename: "{app}\ParallelFinder.exe"; Tasks: desktopicon
 [Run]
-Filename: "{app}\ParallelFinder.exe"; Description: "Launch Parallel Finder"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\ParallelFinder.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent

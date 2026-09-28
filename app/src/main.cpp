@@ -4,6 +4,7 @@
 #include <QEventLoop>
 #include <QElapsedTimer>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QQmlApplicationEngine>
 #include <QTimer>
 #include <QString>
@@ -12,14 +13,57 @@
 
 #include <pfgpu/DeviceInfo.hpp>
 #include <pfservices/SettingsStore.hpp>
+#include <pfservices/ProviderManager.hpp>
+#include <QFileInfo>
 #include <QFile>
 #include <QDir>
 
 #include <AppInfo.h>
 #include <AnalysisController.h>
 #include <cstdio>
+#include <cstring>
+#include <memory>
+#include <QAbstractNativeEventFilter>
+#include <QPointer>
+#if defined(Q_OS_WIN)
+#include <windows.h>
+#endif
 
 namespace {
+
+#if defined(Q_OS_WIN)
+class DesktopInstance final : public QAbstractNativeEventFilter {
+public:
+    DesktopInstance()
+        : activationMessage_(RegisterWindowMessageW(L"ParallelFinder.ActivateDesktop"))
+    {
+        mutex_ = CreateMutexW(nullptr, FALSE, L"Local\\ParallelFinder.DesktopInstance");
+        duplicate_ = mutex_ && GetLastError() == ERROR_ALREADY_EXISTS;
+        if (duplicate_ && activationMessage_)
+            PostMessageW(HWND_BROADCAST, activationMessage_, 0, 0);
+    }
+    ~DesktopInstance() override { if (mutex_) CloseHandle(mutex_); }
+    bool valid() const { return mutex_ != nullptr; }
+    bool duplicate() const { return duplicate_; }
+    void setWindow(QQuickWindow* window) { window_ = window; }
+    bool nativeEventFilter(const QByteArray&, void* message, qintptr*) override
+    {
+        const auto* event = static_cast<MSG*>(message);
+        if (activationMessage_ && event->message == activationMessage_ && window_) {
+            if (window_->visibility() == QWindow::Minimized) window_->showNormal();
+            window_->show();
+            window_->raise();
+            window_->requestActivate();
+        }
+        return false;
+    }
+private:
+    HANDLE mutex_ = nullptr;
+    UINT activationMessage_ = 0;
+    bool duplicate_ = false;
+    QPointer<QQuickWindow> window_;
+};
+#endif
 
 // Init step: one probe per process (memoized in pfgpu), results handed to the
 // UI bridge. The app never computes backend decisions itself.
@@ -73,7 +117,38 @@ int runSmoke()
 
 int main(int argc, char* argv[])
 {
-    QGuiApplication app(argc, argv);
+    bool providerProbe = false;
+    bool diagnostic = false;
+    for (int i = 1; i < argc; ++i) {
+        providerProbe |= std::strcmp(argv[i], "--pf-provider-probe") == 0;
+        diagnostic |= std::strcmp(argv[i], "--pf-smoke") == 0
+            || std::strcmp(argv[i], "--pf-analysis-smoke") == 0
+            || std::strcmp(argv[i], "--pf-ui-smoke") == 0;
+    }
+#if defined(Q_OS_WIN)
+    if (providerProbe)
+        SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+    // Gate desktop launches before initializing Qt GUI or any GPU runtime.
+    // Isolated provider/diagnostic workers are deliberately not desktop instances.
+    std::unique_ptr<DesktopInstance> desktopInstance;
+    if (!providerProbe && !diagnostic) {
+        desktopInstance = std::make_unique<DesktopInstance>();
+        if (!desktopInstance->valid()) {
+            std::fprintf(stderr, "Cannot acquire ParallelFinder desktop instance lock\n");
+            return 1;
+        }
+        if (desktopInstance->duplicate()) return 0;
+    }
+#endif
+    // A provider probe has no window or QML. QGuiApplication would try to load
+    // an offscreen platform plugin absent from the shipped Windows package.
+    std::unique_ptr<QCoreApplication> application;
+    if (providerProbe) application = std::make_unique<QCoreApplication>(argc, argv);
+    else application = std::make_unique<QGuiApplication>(argc, argv);
+    auto& app = *application;
+#if defined(Q_OS_WIN)
+    if (desktopInstance) app.installNativeEventFilter(desktopInstance.get());
+#endif
     // QStandardPaths uses these identifiers for %LocalAppData%/ParallelFinder.
     // Set them before the UI singleton constructs SettingsStore or ModelStore.
     QCoreApplication::setOrganizationName(QStringLiteral("ParallelFinder"));
@@ -81,25 +156,80 @@ int main(int argc, char* argv[])
     QGuiApplication::setApplicationVersion(QStringLiteral(PF_VERSION));
 
     // Downloaded runtimes live in writable per-user storage, not Program Files.
-    if (!qEnvironmentVariableIsSet("PF_PROVIDER_ROOT")) {
+    if (!qEnvironmentVariableIsSet("PF_PROVIDER_ROOT") && !qEnvironmentVariableIsSet("PF_ORT_DLL")) {
         const auto root = QString::fromStdString(pfservices::SettingsStore::defaultDirectory()) + QStringLiteral("/providers");
         std::string settingsError;
         const auto chosen = pfservices::SettingsStore().load(settingsError).provider;
         const auto appRoot = QCoreApplication::applicationDirPath() + QStringLiteral("/providers/");
         const auto name = QString::fromStdString(chosen);
+        const auto activate = [&](const QString& provider) {
+            const auto runtime = pfservices::ProviderManager::locateRuntime({root, appRoot}, provider);
+            if (!runtime.isEmpty()) {
+                qputenv("PF_PROVIDER_ROOT", QFileInfo(runtime).absolutePath().toUtf8());
+                qputenv("PF_ORT_DLL", runtime.toUtf8());
+            }
+        };
         if (chosen == "cuda" || chosen == "tensorrt" || chosen == "dml") {
-            if (QFile::exists(appRoot + name + "/onnxruntime.dll"))
-                qputenv("PF_PROVIDER_ROOT", (appRoot + name).toUtf8());
-            else if (QFile::exists(root + "/" + name + "/onnxruntime.dll"))
-                qputenv("PF_PROVIDER_ROOT", (root + "/" + name).toUtf8());
+            activate(name);
         }
         QFile marker(root + QStringLiteral("/active.txt"));
         if (!qEnvironmentVariableIsSet("PF_PROVIDER_ROOT") && marker.open(QIODevice::ReadOnly)) {
             const auto provider = QString::fromUtf8(marker.read(32)).trimmed();
             if (provider == "dml" || provider == "cuda" || provider == "tensorrt")
-                qputenv("PF_PROVIDER_ROOT", QDir(root).filePath(provider).toUtf8());
+                activate(provider);
         }
     }
+
+#if defined(Q_OS_WIN)
+    // CUDA/cuDNN/TensorRT load several secondary DLLs lazily, after
+    // onnxruntime.dll itself is already loaded. Keep the selected provider
+    // directory first in this process' PATH so those transitive DLLs resolve
+    // without modifying the user's/system PATH.
+    if (qEnvironmentVariableIsSet("PF_PROVIDER_ROOT")) {
+        const QByteArray providerRoot = qgetenv("PF_PROVIDER_ROOT");
+        const QByteArray oldPath = qgetenv("PATH");
+        if (!providerRoot.isEmpty()) {
+            QByteArray newPath = providerRoot;
+            if (!oldPath.isEmpty()) {
+                newPath += ';';
+                newPath += oldPath;
+            }
+            qputenv("PATH", newPath);
+        }
+    }
+#endif
+
+    // TensorRT's first session build is expensive. Persist both engine and
+    // timing caches in the normal writable application cache so subsequent
+    // runs (including after an app restart) can deserialize instead of
+    // rebuilding the engine. ProviderFactory consumes this path via the ORT
+    // TensorRT V2 provider options.
+    if (!qEnvironmentVariableIsSet("PF_TRT_CACHE_PATH")) {
+        std::string cacheSettingsError;
+        const auto cacheSettings = pfservices::SettingsStore().load(cacheSettingsError);
+        const QString cacheRoot = cacheSettings.cachePath.empty()
+            ? QString::fromStdString(pfservices::SettingsStore::defaultDirectory()) + QStringLiteral("/cache")
+            : QString::fromStdString(cacheSettings.cachePath);
+        const QString trtCache = QDir(cacheRoot).filePath(QStringLiteral("tensorrt"));
+        QDir().mkpath(trtCache);
+        qputenv("PF_TRT_CACHE_PATH", QDir::toNativeSeparators(trtCache).toUtf8());
+    }
+
+    // Each child loads exactly one bundle. Never load another ORT DLL into a
+    // GUI process with live sessions just to discover an installed provider.
+    const auto probeIndex = app.arguments().indexOf(QStringLiteral("--pf-provider-probe"));
+    if (probeIndex >= 0) {
+        const auto name = app.arguments().value(probeIndex + 1);
+        const auto provider = pfgpu::parseProvider(name.toStdString());
+        if (!provider || *provider == pfgpu::Provider::Auto) return 2;
+        const auto* status = pfgpu::findBackendStatus(*provider);
+        const QJsonObject object{{"provider", name}, {"available", status && status->available},
+            {"reason", status ? QString::fromStdString(status->reason) : QStringLiteral("Unknown provider")}};
+        const auto json = QJsonDocument(object).toJson(QJsonDocument::Compact);
+        std::printf("PF_PROVIDER_JSON=%s\n", json.constData());
+        return 0;
+    }
+
     publishGpuInfo();
     pfui::AppInfo::registerQmlTypes();
 
@@ -167,6 +297,10 @@ int main(int argc, char* argv[])
         std::fprintf(stderr, "Fatal: failed to load PfUi.Main\n");
         return 1;
     }
+#if defined(Q_OS_WIN)
+    if (desktopInstance)
+        desktopInstance->setWindow(qobject_cast<QQuickWindow*>(engine.rootObjects().first()));
+#endif
     // Unlike --pf-smoke, exercise the shipped QML imports and actual renderer.
     if (args.contains(QStringLiteral("--pf-ui-smoke"))) {
         auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());

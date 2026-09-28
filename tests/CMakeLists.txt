@@ -54,3 +54,14 @@ add_test(NAME app_smoke COMMAND ParallelFinder --pf-smoke)
 set_tests_properties(app_smoke PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
+
+if(WIN32)
+    find_program(PF_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
+    if(PF_POWERSHELL_EXECUTABLE)
+        add_test(NAME startup_isolation
+            COMMAND "${PF_POWERSHELL_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass
+                -File "${CMAKE_CURRENT_SOURCE_DIR}/startup/test_launch.ps1"
+                -Executable "$<TARGET_FILE:ParallelFinder>")
+        set_tests_properties(startup_isolation PROPERTIES TIMEOUT 130)
+    endif()
+endif()

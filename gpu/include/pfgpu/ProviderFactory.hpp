@@ -40,16 +40,15 @@ public:
 // Shared attach logic, used by every GPU factory (exposed so tests and future
 // providers exercise exactly the same code path):
 //
-//  * ORT >= 1.22 — EP-device API: OrtApi::GetEpDevices picks the OrtEpDevice
-//    whose EpDevice_EpName matches, then SessionOptionsAppendExecutionProvider_V2
-//    attaches it. This is the documented path for current GPU packages.
-//  * older GPU packages (>= 1.12) — the classic exported entry point
+//  * CUDA/TensorRT — their public opaque V2 provider-option APIs are preferred
+//    so startup/performance knobs and TensorRT disk caches are available.
+//  * ORT >= 1.22 — EP-device API remains the generic provider path.
+//  * older/unusual GPU packages — the classic exported entry point
 //    OrtSessionOptionsAppendExecutionProvider_<EP>(options, device_id), resolved
 //    with GetProcAddress, so still no per-EP headers and no link-time ORT.
 //
-// Deliberately *not* used: the legacy OrtApi struct variants taking
-// OrtCUDAProviderOptions / OrtTensorRTProviderOptions. Their structs couple us to
-// a specific runtime ABI for no gain over the two paths above.
+// Legacy public provider structs are not used; only the opaque V2 option
+// objects are used for CUDA/TensorRT, avoiding struct ABI coupling.
 //
 // The by-name OrtApi::SessionOptionsAppendExecutionProvider is also not used: it
 // only knows a fixed list of providers (OPENVINO/SNPE/XNNPACK/QNN/WEBNN/AZURE)

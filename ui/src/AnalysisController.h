@@ -7,6 +7,8 @@
 #include <memory>
 #include <atomic>
 #include <vector>
+#include <stop_token>
+#include <thread>
 
 #include "pfcore/MotionMatcher.hpp"
 
@@ -28,6 +30,8 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool exportBusy READ exportBusy NOTIFY exportBusyChanged)
+    Q_PROPERTY(int exportCompleted READ exportCompleted NOTIFY exportProgressChanged)
+    Q_PROPERTY(int exportTotal READ exportTotal NOTIFY exportProgressChanged)
     Q_PROPERTY(bool analysisCompleted READ analysisCompleted NOTIFY analysisStateChanged)
     Q_PROPERTY(QString providerChoice READ providerChoice WRITE setProviderChoice NOTIFY settingsChanged)
     Q_PROPERTY(QString qualityProfile READ qualityProfile WRITE setQualityProfile NOTIFY settingsChanged)
@@ -72,6 +76,9 @@ public:
     qlonglong totalFrames() const noexcept { return totalFrames_; }
     QString status() const { return status_; }
     bool exportBusy() const noexcept { return exportBusy_; }
+    int exportCompleted() const noexcept { return exportCompleted_; }
+    int exportTotal() const noexcept { return exportTotal_; }
+    Q_INVOKABLE void cancelExport() { exportWorker_.request_stop(); }
     bool busy() const noexcept { return busy_; }
     bool analysisCompleted() const noexcept { return analysisCompleted_; }
     QString providerChoice() const { return providerChoice_; }
@@ -134,6 +141,7 @@ public:
                                    const QVariantList& selectedIndexes);
     Q_INVOKABLE bool exportTheme(const QString& path, const QVariantMap& theme) const;
     Q_INVOKABLE QVariantMap importTheme(const QString& path) const;
+    Q_INVOKABLE QString videoSourceUrl(const QString& sourcePath) const;
 
     Q_INVOKABLE void inspectFiles(const QStringList& paths);
     Q_INVOKABLE QStringList filesInFolder(const QString& folder) const;
@@ -154,6 +162,7 @@ signals:
     void modelCatalogChanged();
     void exportFinished(bool success, const QString& message);
     void exportBusyChanged();
+    void exportProgressChanged();
 
 private:
     explicit AnalysisController(QObject* parent = nullptr);
@@ -173,6 +182,10 @@ private:
     QString status_;
     bool busy_ = false;
     bool exportBusy_ = false;
+    int exportCompleted_ = 0;
+    int exportTotal_ = 0;
+    // Declared after the state it accesses: stops/joins before state destruction.
+    std::jthread exportWorker_;
     bool analysisCompleted_ = false;
     double progress_ = 0.0;
     QString progressStage_;

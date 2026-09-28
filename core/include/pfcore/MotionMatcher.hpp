@@ -44,6 +44,10 @@ struct MotionWindow {
 };
 
 struct MotionMatcherParams {
+    // A short held pose needs repeated observations, not the longer trajectory
+    // required to establish motion. Shared with scene-window extraction.
+    static constexpr std::size_t minimumStaticSamples = 3;
+    static constexpr double minimumStaticSpanSeconds = 0.30;
     double similarityThreshold = 0.78;
     double candidateThreshold = 0.50;
     double minRepeatGapSec = 6.0;
@@ -51,9 +55,14 @@ struct MotionMatcherParams {
     double crossFileGapSec = 0.0;
     double duplicateWindowSec = 1.5;
     double noiseFactor = 1.0;
+    // Per result type: hybrid mode has independent motion and static budgets.
     std::size_t maxUniqueResults = 100;
     double timeWeight = 0.25;
     bool normalizeSize = true;
+    // Compare both the original trajectory and a left/right mirrored copy,
+    // keeping the stronger motion match. Mirroring stays inside the matcher
+    // so detector/tracker geometry and identity embeddings remain untouched.
+    bool mirrorInvariant = false;
     std::size_t dtwBand = 2;
     // Relative Sakoe–Chiba width. dtwBand remains a useful lower bound for
     // short windows, while this ratio keeps the constraint proportional to a
@@ -97,8 +106,10 @@ struct MotionMatcherParams {
     // whose repeated action only lasts one beat.
     std::size_t minTemporalFrames = 10;
     double minTemporalDurationSec = 0.50;
-    // Same-source windows never match inside this hard floor.  It prevents a
-    // static shot from being paired with a nearby overlapping crop.
+    // Same-source windows without independently verified identity and disjoint
+    // shot provenance cannot match inside this floor. Proven different shots
+    // in a rapidly edited scenepack may be closer; overlapping observations
+    // and same-shot comparisons are still rejected separately.
     double sameSourceGapFloorSec = 5.0;
     double nmsOverlapThreshold = 0.35;
     // Track IDs are local to a source file.  A different ID must not silently
@@ -108,9 +119,8 @@ struct MotionMatcherParams {
     bool requireSameTrackWithinSource = true;
     bool allowStaticFrames = false;
     bool requireAppearance = false;
-    // Appearance is an identity gate, not a cosmetic score. Keep the core
-    // default conservative so callers do not accidentally publish pose-only
-    // matches between visually similar people.
+    // Required appearance fails closed on absent/weak evidence. Costume
+    // matching may use body evidence but must not bypass identity checks.
     double minAppearanceSimilarity = 0.80;
     // Kept for settings compatibility. Appearance is an identity gate only;
     // it deliberately never inflates the user-visible motion similarity.
@@ -144,6 +154,7 @@ struct MotionMatch {
     std::string gestureLabel;
     double rankScore = 0.0;
     double appearanceSimilarity = 0.0;
+    double sceneSimilarity = 0.0;
     bool appearanceVerified = false;
     bool faceVerified = false;
     // Head-only geometry is not a measurement of the whole body pose.

@@ -5,6 +5,13 @@
 #include <chrono>
 #include <thread>
 
+
+TEST(JobManager, RejectsInvalidConstructionBeforeStartingWorkers)
+{
+    EXPECT_THROW((pfcore::JobManager(0, 1)), std::invalid_argument);
+    EXPECT_THROW((pfcore::JobManager(1, 0)), std::invalid_argument);
+}
+
 TEST(JobManager, ExecutesJobsAndPropagatesExceptions)
 {
     pfcore::JobManager manager(2); std::atomic<int> count = 0;

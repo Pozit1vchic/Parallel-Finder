@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QCoreApplication>
 #include <QFileInfo>
+#include <QElapsedTimer>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QStringList>
@@ -19,8 +20,6 @@
 
 namespace pfservices {
 namespace {
-
-constexpr int kFfmpegTimeoutMs = 180000;
 
 QString seconds(double value)
 {
@@ -41,6 +40,11 @@ QString resolveFfmpegExecutable(const std::string& configured)
     const QString appLocal = QCoreApplication::applicationDirPath()
         + QLatin1Char('/') + requested;
     if (QFileInfo(appLocal).isFile()) return appLocal;
+#if defined(_WIN32)
+    if (!requested.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)
+        && QFileInfo(appLocal + QStringLiteral(".exe")).isFile())
+        return appLocal + QStringLiteral(".exe");
+#endif
     const QString fromPath = QStandardPaths::findExecutable(requested);
     return fromPath.isEmpty() ? requested : fromPath;
 }
@@ -59,7 +63,11 @@ CutResult CutService::cut(const CutRequest& request) const
         result.error = "ffmpeg executable is empty";
         return result;
     }
-    const QString ffmpegProgram = resolveFfmpegExecutable(ffmpegExecutable_);
+    if (request.stopToken.stop_requested()) {
+        result.cancelled = true;
+        result.error = "export cancelled";
+        return result;
+    }
     if (request.inputPath.empty() || request.outputPath.empty()) {
         result.error = "input and output paths are required";
         return result;
@@ -101,6 +109,8 @@ CutResult CutService::cut(const CutRequest& request) const
     }
 
     const double duration = request.endSeconds - request.startSeconds;
+    const QString ffmpegProgram = resolveFfmpegExecutable(ffmpegExecutable_);
+    result.executable = ffmpegProgram.toStdString();
     // Keep the real media extension on the temporary file.  FFmpeg selects
     // its muxer from the output suffix; `clip.mp4.part` has no known format
     // and produces "Unable to choose an output format" on Windows.
@@ -112,9 +122,32 @@ CutResult CutService::cut(const CutRequest& request) const
 
     std::vector<std::string> encoders;
     if (request.mode == CutMode::Fast) encoders.emplace_back("copy");
-    else encoders = {"h264_nvenc", "h264_amf", "h264_qsv", "libx264"};
+    else {
+        std::lock_guard lock(capabilitiesMutex_);
+        if (!capabilities_) {
+            auto capabilities = FfmpegCapabilities::probe(result.executable, request.stopToken);
+            if (request.stopToken.stop_requested()) {
+                result.cancelled = true;
+                result.error = "export cancelled";
+                return result;
+            }
+            capabilities_ = std::move(capabilities);
+        }
+        encoders = capabilities_->h264Candidates();
+        if (!capabilities_->error.empty() || encoders.empty()) {
+            result.error = result.executable + ": " + (capabilities_->error.empty()
+                ? "no supported H.264 encoder; install an FFmpeg build with libx264"
+                : capabilities_->error);
+            return result;
+        }
+    }
 
     for (const auto& encoder : encoders) {
+        if (request.stopToken.stop_requested()) {
+            result.cancelled = true;
+            result.error = "export cancelled";
+            break;
+        }
         QStringList arguments;
         arguments << QStringLiteral("-hide_banner") << QStringLiteral("-loglevel")
                   << QStringLiteral("error") << QStringLiteral("-y");
@@ -124,14 +157,22 @@ CutResult CutService::cut(const CutRequest& request) const
                   << QString::fromStdWString(request.inputPath.wstring());
         if (request.mode == CutMode::Exact)
             arguments << QStringLiteral("-ss") << seconds(request.startSeconds);
+        // This is a video-clip export, not a container clone. Mapping every
+        // stream also selects subtitles/data/attachments whose codecs may not
+        // be supported by MP4 (including the "codec none" encoder failure).
+        // Require the primary video, retain optional audio, omit other streams.
         arguments << QStringLiteral("-t") << seconds(duration)
-                  << QStringLiteral("-map") << QStringLiteral("0");
+                  << QStringLiteral("-map") << QStringLiteral("0:v:0")
+                  << QStringLiteral("-map") << QStringLiteral("0:a?");
         if (request.mode == CutMode::Fast) {
             arguments << QStringLiteral("-c") << QStringLiteral("copy");
         } else {
             arguments << QStringLiteral("-c:v") << QString::fromStdString(encoder)
                       << QStringLiteral("-c:a") << QStringLiteral("aac")
                       << QStringLiteral("-movflags") << QStringLiteral("+faststart");
+            if (encoder == "libx264")
+                arguments << QStringLiteral("-crf") << QStringLiteral("18")
+                          << QStringLiteral("-preset") << QStringLiteral("medium");
             if (request.maxWidth > 0 || request.maxHeight > 0) {
                 // min(iw/ih, limit) prevents upscaling while preserving aspect ratio.
                 const int width = request.maxWidth > 0 ? request.maxWidth : 100000;
@@ -142,6 +183,9 @@ CutResult CutService::cut(const CutRequest& request) const
             }
         }
         arguments << QString::fromStdWString(temporaryPath.wstring());
+        result.encoder = encoder;
+        result.arguments.clear();
+        for (const auto& argument : arguments) result.arguments.push_back(argument.toStdString());
 
         QProcess process;
         process.setProgram(ffmpegProgram);
@@ -157,13 +201,23 @@ CutResult CutService::cut(const CutRequest& request) const
         process.setProcessChannelMode(QProcess::SeparateChannels);
         process.start();
         if (!process.waitForStarted(5000)) {
-            result.error = processError(process);
+            result.error += result.executable + ": " + processError(process);
             return result;
         }
-        if (!process.waitForFinished(kFfmpegTimeoutMs)) {
+        QElapsedTimer elapsed;
+        elapsed.start();
+        while (process.state() != QProcess::NotRunning
+               && !request.stopToken.stop_requested()
+               && (request.timeoutMs <= 0 || elapsed.elapsed() < request.timeoutMs)) {
+            process.waitForFinished(100);
+        }
+        if (request.stopToken.stop_requested() || process.state() != QProcess::NotRunning) {
             process.kill();
-            process.waitForFinished(1000);
-            result.error = "ffmpeg timed out after 180 seconds: " + processError(process);
+            process.waitForFinished(5000);
+            result.cancelled = request.stopToken.stop_requested();
+            result.error = result.cancelled ? "export cancelled"
+                : "ffmpeg timed out: " + processError(process);
+            std::filesystem::remove(temporaryPath, filesystemError);
             return result;
         }
         result.exitCode = process.exitCode();
@@ -175,12 +229,14 @@ CutResult CutService::cut(const CutRequest& request) const
             if (!filesystemError) {
                 result.success = true;
                 result.encoder = encoder;
+                result.error.clear();
                 return result;
             }
             result.error = "move cut into place: " + filesystemError.message();
             break;
         }
-        result.error = processError(process);
+        result.error += result.executable + " [" + encoder + ", exit "
+            + std::to_string(result.exitCode) + "]: " + processError(process) + "\n";
         std::filesystem::remove(temporaryPath, filesystemError);
         if (request.mode == CutMode::Fast) break;
     }

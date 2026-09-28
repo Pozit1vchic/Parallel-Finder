@@ -4,10 +4,39 @@
 
 #include <QDir>
 #include <QTemporaryDir>
+#include <QUrl>
 
 #include <filesystem>
 
 namespace {
+
+TEST(SettingsStore, MigratesCachedFolderUrlWithoutDecodingPlainPaths)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    pfservices::SettingsStore store((directory.path() + "/settings.json").toStdString());
+    const QString local = directory.path() + QString::fromUtf8("/кэш с пробелами");
+    pfservices::Settings legacy;
+    legacy.cachePath = QUrl::fromLocalFile(local).toString(QUrl::FullyEncoded).toStdString();
+    std::string error;
+    ASSERT_TRUE(store.save(legacy, error));
+    EXPECT_EQ(store.load(error).cachePath, local.toStdString());
+    legacy.cachePath = (directory.path() + "/literal%20folder").toStdString();
+    ASSERT_TRUE(store.save(legacy, error));
+    EXPECT_EQ(store.load(error).cachePath, legacy.cachePath);
+}
+
+TEST(SettingsStore, MigratesRetiredClipModeToMotion)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    pfservices::SettingsStore store((directory.path() + "/settings.json").toStdString());
+    pfservices::Settings legacy;
+    legacy.analysisMode = "clips";
+    std::string error;
+    ASSERT_TRUE(store.save(legacy, error));
+    EXPECT_EQ(store.load(error).analysisMode, "motion");
+}
 
 TEST(SettingsStore, MissingFileDefaultsToEnglishAndAppearanceRoundTrips)
 {

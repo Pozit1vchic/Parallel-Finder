@@ -1,10 +1,10 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtMultimedia
 import PfUi
+import PfUiBridge
 
-// A deterministic stop-frame surface. The backend decodes exact timestamps
-// with FFmpeg, while this component owns only viewport interaction: fit,
-// wheel zoom and bounded pan. No second media pipeline can race the matcher.
+// Still frame and bounded inline playback share the same A/B viewport.
 Item {
     id: root
     property var record: null
@@ -14,10 +14,75 @@ Item {
     property string previewSource: record ? (side === "left" ? String(record.leftPreview || "") : String(record.rightPreview || "")) : ""
     property string sourcePath: record ? (side === "left" ? String(record.leftSource || "") : String(record.rightSource || "")) : ""
     property real timestamp: record ? (side === "left" ? Number(record.leftStart || 0) : Number(record.rightStart || 0)) : 0
+    property real previewStart: record ? (side === "left" ? Number(record.leftSceneStart !== undefined ? record.leftSceneStart : record.leftStart || 0) : Number(record.rightSceneStart !== undefined ? record.rightSceneStart : record.rightStart || 0)) : 0
+    property real previewEnd: record ? (side === "left" ? Number(record.leftSceneEnd !== undefined ? record.leftSceneEnd : record.leftEnd || 0) : Number(record.rightSceneEnd !== undefined ? record.rightSceneEnd : record.rightEnd || 0)) : 0
     property real zoom: 1.0
     property real panX: 0
     property real panY: 0
     signal frameUnavailable(string side)
+    signal previewRequested()
+    signal playbackFinished()
+    signal playbackFailed(string message)
+    property bool videoMode: false
+    property bool playbackReady: false
+    property bool pendingSinglePlayback: false
+    readonly property bool playing: player.playbackState === MediaPlayer.PlayingState
+
+    onRecordChanged: stopPlayback()
+    function preparePlayback() {
+        stopPlayback()
+        if (!root.record || root.record.matchType !== "motion") return
+        videoMode = true
+        player.source = Analysis.videoSourceUrl(root.sourcePath)
+    }
+    function playPrepared() { player.play() }
+    function pausePlayback() { player.pause() }
+    function togglePlayback() {
+        if (playing) pausePlayback()
+        else if (videoMode && playbackReady) playPrepared()
+        else {
+            preparePlayback()
+            pendingSinglePlayback = videoMode
+            if (pendingSinglePlayback && playbackReady) {
+                pendingSinglePlayback = false
+                playPrepared()
+            }
+        }
+    }
+    onPlaybackReadyChanged: {
+        if (playbackReady && pendingSinglePlayback) {
+            pendingSinglePlayback = false
+            playPrepared()
+        }
+    }
+    function stopPlayback() {
+        pendingSinglePlayback = false
+        playbackReady = false
+        player.stop()
+        player.source = ""
+        videoMode = false
+    }
+    MediaPlayer {
+        id: player
+        objectName: "inlineMediaPlayer"
+        videoOutput: inlineVideo
+        audioOutput: AudioOutput { muted: true }
+        onMediaStatusChanged: {
+            if (mediaStatus === MediaPlayer.LoadedMedia) {
+                position = Math.round(root.timestamp * 1000)
+                root.playbackReady = true
+            }
+            if (mediaStatus === MediaPlayer.EndOfMedia) root.playbackFinished()
+        }
+        onErrorOccurred: function(error, errorString) { root.playbackFailed(errorString); root.stopPlayback() }
+    }
+    Timer {
+        interval: 25; repeat: true; running: root.playing
+        onTriggered: {
+            const end = root.record ? Number(root.side === "left" ? root.record.leftEnd : root.record.rightEnd) : 0
+            if (player.position >= end * 1000) root.playbackFinished()
+        }
+    }
 
     function timecode(seconds) {
         const total = Math.max(0, Number(seconds) || 0)
@@ -88,7 +153,7 @@ Item {
             Item {
                 id: frameViewport
                 width: parent.width
-                height: Math.max(80, parent.height - 58)
+                height: Math.max(80, parent.height - 104)
                 clip: true
 
                 Rectangle { anchors.fill: parent; color: Theme.well; radius: 6; border.color: Theme.hairline }
@@ -110,15 +175,23 @@ Item {
                         fillMode: Image.PreserveAspectFit
                         smooth: true
                         mipmap: true
-                        visible: status === Image.Ready
+                        visible: status === Image.Ready && !root.videoMode
                         onStatusChanged: if (status === Image.Error) root.frameUnavailable(root.side)
+                    }
+                    VideoOutput {
+                        id: inlineVideo
+                        objectName: "inlineVideoOutput"
+                        anchors.fill: parent
+                        anchors.margins: 6 * root.zoom
+                        fillMode: VideoOutput.PreserveAspectFit
+                        visible: root.videoMode
                     }
                 }
 
                 Column {
                     anchors.centerIn: parent
                     spacing: 8
-                    visible: frameImage.status !== Image.Ready
+                    visible: !root.videoMode && frameImage.status !== Image.Ready
                     Image { anchors.horizontalCenter: parent.horizontalCenter; source: "qrc:/qt/qml/PfUi/qml/assets/film.svg"; sourceSize.width: 24; sourceSize.height: 24; opacity: 0.72 }
                     Text { font.family: Theme.fontFamily; anchors.horizontalCenter: parent.horizontalCenter; text: frameImage.status === Image.Loading ? L10n.t("timeline.loadingFrame") : L10n.t("timeline.frameUnavailable"); color: Theme.textSecondary; font.pixelSize: 11 }
                     Text { anchors.horizontalCenter: parent.horizontalCenter; text: root.timecode(root.timestamp); color: root.accentColor; font.family: Theme.displayFont; font.pixelSize: 16 }
@@ -152,10 +225,29 @@ Item {
                 }
             }
 
-            Row {
+            Column {
                 width: parent.width
-                height: 16
-                Text { font.family: Theme.fontFamily; width: parent.width; text: root.fileName(root.sourcePath); color: Theme.textDisabled; font.pixelSize: 9; elide: Text.ElideMiddle; verticalAlignment: Text.AlignVCenter }
+                spacing: 6
+
+                Text {
+                    font.family: Theme.fontFamily
+                    width: parent.width
+                    text: root.fileName(root.sourcePath)
+                    color: Theme.textDisabled
+                    font.pixelSize: 9
+                    elide: Text.ElideMiddle
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                PfButton {
+                    objectName: "previewPlayButton"
+                    visible: !!root.record && root.record.matchType === "motion"
+                    width: Math.min(parent.width, 154)
+                    text: root.playing ? L10n.t("preview.pause") : L10n.t("preview.play")
+                    quiet: true
+                    enabled: !!root.record && root.previewEnd > root.previewStart && (!root.videoMode || root.playbackReady)
+                    onClicked: root.previewRequested()
+                }
             }
         }
     }

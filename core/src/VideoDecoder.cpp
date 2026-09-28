@@ -80,11 +80,35 @@ struct VideoDecoder::Impl {
     {
         const AVFrame* source = decoded;
         const auto pixelFormat = static_cast<AVPixelFormat>(source->format);
+
+        // Convert into display geometry, not merely coded pixel geometry.
+        // Pose models must see anamorphic pixels corrected before inference.
+        const double sar = metadata.sampleAspectRatio > 0.0
+            ? std::clamp(metadata.sampleAspectRatio, 0.1, 10.0) : 1.0;
+        const double displayWidth = std::max(1.0, source->width * sar);
+        const double displayHeight = std::max(1.0, static_cast<double>(source->height));
+        const double normalizedRotation = std::fmod(metadata.rotationDegrees + 360.0, 360.0);
+        int quarterTurns = static_cast<int>(std::lround(normalizedRotation / 90.0)) % 4;
+        const double snappedRotation = quarterTurns * 90.0;
+        if (std::abs(normalizedRotation - snappedRotation) > 1.0
+            && std::abs(normalizedRotation - (snappedRotation + 360.0)) > 1.0)
+            quarterTurns = 0; // arbitrary rotation is uncommon; avoid cropping it silently
+        const bool swapAxes = quarterTurns == 1 || quarterTurns == 3;
+        const double finalWidth = swapAxes ? displayHeight : displayWidth;
+        const double finalHeight = swapAxes ? displayWidth : displayHeight;
         const double scale = std::min({1.0,
-            rgbaMaxWidth > 0 ? static_cast<double>(rgbaMaxWidth) / source->width : 1.0,
-            rgbaMaxHeight > 0 ? static_cast<double>(rgbaMaxHeight) / source->height : 1.0});
-        const int targetWidth = std::max(1, static_cast<int>(std::lround(source->width * scale)));
-        const int targetHeight = std::max(1, static_cast<int>(std::lround(source->height * scale)));
+            rgbaMaxWidth > 0 ? static_cast<double>(rgbaMaxWidth) / finalWidth : 1.0,
+            rgbaMaxHeight > 0 ? static_cast<double>(rgbaMaxHeight) / finalHeight : 1.0});
+        const double targetWidthDouble = displayWidth * scale;
+        const double targetHeightDouble = displayHeight * scale;
+        if (targetWidthDouble > static_cast<double>(std::numeric_limits<int>::max())
+            || targetHeightDouble > static_cast<double>(std::numeric_limits<int>::max()))
+            throw std::runtime_error("display-corrected frame dimensions overflow");
+        const int targetWidth = std::max(1, static_cast<int>(std::lround(targetWidthDouble)));
+        const int targetHeight = std::max(1, static_cast<int>(std::lround(targetHeightDouble)));
+        if (static_cast<std::uint64_t>(targetWidth) * static_cast<std::uint64_t>(targetHeight)
+            > kMaxDecodedFramePixels)
+            throw std::runtime_error("display-corrected frame dimensions exceed the safe limit");
         if (!scaler || scalerSourceWidth != source->width
             || scalerSourceHeight != source->height
             || scalerTargetWidth != targetWidth || scalerTargetHeight != targetHeight
@@ -112,6 +136,36 @@ struct VideoDecoder::Impl {
         if (sws_scale(scaler, source->data, source->linesize, 0,
                       source->height, destination, stride) <= 0) {
             throw std::runtime_error("convert decoded frame to RGBA failed");
+        }
+
+        if (quarterTurns != 0) {
+            const int sourceWidth = output.width;
+            const int sourceHeight = output.height;
+            const int rotatedWidth = swapAxes ? sourceHeight : sourceWidth;
+            const int rotatedHeight = swapAxes ? sourceWidth : sourceHeight;
+            std::vector<std::uint8_t> rotated(output.rgba.size());
+            for (int y = 0; y < sourceHeight; ++y) {
+                for (int x = 0; x < sourceWidth; ++x) {
+                    int dx = x;
+                    int dy = y;
+                    if (quarterTurns == 1) { // 90 degrees clockwise
+                        dx = sourceHeight - 1 - y;
+                        dy = x;
+                    } else if (quarterTurns == 2) {
+                        dx = sourceWidth - 1 - x;
+                        dy = sourceHeight - 1 - y;
+                    } else if (quarterTurns == 3) { // 270 degrees clockwise
+                        dx = y;
+                        dy = sourceWidth - 1 - x;
+                    }
+                    const std::size_t src = (static_cast<std::size_t>(y) * sourceWidth + x) * 4U;
+                    const std::size_t dst = (static_cast<std::size_t>(dy) * rotatedWidth + dx) * 4U;
+                    std::copy_n(output.rgba.data() + src, 4, rotated.data() + dst);
+                }
+            }
+            output.width = rotatedWidth;
+            output.height = rotatedHeight;
+            output.rgba.swap(rotated);
         }
     }
 };

@@ -120,7 +120,7 @@ std::vector<float> ReIdEstimator::infer(const ReIdImage& image)
 std::vector<std::vector<float>> ReIdEstimator::inferBatch(const std::vector<ReIdImage>& images)
 {
     if (images.empty()) return {};
-    const auto session = sessions_.getOrCreate(ModelRef::fromPath(modelPath_),
+    const auto session = processSessionCache().getOrCreate(ModelRef::fromPath(modelPath_),
                                                {params_.provider, 0, params_.profile,
                                                 params_.intraOpThreads});
     if (!session.ok) throw std::runtime_error(session.error);

@@ -2,6 +2,10 @@
 
 #include <filesystem>
 #include <string>
+#include <stop_token>
+#include <mutex>
+#include <optional>
+#include <pfservices/FfmpegCapabilities.hpp>
 
 namespace pfservices {
 
@@ -20,6 +24,10 @@ struct CutRequest {
     // Resizing requires Exact mode because Fast mode stream-copies frames.
     int maxWidth = 0;
     int maxHeight = 0;
+    std::stop_token stopToken;
+    // Zero allows long source scenes; UI cancellation remains responsive.
+    // Preview/automation callers may opt into a finite deadline.
+    int timeoutMs = 0;
 };
 
 struct CutResult {
@@ -27,6 +35,9 @@ struct CutResult {
     int exitCode = -1;
     std::string encoder;
     std::string error;
+    bool cancelled = false;
+    std::string executable;
+    std::vector<std::string> arguments;
 };
 
 class CutService {
@@ -40,6 +51,8 @@ public:
 
 private:
     std::string ffmpegExecutable_;
+    mutable std::mutex capabilitiesMutex_;
+    mutable std::optional<FfmpegCapabilities> capabilities_;
 };
 
 } // namespace pfservices

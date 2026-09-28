@@ -11,8 +11,16 @@
 #include <QtTest/QTest>
 
 #include <AppInfo.h>
+#include <AnalysisController.h>
+#include <QTemporaryDir>
 #include <pfservices/SettingsStore.hpp>
 #include <QFileInfo>
+#include <QProcess>
+#include <QStandardPaths>
+#include <QMediaPlayer>
+#include <QVideoSink>
+#include <QSignalSpy>
+#include <functional>
 
 class UiSmokeTests : public QObject {
     Q_OBJECT
@@ -25,9 +33,16 @@ private slots:
     void gpuInfoPropagatesToQml();
     void settingsAndNumericTypography();
     void resultNavigationWrapsAndScrolls();
+    void resultArrowKeysWorkAfterSourceButtonFocus();
+    void selectsAllResultsWithoutDisplayLimit();
     void exportModesAreSelectable();
     void advancedOpensOnFirstClickAndStatusTranslates();
     void directMlDownloadIntegration();
+    void cacheFolderAcceptsLocalFileUrls();
+    void staticResultsHidePlaybackControls();
+    void previewIsEmbeddedAndStopsOnRecordChange();
+    void inlinePairActuallyDecodesAndStopsAtClipEnd();
+    void resultLabelsFollowMatchTypeAndLanguage();
 };
 
 void UiSmokeTests::mainQmlLoadsFromResources()
@@ -191,6 +206,74 @@ void UiSmokeTests::resultNavigationWrapsAndScrolls()
 }
 
 
+void UiSmokeTests::resultArrowKeysWorkAfterSourceButtonFocus()
+{
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+    auto* window = loadWindow(engine);
+    QVERIFY(window);
+    auto* rail = window->findChild<QObject*>("resultsRail");
+    auto* sources = window->findChild<QQuickItem*>("sourcesRail");
+    QVERIFY(rail && sources);
+    rail->setProperty("results", QVariantList{QVariantMap{{"id", 1}, {"similarity", .8}}, QVariantMap{{"id", 2}, {"similarity", .9}}});
+    QSignalSpy selected(rail, SIGNAL(resultSelected(int)));
+    QVERIFY(selected.isValid());
+    QQmlComponent control(&engine);
+    control.setData("import QtQuick\nimport QtQuick.Controls.Basic\nButton { text: 'Analyze' }", QUrl());
+    std::unique_ptr<QQuickItem> button(qobject_cast<QQuickItem*>(control.create()));
+    QVERIFY(button);
+    button->setParentItem(sources);
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    for (const auto key : {Qt::Key_Down, Qt::Key_Up}) {
+        window->setProperty("selectedRecord", QVariantMap{{"id", 2}});
+        window->setProperty("selectedResultIndex", 2);
+        button->forceActiveFocus();
+        QTRY_VERIFY(button->hasActiveFocus());
+        const auto before = selected.count();
+        QTest::keyClick(window, key);
+        QTRY_COMPARE(selected.count(), before + 1);
+        QCOMPARE(selected.last().first().toInt(), 1);
+    }
+    // Typing and modal settings retain ownership of their arrow keys.
+    control.setData("import QtQuick\nimport QtQuick.Controls.Basic\nTextField { text: 'abc' }", QUrl());
+    std::unique_ptr<QQuickItem> field(qobject_cast<QQuickItem*>(control.create()));
+    QVERIFY(field);
+    field->setParentItem(sources);
+    window->setProperty("selectedRecord", QVariantMap{{"id", 2}});
+    field->forceActiveFocus();
+    const auto before = selected.count();
+    QTest::keyClick(window, Qt::Key_Down);
+    QCOMPARE(selected.count(), before);
+    auto* settings = window->findChild<QObject*>("settingsDialog");
+    QVERIFY(settings);
+    QVERIFY(QMetaObject::invokeMethod(settings, "open"));
+    QTRY_VERIFY(settings->property("opened").toBool());
+    QTest::keyClick(window, Qt::Key_Down);
+    QCOMPARE(selected.count(), before);
+}
+
+void UiSmokeTests::selectsAllResultsWithoutDisplayLimit()
+{
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick\nimport PfUi\nResultsRail { width: 280; height: 500; onExportSelectionChanged: function(rows) { selectedRows = rows } }", QUrl());
+    std::unique_ptr<QObject> rail(component.create());
+    QVERIFY2(rail != nullptr, qPrintable(component.errorString()));
+    QVariantList rows;
+    for (int i = 0; i < 200; ++i) rows.push_back(QVariantMap{{"id", i}, {"similarity", 0.8}});
+    rail->setProperty("results", rows);
+    QVERIFY(QMetaObject::invokeMethod(rail.get(), "selectAll"));
+    const auto selection = rail->property("selectedRows").value<QJSValue>().toVariant().toMap();
+    QCOMPARE(selection.size(), 200);
+    QVERIFY(selection.contains("0"));
+    QVERIFY(selection.contains("199"));
+    QVERIFY(QMetaObject::invokeMethod(rail.get(), "clearSelection"));
+    QCOMPARE(rail->property("selectedRows").value<QJSValue>().toVariant().toMap().size(), 0);
+}
+
 void UiSmokeTests::exportModesAreSelectable()
 {
     pfui::AppInfo::registerQmlTypes();
@@ -199,6 +282,8 @@ void UiSmokeTests::exportModesAreSelectable()
     QVERIFY(window);
     auto* popup = window->findChild<QObject*>("exportDialog");
     QVERIFY(popup);
+    QCOMPARE(popup->property("selectedFormat").toString(), QStringLiteral("FFMPEG"));
+    QCOMPARE(popup->property("fileBaseName").toString(), QStringLiteral("frame"));
     QVERIFY(QMetaObject::invokeMethod(popup, "open"));
     QTRY_VERIFY(popup->property("opened").toBool());
     const auto click = [&](const char* name) {
@@ -249,6 +334,162 @@ void UiSmokeTests::advancedOpensOnFirstClickAndStatusTranslates()
     QTRY_VERIFY(label->property("text").toString().contains("Ready"));
     QVERIFY(QMetaObject::invokeMethod(control.get(), "setLanguage", Q_ARG(QVariant, "ru")));
     QTRY_VERIFY(label->property("text").toString().contains(QString::fromUtf8("Готов")));
+}
+
+void UiSmokeTests::resultLabelsFollowMatchTypeAndLanguage()
+{
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+    QQmlComponent component(&engine);
+    component.setData(R"(
+import QtQuick
+import PfUi
+Item {
+    width: 1200; height: 700
+    property var sample: ({id: 0, matchType: 'pose', similarity: 0.91})
+    function setLanguage(value) { L10n.language = value }
+    MotionCenter { objectName: "testedCenter"; width: 850; height: 700; selectedRecord: sample }
+    ResultsRail { objectName: "testedRail"; x: 850; width: 350; height: 700; results: [sample] }
+})", QUrl());
+    std::unique_ptr<QObject> root(component.create());
+    QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+    auto* center = root->findChild<QQuickItem*>("testedCenter");
+    auto* rail = root->findChild<QQuickItem*>("testedRail");
+    QVERIFY(center && rail);
+    std::function<bool(QQuickItem*, const QString&)> containsLabel =
+        [&](QQuickItem* item, const QString& prefix) {
+            if (item->property("text").toString().startsWith(prefix)) return true;
+            for (auto* child : item->childItems())
+                if (containsLabel(child, prefix)) return true;
+            return false;
+        };
+    for (const auto& language : {QStringLiteral("en"), QStringLiteral("ru")}) {
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "setLanguage", Q_ARG(QVariant, language)));
+        for (const bool motion : {false, true}) {
+            root->setProperty("sample", QVariantMap{{"id", 0}, {"matchType", motion ? "motion" : "pose"}, {"similarity", 0.91}});
+            const QString expected = language == "en"
+                ? (motion ? "Motion similarity" : "Pose similarity")
+                : QString::fromUtf8(motion ? "Сходство движения" : "Сходство позы");
+            QTRY_VERIFY(containsLabel(center, expected + QStringLiteral(" · 91%")));
+            QTRY_VERIFY(containsLabel(rail, expected + QStringLiteral(" · 91%")));
+        }
+    }
+}
+
+void UiSmokeTests::staticResultsHidePlaybackControls()
+{
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick\nimport PfUi\nComparisonView { width: 300; height: 500; record: ({matchType: 'pose', leftStart: 1, leftEnd: 2}) }", QUrl());
+    std::unique_ptr<QObject> view(component.create());
+    QVERIFY2(view != nullptr, qPrintable(component.errorString()));
+    auto* play = view->findChild<QObject*>("previewPlayButton");
+    QVERIFY(play);
+    QVERIFY(!play->property("visible").toBool());
+    view->setProperty("record", QVariantMap{{"matchType", "motion"}, {"leftStart", 1}, {"leftEnd", 2}});
+    QVERIFY(play->property("visible").toBool());
+}
+
+void UiSmokeTests::previewIsEmbeddedAndStopsOnRecordChange()
+{
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick\nimport PfUi\nComparisonView { width: 300; height: 500 }", QUrl());
+    std::unique_ptr<QObject> view(component.create());
+    QVERIFY2(view != nullptr, qPrintable(component.errorString()));
+    QVERIFY(view->findChild<QObject*>("inlineVideoOutput"));
+    QVERIFY(view->findChild<QObject*>("inlineMediaPlayer"));
+    view->setProperty("videoMode", true);
+    view->setProperty("record", QVariantMap{{"matchType", "motion"}, {"leftStart", 1}, {"leftEnd", 2}});
+    QVERIFY(!view->property("videoMode").toBool());
+}
+
+void UiSmokeTests::inlinePairActuallyDecodesAndStopsAtClipEnd()
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    if (ffmpeg.isEmpty()) QSKIP("FFmpeg is required for the real playback fixture");
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto path = directory.filePath(QString::fromUtf8("видео #1.mp4"));
+    QProcess encoder;
+    encoder.start(ffmpeg, {"-v", "error", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=15", "-t", "3", "-c:v", "libx264", "-pix_fmt", "yuv420p", path});
+    QVERIFY(encoder.waitForFinished(30000));
+    QCOMPARE(encoder.exitCode(), 0);
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick\nimport PfUi\nMotionCenter { width: 900; height: 600 }", QUrl());
+    std::unique_ptr<QObject> center(component.create());
+    QVERIFY2(center != nullptr, qPrintable(component.errorString()));
+    center->setProperty("selectedRecord", QVariantMap{{"matchType", "motion"}, {"leftSource", path}, {"rightSource", path},
+        {"leftStart", 0.3}, {"leftEnd", 1.3}, {"rightStart", 1.5}, {"rightEnd", 2.5}});
+    auto* left = center->findChild<QObject*>("leftComparison");
+    auto* right = center->findChild<QObject*>("rightComparison");
+    QVERIFY(left && right);
+    auto* leftPlayer = left->findChild<QMediaPlayer*>("inlineMediaPlayer");
+    auto* rightPlayer = right->findChild<QMediaPlayer*>("inlineMediaPlayer");
+    QVERIFY(leftPlayer && rightPlayer);
+    QVERIFY(leftPlayer->videoSink() && rightPlayer->videoSink());
+    QSignalSpy leftFrames(leftPlayer->videoSink(), &QVideoSink::videoFrameChanged);
+    QSignalSpy rightFrames(rightPlayer->videoSink(), &QVideoSink::videoFrameChanged);
+    // Per-panel buttons must not be aliases for the shared A/B control.
+    for (auto* panel : {right, left}) {
+        auto* other = panel == right ? left : right;
+        auto* button = panel->findChild<QObject*>("previewPlayButton");
+        QVERIFY(button);
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QTRY_VERIFY_WITH_TIMEOUT(panel->property("playing").toBool(), 15000);
+        QVERIFY(!other->property("videoMode").toBool());
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QTRY_VERIFY(!panel->property("playing").toBool());
+        QVERIFY(panel->property("videoMode").toBool());
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QTRY_VERIFY_WITH_TIMEOUT(!panel->property("videoMode").toBool(), 10000);
+        QVERIFY(!other->property("videoMode").toBool());
+    }
+    leftFrames.clear();
+    rightFrames.clear();
+    QVERIFY(QMetaObject::invokeMethod(center.get(), "startPair"));
+    QTRY_VERIFY_WITH_TIMEOUT(leftFrames.count() > 0 && rightFrames.count() > 0, 15000);
+    QVERIFY(center->property("playbackError").toString().isEmpty());
+    QVERIFY(QMetaObject::invokeMethod(left->findChild<QObject*>("previewPlayButton"), "clicked"));
+    QTRY_VERIFY(!left->property("playing").toBool());
+    QVERIFY(left->property("videoMode").toBool());
+    QVERIFY(right->property("playing").toBool());
+    QVERIFY(QMetaObject::invokeMethod(center.get(), "startPair"));
+    QTRY_VERIFY_WITH_TIMEOUT(!left->property("videoMode").toBool() && !right->property("videoMode").toBool(), 10000);
+    QVERIFY(!center->property("pendingPlayback").toBool());
+    // Independent players stay independent at clip end, not just at startup.
+    center->setProperty("selectedRecord", QVariantMap{{"matchType", "motion"}, {"leftSource", path}, {"rightSource", path},
+        {"leftStart", 0.0}, {"leftEnd", 2.8}, {"rightStart", 1.5}, {"rightEnd", 2.0}});
+    QVERIFY(QMetaObject::invokeMethod(left->findChild<QObject*>("previewPlayButton"), "clicked"));
+    QTRY_VERIFY_WITH_TIMEOUT(left->property("playing").toBool(), 15000);
+    QVERIFY(QMetaObject::invokeMethod(right->findChild<QObject*>("previewPlayButton"), "clicked"));
+    QTRY_VERIFY_WITH_TIMEOUT(right->property("playing").toBool(), 15000);
+    QTRY_VERIFY_WITH_TIMEOUT(!right->property("videoMode").toBool(), 10000);
+    QVERIFY(left->property("playing").toBool());
+    center->setProperty("selectedRecord", QVariantMap{{"matchType", "pose"}, {"id", 99}});
+    QVERIFY(!left->property("videoMode").toBool());
+    QVERIFY(!right->property("videoMode").toBool());
+}
+
+void UiSmokeTests::cacheFolderAcceptsLocalFileUrls()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    auto* analysis = pfui::AnalysisController::instance();
+    const auto original = analysis->cachePath();
+    const auto path = directory.filePath(QString::fromUtf8("кэш с пробелами"));
+    analysis->setCachePath(QUrl::fromLocalFile(path).toString());
+    const auto actual = analysis->cachePath();
+    analysis->setCachePath(original);
+    QCOMPARE(actual, path);
 }
 
 void UiSmokeTests::directMlDownloadIntegration()

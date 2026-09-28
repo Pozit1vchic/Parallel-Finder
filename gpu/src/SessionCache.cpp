@@ -190,6 +190,20 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
         return result;
     }
 
+    // TensorRT rarely owns every node in a real model. ORT's recommended
+    // ordering is TensorRT first, CUDA second, CPU last. Without CUDA here,
+    // unsupported TRT subgraphs silently fall all the way back to CPU, which
+    // can erase the performance advantage of TensorRT. The TensorRT runtime
+    // bundle ships the CUDA EP as the secondary provider.
+    if (resolved == Provider::TensorRt) {
+        if (const IProviderFactory* cuda = findProviderFactory(Provider::Cuda)) {
+            std::string cudaFallbackError;
+            // TensorRT itself is already valid; a missing optional CUDA
+            // fallback must not make the whole session unusable.
+            (void)cuda->configure(*api, *options, cuda->defaultOptions(), cudaFallbackError);
+        }
+    }
+
     OrtSession* session = nullptr;
     if (model.isPath()) {
 #if defined(_WIN32)
@@ -276,6 +290,15 @@ void SessionCache::clear()
     }
     // Destruction of the entries (and therefore ReleaseSession) happens outside
     // the lock: releasing a session may block on EP teardown.
+}
+
+SessionCache& processSessionCache()
+{
+    // Pose + ReID + two face sessions across a couple of provider/model
+    // combinations fit comfortably here. LRU eviction still bounds resources
+    // when the user switches models/providers repeatedly.
+    static SessionCache cache(16);
+    return cache;
 }
 
 std::size_t SessionCache::maxEntries() const

@@ -4,6 +4,7 @@
 #include <QQmlEngine>
 #include <QString>
 #include <QVariantMap>
+#include <thread>
 
 namespace pfui {
 
@@ -27,6 +28,8 @@ class AppInfo : public QObject {
     Q_PROPERTY(double providerDownloadProgress READ providerDownloadProgress NOTIFY providerDownloadChanged)
     Q_PROPERTY(QString providerDownloadStatus READ providerDownloadStatus NOTIFY providerDownloadChanged)
     Q_PROPERTY(QString providerDownloadState READ providerDownloadState NOTIFY providerDownloadChanged)
+    Q_PROPERTY(int providersRevision READ providersRevision NOTIFY providersChanged)
+    Q_PROPERTY(bool providersScanning READ providersScanning NOTIFY providersChanged)
 
 public:
     static AppInfo* instance();
@@ -48,6 +51,10 @@ public:
     Q_INVOKABLE QString backendReason(const QString& backend) const;
     Q_INVOKABLE QString providerGuideUrl(const QString& backend) const;
     Q_INVOKABLE void downloadProvider(const QString& backend);
+    Q_INVOKABLE void rescanProviders();
+    Q_INVOKABLE QVariantMap providerInstallation(const QString& backend) const;
+    int providersRevision() const { return providersRevision_; }
+    bool providersScanning() const { return providersScanning_; }
     Q_INVOKABLE QVariantMap loadPreferences() const;
     Q_INVOKABLE bool savePreferences(const QVariantMap& preferences);
     bool providerDownloading() const noexcept { return providerDownloading_; }
@@ -65,6 +72,7 @@ public:
 signals:
     void gpuInfoChanged();
     void providerDownloadChanged();
+    void providersChanged();
 
 private:
     QString m_gpuBackend = QStringLiteral("cpu");
@@ -75,6 +83,10 @@ private:
     double providerDownloadProgress_ = 0.0;
     QString providerDownloadStatus_;
     QString providerDownloadState_ = QStringLiteral("idle");
+    int providersRevision_ = 0;
+    bool providersScanning_ = false;
+    QVariantMap installations_;
+    std::jthread providerScan_;
 };
 
 } // namespace pfui

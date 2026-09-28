@@ -7,9 +7,11 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QUrl>
 #include <QStandardPaths>
 #include <QSaveFile>
@@ -24,8 +26,11 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
 #include <filesystem>
 #include <limits>
+#include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "pfcore/VideoDecoder.hpp"
@@ -41,6 +46,8 @@
 #include "pfservices/ModelStore.hpp"
 #include "pfservices/PfCache.hpp"
 #include "pfservices/CutService.hpp"
+#include "pfservices/ExportQueue.hpp"
+#include "pfservices/PreviewMemo.hpp"
 #include "pfexporters/ExportOptions.hpp"
 
 namespace pfui {
@@ -88,6 +95,81 @@ std::vector<std::filesystem::path> modelRoots()
     roots.emplace_back(R"(D:\YOLO_Download_Project\models)");
     roots.emplace_back(R"(D:\YOLO\_Download_Project\models)");
     return roots;
+}
+
+struct EstimatorPool {
+    std::mutex mutex;
+    std::unordered_map<std::string, std::shared_ptr<pfgpu::PoseEstimator>> pose;
+    std::unordered_map<std::string, std::shared_ptr<pfgpu::ReIdEstimator>> reid;
+    std::unordered_map<std::string, std::shared_ptr<pfgpu::FaceEstimator>> face;
+};
+
+EstimatorPool& estimatorPool()
+{
+    static EstimatorPool pool;
+    return pool;
+}
+
+std::string providerKey(const QString& providerChoice)
+{
+    return providerChoice.trimmed().isEmpty()
+        ? std::string("auto")
+        : providerChoice.trimmed().toLower().toStdString();
+}
+
+std::shared_ptr<pfgpu::PoseEstimator> sharedPoseEstimator(const std::filesystem::path& model,
+                                                          const QString& providerChoice,
+                                                          int processingThreads)
+{
+    pfgpu::PoseEstimatorParams params;
+    if (const auto provider = pfgpu::parseProvider(providerChoice.toStdString()); provider.has_value())
+        params.provider = *provider;
+    params.intraOpThreads = processingThreads;
+    const std::string modelName = model.filename().string();
+    if (modelName.find("-b16") != std::string::npos) params.profile = "b16";
+    else if (modelName.find("-b8") != std::string::npos) params.profile = "b8";
+    else params.profile = "b1";
+    const std::string key = model.string() + "|" + providerKey(providerChoice)
+        + "|" + std::to_string(processingThreads) + "|" + params.profile;
+    auto& pool = estimatorPool();
+    const std::lock_guard<std::mutex> lock(pool.mutex);
+    if (const auto it = pool.pose.find(key); it != pool.pose.end()) return it->second;
+    auto estimator = std::make_shared<pfgpu::PoseEstimator>(model.string(), params);
+    pool.pose.emplace(key, estimator);
+    return estimator;
+}
+
+std::shared_ptr<pfgpu::ReIdEstimator> sharedReIdEstimator(const std::filesystem::path& model,
+                                                          const QString& providerChoice,
+                                                          int processingThreads)
+{
+    pfgpu::ReIdEstimatorParams params;
+    if (const auto provider = pfgpu::parseProvider(providerChoice.toStdString()); provider.has_value())
+        params.provider = *provider;
+    params.intraOpThreads = processingThreads;
+    const std::string key = model.string() + "|" + providerKey(providerChoice)
+        + "|" + std::to_string(processingThreads);
+    auto& pool = estimatorPool();
+    const std::lock_guard<std::mutex> lock(pool.mutex);
+    if (const auto it = pool.reid.find(key); it != pool.reid.end()) return it->second;
+    auto estimator = std::make_shared<pfgpu::ReIdEstimator>(model.string(), params);
+    pool.reid.emplace(key, estimator);
+    return estimator;
+}
+
+std::shared_ptr<pfgpu::FaceEstimator> sharedFaceEstimator(const std::filesystem::path& detector,
+                                                          const std::filesystem::path& recognizer,
+                                                          const QString& providerChoice)
+{
+    const auto provider = pfgpu::parseProvider(providerChoice.toStdString()).value_or(pfgpu::Provider::Auto);
+    const std::string key = detector.string() + "|" + recognizer.string() + "|"
+        + providerKey(providerChoice);
+    auto& pool = estimatorPool();
+    const std::lock_guard<std::mutex> lock(pool.mutex);
+    if (const auto it = pool.face.find(key); it != pool.face.end()) return it->second;
+    auto estimator = std::make_shared<pfgpu::FaceEstimator>(detector.string(), recognizer.string(), provider);
+    pool.face.emplace(key, estimator);
+    return estimator;
 }
 
 std::optional<std::filesystem::path> findLocalModelFile(const QString& filename)
@@ -234,14 +316,25 @@ QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
 QString savePreviewAt(const std::string& source, double timestamp, const QString& name)
 {
     try {
+        QElapsedTimer timer;
+        timer.start();
         pfcore::VideoDecoder decoder;
         decoder.open(source);
+        const auto openMs = timer.restart();
         decoder.seek(std::max(0.0, timestamp));
         pfcore::DecodedFrame frame;
         const double target = std::max(0.0, timestamp);
         while (decoder.readNext(frame, false)) {
-            if (frame.timestampSeconds + 1e-3 >= target)
-                return decoder.convertCurrentFrameToRgba(frame) ? savePreview(frame, name) : QString {};
+            if (frame.timestampSeconds + 1e-3 >= target) {
+                if (!decoder.convertCurrentFrameToRgba(frame)) return {};
+                const auto decodeMs = timer.restart();
+                const auto url = savePreview(frame, name);
+                if (qEnvironmentVariableIsSet("PF_DEBUG_PREVIEW"))
+                    std::fprintf(stderr, "PF_DEBUG_PREVIEW open_ms=%lld decode_ms=%lld save_ms=%lld\n",
+                        static_cast<long long>(openMs), static_cast<long long>(decodeMs),
+                        static_cast<long long>(timer.elapsed()));
+                return url;
+            }
         }
     } catch (...) {
     }
@@ -298,18 +391,17 @@ InferenceSample makeInferenceSample(const pfcore::DecodedFrame& frame)
     const int targetWidth = std::max(1, static_cast<int>(std::lround(frame.width * scale)));
     const int targetHeight = std::max(1, static_cast<int>(std::lround(frame.height * scale)));
 
+    result.width = targetWidth;
+    result.height = targetHeight;
+    if (targetWidth == frame.width && targetHeight == frame.height) {
+        result.rgba = frame.rgba;
+        return result;
+    }
     QImage source(frame.rgba.data(), frame.width, frame.height,
                   frame.width * 4, QImage::Format_RGBA8888);
-    QImage resized = source;
-    if (targetWidth != frame.width || targetHeight != frame.height) {
-        // FastTransformation is sufficient before a pose network's own
-        // letterbox and avoids turning 4K analysis into a CPU resize job.
-        resized = source.scaled(targetWidth, targetHeight, Qt::IgnoreAspectRatio,
-                                Qt::FastTransformation);
-    }
-    resized = resized.convertToFormat(QImage::Format_RGBA8888);
-    result.width = resized.width();
-    result.height = resized.height();
+    QImage resized = source.scaled(targetWidth, targetHeight, Qt::IgnoreAspectRatio,
+                                   Qt::FastTransformation)
+                         .convertToFormat(QImage::Format_RGBA8888);
     const qsizetype bytes = resized.sizeInBytes();
     result.rgba.resize(static_cast<std::size_t>(std::max<qsizetype>(0, bytes)));
     if (bytes > 0 && resized.constBits())
@@ -650,6 +742,10 @@ void AnalysisController::registerQmlTypes()
 
 AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
 {
+    connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, [this] {
+        exportWorker_.request_stop();
+        if (exportWorker_.joinable()) exportWorker_.join();
+    });
     std::string error;
     const auto settings = pfservices::SettingsStore().load(error);
     similarityThreshold_ = std::clamp(settings.similarityThreshold, 0.0, 1.0);
@@ -723,14 +819,14 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
         || envQuality == QStringLiteral("maximum"))
         qualityProfile_ = envQuality;
     if (settings.analysisMode == "motion" || settings.analysisMode == "static"
-        || settings.analysisMode == "clips" || settings.analysisMode == "combined")
+        || settings.analysisMode == "combined")
         analysisMode_ = QString::fromStdString(settings.analysisMode);
     // Headless benchmark/smoke runs can select a mode without mutating the
     // user's persisted UI preferences.  The normal application path leaves
     // this unset and uses the saved sidebar choice.
     const QString envMode = qEnvironmentVariable("PF_ANALYSIS_MODE");
     if (envMode == QStringLiteral("motion") || envMode == QStringLiteral("static")
-        || envMode == QStringLiteral("clips") || envMode == QStringLiteral("combined"))
+        || envMode == QStringLiteral("combined"))
         analysisMode_ = envMode;
     normalizeSize_ = settings.normalizeSize;
     mirrorPoses_ = settings.mirrorPoses;
@@ -948,7 +1044,7 @@ void AnalysisController::setAnalysisMode(const QString& value)
 {
     const QString normalized = value.trimmed().toLower();
     if (normalized != QStringLiteral("motion") && normalized != QStringLiteral("static")
-        && normalized != QStringLiteral("clips") && normalized != QStringLiteral("combined")) return;
+        && normalized != QStringLiteral("combined")) return;
     if (analysisMode_ == normalized) return;
     analysisMode_ = normalized;
     saveSettings();
@@ -1114,7 +1210,7 @@ QString AnalysisController::modelStatusFor(const QString& filename) const
 
 void AnalysisController::setCachePath(const QString& value)
 {
-    const QString normalized = value.trimmed();
+    const QString normalized = localPathFromInput(value);
     if (cachePath_ == normalized) return;
     cachePath_ = normalized;
     saveSettings();
@@ -1178,13 +1274,14 @@ bool AnalysisController::exportResults(const QString& format,
             emit exportFinished(false, QStringLiteral("Выберите папку для MP4-клипов"));
             return false;
         }
-        const QString requestedPrefix = prefix.trimmed().isEmpty()
-            ? QStringLiteral("scene_") : prefix.trimmed();
+        QString requestedPrefix = prefix.trimmed().isEmpty()
+            ? QStringLiteral("frame") : prefix.trimmed();
         if (!isSafeExportPrefix(requestedPrefix)) {
             emit exportFinished(false, QStringLiteral(
                 "Префикс содержит недопустимые символы: разрешены буквы, цифры, ., _ и -"));
             return false;
         }
+        if (!requestedPrefix.endsWith(QLatin1Char('_'))) requestedPrefix += QLatin1Char('_');
         if (!QDir().mkpath(folder)) {
             emit exportFinished(false, QStringLiteral("Не удалось создать папку экспорта: ") + folder);
             return false;
@@ -1192,8 +1289,11 @@ bool AnalysisController::exportResults(const QString& format,
         const pfservices::CutMode mode = cutMode == 1
             ? pfservices::CutMode::Fast : pfservices::CutMode::Exact;
         exportBusy_ = true;
+        exportCompleted_ = 0;
+        exportTotal_ = static_cast<int>(selected.size() * 2);
+        emit exportProgressChanged();
         emit exportBusyChanged();
-        QThread* exportThread = QThread::create([this, selected = std::move(selected), folder, requestedPrefix, mode] {
+        exportWorker_ = std::jthread([this, selected = std::move(selected), folder, requestedPrefix, mode](std::stop_token stop) {
         const auto finish = [this](bool success, const QString& message) {
             QMetaObject::invokeMethod(this, [this, success, message] {
                 exportBusy_ = false;
@@ -1202,23 +1302,15 @@ bool AnalysisController::exportResults(const QString& format,
             }, Qt::QueuedConnection);
         };
         try {
-        // Exporting the whole detected shot could produce one-minute files
-        // from a short match. Keep a useful amount of context while making
-        // the export predictable and quick to inspect.
-        constexpr double kExportClipSeconds = 25.0;
-        const pfservices::CutService cutter;
-        int written = 0;
+        std::vector<pfservices::CutRequest> jobs;
+        jobs.reserve(selected.size() * 2);
         for (std::size_t index = 0; index < selected.size(); ++index) {
             const auto& match = selected[index];
             const QString ordinal = QString::number(static_cast<int>(index + 1)).rightJustified(4, QLatin1Char('0'));
-            const auto cutOne = [&](const std::string& source,
+            const auto enqueue = [&](const std::string& source,
                                     double start,
                                     double end,
-                                    const QString& side) -> bool {
-                if (source.empty() || !(end > start)) {
-                    finish(false, QStringLiteral("Некорректный интервал экспорта"));
-                    return false;
-                }
+                                    const QString& side) {
                 pfservices::CutRequest request;
                 request.inputPath = std::filesystem::path(QString::fromStdString(source).toStdWString());
                 request.outputPath = std::filesystem::path((QDir(folder).filePath(
@@ -1226,37 +1318,43 @@ bool AnalysisController::exportResults(const QString& format,
                 request.startSeconds = std::max(0.0, start);
                 request.endSeconds = end;
                 request.mode = mode;
-                const auto result = cutter.cut(request);
-                if (!result.success) {
-                    finish(false, QStringLiteral("FFmpeg: ")
-                        + QString::fromStdString(result.error));
-                    return false;
-                }
-                ++written;
-                return true;
+                jobs.push_back(std::move(request));
             };
             const double leftStart = std::max(0.0, match.leftStartSeconds);
             const double leftSceneEnd = match.leftSceneEndSeconds > leftStart
                 ? match.leftSceneEndSeconds : match.leftEndSeconds;
-            const double leftEnd = std::min(std::max(leftStart + 0.001, leftSceneEnd),
-                                            leftStart + kExportClipSeconds);
+            const double leftEnd = leftSceneEnd;
             const double rightStart = std::max(0.0, match.rightStartSeconds);
             const double rightSceneEnd = match.rightSceneEndSeconds > rightStart
                 ? match.rightSceneEndSeconds : match.rightEndSeconds;
-            const double rightEnd = std::min(std::max(rightStart + 0.001, rightSceneEnd),
-                                             rightStart + kExportClipSeconds);
-            if (!cutOne(match.leftSourceId, leftStart, leftEnd, QStringLiteral("A")))
-                return;
-            if (!cutOne(match.rightSourceId, rightStart, rightEnd, QStringLiteral("B")))
-                return;
+            const double rightEnd = rightSceneEnd;
+            enqueue(match.leftSourceId, leftStart, leftEnd, QStringLiteral("A"));
+            enqueue(match.rightSourceId, rightStart, rightEnd, QStringLiteral("B"));
         }
-        finish(true, QStringLiteral("FFmpeg: создано %1 MP4-клипов").arg(written));
+        const auto batch = pfservices::runExportQueue(jobs, stop, [this](std::size_t done, std::size_t) {
+            QMetaObject::invokeMethod(this, [this, done] {
+                exportCompleted_ = static_cast<int>(done);
+                emit exportProgressChanged();
+            }, Qt::QueuedConnection);
+        });
+        int written = 0;
+        QStringList failures;
+        for (std::size_t i = 0; i < batch.completed.size(); ++i) {
+            const auto& item = batch.completed[i];
+            if (item.success) ++written;
+            else if (!item.cancelled) failures << QString::fromStdWString(jobs[i].outputPath.filename().wstring())
+                + QStringLiteral(": ") + QString::fromStdString(item.error);
+        }
+        const QString message = QStringLiteral("FFmpeg: %1 / %2 MP4; errors: %3%4")
+            .arg(written).arg(jobs.size()).arg(failures.size())
+            .arg(batch.cancelled ? QStringLiteral("; cancelled") : QString());
+        // Keep individual failures, not just the last failed encoder/file.
+        finish(!batch.cancelled && failures.isEmpty(), message + (failures.isEmpty()
+            ? QString() : QStringLiteral("\n") + failures.join(QLatin1Char('\n'))));
         } catch (const std::exception& error) {
             finish(false, QStringLiteral("FFmpeg: ") + QString::fromUtf8(error.what()));
         }
         });
-        connect(exportThread, &QThread::finished, exportThread, &QObject::deleteLater);
-        exportThread->start();
         return true;
     }
     pfexporters::ExportOptions options;
@@ -1312,6 +1410,12 @@ QVariantMap AnalysisController::importTheme(const QString& path) const
     const QJsonObject object = document.object();
     if (object.value(QStringLiteral("schema")).toString() != QStringLiteral("parallel-finder-theme")) return {};
     return object.toVariantMap();
+}
+
+QString AnalysisController::videoSourceUrl(const QString& sourcePath) const
+{
+    const QString path = localPathFromInput(sourcePath);
+    return path.isEmpty() ? QString{} : QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
 }
 
 void AnalysisController::setStatus(const QString& status)
@@ -1538,47 +1642,29 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         std::unique_ptr<pfservices::PfCache> analysisCache;
         try {
             const std::filesystem::path cacheRoot = settings.cachePath.empty()
-                ? std::filesystem::path(pfservices::SettingsStore::defaultDirectory()) / "cache"
-                : std::filesystem::path(settings.cachePath);
+                ? std::filesystem::u8path(pfservices::SettingsStore::defaultDirectory()) / "cache"
+                : std::filesystem::u8path(settings.cachePath);
             analysisCache = std::make_unique<pfservices::PfCache>(cacheRoot, settings.cacheLimitBytes);
         } catch (const std::exception&) {
             // Cache is an optimization; analysis remains usable when its path
             // is unavailable or malformed.
         }
-        std::unique_ptr<pfgpu::PoseEstimator> pose;
-        {
-            pfgpu::PoseEstimatorParams poseParams;
-            if (const auto provider = pfgpu::parseProvider(providerChoice.toStdString()); provider.has_value()) {
-                poseParams.provider = *provider;
-            }
-            poseParams.intraOpThreads = settings.processingThreads;
-            // Fixed-batch exports (for example `*-b8.onnx`) are processed in
-            // real batches below. A b1 model keeps the exact same path.
-            const std::string modelName = model.filename().string();
-            if (modelName.find("-b16") != std::string::npos) poseParams.profile = "b16";
-            else if (modelName.find("-b8") != std::string::npos) poseParams.profile = "b8";
-            else poseParams.profile = "b1";
-            pose = std::make_unique<pfgpu::PoseEstimator>(model.string(), poseParams);
-        }
+        std::shared_ptr<pfgpu::PoseEstimator> pose =
+            sharedPoseEstimator(model, providerChoice, settings.processingThreads);
         const auto reidModel = findBodyReIdModel();
         const auto faceDetectorPath = findLocalModelFile(QStringLiteral("face_detection_yunet_2023mar.onnx"));
         const auto faceRecognizerPath = findLocalModelFile(QStringLiteral("face_recognition_sface_2021dec.onnx"));
-        std::unique_ptr<pfgpu::FaceEstimator> face;
+        std::shared_ptr<pfgpu::FaceEstimator> face;
         if (!settings.costumeMode && faceDetectorPath && faceRecognizerPath)
-            face = std::make_unique<pfgpu::FaceEstimator>(faceDetectorPath->string(), faceRecognizerPath->string(),
-                pfgpu::parseProvider(providerChoice.toStdString()).value_or(pfgpu::Provider::Auto));
+            face = sharedFaceEstimator(*faceDetectorPath, *faceRecognizerPath, providerChoice);
         QString faceFailure;
         const bool reidModelPresent = !reidModel.empty();
         bool reidReady = false;
         QString reidFailure;
-        std::unique_ptr<pfgpu::ReIdEstimator> reid;
+        std::shared_ptr<pfgpu::ReIdEstimator> reid;
         if (reidModelPresent) {
             try {
-                pfgpu::ReIdEstimatorParams reidParams;
-                if (const auto provider = pfgpu::parseProvider(providerChoice.toStdString()); provider.has_value())
-                    reidParams.provider = *provider;
-                reidParams.intraOpThreads = settings.processingThreads;
-                reid = std::make_unique<pfgpu::ReIdEstimator>(reidModel.string(), reidParams);
+                reid = sharedReIdEstimator(reidModel, providerChoice, settings.processingThreads);
                 reidReady = true;
             } catch (const std::exception& exception) {
                 reidFailure = QString::fromUtf8(exception.what());
@@ -1604,14 +1690,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 // Bump this contract whenever association or the identity
                 // policy changes; otherwise a stricter matcher can still
                 // display candidates produced by an older pipeline.
-                std::string cacheKey = "motion-v21|identity-conflict-veto|scene4fps|infer=1280x720|pose=" + cacheFileFingerprint(model) + "|"
+                std::string cacheKey = "motion-v23|short-static|matcher-mirror|scene4fps|infer=1280x720|pose=" + cacheFileFingerprint(model) + "|"
                     + providerChoice.toStdString() + "|reid="
                     + (reidModelPresent ? cacheFileFingerprint(reidModel) : std::string("none")) + "|"
                     + "face=" + (!settings.costumeMode && faceDetectorPath && faceRecognizerPath
                         ? cacheFileFingerprint(*faceDetectorPath) + cacheFileFingerprint(*faceRecognizerPath)
                         : std::string("none")) + "|"
-                    + "quality=" + qualityProfile.toStdString() + "|mirror="
-                    + (mirrorPoses ? std::string("1") : std::string("0")) + "|"
+                    + "quality=" + qualityProfile.toStdString() + "|"
                     + "mode=" + analysisMode.toStdString() + "|scene="
                     + std::to_string(settings.sceneThreshold) + ":"
                     + std::to_string(settings.sceneMinFrames) + ":"
@@ -1628,29 +1713,26 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 frames += static_cast<qlonglong>(std::max(0.0, info.durationSeconds * info.frameRate));
                 std::vector<std::vector<std::uint8_t>> sceneBuffers;
                 std::vector<double> sceneTimestamps;
-                sceneBuffers.reserve(static_cast<std::size_t>(std::max(1.0, info.durationSeconds)) + 1U);
+                sceneBuffers.reserve(static_cast<std::size_t>(std::max(1.0, info.durationSeconds * 4.0)) + 1U);
                 sceneTimestamps.reserve(sceneBuffers.capacity());
                 pfcore::PersonTracker tracker;
                 pfcore::DecodedFrame firstFrame;
                 pfcore::DecodedFrame lastFrame;
                 pfcore::DecodedFrame frame;
                 std::size_t poseSampleIndex = 0;
-                std::size_t decodedFrameIndex = 0;
-                double nextSceneSample = 0.0;
+                double nextPoseSample = -std::numeric_limits<double>::infinity();
+                double nextSceneSample = -std::numeric_limits<double>::infinity();
                 double previousPoseTimestamp = -1.0;
-                // Keep motion resolution stable across 24/30/60 fps inputs.
-                // A fixed stride of eight dropped short gestures at 24 fps,
-                // while the old maximum profile ran inference at 30 fps on 60 fps input.
+                // Keep motion sampling stable in time rather than in frame
+                // numbers. This behaves correctly for 24/30/60 fps and VFR
+                // input while still decoding RGBA only for selected frames.
                 const double targetPoseFps = qualityProfile == QStringLiteral("fast") ? 6.0
                     : qualityProfile == QStringLiteral("medium") ? 10.0 : 15.0;
-                const std::size_t poseStride = std::max<std::size_t>(1,
-                    static_cast<std::size_t>(std::llround(std::max(1.0, info.frameRate) / targetPoseFps)));
+                const double poseSampleInterval = 1.0 / targetPoseFps;
                 // Four thumbnails per second preserve short edited shots.
-                // Convert a nearby decoded frame, rather than every full
-                // source frame, so high-resolution CPU analysis is not
-                // dominated by discarded RGBA conversions.
-                const std::size_t sceneSampleStride = std::max<std::size_t>(1,
-                    static_cast<std::size_t>(std::llround(std::max(1.0, info.frameRate) / 4.0)));
+                // Sampling is timestamp-based so VFR input does not drift;
+                // readNext can stay metadata-only and convert only the exact
+                // decoded frame selected for scene analysis.
                 // Appearance changes much more slowly than pose. Sampling it
                 // by elapsed time, rather than every second pose sample,
                 // prevents "maximum" mode from spending most of its runtime
@@ -1710,9 +1792,6 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         }
                         if (!person.keypoints.empty())
                             person.keypointConfidence /= static_cast<double>(person.keypoints.size());
-                        if (mirrorPoses) {
-                            for (auto& point : person.keypoints) point.x = 1.0 - point.x;
-                        }
                         frameDetections.push_back(std::move(person));
                         if (sampleAppearance && face && detection.confidence >= 0.4F) {
                             try {
@@ -1778,14 +1857,25 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     pendingPose.clear();
                 };
                 for (;;) {
-                    const bool samplePose = pose && !cacheHit
-                        && (poseSampleIndex % poseStride) == 0U;
-                    if (pose && !cacheHit) ++poseSampleIndex;
-                    const bool sampleScene = decodedFrameIndex == 0U
-                        || (decodedFrameIndex % sceneSampleStride) == 0U;
-                    if (!decoder.readNext(frame, samplePose || sampleScene)) break;
-                    ++decodedFrameIndex;
+                    // Decode timestamps first. Once a timestamp is selected,
+                    // convert the retained AVFrame exactly once for scene and/or
+                    // pose inference. This avoids frame-index drift on VFR input.
+                    if (!decoder.readNext(frame, false)) break;
                     if (isCancelled()) { markCancelled(); break; }
+                    const bool samplePose = pose && !cacheHit
+                        && frame.timestampSeconds + 1e-9 >= nextPoseSample;
+                    const bool sampleScene = frame.timestampSeconds + 1e-9 >= nextSceneSample;
+                    if ((samplePose || sampleScene) && frame.rgba.empty())
+                        decoder.convertCurrentFrameToRgba(frame);
+                    if (samplePose) {
+                        ++poseSampleIndex;
+                        if (!std::isfinite(nextPoseSample))
+                            nextPoseSample = frame.timestampSeconds + poseSampleInterval;
+                        else {
+                            do { nextPoseSample += poseSampleInterval; }
+                            while (nextPoseSample <= frame.timestampSeconds + 1e-9);
+                        }
+                    }
                     ++processedFrames;
                     if (processedFrames % 10 == 0 || processedFrames == totalFramesEstimate) {
                         const double localProgress = totalFramesEstimate > 0
@@ -1795,12 +1885,16 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             setProgress(localProgress * 0.85, QStringLiteral("Анализируем движение"), processedFrames, totalFramesEstimate);
                         }, Qt::QueuedConnection);
                     }
-                    if (firstFrame.rgba.empty()) firstFrame = frame;
-                    if (frame.timestampSeconds + 1e-9 >= nextSceneSample) {
+                    if (firstFrame.rgba.empty() && !frame.rgba.empty()) firstFrame = frame;
+                    if (sampleScene && !frame.rgba.empty()) {
                         sceneBuffers.push_back(sceneThumbnail(frame));
                         sceneTimestamps.push_back(frame.timestampSeconds);
-                        do { nextSceneSample += 0.25; }
-                        while (nextSceneSample <= frame.timestampSeconds + 1e-9);
+                        if (!std::isfinite(nextSceneSample))
+                            nextSceneSample = frame.timestampSeconds + 0.25;
+                        else {
+                            do { nextSceneSample += 0.25; }
+                            while (nextSceneSample <= frame.timestampSeconds + 1e-9);
+                        }
                     }
                     if (samplePose && !frame.rgba.empty()) {
                         const InferenceSample inference = makeInferenceSample(frame);
@@ -1842,6 +1936,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     : savePreview(firstFrame, QStringLiteral("%1_%2_start.png").arg(previewToken).arg(files));
                 const QString previewEnd = lastFrame.rgba.empty() ? QString()
                     : savePreview(lastFrame, QStringLiteral("%1_%2_end.png").arg(previewToken).arg(files));
+                if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
+                    for (const auto& boundary : sceneBoundaries)
+                        std::fprintf(stderr, "PF_DEBUG_SCENE cut=%.6f\n", boundary.timestampSeconds);
+                }
                 if (cacheHit) {
                     for (auto& cached : cachedWindows) {
                         windows.push_back(std::move(cached));
@@ -1991,13 +2089,11 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             };
                             if (analysisMode == QStringLiteral("motion")) {
                                 appendChunks(2.5, 0.75, 0.75, false);
-                            } else if (analysisMode == QStringLiteral("clips")) {
-                                appendChunks(4.0, 1.0, 3.0, false);
                             } else if (analysisMode == QStringLiteral("static")) {
-                                appendChunks(2.0, 0.75, 0.75, true);
+                                appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds, true);
                             } else { // combined: independent motion and static passes
                                 appendChunks(2.5, 0.75, 0.75, false);
-                                appendChunks(2.0, 0.75, 0.75, true);
+                                appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds, true);
                             }
                         }
                     }
@@ -2026,6 +2122,26 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         }
         markCancelled();
         if (error.isEmpty() && windows.size() >= 2 && !isCancelled()) {
+            const QString diagnosticPath = qEnvironmentVariable("PF_DEBUG_POSES_JSON");
+            if (!diagnosticPath.isEmpty()) {
+                QJsonArray diagnosticWindows;
+                for (const auto& window : windows) {
+                    QJsonArray framesJson;
+                    for (const auto& frame : window.frames) {
+                        QJsonArray points;
+                        for (const auto& point : frame.keypoints)
+                            points.append(QJsonArray{point.x, point.y, point.confidence});
+                        framesJson.append(QJsonObject{{"time", frame.timestampSeconds}, {"points", points}});
+                    }
+                    diagnosticWindows.append(QJsonObject{{"source", QString::fromStdString(window.sourceId)},
+                        {"static", window.staticFrameSet}, {"frames", framesJson}});
+                }
+                QSaveFile diagnosticFile(diagnosticPath);
+                if (diagnosticFile.open(QIODevice::WriteOnly)) {
+                    const auto bytes = QJsonDocument(diagnosticWindows).toJson(QJsonDocument::Compact);
+                    if (diagnosticFile.write(bytes) == bytes.size()) diagnosticFile.commit();
+                }
+            }
             pfcore::MotionMatcherParams params;
             params.similarityThreshold = similarityThreshold;
             params.candidateThreshold = candidateThreshold;
@@ -2041,11 +2157,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.allowStaticFrames = analysisMode == QStringLiteral("static")
                 || analysisMode == QStringLiteral("combined");
             params.normalizeSize = normalizeSize;
-            // Pose similarity is not an identity signal: two actors can make
-            // the same gesture.  Never publish a cross-person result without
-            // a body-ReID embedding.  When the model is absent or failed,
-            // MotionMatcher fails closed instead of silently returning
-            // plausible-looking but wrong pairs.
+            params.mirrorInvariant = mirrorPoses;
+            // Same-person evidence is mandatory; missing identity data must
+            // never silently admit a different actor into the results.
             params.requireAppearance = true;
             // OSNet is the identity gate, not a cosmetic label. The compact
             // export used by the desktop build loses roughly 10–15 points of
@@ -2055,14 +2169,28 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             // never inflates the percentage shown in the result rail.
             params.minAppearanceSimilarity = 0.76;
             params.appearanceWeight = 0.0;
+            QElapsedTimer resultTimer;
+            resultTimer.start();
             foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows);
+            if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
+                std::fprintf(stderr, "PF_DEBUG_TIMING matcher_ms=%lld\n", static_cast<long long>(resultTimer.restart()));
             pfcore::MotionRanker::rank(foundMatches, windows);
+            if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
+                std::fprintf(stderr, "PF_DEBUG_TIMING rank_ms=%lld ranked_results=%zu\n",
+                    static_cast<long long>(resultTimer.restart()), foundMatches.size());
             matches = static_cast<int>(foundMatches.size());
             const QStringList windowPreviewA = previewA;
             const QStringList windowPreviewB = previewB;
             previewA.clear();
             previewB.clear();
+            std::size_t renderedPreviews = 0;
+            pfservices::PreviewMemo exactPreviews([&](const QString& source, double seconds) {
+                if (isCancelled()) return QString{};
+                return savePreviewAt(source.toStdString(), seconds,
+                    QStringLiteral("%1_match_frame_%2.png").arg(previewToken).arg(renderedPreviews++));
+            });
             for (std::size_t i = 0; i < foundMatches.size(); ++i) {
+                if (isCancelled()) { markCancelled(); break; }
                 const auto& item = foundMatches[i];
                 QVariantMap record;
                 record.insert(QStringLiteral("id"), static_cast<int>(i));
@@ -2075,6 +2203,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert(QStringLiteral("leftSource"), QString::fromStdString(item.leftSourceId));
                 record.insert(QStringLiteral("rightSource"), QString::fromStdString(item.rightSourceId));
                 record.insert(QStringLiteral("appearanceSimilarity"), item.appearanceSimilarity);
+                record.insert(QStringLiteral("sceneSimilarity"), item.sceneSimilarity);
                 record.insert(QStringLiteral("identityVerified"), item.appearanceVerified);
                 record.insert(QStringLiteral("faceVerified"), item.faceVerified);
                 record.insert(QStringLiteral("headOnlyComparison"), item.headOnlyComparison);
@@ -2087,6 +2216,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert(QStringLiteral("leftEnd"), item.leftEndSeconds);
                 record.insert(QStringLiteral("rightStart"), item.rightStartSeconds);
                 record.insert(QStringLiteral("rightEnd"), item.rightEndSeconds);
+                record.insert(QStringLiteral("leftSceneStart"), item.leftSceneStartSeconds);
+                record.insert(QStringLiteral("leftSceneEnd"), item.leftSceneEndSeconds);
+                record.insert(QStringLiteral("rightSceneStart"), item.rightSceneStartSeconds);
+                record.insert(QStringLiteral("rightSceneEnd"), item.rightSceneEndSeconds);
                 const double timelineDuration = std::max({item.leftStartSeconds, item.leftEndSeconds,
                                                            item.rightStartSeconds, item.rightEndSeconds,
                                                            0.001});
@@ -2097,10 +2230,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         << item.rightStartSeconds << item.rightEndSeconds;
                 record.insert(QStringLiteral("markers"), markers);
                 resultRecords.push_back(record);
-                const QString exactA = savePreviewAt(item.leftSourceId, item.leftStartSeconds,
-                                                     QStringLiteral("%1_match_%2_a.png").arg(previewToken).arg(static_cast<int>(i)));
-                const QString exactB = savePreviewAt(item.rightSourceId, item.rightStartSeconds,
-                                                     QStringLiteral("%1_match_%2_b.png").arg(previewToken).arg(static_cast<int>(i)));
+                const QString exactA = exactPreviews.get(QString::fromStdString(item.leftSourceId), item.leftStartSeconds);
+                const QString exactB = exactPreviews.get(QString::fromStdString(item.rightSourceId), item.rightStartSeconds);
                 previewA.push_back(exactA.isEmpty() && item.leftIndex < static_cast<std::size_t>(windowPreviewA.size())
                                        ? windowPreviewA.at(static_cast<int>(item.leftIndex)) : exactA);
                 previewB.push_back(exactB.isEmpty() && item.rightIndex < static_cast<std::size_t>(windowPreviewB.size())
@@ -2109,6 +2240,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert(QStringLiteral("rightPreview"), previewB.back());
                 resultRecords.back() = record;
             }
+            markCancelled();
+            foundMatches.resize(static_cast<std::size_t>(resultRecords.size()));
+            matches = static_cast<int>(foundMatches.size());
+            if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
+                std::fprintf(stderr, "PF_DEBUG_TIMING previews_ms=%lld rendered_previews=%zu\n",
+                    static_cast<long long>(resultTimer.elapsed()), renderedPreviews);
         }
         if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
             qInfo().noquote() << "PF_DEBUG_ANALYSIS files=" << files
@@ -2122,7 +2259,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             : (reidModelPresent
                 ? QStringLiteral("ReID: отключён (%1)").arg(reidFailure.isEmpty()
                     ? QStringLiteral("ошибка модели") : reidFailure)
-                : QStringLiteral("ReID: модель не найдена · межперсонажные совпадения отключены"));
+                : QStringLiteral("ReID: модель не найдена · поиск только по движению"));
         reidStatus += face ? QStringLiteral(" · проверка лица включена")
             : (faceFailure.isEmpty() ? QStringLiteral(" · модель лица не установлена")
                                     : QStringLiteral(" · ошибка модели лица: ") + faceFailure);

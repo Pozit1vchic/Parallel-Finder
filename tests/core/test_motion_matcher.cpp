@@ -4,8 +4,133 @@
 #include <algorithm>
 #include <cmath>
 #include <set>
+#include "dean_aiming_pose_fixture.hpp"
+#include "dean_folded_arms_pose_fixture.hpp"
+#include "dean_disputed_motion_fixture.hpp"
 
 namespace {
+
+TEST(MotionMatcher, OccludedOppositeWristCannotHideContradictoryObservedArm)
+{
+    pfcore::MotionWindow left;
+    left.sourceId = "visible-arm";
+    left.staticFrameSet = true;
+    left.appearanceEmbedding = {1.0F};
+    left.appearanceConfidence = 1.0;
+    const std::vector<pfcore::Keypoint> points = {
+        {0,-1}, {-.1,-1.1}, {.1,-1.1}, {-.2,-1}, {.2,-1},
+        {-.5,0}, {.5,0}, {-.5,.7}, {.5,.7}, {-.5,1.4}, {.5,1.4,0},
+        {-.3,1}, {.3,1}, {-.3,2}, {.3,2}, {-.3,3}, {.3,3}
+    };
+    for (int i = 0; i < 5; ++i) left.frames.push_back({i / 6.0, points});
+    auto right = left;
+    right.sourceId = "different-visible-arm";
+    for (auto& frame : right.frames) frame.keypoints[9] = {-2,-2};
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    EXPECT_LT(pfcore::MotionMatcher(params).compare(left, right).similarity,
+              params.similarityThreshold);
+}
+
+TEST(MotionMatcher, DisputedDeanMotionDoesNotPassOnWeakDirectionalAgreement)
+{
+    const auto poses = deanDisputedMotionFixture();
+    pfcore::MotionMatcherParams params;
+    params.similarityThreshold = 0.70; // quick-search acceptance, not a stricter test profile
+    params.mirrorInvariant = true;
+    const pfcore::MotionMatcher matcher(params);
+    for (const auto [a,b] : {std::pair{0,1}, std::pair{0,2}, std::pair{2,3}})
+        EXPECT_LT(matcher.compare(poses[a], poses[b]).similarity, params.similarityThreshold);
+    // Retain genuine trajectory evidence rather than fixing precision by
+    // disabling motion: each recorded observation still matches its repeat.
+    for (const auto& pose : poses) {
+        auto repeat = pose;
+        repeat.sourceId += "-repeat";
+        EXPECT_GT(matcher.compare(pose, repeat).similarity, params.similarityThreshold);
+    }
+}
+
+TEST(MotionMatcher, SimilarElbowAnglesDoNotConfuseFoldedArmsWithAiming)
+{
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.mirrorInvariant = true;
+    const pfcore::MotionMatcher matcher(params);
+    for (const auto& aiming : deanAimingPoseFixture())
+        for (const auto& folded : deanFoldedArmsPoseFixture())
+            EXPECT_LT(matcher.compare(aiming, folded).similarity, params.similarityThreshold);
+}
+
+TEST(MotionMatcher, ArticulatedStaticPoseSurvivesChangedViewAndOcclusion)
+{
+    const auto poses = deanAimingPoseFixture();
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.mirrorInvariant = true;
+    const pfcore::MotionMatcher matcher(params);
+    for (std::size_t i = 0; i < poses.size(); ++i)
+        for (std::size_t j = i + 1; j < poses.size(); ++j) {
+            SCOPED_TRACE(std::to_string(i) + "/" + std::to_string(j));
+            EXPECT_GE(matcher.compare(poses[i], poses[j]).similarity, params.similarityThreshold);
+        }
+}
+
+TEST(MotionMatcher, ArticulationNeedsIdentityAndSustainedObservedLimbs)
+{
+    auto poses = deanAimingPoseFixture();
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.mirrorInvariant = true;
+    const pfcore::MotionMatcher matcher(params);
+    auto changed = poses[1];
+    changed.appearanceEmbedding = {0.0F, 1.0F};
+    EXPECT_DOUBLE_EQ(matcher.compare(poses[0], changed).similarity, 0.0);
+    changed.appearanceEmbedding.clear();
+    EXPECT_DOUBLE_EQ(matcher.compare(poses[0], changed).similarity, 0.0);
+    changed = poses[1];
+    for (std::size_t i = 2; i < changed.frames.size(); ++i)
+        changed.frames[i].keypoints[7].confidence = 0.0;
+    EXPECT_DOUBLE_EQ(matcher.compare(poses[0], changed).similarity, 0.0);
+    changed = poses[1];
+    for (auto& frame : changed.frames) {
+        // A hand at the face is not an extended two-handed posture.
+        frame.keypoints[9].x = frame.keypoints[0].x;
+        frame.keypoints[9].y = frame.keypoints[0].y + 3;
+    }
+    EXPECT_LT(matcher.compare(poses[0], changed).similarity, params.similarityThreshold);
+    params.mirrorInvariant = false;
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(poses[0], poses[1]).similarity, 0.0);
+    EXPECT_NEAR(matcher.compare(poses[0], poses[1]).similarity,
+                matcher.compare(poses[1], poses[0]).similarity, 1e-9);
+}
+
+TEST(MotionMatcher, ObservedHandAtNoseIsContradictionNotMissingEvidence)
+{
+    auto poses = deanAimingPoseFixture();
+    auto changed = poses[2];
+    changed.sourceId = "hand-at-face";
+    for (auto& frame : changed.frames) {
+        frame.keypoints[9] = frame.keypoints[0];
+    }
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    EXPECT_LT(pfcore::MotionMatcher(params).compare(poses[2], changed).similarity,
+              params.similarityThreshold);
+}
+
+TEST(MotionMatcher, StaticPoseScoreDoesNotDependOnBackgroundColors)
+{
+    auto poses = deanAimingPoseFixture();
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.mirrorInvariant = true;
+    const pfcore::MotionMatcher matcher(params);
+    const double baseline = matcher.compare(poses[0], poses[1]).similarity;
+    poses[0].sceneContext = {1.0F, 0.0F};
+    poses[1].sceneContext = {0.0F, 1.0F};
+    EXPECT_NEAR(matcher.compare(poses[0], poses[1]).similarity, baseline, 1e-9);
+    EXPECT_EQ(matcher.findAllPairs(poses).size(), 3U);
+}
 
 pfcore::MotionWindow window(const char* source, double offset, bool mirrored = false,
                             int frameCount = 24, double frameStep = 1.0 / 24.0)
@@ -42,6 +167,19 @@ TEST(MotionMatcher, IdenticalNormalizedMotionScoresHighly)
     const auto match = matcher.compare(window("a", 0), window("b", 4));
     EXPECT_GT(match.similarity, 0.8);
     EXPECT_LT(match.similarity, 0.995);
+}
+
+
+TEST(MotionMatcher, MirrorInvariantComparisonRecoversReflectedMotion)
+{
+    const auto left = window("left", 0.0, false);
+    const auto right = window("right", 4.0, true);
+    const auto plain = pfcore::MotionMatcher().compare(left, right);
+    pfcore::MotionMatcherParams params;
+    params.mirrorInvariant = true;
+    const auto mirrored = pfcore::MotionMatcher(params).compare(left, right);
+    EXPECT_LT(plain.similarity, 0.1);
+    EXPECT_GT(mirrored.similarity, 0.8);
 }
 
 TEST(MotionMatcher, AllPairsAllowsOneWindowInSeveralResults)
@@ -296,7 +434,7 @@ TEST(MotionMatcher, RejectsStaticHeadAndTorsoCropAsAFullPoseMatch)
     EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(left, right).similarity, 0.0);
 }
 
-TEST(MotionMatcher, AppearanceGateRejectsInsufficientEvidence)
+TEST(MotionMatcher, RequiredAppearanceRejectsWeakOrMissingEvidence)
 {
     pfcore::MotionMatcherParams params;
     params.candidateThreshold = 0.0;
@@ -309,6 +447,15 @@ TEST(MotionMatcher, AppearanceGateRejectsInsufficientEvidence)
     left.appearanceEmbedding = right.appearanceEmbedding = {1.0F, 0.0F, 0.0F};
     left.appearanceConfidence = right.appearanceConfidence = 0.25;
     EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs({left, right}).empty());
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(left, right).similarity, 0.0);
+    left.appearanceEmbedding.clear();
+    right.appearanceEmbedding.clear();
+    EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs({left, right}).empty());
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(left, right).similarity, 0.0);
+
+    // Low-level pose-only comparison remains available when explicitly requested.
+    params.requireAppearance = false;
+    EXPECT_FALSE(pfcore::MotionMatcher(params).findAllPairs({left, right}).empty());
 }
 
 TEST(MotionMatcher, SyntheticAcceptanceF1RemainsAboveThreshold)
@@ -358,6 +505,76 @@ TEST(MotionMatcher, StaticModeFindsHeldPoseWithoutInventingMotion)
     EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs({left, right}).empty());
 }
 
+TEST(MotionMatcher, HybridTypesDoNotSuppressEachOtherOrShareResultBudget)
+{
+    auto motionA = gestureWindow("a", 0, false);
+    auto motionB = gestureWindow("b", 8, false);
+    auto poseA = motionA, poseB = motionB;
+    poseA.staticFrameSet = poseB.staticFrameSet = true;
+    for (auto& frame : poseA.frames) frame.keypoints = poseA.frames.front().keypoints;
+    for (auto& frame : poseB.frames) frame.keypoints = poseB.frames.front().keypoints;
+    const std::vector<pfcore::MotionWindow> windows{motionA, motionB, poseA, poseB};
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.similarityThreshold = 0.7;
+    // Two independent result types each get one slot, even for the same scene pair.
+    params.maxUniqueResults = 1;
+    const auto matches = pfcore::MotionMatcher(params).findAllPairs(windows);
+    ASSERT_EQ(matches.size(), 2u);
+    EXPECT_NE(windows[matches[0].leftIndex].staticFrameSet,
+              windows[matches[1].leftIndex].staticFrameSet);
+}
+
+TEST(MotionMatcher, ReversedSourcePairsAreTheSameParallel)
+{
+    auto a = gestureWindow("a", 0, false);
+    auto b = gestureWindow("b", 8, false);
+    pfcore::MotionMatcherParams params;
+    params.maxUniqueResults = 100;
+    const auto matches = pfcore::MotionMatcher(params).findAllPairs({a, b, b, a});
+    EXPECT_EQ(matches.size(), 1u);
+}
+
+TEST(MotionMatcher, ContextualDuplicateSuppressionIsOrientationIndependent)
+{
+    auto a = gestureWindow("a", 0, false);
+    auto b = gestureWindow("b", 8, false);
+    auto nextA = gestureWindow("a", 2, false);
+    auto nextB = gestureWindow("b", 10, false);
+    for (auto* item : {&a, &b, &nextA, &nextB}) item->sceneContext = {1.0F};
+    pfcore::MotionMatcherParams params;
+    params.maxUniqueResults = 100;
+    const pfcore::MotionMatcher matcher(params);
+    const auto direct = matcher.findAllPairs({a, b, nextA, nextB});
+    const auto reversed = matcher.findAllPairs({a, b, nextB, nextA});
+    ASSERT_FALSE(direct.empty());
+    EXPECT_EQ(reversed.size(), direct.size());
+}
+
+TEST(MotionMatcher, Retains120IndependentVerifiedParallels)
+{
+    std::vector<pfcore::MotionWindow> windows;
+    for (int identity = 0; identity < 120; ++identity) {
+        for (int side = 0; side < 2; ++side) {
+            auto item = gestureWindow("source", side * 8.0, false);
+            item.sourceId = "source_" + std::to_string(identity) + "_" + std::to_string(side);
+            item.appearanceEmbedding.assign(120, 0.0F);
+            item.appearanceEmbedding[identity] = 1.0F;
+            item.appearanceConfidence = 1.0;
+            windows.push_back(std::move(item));
+        }
+    }
+    pfcore::MotionMatcherParams params;
+    params.requireAppearance = true;
+    params.maxUniqueResults = 150;
+    const auto matches = pfcore::MotionMatcher(params).findAllPairs(windows);
+    ASSERT_EQ(matches.size(), 120u);
+    for (const auto& match : matches) {
+        EXPECT_EQ(match.leftIndex / 2, match.rightIndex / 2);
+        EXPECT_TRUE(match.appearanceVerified);
+    }
+}
+
 TEST(MotionMatcher, RepeatedGestureSurvivesIsolatedMissingObservations)
 {
     auto left = gestureWindow("a", 0, false);
@@ -378,6 +595,76 @@ TEST(MotionMatcher, ShortGestureSupportsSparseSampling)
     auto right = window("b", 8, false, 8, 0.14);
     EXPECT_GT(pfcore::MotionMatcher().compare(left, right).similarity, 0.78);
     EXPECT_EQ(pfcore::MotionMatcher().findAllPairs({left, right}).size(), 1U);
+}
+
+TEST(MotionMatcher, AdjacentVerifiedShotsAreNotBlockedBySameSourceTimeGap)
+{
+    auto left = window("scenepack", 2.0);
+    auto right = window("scenepack", 3.0);
+    left.hasSceneIndex = right.hasSceneIndex = true;
+    left.sceneIndex = 1; right.sceneIndex = 2;
+    left.sceneStartSeconds = 2.0; left.sceneEndSeconds = 3.0;
+    right.sceneStartSeconds = 3.0; right.sceneEndSeconds = 4.0;
+    left.appearanceEmbedding = right.appearanceEmbedding = {1.0F, 0.0F};
+    left.appearanceConfidence = right.appearanceConfidence = 1.0;
+    pfcore::MotionMatcherParams params;
+    params.requireAppearance = true;
+    const pfcore::MotionMatcher matcher(params);
+    EXPECT_GT(matcher.compare(left, right).similarity, 0.78);
+    EXPECT_EQ(matcher.findAllPairs({left, right}).size(), 1U);
+
+    // Different labels alone are not enough: the shot intervals must not
+    // overlap, and missing identity evidence never makes a valid parallel.
+    right.sceneStartSeconds = 2.5;
+    EXPECT_TRUE(matcher.findAllPairs({left, right}).empty());
+    right.sceneStartSeconds = 3.0;
+    right.appearanceEmbedding.clear();
+    EXPECT_TRUE(matcher.findAllPairs({left, right}).empty());
+}
+
+TEST(MotionMatcher, ThreeAdjacentShotsRetainThreeDifferentScenePairs)
+{
+    std::vector<pfcore::MotionWindow> shots;
+    for (int i = 0; i < 3; ++i) {
+        auto shot = window("scenepack", 2.0 + i);
+        shot.hasSceneIndex = true;
+        shot.sceneIndex = i;
+        shot.sceneStartSeconds = 2.0 + i;
+        shot.sceneEndSeconds = 3.0 + i;
+        shot.appearanceEmbedding = {1.0F, 0.0F};
+        shot.appearanceConfidence = 1.0;
+        shots.push_back(shot);
+    }
+    pfcore::MotionMatcherParams params;
+    params.requireAppearance = true;
+    const auto pairs = pfcore::MotionMatcher(params).findAllPairs(shots);
+    EXPECT_EQ(pairs.size(), 3U); // A/B, A/C, B/C, not three sliding copies.
+}
+
+TEST(MotionMatcher, ShortStaticShotHasIndependentTemporalSupport)
+{
+    auto left = window("a", 0, false, 3, 1.0 / 6.0);
+    auto right = left;
+    right.sourceId = "b";
+    left.staticFrameSet = right.staticFrameSet = true;
+    // Held pose in three independently timestamped observations, not a
+    // claim that an entire movement is established by three stills.
+    for (auto* shot : {&left, &right}) {
+        for (auto& frame : shot->frames) frame.keypoints = {{0, 0}, {1, 1}};
+        shot->appearanceEmbedding = {1.0F, 0.0F};
+        shot->appearanceConfidence = 1.0;
+    }
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.requireAppearance = true;
+    const pfcore::MotionMatcher matcher(params);
+    EXPECT_GT(matcher.compare(left, right).similarity, 0.85);
+    EXPECT_EQ(matcher.findAllPairs({left, right}).size(), 1U);
+    right.frames.pop_back();
+    EXPECT_DOUBLE_EQ(matcher.compare(left, right).similarity, 0.0);
+    right = left; right.sourceId = "b";
+    left.staticFrameSet = right.staticFrameSet = false;
+    EXPECT_TRUE(matcher.findAllPairs({left, right}).empty());
 }
 
 TEST(MotionMatcher, SameSourceOverlappingWindowsCannotBeParallels)
@@ -434,6 +721,66 @@ TEST(MotionMatcher, MissingCocoJointsDoNotPoisonCandidateIndex)
     ASSERT_EQ(matches.size(), 1U);
     EXPECT_GT(matches.front().similarity, 0.78);
     for (const auto& match : matches) EXPECT_TRUE(std::isfinite(match.similarity));
+}
+
+TEST(MotionMatcher, SharedCameraDriftDoesNotMatchDifferentActiveBodyParts)
+{
+    pfcore::MotionWindow arm, leg;
+    arm.sourceId = "arm"; leg.sourceId = "leg";
+    for (int i = 0; i < 24; ++i) {
+        const double t = i / 12.0;
+        pfcore::PoseFrame base;
+        base.timestampSeconds = t;
+        for (int joint = 0; joint < 17; ++joint)
+            base.keypoints.push_back({0.2 * (joint % 3) + 0.12 * t, 0.2 * (joint / 3), 1.0});
+        auto hand = base;
+        auto foot = base;
+        hand.keypoints[9].y -= 0.15 * t;
+        hand.keypoints[10].y -= 0.15 * t;
+        foot.keypoints[15].y -= 0.15 * t;
+        foot.keypoints[16].y -= 0.15 * t;
+        arm.frames.push_back(hand);
+        leg.frames.push_back(foot);
+    }
+    const pfcore::MotionMatcher matcher;
+    auto repeatedArm = arm;
+    repeatedArm.sourceId = "repeated-arm";
+    EXPECT_GT(matcher.compare(arm, repeatedArm).similarity, 0.78);
+    EXPECT_LT(matcher.compare(arm, leg).similarity, 0.70);
+}
+
+TEST(MotionMatcher, SharedCameraDriftCannotHideOppositeHeadMotion)
+{
+    pfcore::MotionWindow left, opposite, locomotion;
+    left.sourceId = "head-left";
+    opposite.sourceId = "head-right";
+    locomotion.sourceId = "rigid-translation";
+    for (int i = 0; i < 24; ++i) {
+        const double t = i / 12.0;
+        pfcore::PoseFrame base;
+        base.timestampSeconds = t;
+        for (int joint = 0; joint < 17; ++joint)
+            base.keypoints.push_back({0.2 * (joint % 3) + 0.5 * t,
+                                      0.2 * (joint / 3), 1.0});
+        auto a = base, b = base;
+        for (int joint = 0; joint < 5; ++joint) {
+            a.keypoints[joint].x += 0.10 * t;
+            b.keypoints[joint].x -= 0.10 * t;
+        }
+        left.frames.push_back(a);
+        opposite.frames.push_back(b);
+        locomotion.frames.push_back(base);
+    }
+    const pfcore::MotionMatcher matcher;
+    auto repeat = left;
+    repeat.sourceId = "head-repeat";
+    EXPECT_GT(matcher.compare(left, repeat).similarity, 0.78);
+    EXPECT_LT(matcher.compare(left, opposite).similarity, 0.70);
+    for (auto& frame : repeat.frames) frame.timestampSeconds *= 1.5;
+    EXPECT_GT(matcher.compare(left, repeat).similarity, 0.78);
+    auto repeatedLocomotion = locomotion;
+    repeatedLocomotion.sourceId = "rigid-repeat";
+    EXPECT_GT(matcher.compare(locomotion, repeatedLocomotion).similarity, 0.78);
 }
 
 TEST(MotionMatcher, PreviewStartsAtSupportedGesture)

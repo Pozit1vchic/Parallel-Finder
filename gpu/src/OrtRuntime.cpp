@@ -141,7 +141,7 @@ void loadRuntime(RuntimeState& s)
     bool explicitPath = false;
     if (const char* override_path = std::getenv(kRuntimePathEnvVar);
         override_path && *override_path) {
-        candidates.emplace_back(override_path);
+        candidates.push_back(std::filesystem::u8path(override_path));
         explicitPath = true;
     } else {
         if (const char* root = std::getenv(kProviderRootEnvVar); root && *root) {

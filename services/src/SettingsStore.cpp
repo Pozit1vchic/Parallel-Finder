@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QUrl>
 
 #include <filesystem>
 #include <algorithm>
@@ -105,10 +106,14 @@ Settings SettingsStore::load(std::string& error) const
     readString(json, "theme", settings.theme);
     readString(json, "modelPath", settings.modelPath);
     readString(json, "cachePath", settings.cachePath);
+    // Older folder pickers persisted a file URL instead of a filesystem path.
+    // Decode URLs only: percent sequences are legal in ordinary folder names.
+    const QUrl cacheUrl(QString::fromStdString(settings.cachePath));
+    if (cacheUrl.isLocalFile()) settings.cachePath = cacheUrl.toLocalFile().toStdString();
     readString(json, "qualityProfile", settings.qualityProfile);
     readString(json, "analysisMode", settings.analysisMode);
     if (settings.analysisMode != "motion" && settings.analysisMode != "static"
-        && settings.analysisMode != "clips" && settings.analysisMode != "combined")
+        && settings.analysisMode != "combined")
         settings.analysisMode = "motion";
     const auto normalizeSize = json.value(QStringLiteral("normalizeSize"));
     if (normalizeSize.isBool()) settings.normalizeSize = normalizeSize.toBool();

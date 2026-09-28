@@ -63,6 +63,7 @@ settings.local.json
 *.part
 *.tmp
 *.bak
+*.backup
 *.stackdump
 .parallel-finder/
 

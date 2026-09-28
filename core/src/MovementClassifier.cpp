@@ -50,12 +50,9 @@ double keypointDelta(const PoseFrame& first, const PoseFrame& last, std::size_t 
     return (yAxis ? b.y - a.y : b.x - a.x) / std::max(bodyScale(first), bodyScale(last));
 }
 
-MovementClassification classifyOne(const MotionWindow& window)
+MovementClassification classifyEndpoints(const PoseFrame& first, const PoseFrame& last)
 {
     MovementClassification result;
-    if (window.frames.size() < 2) return result;
-    const auto& first = window.frames.front();
-    const auto& last = window.frames.back();
     const Point a = centroid(first), b = centroid(last);
     const double scale = std::max(bodyScale(first), bodyScale(last));
     const double dx = (b.x - a.x) / scale;
@@ -106,6 +103,36 @@ MovementClassification classifyOne(const MotionWindow& window)
     } else {
         result.gesture = displacement < 0.035 ? GestureClass::Static : GestureClass::Unknown;
         result.gestureConfidence = result.gesture == GestureClass::Static ? 1.0 : 0.0;
+    }
+    return result;
+}
+
+MovementClassification classifyOne(const MotionWindow& window)
+{
+    if (window.frames.size() < 2) return {};
+    auto result = classifyEndpoints(window.frames.front(), window.frames.back());
+    if (result.direction != MovementDirection::Static || result.gesture != GestureClass::Static)
+        return result;
+
+    // Equal endpoints do not imply a static trajectory (raise/lower, nod,
+    // out-and-back). Require a sustained excursion rather than one outlier.
+    // The temporal matcher remains responsible for matching both trajectories.
+    std::size_t consecutive = 0;
+    for (std::size_t i = 1; i + 1 < window.frames.size(); ++i) {
+        const auto excursion = classifyEndpoints(window.frames.front(), window.frames[i]);
+        const bool moving = excursion.direction != MovementDirection::Static
+            || excursion.gesture != GestureClass::Static;
+        consecutive = moving ? consecutive + 1 : 0;
+        if (consecutive < 2) continue;
+        if (excursion.direction != MovementDirection::Static) {
+            result.direction = MovementDirection::Mixed;
+            result.directionConfidence = excursion.directionConfidence;
+        }
+        if (excursion.gesture != GestureClass::Static) {
+            result.gesture = GestureClass::Mixed;
+            result.gestureConfidence = excursion.gestureConfidence;
+        }
+        return result;
     }
     return result;
 }

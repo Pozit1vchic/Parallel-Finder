@@ -76,6 +76,7 @@ target_link_libraries(pfui PUBLIC
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::QuickDialogs2
+    Qt6::Multimedia
 )
 
 target_compile_definitions(pfui PRIVATE PF_VERSION="${PROJECT_VERSION}")

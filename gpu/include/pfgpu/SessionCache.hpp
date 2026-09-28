@@ -91,4 +91,11 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+// Process-wide inference session cache used by the built-in estimators.
+// Estimator objects are intentionally cheap/short-lived, while ORT GPU
+// sessions are expensive to create (cuDNN tuning / TensorRT engine build).
+// Keeping sessions here makes repeated analyses reuse the same model/provider
+// session instead of paying that startup cost on every Start click.
+SessionCache& processSessionCache();
+
 } // namespace pfgpu

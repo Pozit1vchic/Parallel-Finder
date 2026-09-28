@@ -25,7 +25,19 @@ struct JobManager::Impl {
     explicit Impl(std::size_t max, std::size_t workerCount) : maxQueued(max)
     {
         workers.reserve(workerCount);
-        for (std::size_t i = 0; i < workerCount; ++i) workers.emplace_back([this] { run(); });
+        try {
+            for (std::size_t i = 0; i < workerCount; ++i)
+                workers.emplace_back([this] { run(); });
+        } catch (...) {
+            {
+                std::lock_guard lock(mutex);
+                stopping = true;
+            }
+            ready.notify_all();
+            for (auto& worker : workers)
+                if (worker.joinable()) worker.join();
+            throw;
+        }
     }
 
     void run()
@@ -65,10 +77,13 @@ struct JobManager::Impl {
 };
 
 JobManager::JobManager(std::size_t maxQueued, std::size_t workerCount)
-    : impl_(std::make_unique<Impl>(maxQueued, workerCount))
 {
+    // Validate before Impl starts worker threads. Throwing after constructing
+    // Impl would destroy joinable std::threads during stack unwinding and
+    // terminate the process instead of delivering invalid_argument.
     if (maxQueued == 0 || workerCount == 0)
         throw std::invalid_argument("JobManager: queue and worker counts must be > 0");
+    impl_ = std::make_unique<Impl>(maxQueued, workerCount);
 }
 
 JobManager::~JobManager()

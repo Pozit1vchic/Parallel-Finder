@@ -4,6 +4,7 @@
 #include <pfgpu/Provider.hpp>
 #include <pfservices/ProviderStore.hpp>
 #include <pfservices/SettingsStore.hpp>
+#include <pfservices/ProviderManager.hpp>
 
 #include <QCoreApplication>
 #include <QDir>
@@ -53,6 +54,45 @@ void AppInfo::registerQmlTypes()
 AppInfo::AppInfo(QObject* parent)
     : QObject(parent)
 {
+    connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, [this] {
+        providerScan_.request_stop();
+        if (providerScan_.joinable()) providerScan_.join();
+    });
+}
+
+QVariantMap AppInfo::providerInstallation(const QString& backend) const
+{
+    return installations_.value(backend.trimmed().toLower()).toMap();
+}
+
+void AppInfo::rescanProviders()
+{
+    if (providersScanning_ || providerDownloading_) return;
+    providersScanning_ = true;
+    emit providersChanged();
+    const QStringList roots{
+        QString::fromStdString(pfservices::SettingsStore::defaultDirectory()) + "/providers",
+        QCoreApplication::applicationDirPath() + "/providers"};
+    const auto executable = QCoreApplication::applicationFilePath();
+    providerScan_ = std::jthread([this, roots, executable](std::stop_token stop) {
+        QVariantMap installations;
+        try {
+            for (const auto& state : pfservices::ProviderManager::scan(roots, executable, stop)) {
+                installations.insert(state.name, QVariantMap{{"installed", state.installed},
+                    {"available", state.available}, {"reason", state.reason}, {"runtimePath", state.runtimePath}});
+            }
+        } catch (const std::exception& error) {
+            for (const auto* name : {"dml", "cuda", "tensorrt"})
+                installations.insert(QString::fromLatin1(name), QVariantMap{{"available", false},
+                    {"reason", QString::fromUtf8(error.what())}});
+        }
+        QMetaObject::invokeMethod(this, [this, installations] {
+            installations_ = installations;
+            providersScanning_ = false;
+            ++providersRevision_;
+            emit providersChanged();
+        }, Qt::QueuedConnection);
+    });
 }
 
 QString AppInfo::version() const
@@ -146,7 +186,7 @@ void AppInfo::downloadProvider(const QString& backend)
         emit providerDownloadChanged();
         return;
     }
-    if (providerDownloading_) return;
+    if (providerDownloading_ || providersScanning_) return;
     providerDownloading_ = true;
     providerDownloadState_ = QStringLiteral("checking");
     providerDownloadProgress_ = 0.0;
@@ -181,15 +221,23 @@ void AppInfo::downloadProvider(const QString& backend)
         const std::filesystem::path destination = std::filesystem::path(
             QString::fromStdString(pfservices::SettingsStore::defaultDirectory()).toStdWString())
             / "providers" / provider.toStdWString();
-        const auto reportProgress = [this](std::uint64_t received, std::uint64_t total) {
+        const auto reportProgress = [this, lastPercent = -1](std::uint64_t received, std::uint64_t total) mutable {
                 const double progress = total > 0
                     ? std::clamp(static_cast<double>(received) / static_cast<double>(total), 0.0, 1.0)
                     : 0.0;
-                QMetaObject::invokeMethod(this, [this, progress] {
+                const int percent = static_cast<int>(std::round(progress * 100.0));
+                // QNetwork/curl style progress callbacks can arrive for every
+                // small chunk. Flooding the GUI thread with queued updates made
+                // the draggable settings popup visibly stutter during a large
+                // provider download. One UI update per percentage point is more
+                // than enough and bounds the event rate to ~101 updates.
+                if (percent == lastPercent) return;
+                lastPercent = percent;
+                QMetaObject::invokeMethod(this, [this, progress, percent] {
                     providerDownloadProgress_ = progress;
                     providerDownloadState_ = QStringLiteral("downloading");
                     providerDownloadStatus_ = QStringLiteral("Скачивание runtime… %1%")
-                        .arg(static_cast<int>(std::round(progress * 100.0)));
+                        .arg(percent);
                     emit providerDownloadChanged();
                 }, Qt::QueuedConnection);
             };
@@ -215,6 +263,7 @@ void AppInfo::downloadProvider(const QString& backend)
             providerDownloadProgress_ = installed ? 1.0 : 0.0;
             providerDownloadStatus_ = message;
             emit providerDownloadChanged();
+            if (installed) rescanProviders();
         }, Qt::QueuedConnection);
         } catch (const std::exception& exception) {
             const auto message = QString::fromUtf8(exception.what());

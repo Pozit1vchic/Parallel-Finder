@@ -30,7 +30,8 @@ struct Settings {
     double timeWeight = 0.25;
     double sakoeChibaRatio = 0.10;
     std::string qualityProfile = "maximum";
-    // motion, static, clips or combined. Kept as a string for forward-
+    // motion, static or combined. Legacy clips settings migrate to motion.
+    // Kept as a string for forward-
     // compatible settings files and direct user editing.
     std::string analysisMode = "motion";
     bool normalizeSize = true;

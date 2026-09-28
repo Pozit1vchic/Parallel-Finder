@@ -10,21 +10,21 @@ CheckBox {
     height: 28
     spacing: 9
 
-    Rectangle {
+    ToolTip {
         id: hint
         visible: control.hovered && control.tooltipText.length > 0
+        delay: 350
+        timeout: 8000
+
+        // Keep the tooltip inside the application overlay rather than inside
+        // the 28 px checkbox item. This prevents it from colliding with the
+        // following checkboxes and avoids clipping by parent layouts.
         x: 0
         y: control.height + 6
-        z: 30
+
         width: 250
-        height: hintText.implicitHeight + 16
-        radius: Theme.radiusButton
-        color: Theme.surfaceRaised
-        border.color: Theme.hairlineStrong
-        Text {
-            id: hintText
-            anchors.fill: parent
-            anchors.margins: 8
+
+        contentItem: Text {
             text: control.tooltipText
             color: Theme.textPrimary
             font.family: Theme.fontFamily
@@ -32,6 +32,20 @@ CheckBox {
             lineHeight: 1.15
             wrapMode: Text.WordWrap
         }
+
+        background: Rectangle {
+            radius: Theme.radiusButton
+            // Do not use Theme.surfaceRaised here: it can be translucent,
+            // making labels underneath visually blend into the tooltip text.
+            color: "#1C1C22"
+            border.color: Theme.hairlineStrong
+            border.width: 1
+        }
+
+        leftPadding: 8
+        rightPadding: 8
+        topPadding: 8
+        bottomPadding: 8
     }
 
     indicator: Rectangle {

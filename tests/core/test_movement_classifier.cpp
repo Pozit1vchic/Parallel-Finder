@@ -53,4 +53,38 @@ TEST(MotionRanker, AddsLabelsAndStableScore)
     EXPECT_GT(matches.front().rankScore, 0.0);
 }
 
+TEST(MotionRanker, RetainsClosedHandGestureButRejectsJitter)
+{
+    auto left = moving("a", 0.0, 0.0);
+    // Raise and lower both hands: the endpoint pose is unchanged.
+    const double lift[] = {0.0, 2.0, 4.0, 4.0, 2.0, 0.0};
+    for (std::size_t i = 0; i < left.frames.size(); ++i) {
+        left.frames[i].keypoints[9].y -= lift[i];
+        left.frames[i].keypoints[10].y -= lift[i];
+    }
+    auto right = left;
+    right.sourceId = "b";
+    pfcore::MotionMatch match;
+    match.leftIndex = 0; match.rightIndex = 1;
+    match.similarity = 0.9; match.durationSeconds = 1.0;
+    std::vector<pfcore::MotionMatch> matches{match};
+    pfcore::MotionRanker::rank(matches, {left, right});
+    EXPECT_EQ(matches.size(), 1u);
+
+    for (std::size_t i = 0; i < left.frames.size(); ++i) {
+        left.frames[i].keypoints[9].y = 10.0 - lift[i] * 0.005;
+        left.frames[i].keypoints[10].y = 10.0 - lift[i] * 0.005;
+    }
+    matches = {match};
+    pfcore::MotionRanker::rank(matches, {left, left});
+    EXPECT_TRUE(matches.empty());
+
+    left = moving("a", 0.0, 0.0);
+    left.frames[2].keypoints[9].y -= 4.0;
+    left.frames[2].keypoints[10].y -= 4.0;
+    matches = {match};
+    pfcore::MotionRanker::rank(matches, {left, left});
+    EXPECT_TRUE(matches.empty()) << "A single detection outlier is not a closed gesture";
+}
+
 } // namespace

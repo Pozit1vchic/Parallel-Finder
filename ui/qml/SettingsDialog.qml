@@ -96,14 +96,14 @@ Popup {
         fileMode: FileDialog.OpenFile
         nameFilters: ["Fonts (*.ttf *.otf *.woff *.woff2)", L10n.t("dialog.allFiles")]
         onAccepted: {
-            customizationStore.customFontPath = selectedFile.toLocalFile()
+            customizationStore.customFontPath = String(selectedFile)
             customFont.source = customizationStore.customFontPath
         }
     }
     FolderDialog {
         id: cacheDialog
         title: L10n.t("settings.chooseCache")
-        onAccepted: Analysis.setCachePath(selectedFolder.toLocalFile())
+        onAccepted: Analysis.setCachePath(String(selectedFolder))
     }
 
     Component.onCompleted: {
@@ -130,6 +130,7 @@ Popup {
     }
     onOpened: {
         centerInWindow()
+        AppInfo.rescanProviders()
         // Prevent the close icon or first tab from receiving an orange focus
         // ring just because the popup was opened with the mouse.
         Qt.callLater(function() { root.forceActiveFocus() })
@@ -161,9 +162,14 @@ Popup {
         customizationStore.accentColor = normalized
     }
     function providerStatusText(id) {
+        const revision = AppInfo.providersRevision
         const key = String(id || "auto").toLowerCase()
         if (key === "auto") return L10n.t("settings.providerAutoHint")
         if (AppInfo.backendAvailable(key)) return "✓ " + L10n.t("settings.providerReady")
+        if (AppInfo.providersScanning) return L10n.t("settings.providerChecking")
+        const installation = AppInfo.providerInstallation(key)
+        if (installation.available) return L10n.t("settings.providerValidatedRestart")
+        if (installation.installed) return L10n.t("settings.providerInvalid") + ": " + installation.reason
         const reason = String(AppInfo.backendReason(key) || "").toLowerCase()
         if (key === "cuda" && (reason.indexOf("cuda") >= 0 || reason.indexOf("onnxruntime") >= 0)) return L10n.t("settings.providerCudaMissing")
         if (key === "tensorrt" && (reason.indexOf("tensorrt") >= 0 || reason.indexOf("onnxruntime") >= 0)) return L10n.t("settings.providerTensorRtMissing")
@@ -201,15 +207,30 @@ Popup {
             PfIconButton { anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter; iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); activeFocusOnTab: true; focusPolicy: Qt.StrongFocus; onClicked: root.close() }
             MouseArea {
                 anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.rightMargin: 56
-                property real pressX
-                property real pressY
+                property real pressSceneX
+                property real pressSceneY
                 property real startX
                 property real startY
                 cursorShape: Qt.SizeAllCursor
-                onPressed: { pressX = mouse.x; pressY = mouse.y; startX = root.x; startY = root.y; root.userPositioned = true }
-                onPositionChanged: if (pressed && rootWindow) {
-                    root.x = Math.max(12, Math.min(rootWindow.width - root.width - 12, startX + mouse.x - pressX))
-                    root.y = Math.max(12, Math.min(rootWindow.height - root.height - 12, startY + mouse.y - pressY))
+                onPressed: function(mouse) {
+                    const scenePoint = mapToItem(rootWindow.contentItem, mouse.x, mouse.y)
+                    pressSceneX = scenePoint.x
+                    pressSceneY = scenePoint.y
+                    startX = root.x
+                    startY = root.y
+                    root.userPositioned = true
+                }
+                onPositionChanged: function(mouse) {
+                    if (!pressed || !rootWindow) return
+                    // mouse.x/y are local to an item that itself moves with the
+                    // popup. Using them directly creates a feedback loop and
+                    // makes the window oscillate while dragging. Convert to the
+                    // stable root-window coordinate system first.
+                    const scenePoint = mapToItem(rootWindow.contentItem, mouse.x, mouse.y)
+                    root.x = Math.max(12, Math.min(rootWindow.width - root.width - 12,
+                                                   startX + scenePoint.x - pressSceneX))
+                    root.y = Math.max(12, Math.min(rootWindow.height - root.height - 12,
+                                                   startY + scenePoint.y - pressSceneY))
                 }
             }
         }
@@ -221,6 +242,7 @@ Popup {
             background: Rectangle { color: Theme.surfaceRaised }
             TabButton {
                 id: analysisTab
+                width: tabs.width / 2
                 text: L10n.t("settings.tabAnalysis")
                 focusPolicy: Qt.StrongFocus
                 activeFocusOnTab: true
@@ -229,6 +251,7 @@ Popup {
             }
             TabButton {
                 id: customizationTab
+                width: tabs.width / 2
                 text: L10n.t("settings.tabAppearance")
                 focusPolicy: Qt.StrongFocus
                 activeFocusOnTab: true
@@ -248,7 +271,24 @@ Popup {
                         RowLayout { Layout.fillWidth: true; spacing: 12
                             Text { Layout.preferredWidth: 128; Layout.minimumWidth: 0; text: L10n.t("settings.provider"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 13; verticalAlignment: Text.AlignVCenter; ToolTip.visible: providerHelp.hovered; ToolTip.text: L10n.t("settings.providerHint"); ToolTip.delay: 350; elide: Text.ElideRight }
                             HoverHandler { id: providerHelp }
-                            PfComboBox { id: provider; Layout.preferredWidth: 180; Layout.minimumWidth: 0; Layout.fillWidth: true; model: root.providerLabels; currentIndex: Math.max(0, root.providerIds.indexOf(Analysis.providerChoice)); Accessible.name: L10n.t("settings.provider"); onActivated: Analysis.providerChoice = root.providerIds[currentIndex] }
+                            PfComboBox {
+                                id: provider
+                                Layout.preferredWidth: 180
+                                Layout.minimumWidth: 0
+                                Layout.fillWidth: true
+                                model: root.providerLabels
+                                Accessible.name: L10n.t("settings.provider")
+                                onActivated: Analysis.providerChoice = root.providerIds[currentIndex]
+                                // ComboBox may update currentIndex internally when its model
+                                // is rebuilt (language/theme changes). Re-assert the persisted
+                                // backend instead of silently displaying Auto.
+                                Binding {
+                                    target: provider
+                                    property: "currentIndex"
+                                    value: Math.max(0, root.providerIds.indexOf(Analysis.providerChoice))
+                                    restoreMode: Binding.RestoreBindingOrValue
+                                }
+                            }
                         }
                         Text { Layout.fillWidth: true; text: AppInfo.gpuSummary; color: AppInfo.backendIsGpu ? Theme.sage : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
                         Text {
@@ -270,7 +310,7 @@ Popup {
                                 Layout.minimumWidth: 0
                                 compact: true
                                 text: AppInfo.providerDownloading ? L10n.t("settings.providerDownloading") : L10n.t("settings.providerDownload")
-                                enabled: !AppInfo.providerDownloading
+                                enabled: !AppInfo.providerDownloading && !AppInfo.providersScanning
                                 onClicked: AppInfo.downloadProvider(Analysis.providerChoice)
                             }
                             PfButton {
@@ -291,6 +331,7 @@ Popup {
                                 wrapMode: Text.WordWrap
                             }
                         }
+                        PfButton { Layout.fillWidth: true; compact: true; text: L10n.t("settings.providerRescan"); enabled: !AppInfo.providersScanning && !AppInfo.providerDownloading; onClicked: AppInfo.rescanProviders() }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.cache"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout { Layout.fillWidth: true; spacing: 8
                             PfTextField { Layout.fillWidth: true; font.family: Theme.monoFont; text: Analysis.cachePath; placeholderText: L10n.t("settings.cachePlaceholder"); Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }

@@ -1,6 +1,7 @@
 #include "pfgpu/ProviderFactory.hpp"
 
 #include <cstring>
+#include <filesystem>
 #include <mutex>
 #include <unordered_map>
 
@@ -24,6 +25,27 @@ int deviceIdFrom(const IProviderFactory::OptionList& options)
         }
     }
     return 0;
+}
+
+IProviderFactory::OptionList tensorRtRuntimeOptions(const IProviderFactory::OptionList& defaults)
+{
+    IProviderFactory::OptionList options = defaults;
+    options.push_back({"trt_fp16_enable", "1"});
+    options.push_back({"trt_engine_cache_enable", "1"});
+    options.push_back({"trt_timing_cache_enable", "1"});
+
+    std::error_code error;
+    const auto cacheRoot = std::filesystem::temp_directory_path(error)
+        / "ParallelFinder" / "trt-cache";
+    if (!error) {
+        std::filesystem::create_directories(cacheRoot, error);
+        if (!error) {
+            const std::string cachePath = cacheRoot.string();
+            options.push_back({"trt_engine_cache_path", cachePath});
+            options.push_back({"trt_timing_cache_path", cachePath});
+        }
+    }
+    return options;
 }
 
 // Every provider we ship except CPU goes through attachExecutionProvider.
@@ -51,6 +73,13 @@ public:
         // a call that would fail and mark CPU "unavailable".
         if (provider_ == Provider::Cpu) {
             return true;
+        }
+        // Keep defaultOptions() deliberately minimal (device_id only). Several
+        // callers and tests rely on that stable factory contract. TensorRT's
+        // performance options are runtime configuration, not provider identity.
+        if (provider_ == Provider::TensorRt) {
+            const auto effectiveOptions = tensorRtRuntimeOptions(optionsToApply);
+            return IProviderFactory::configure(api, options, effectiveOptions, error);
         }
         return IProviderFactory::configure(api, options, optionsToApply, error);
     }
