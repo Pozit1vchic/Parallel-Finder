@@ -6,6 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $bin = Join-Path $Toolchain 'bin'
+$releaseOriginalPath = $env:PATH
 $env:PATH = "$bin;$env:PATH"
 Push-Location $root
 try {
@@ -13,10 +14,19 @@ try {
     if ($LASTEXITCODE) { throw 'Configure failed' }
     & cmake --build --preset ucrt64-release -j 4
     if ($LASTEXITCODE) { throw 'Build failed' }
-    $env:QT_QPA_PLATFORM = 'offscreen'
-    & ctest --preset ucrt64-release --output-on-failure
-    if ($LASTEXITCODE) { throw 'Tests failed: refusing to package' }
-    Remove-Item Env:QT_QPA_PLATFORM
+    $releaseTestQpa = $env:QT_QPA_PLATFORM
+    $releaseTestPlugins = $env:QT_PLUGIN_PATH
+    try {
+        $env:QT_QPA_PLATFORM = 'offscreen'
+        # The deployed qt.conf deliberately only exposes app-local plugins;
+        # development tests also need the toolchain's offscreen plugin.
+        $env:QT_PLUGIN_PATH = Join-Path $Toolchain 'share/qt6/plugins'
+        & ctest --preset ucrt64-release --output-on-failure
+        if ($LASTEXITCODE) { throw 'Tests failed: refusing to package' }
+    } finally {
+        $env:QT_QPA_PLATFORM = $releaseTestQpa
+        $env:QT_PLUGIN_PATH = $releaseTestPlugins
+    }
     $tag = '0.1.0-rc.3'
     $run = [guid]::NewGuid().ToString('N').Substring(0,8)
     $stage = Join-Path $root "build/package-$run/ParallelFinder"
@@ -125,4 +135,7 @@ try {
     $hashes | Format-Table -AutoSize
     Write-Output "STAGING=$stage"
     Write-Output "ARTIFACTS=$out"
-} finally { Pop-Location }
+} finally {
+    $env:PATH = $releaseOriginalPath
+    Pop-Location
+}

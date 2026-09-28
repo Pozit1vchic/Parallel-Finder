@@ -3,6 +3,7 @@
 #include <QtGui/QColor>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QFontMetricsF>
+#include <QtGui/QFontDatabase>
 #include <QtCore/QDir>
 #include <QtQml/QQmlApplicationEngine>
 #include <QtQml/QQmlComponent>
@@ -32,6 +33,7 @@ private slots:
     void appInfoBridgeResolves();
     void gpuInfoPropagatesToQml();
     void settingsAndNumericTypography();
+    void appearancePersistsAndRejectsMissingFonts();
     void resultNavigationWrapsAndScrolls();
     void resultArrowKeysWorkAfterSourceButtonFocus();
     void selectsAllResultsWithoutDisplayLimit();
@@ -185,6 +187,50 @@ void UiSmokeTests::settingsAndNumericTypography()
     QVERIFY(QMetaObject::invokeMethod(popup, "close"));
     QTRY_VERIFY(!popup->property("visible").toBool());
     QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+}
+
+void UiSmokeTests::appearancePersistsAndRejectsMissingFonts()
+{
+    pfui::AppInfo::registerQmlTypes();
+    const auto saved = pfui::AppInfo::instance()->loadPreferences();
+    struct RestorePreferences {
+        QVariantMap value;
+        ~RestorePreferences() { pfui::AppInfo::instance()->savePreferences(value); }
+    } restore{saved};
+    for (int pass = 0; pass < 2; ++pass) {
+        QQmlApplicationEngine engine;
+        auto* window = loadWindow(engine);
+        QVERIFY(window);
+        auto* popup = window->findChild<QObject*>("settingsDialog");
+        QVERIFY(popup);
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nimport PfUi\nItem { property color accent: Theme.accent; property string family: Theme.fontFamily; property bool reduced: Theme.reducedMotion; function reduce() { Theme.reducedMotion = true } }", QUrl());
+        std::unique_ptr<QObject> probe(component.create());
+        QVERIFY2(probe, qPrintable(component.errorString()));
+        if (pass == 0) {
+            for (const auto& color : {"blue", "orange", "blue"}) {
+                QVERIFY(QMetaObject::invokeMethod(popup, "applyAccent", Q_ARG(QVariant, QString::fromLatin1(color))));
+                QCOMPARE(probe->property("accent").value<QColor>().name(), QString::fromLatin1(color == std::string_view("blue") ? "#5d8dde" : "#d97757"));
+            }
+            const auto family = probe->property("family").toString();
+            QVERIFY(QFontDatabase::families().contains(family));
+            QVariant accepted;
+            QVERIFY(QMetaObject::invokeMethod(popup, "applyFont", Q_RETURN_ARG(QVariant, accepted), Q_ARG(QVariant, QStringLiteral("PF nonexistent font 92731"))));
+            QVERIFY(!accepted.toBool());
+            QCOMPARE(probe->property("family").toString(), family);
+            QVERIFY(!popup->property("themeStatus").toString().isEmpty());
+        } else {
+            QCOMPARE(probe->property("accent").value<QColor>().name(), QStringLiteral("#5d8dde"));
+            QVERIFY(QMetaObject::invokeMethod(probe.get(), "reduce"));
+            QVERIFY(probe->property("reduced").toBool());
+            QVERIFY(QMetaObject::invokeMethod(popup, "resetAppearance"));
+            QVERIFY(!probe->property("reduced").toBool());
+            QCOMPARE(probe->property("accent").value<QColor>().name(), QStringLiteral("#d97757"));
+            const auto preferences = pfui::AppInfo::instance()->loadPreferences();
+            QVERIFY(!preferences.value("reducedMotion").toBool());
+            QVERIFY(preferences.value("customFontPath").toString().isEmpty());
+        }
+    }
 }
 
 void UiSmokeTests::resultNavigationWrapsAndScrolls()

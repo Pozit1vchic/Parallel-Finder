@@ -13,6 +13,13 @@ Popup {
     property var rootWindow
     property bool userPositioned: false
     property string themeStatus: ""
+    readonly property var fontChoices: {
+        const installed = Qt.fontFamilies()
+        const preferred = ["Segoe UI Variable", "Segoe UI", "Inter", "Montserrat"]
+        const available = preferred.filter(function(family) { return installed.indexOf(family) >= 0 })
+        if (!available.length) available.push(Qt.application.font.family)
+        return available
+    }
     readonly property var providerIds: ["auto", "dml", "cuda", "tensorrt", "cpu"]
     readonly property var providerLabels: [
         L10n.t("settings.providerAuto"),
@@ -39,13 +46,13 @@ Popup {
     enter: Transition {
         ParallelAnimation {
             NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.reducedMotion ? 0 : 120; easing.type: Easing.OutCubic }
-            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: 180; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: Theme.reducedMotion ? 0 : 180; easing.type: Easing.OutCubic }
         }
     }
     exit: Transition {
         ParallelAnimation {
             NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.reducedMotion ? 0 : 120; easing.type: Easing.InCubic }
-            NumberAnimation { property: "scale"; from: 1; to: 0.97; duration: 150; easing.type: Easing.InCubic }
+            NumberAnimation { property: "scale"; from: 1; to: 0.97; duration: Theme.reducedMotion ? 0 : 150; easing.type: Easing.InCubic }
         }
     }
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -84,7 +91,9 @@ Popup {
     FontLoader {
         id: customFont
         source: customizationStore.customFontPath
-        onStatusChanged: if (status === FontLoader.Ready) {
+        onStatusChanged: if (status === FontLoader.Error) {
+            root.themeStatus = L10n.t("settings.fontLoadFailed")
+        } else if (status === FontLoader.Ready) {
             Theme.fontFamily = name
             customizationStore.fontFamily = name
             root.themeStatus = name
@@ -97,7 +106,6 @@ Popup {
         nameFilters: ["Fonts (*.ttf *.otf *.woff *.woff2)", L10n.t("dialog.allFiles")]
         onAccepted: {
             customizationStore.customFontPath = String(selectedFile)
-            customFont.source = customizationStore.customFontPath
         }
     }
     FolderDialog {
@@ -118,7 +126,10 @@ Popup {
         Theme.reducedMotion = customizationStore.reducedMotion
         Theme.surfaceOpacity = customizationStore.surfaceOpacity
         root.applyAccent(customizationStore.accentColor)
-        if (!customizationStore.customFontPath.length) Theme.fontFamily = ["Segoe UI Variable", "Inter", "Montserrat"].indexOf(customizationStore.fontFamily) >= 0 ? customizationStore.fontFamily : "Segoe UI Variable"
+        if (customFont.status !== FontLoader.Ready) {
+            Theme.fontFamily = root.fontChoices[0]
+            if (!customizationStore.customFontPath.length) root.applyFont(customizationStore.fontFamily)
+        }
         root.centerInWindow()
         customizationStore.loaded = true
         customizationStore.persist()
@@ -142,13 +153,27 @@ Popup {
         root.y = Math.round((rootWindow.height - root.height) / 2)
     }
     function resetAppearance() {
-        Theme.fontFamily = "Segoe UI Variable"
+        customizationStore.customFontPath = ""
+        Theme.fontFamily = root.fontChoices[0]
         Theme.surfaceOpacity = 1.0
+        Theme.reducedMotion = false
+        customizationStore.reducedMotion = false
         root.applyAccent("orange")
         customizationStore.fontFamily = Theme.fontFamily
         customizationStore.customFontPath = ""
         customizationStore.surfaceOpacity = Theme.surfaceOpacity
-        root.themeStatus = L10n.t("settings.resetDone")
+        root.themeStatus = L10n.t("settings.appearanceResetDone")
+    }
+    function applyFont(family) {
+        if (Qt.fontFamilies().indexOf(family) < 0) {
+            root.themeStatus = L10n.t("settings.fontUnavailable") + ": " + family
+            return false
+        }
+        customizationStore.customFontPath = ""
+        Theme.fontFamily = family
+        customizationStore.fontFamily = family
+        root.themeStatus = ""
+        return true
     }
     function accentValue(id) {
         if (id === "blue") return "#5D8DDE"
@@ -354,7 +379,7 @@ Popup {
                         PfComboBox { width: parent.width; model: [L10n.t("settings.languageRussian"), L10n.t("settings.languageEnglish")]; currentIndex: L10n.language === "en" ? 1 : 0; Accessible.name: L10n.t("settings.language"); onActivated: { L10n.language = currentIndex === 1 ? "en" : "ru"; customizationStore.language = L10n.language } }
                         Text { text: L10n.t("settings.font"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout { width: parent.width; spacing: 8
-                            PfComboBox { Layout.fillWidth: true; model: ["Segoe UI Variable", "Inter", "Montserrat"]; currentIndex: Math.max(0, model.indexOf(Theme.fontFamily)); Accessible.name: L10n.t("settings.font"); onActivated: { Theme.fontFamily = currentText; customizationStore.fontFamily = currentText; customizationStore.customFontPath = "" } }
+                            PfComboBox { objectName: "appearanceFontChoice"; Layout.fillWidth: true; model: root.fontChoices; currentIndex: model.indexOf(Theme.fontFamily); Accessible.name: L10n.t("settings.font"); onActivated: root.applyFont(currentText) }
                             PfButton { Layout.preferredWidth: 132; text: L10n.t("settings.fontAdd"); quiet: true; onClicked: fontDialog.open() }
                         }
                         Text { visible: customFont.status === FontLoader.Ready; text: L10n.t("settings.fontLoaded") + ": " + customFont.name; color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
