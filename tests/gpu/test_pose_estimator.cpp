@@ -4,7 +4,29 @@
 #include <pfgpu/Inference.hpp>
 
 #include <filesystem>
+#include <cstdlib>
 #include <vector>
+
+TEST(PoseEstimator, RunsReleaseAssetWhenRequested)
+{
+    const auto* path = std::getenv("PF_TEST_MODEL_ASSET");
+    if (!path || !*path) GTEST_SKIP() << "set PF_TEST_MODEL_ASSET to validate a release model";
+    ASSERT_TRUE(std::filesystem::is_regular_file(path));
+    pfgpu::PoseEstimatorParams params;
+    params.provider = pfgpu::Provider::Cpu;
+    params.intraOpThreads = 4;
+    pfgpu::PoseEstimator estimator(path, params);
+    std::vector<std::uint8_t> rgba(640U * 640U * 4U, 127U);
+    const pfgpu::PoseImage image{640, 640, rgba.data()};
+    EXPECT_NO_THROW({
+        estimator.prepare();
+        const auto detections = estimator.infer(image);
+        for (const auto& detection : detections) {
+            EXPECT_GE(detection.confidence, params.confidenceThreshold);
+            EXPECT_EQ(detection.keypoints.size(), 51U);
+        }
+    }) << path;
+}
 
 TEST(PoseEstimator, RunsPinnedBatchOneAssetWhenAvailable)
 {

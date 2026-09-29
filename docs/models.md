@@ -1,8 +1,8 @@
 # Модели YOLO-pose
 
 Parallel Finder запускает модели ONNX с выходом YOLO-pose (17 keypoints), а не
-исходные веса Ultralytics `.pt`. Поэтому файлы из `D:\YOLO_Download_Project\models`
-нужно сначала экспортировать в ONNX с размером входа 640, затем положить под
+исходные веса Ultralytics `.pt`. Готовые `.onnx` повторно экспортировать не нужно.
+Исходные `.pt` нужно экспортировать в ONNX с размером входа 640 и положить под
 одним из поддерживаемых имён:
 
 ```
@@ -15,7 +15,7 @@ yolo26n-pose.onnx  yolo26s-pose.onnx  yolo26m-pose.onnx  yolo26l-pose.onnx  yolo
 
 1. `models` рядом с `ParallelFinder.exe` — удобно для переносимой папки и
    релиза.
-2. `%LocalAppData%\ParallelFinder\models` — постоянное пользовательское
+2. `%LocalAppData%\ParallelFinder\ParallelFinder\models` — постоянное пользовательское
    хранилище, куда приложение также скачивает выбранную модель из GitHub
    Releases.
 
@@ -23,10 +23,54 @@ yolo26n-pose.onnx  yolo26s-pose.onnx  yolo26m-pose.onnx  yolo26l-pose.onnx  yolo
 `PF_MODEL_ROOT` на каталог с ONNX-файлами. `PF_MODEL_PATH` задаёт конкретный
 файл и имеет более высокий приоритет. Если файл найден, каталог показывает
 `✓ установлена`; если нет — `↓ скачать`, и выбор запускает загрузку в реальном
-времени в `%LocalAppData%\ParallelFinder\models`. Прогресс отображается под
+времени в `%LocalAppData%\ParallelFinder\ParallelFinder\models`. Прогресс отображается под
 селектором, а после загрузки manifest-пакета проверяются размер и SHA-256.
 
 ## Release-пакет из `D:\YOLO_Download_Project\models`
+
+### Готовый комплект и публикация
+
+Подготовленный комплект: `D:\Parallel-Finder\release\models-20260929`.
+В нём 15 файлов `.onnx`, `manifest.json` с размерами/SHA-256 и отдельный
+локальный отчёт `inference-validation.json`. Отчёт не нужен приложению.
+
+1. В GitHub Releases создайте релиз с **тегом `v0.1.0-models`**.
+2. Прикрепите все 15 `.onnx`. Дождитесь завершения загрузки.
+3. Прикрепите `manifest.json` из той же папки и опубликуйте релиз.
+4. Пользователь выбирает модель со значком `↓` в приложении. Загрузка запускается
+   автоматически; после проверки файла значок меняется на `✓`.
+   Во время загрузки и после её ошибки анализ с отсутствующей моделью блокируется.
+   Повторный выбор той же модели позволяет повторить загрузку.
+
+Не переименовывайте файлы и тег. Не загружайте эти файлы в релиз установщика
+или `runtime-v1`: это отдельные каналы. До публикации assets автоматическая
+загрузка с GitHub не может работать. Для локальной проверки без публикации
+скопируйте нужный `.onnx` в пользовательскую папку моделей выше.
+
+Повторно подготовить комплект без Python и переэкспорта (PowerShell 7):
+
+```powershell
+pwsh -File tools/release/prepare-model-packages.ps1 -OutputDirectory 'D:\Parallel-Finder\release\models-next'
+```
+
+Скрипт копирует уже существующие ONNX, сверяет копии, формирует каталог.
+Он не проверяет качество распознавания или совместимость графа. Для проверки
+каждой модели тестами проекта задайте `PF_TEST_MODEL_ASSET` равным полному пути
+и запустите `pf_tests.exe --gtest_filter=PoseEstimator.RunsReleaseAssetWhenRequested`.
+Тест делает реальный CPU-inference на синтетическом кадре; это не оценка качества.
+
+Для публикации через GitHub CLI после `gh auth login`:
+
+```powershell
+pwsh -File tools/release/publish-model-release.ps1 -Tag v0.1.0-models -AssetsDirectory 'D:\Parallel-Finder\release\models-20260929'
+```
+
+Команда изменяет GitHub Release. Она проверяет URL, размер и SHA-256 каждого
+файла; каталог загружает последним. Модели Ultralytics имеют лицензию AGPL-3.0:
+перед распространением соблюдайте условия лицензии, включая доступ к
+соответствующему исходному коду; этот комплект не является юридической проверкой.
+
+### Если есть только исходные `.pt`
 
 `.pt` из этой папки — исходные веса, их нельзя передать ONNX Runtime напрямую.
 Подготовьте пакет одной командой (нужны установленные Ultralytics/PyTorch):
@@ -44,12 +88,11 @@ python tools\model_export\export_pose_release.py `
 `https://github.com/Pozit1vchic/Parallel-Finder/releases`, затем загрузите
 все созданные `.onnx` и `manifest.json` как assets одного релиза. В manifest
 имя файла, URL, размер и SHA-256 должны соответствовать asset. Приложение
-читает `releases/latest/download/manifest.json`, поэтому новый релиз становится
-доступен без обновления exe.
+читает `releases/download/v0.1.0-models/manifest.json`. Публикация нового
+установщика не меняет адрес каталога моделей.
 
-При отсутствии manifest приложение имеет безопасный HTTPS fallback на asset с
-тем же именем, но явно помечает его как скачанный без проверки manifest. Для
-публичного релиза всегда публикуйте manifest.
+Без записи модели в доступном manifest приложение сообщает ошибку и не
+скачивает непроверенный файл. Всегда публикуйте manifest из того же комплекта.
 
 ### Аудит совместимости
 
@@ -98,16 +141,16 @@ deep-person-reid](https://github.com/KaiyangZhou/deep-person-reid) и его
 `D:\PF_CUDA\models\person-reid-osnet.onnx` (8-bit OSNet x0.25, batch-1,
 512-мерный embedding, upstream-модель помечена MIT) и не добавлен в Git из-за
 размера. Его можно
-переместить в каталог рядом с exe или в `%LocalAppData%\ParallelFinder\models`;
+переместить в каталог рядом с exe или в `%LocalAppData%\ParallelFinder\ParallelFinder\models`;
 без него приложение честно переключается в `pose-only`.
 
 Положить файл можно в `models` рядом с exe, в
-`%LocalAppData%\ParallelFinder\models`, в каталог `PF_MODEL_ROOT` или в
+`%LocalAppData%\ParallelFinder\ParallelFinder\models`, в каталог `PF_MODEL_ROOT` или в
 исторический `D:\PF_CUDA\models` или `D:\YOLO_Download_Project\models`.
 Разрешены и другие имена, если в имени есть
 `reid` или `osnet`. Переменная `PF_REID_MODEL_PATH` задаёт точный файл.
 Если `manifest.json` release-пакета содержит один из этих assets, приложение
-может скачать его в `%LocalAppData%\ParallelFinder\models` с проверкой размера и
+может скачать его в `%LocalAppData%\ParallelFinder\ParallelFinder\models` с проверкой размера и
 SHA-256; без записи в manifest сеть не используется.
 
 Если ReID-файл не найден или его граф не совместим, анализ не ломается, но

@@ -10,7 +10,9 @@ param(
 
     [switch] $Prerelease,
 
-    [switch] $SkipRemoteVerification
+    [switch] $SkipRemoteVerification,
+
+    [switch] $ValidateOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,8 +27,6 @@ function Get-Sha256([string] $Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
-Require-Command gh
-
 $assetRoot = [System.IO.Path]::GetFullPath($AssetsDirectory)
 $manifestPath = Join-Path $assetRoot 'manifest.json'
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
@@ -39,7 +39,14 @@ if (-not $manifest.models -or @($manifest.models).Count -eq 0) {
 }
 
 $uploadPaths = [System.Collections.Generic.List[string]]::new()
+$filenames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach ($asset in @($manifest.models)) {
+    if ($asset.filename -notmatch '^[A-Za-z0-9_-]+\.onnx$') {
+        throw 'Unsafe model filename.'
+    }
+    if (-not $filenames.Add($asset.filename)) { throw "Duplicate model filename: $($asset.filename)" }
+    $expectedUrl = "https://github.com/$Repository/releases/download/$Tag/$($asset.filename)"
+    if ($asset.url -cne $expectedUrl) { throw "Model URL must target this release: $expectedUrl" }
     if (-not $asset.filename -or -not $asset.sha256 -or -not $asset.sizeBytes) {
         throw 'Every manifest model needs filename, sizeBytes and sha256.'
     }
@@ -56,7 +63,12 @@ foreach ($asset in @($manifest.models)) {
     }
     $uploadPaths.Add($path)
 }
-$uploadPaths.Add($manifestPath)
+
+if ($ValidateOnly) {
+    Write-Host "Validated $($uploadPaths.Count) model files and release URLs locally. Nothing published."
+    return
+}
+Require-Command gh
 
 if (-not $SkipRemoteVerification) {
     gh auth status | Out-Host
@@ -83,6 +95,8 @@ if (-not $existing) {
 if ($PSCmdlet.ShouldProcess("$Repository/$Tag", "Upload $($uploadPaths.Count) verified release assets")) {
     & gh release upload $Tag --repo $Repository @uploadPaths --clobber
     if ($LASTEXITCODE -ne 0) { throw "gh release upload failed with exit code $LASTEXITCODE" }
+    # Publish the catalog only after every referenced model has uploaded.
+    & gh release upload $Tag --repo $Repository $manifestPath --clobber
+    if ($LASTEXITCODE -ne 0) { throw "manifest upload failed with exit code $LASTEXITCODE" }
+    Write-Host "Published $($uploadPaths.Count) models and manifest to https://github.com/$Repository/releases/tag/$Tag"
 }
-
-Write-Host "Published $($uploadPaths.Count) verified assets to https://github.com/$Repository/releases/tag/$Tag"

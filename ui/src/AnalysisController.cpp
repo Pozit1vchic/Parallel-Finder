@@ -1151,7 +1151,7 @@ void AnalysisController::selectModel(const QString& filename)
             }, Qt::QueuedConnection);
             return;
         }
-        const bool verified = !asset->sha256.empty() || asset->sizeBytes != 0;
+        const bool verified = !asset->sha256.empty();
         std::string error;
         const bool ok = pfservices::ModelStore::download(
             *asset,
@@ -1169,7 +1169,7 @@ void AnalysisController::selectModel(const QString& filename)
             error);
         const QString message = ok
             ? (verified ? QStringLiteral("Модель скачана, SHA-256 проверен")
-                        : QStringLiteral("Модель скачана без manifest.json · проверьте release"))
+                        : QStringLiteral("Модель скачана, размер проверен · SHA-256 отсутствует в manifest"))
             : QStringLiteral("Не удалось скачать модель: ") + QString::fromStdString(error);
         QMetaObject::invokeMethod(this, [this, ok, destination, message] {
             modelDownloading_ = false;
