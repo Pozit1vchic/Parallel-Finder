@@ -14,6 +14,12 @@ TEST(PoseEstimator, RunsReleaseAssetWhenRequested)
     ASSERT_TRUE(std::filesystem::is_regular_file(path));
     pfgpu::PoseEstimatorParams params;
     params.provider = pfgpu::Provider::Cpu;
+    if (const auto* provider = std::getenv("PF_TEST_MODEL_PROVIDER"); provider && *provider) {
+        const auto parsed = pfgpu::parseProvider(provider);
+        ASSERT_TRUE(parsed.has_value()) << provider;
+        ASSERT_NE(*parsed, pfgpu::Provider::Auto);
+        params.provider = *parsed;
+    }
     params.intraOpThreads = 4;
     pfgpu::PoseEstimator estimator(path, params);
     std::vector<std::uint8_t> rgba(640U * 640U * 4U, 127U);
