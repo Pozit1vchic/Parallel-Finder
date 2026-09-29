@@ -1617,11 +1617,12 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         }
         if (candidate.similarity >= params_.similarityThreshold) matches.push_back(candidate);
     }
-    std::sort(matches.begin(), matches.end(), [](const auto& a, const auto& b) {
+    const auto strongestFirst = [](const auto& a, const auto& b) {
         if (std::abs(a.similarity - b.similarity) > 1e-12) return a.similarity > b.similarity;
         if (a.leftIndex != b.leftIndex) return a.leftIndex < b.leftIndex;
         return a.rightIndex < b.rightIndex;
-    });
+    };
+    std::sort(matches.begin(), matches.end(), strongestFirst);
     // Keep the strongest result for overlapping windows.  A window may still
     // participate in multiple independent pairs; only near-identical pairs
     // are removed, which is the semantics of duplicateWindowSec.
@@ -1629,9 +1630,34 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     unique.reserve(matches.size());
     std::size_t motionResults = 0;
     std::size_t staticResults = 0;
-    for (const MotionMatch& candidate : matches) {
+    // Head geometry and body articulation have different score distributions.
+    // Preserve both observable regions within the SAME static result budget:
+    // balance accepted (not merely visited) results, lending unused slots to
+    // the other region. Thresholds, identity gates and motion budget stay intact.
+    std::vector<const MotionMatch*> heads, bodies;
+    for (const auto& match : matches) {
+        if (windows[match.leftIndex].staticFrameSet)
+            (match.headOnlyComparison ? heads : bodies).push_back(&match);
+    }
+    std::size_t nextHead = 0, nextBody = 0, keptHeads = 0, keptBodies = 0;
+    for (const MotionMatch& ranked : matches) {
+        const MotionMatch* next = &ranked;
+        if (windows[ranked.leftIndex].staticFrameSet) {
+            const bool takeHead = nextHead < heads.size()
+                && (nextBody == bodies.size() || keptHeads < keptBodies
+                    || (keptHeads == keptBodies
+                        && strongestFirst(*heads[nextHead], *bodies[nextBody])));
+            next = takeHead ? heads[nextHead++] : bodies[nextBody++];
+        }
+        const MotionMatch& candidate = *next;
         const bool staticCandidate = windows[candidate.leftIndex].staticFrameSet;
         auto& typeCount = staticCandidate ? staticResults : motionResults;
+        if (std::getenv("PF_DEBUG_SELECTION") != nullptr) {
+            std::fprintf(stderr, "PF_SELECTION t=%.3f/%.3f score=%.6f static=%d head=%d used=%zu limit=%zu\n",
+                candidate.leftStartSeconds, candidate.rightStartSeconds, candidate.similarity,
+                staticCandidate ? 1 : 0, candidate.headOnlyComparison ? 1 : 0,
+                typeCount, params_.maxUniqueResults);
+        }
         if (typeCount >= params_.maxUniqueResults) continue;
         const bool duplicate = std::any_of(unique.begin(), unique.end(), [&](const MotionMatch& kept) {
             // A pose result is not a duplicate of a repeated movement. Their
@@ -1737,8 +1763,11 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if (!duplicate) {
             unique.push_back(candidate);
             ++typeCount;
+            if (staticCandidate) ++(candidate.headOnlyComparison ? keptHeads : keptBodies);
         }
     }
+    // Retrieval policy must not change the public descending-score ordering.
+    std::sort(unique.begin(), unique.end(), strongestFirst);
     matches = std::move(unique);
     if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
         std::fprintf(stderr,

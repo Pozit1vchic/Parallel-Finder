@@ -3,7 +3,17 @@ param(
     [string]$ReferencePath = "$PSScriptRoot/soldier-reference.json"
 )
 $ErrorActionPreference = 'Stop'
-$report = Get-Content -LiteralPath $ReportPath -Raw | ConvertFrom-Json
+$raw = Get-Content -LiteralPath $ReportPath -Raw
+# Accept both the benchmark JSON report and --pf-analysis-smoke output.
+# Never treat an incomplete/timed-out diagnostic as an empty successful run.
+$marker = 'results_json :'
+$markerIndex = $raw.IndexOf($marker, [StringComparison]::Ordinal)
+if ($markerIndex -ge 0) {
+    $report = @{ results = @($raw.Substring($markerIndex + $marker.Length).Trim() | ConvertFrom-Json) }
+} else {
+    $report = $raw | ConvertFrom-Json
+}
+if ($null -eq $report.results) { throw 'Report does not contain completed analysis results.' }
 $reference = Get-Content -LiteralPath $ReferencePath -Raw | ConvertFrom-Json
 $tolerance = [double]$reference.anchorToleranceSeconds
 $hits = 0

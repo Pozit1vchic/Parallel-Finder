@@ -7,8 +7,63 @@
 #include "dean_aiming_pose_fixture.hpp"
 #include "dean_folded_arms_pose_fixture.hpp"
 #include "dean_disputed_motion_fixture.hpp"
+#include "soldier_head_pose_fixture.hpp"
 
 namespace {
+
+TEST(MotionMatcher, StaticBudgetDoesNotStarveVerifiedCloseups)
+{
+    auto windows = soldierHeadPoseFixture();
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.requireAppearance = true;
+    params.maxUniqueResults = 3;
+    const auto head = pfcore::MotionMatcher(params).compare(windows[0], windows[1]);
+    ASSERT_TRUE(head.headOnlyComparison);
+    ASSERT_GE(head.similarity, params.similarityThreshold);
+    for (int identity = 1; identity <= 4; ++identity) {
+        auto body = deanAimingPoseFixture()[0];
+        body.faceEmbedding.assign(5, 0.0F);
+        body.faceEmbedding[identity] = 1.0F;
+        body.faceConfidence = 1.0;
+        body.appearanceEmbedding.clear();
+        for (int side = 0; side < 2; ++side) {
+            body.sourceId = "body-" + std::to_string(identity) + "-" + std::to_string(side);
+            windows.push_back(body);
+        }
+    }
+    // Equal dimensions are required for the synthetic identity gate.
+    windows[0].faceEmbedding = windows[1].faceEmbedding = {1,0,0,0,0};
+    const auto matches = pfcore::MotionMatcher(params).findAllPairs(windows);
+    ASSERT_EQ(matches.size(), 3u);
+    EXPECT_EQ(std::count_if(matches.begin(), matches.end(), [](const auto& match) {
+        return match.headOnlyComparison;
+    }), 1);
+    for (const auto& match : matches) {
+        EXPECT_TRUE(match.faceVerified);
+        if (match.headOnlyComparison) EXPECT_DOUBLE_EQ(match.similarity, head.similarity);
+    }
+    auto duplicated = windows;
+    for (int i = 0; i < 4; ++i) {
+        duplicated.push_back(windows[0]);
+        duplicated.push_back(windows[1]);
+    }
+    params.maxUniqueResults = 4;
+    for (int order = 0; order < 2; ++order) {
+        const auto selected = pfcore::MotionMatcher(params).findAllPairs(duplicated);
+        ASSERT_EQ(selected.size(), 4u); // duplicate closeups cannot waste slots
+        EXPECT_EQ(std::count_if(selected.begin(), selected.end(), [](const auto& match) {
+            return match.headOnlyComparison;
+        }), 1);
+        EXPECT_TRUE(std::is_sorted(selected.begin(), selected.end(), [](const auto& a, const auto& b) {
+            return a.similarity > b.similarity;
+        }));
+        std::reverse(duplicated.begin(), duplicated.end());
+    }
+    // A full pose pool must still fill the whole unchanged budget.
+    windows.erase(windows.begin(), windows.begin() + 2);
+    EXPECT_EQ(pfcore::MotionMatcher(params).findAllPairs(windows).size(), 4u);
+}
 
 TEST(MotionMatcher, OccludedOppositeWristCannotHideContradictoryObservedArm)
 {

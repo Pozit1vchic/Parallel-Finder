@@ -1,5 +1,14 @@
 # Benchmark и pipeline smoke
 
+Проверка контрольных пар принимает JSON benchmark-отчёт или stdout завершённого анализа с `PF_ANALYSIS_JSON=1`:
+
+```powershell
+./tools/benchmark/check_reference_pairs.ps1 -ReportPath build/recall-fixed-soldier.out.log
+./tools/benchmark/check_reference_pairs.ps1 -ReportPath build/recall-fixed-dean.out.log -ReferencePath tools/benchmark/dean-reference.json
+```
+
+Отсутствующий положительный якорь или найденная отмеченная ложная пара приводит к ошибке проверки. Это контрольная выборка, не оценка общей точности. Для короткой диагностики заполнения лимита можно включить `PF_DEBUG_SELECTION=1`; подробный `PF_DEBUG_MATCHER` для этой задачи не нужен.
+
 Репозиторий не подменяет качество матчера красивым процентом. Для настоящего
 precision/recall нужны размеченные видео и эталонные интервалы. Скрипт рядом
 проверяет воспроизводимый инженерный минимум: выбранный ONNX-файл, выбранную

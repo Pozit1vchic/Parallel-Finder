@@ -56,6 +56,8 @@ struct MotionMatcherParams {
     double duplicateWindowSec = 1.5;
     double noiseFactor = 1.0;
     // Per result type: hybrid mode has independent motion and static budgets.
+    // Within static, accepted head/body comparisons share this same budget
+    // fairly; unused capacity is lent to the other observable region.
     std::size_t maxUniqueResults = 100;
     double timeWeight = 0.25;
     bool normalizeSize = true;
