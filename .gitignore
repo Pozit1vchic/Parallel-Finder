@@ -56,7 +56,11 @@ models/*.part
 # Runtime state, caches, previews and logs
 /cache/
 /previews/
+/logs/
+/tmp/
+/temp/
 *.log
+*.log.*
 *.dmp
 /settings.json
 settings.local.json
@@ -96,6 +100,8 @@ venv/
 env/
 *.egg-info/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
 # OS noise
 Thumbs.db
