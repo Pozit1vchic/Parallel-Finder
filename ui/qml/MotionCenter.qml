@@ -28,6 +28,7 @@ ColumnLayout {
     function startPair() {
         stopPair()
         playbackError = ""
+        if (!leftView.previewPlayable || !rightView.previewPlayable) return
         pendingPlayback = true
         pairedPlayback = true
         leftView.preparePlayback()
@@ -176,15 +177,16 @@ ColumnLayout {
                         anchors.bottom: parent.bottom
                         height: visible ? 36 : 0
                         spacing: 8
-                        visible: !!root.selectedRecord && root.selectedRecord.matchType === "motion"
+                        visible: !!root.selectedRecord
                         PfButton {
                             objectName: "pairPlaybackButton"
                             compact: true
                             text: root.pendingPlayback ? L10n.t("timeline.loadingFrame") : (root.pairedPlayback && (leftView.playing || rightView.playing) ? L10n.t("preview.pause") : L10n.t("preview.playPair"))
                             enabled: !root.pendingPlayback
+                                     && leftView.previewPlayable && rightView.previewPlayable
                             onClicked: root.togglePair()
                         }
-                        PfButton { compact: true; text: L10n.t("preview.repeat"); onClicked: root.startPair() }
+                        PfButton { compact: true; text: L10n.t("preview.repeat"); enabled: leftView.previewPlayable && rightView.previewPlayable; onClicked: root.startPair() }
                         Text { text: root.playbackError; color: Theme.textSecondary; width: Math.max(0, stage.width - 330); elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
                     }
                     Row {

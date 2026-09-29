@@ -16,6 +16,10 @@ Item {
     property real timestamp: record ? (side === "left" ? Number(record.leftStart || 0) : Number(record.rightStart || 0)) : 0
     property real previewStart: record ? (side === "left" ? Number(record.leftSceneStart !== undefined ? record.leftSceneStart : record.leftStart || 0) : Number(record.rightSceneStart !== undefined ? record.rightSceneStart : record.rightStart || 0)) : 0
     property real previewEnd: record ? (side === "left" ? Number(record.leftSceneEnd !== undefined ? record.leftSceneEnd : record.leftEnd || 0) : Number(record.rightSceneEnd !== undefined ? record.rightSceneEnd : record.rightEnd || 0)) : 0
+    property real matchEnd: record ? Number(side === "left" ? record.leftEnd || 0 : record.rightEnd || 0) : 0
+    property real playbackEnd: !record ? 0 : record.matchType === "motion" && matchEnd > timestamp
+        ? matchEnd : (previewEnd > timestamp ? Math.min(previewEnd, timestamp + 4) : timestamp + 4)
+    readonly property bool previewPlayable: !!record && sourcePath.length > 0 && playbackEnd > timestamp
     property real zoom: 1.0
     property real panX: 0
     property real panY: 0
@@ -31,7 +35,7 @@ Item {
     onRecordChanged: stopPlayback()
     function preparePlayback() {
         stopPlayback()
-        if (!root.record || root.record.matchType !== "motion") return
+        if (!root.previewPlayable) return
         videoMode = true
         player.source = Analysis.videoSourceUrl(root.sourcePath)
     }
@@ -79,8 +83,7 @@ Item {
     Timer {
         interval: 25; repeat: true; running: root.playing
         onTriggered: {
-            const end = root.record ? Number(root.side === "left" ? root.record.leftEnd : root.record.rightEnd) : 0
-            if (player.position >= end * 1000) root.playbackFinished()
+            if (player.position >= root.playbackEnd * 1000) root.playbackFinished()
         }
     }
 
@@ -241,11 +244,11 @@ Item {
 
                 PfButton {
                     objectName: "previewPlayButton"
-                    visible: !!root.record && root.record.matchType === "motion"
+                    visible: !!root.record
                     width: Math.min(parent.width, 154)
                     text: root.playing ? L10n.t("preview.pause") : L10n.t("preview.play")
                     quiet: true
-                    enabled: !!root.record && root.previewEnd > root.previewStart && (!root.videoMode || root.playbackReady)
+                    enabled: root.previewPlayable && (!root.videoMode || root.playbackReady)
                     onClicked: root.previewRequested()
                 }
             }

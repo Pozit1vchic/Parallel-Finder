@@ -41,7 +41,7 @@ private slots:
     void advancedOpensOnFirstClickAndStatusTranslates();
     void directMlDownloadIntegration();
     void cacheFolderAcceptsLocalFileUrls();
-    void staticResultsHidePlaybackControls();
+    void staticResultsShowPlaybackControls();
     void previewIsEmbeddedAndStopsOnRecordChange();
     void inlinePairActuallyDecodesAndStopsAtClipEnd();
     void resultLabelsFollowMatchTypeAndLanguage();
@@ -430,18 +430,20 @@ Item {
     }
 }
 
-void UiSmokeTests::staticResultsHidePlaybackControls()
+void UiSmokeTests::staticResultsShowPlaybackControls()
 {
     pfui::AppInfo::registerQmlTypes();
     QQmlApplicationEngine engine;
     engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
     QQmlComponent component(&engine);
-    component.setData("import QtQuick\nimport PfUi\nComparisonView { width: 300; height: 500; record: ({matchType: 'pose', leftStart: 1, leftEnd: 2}) }", QUrl());
+    component.setData("import QtQuick\nimport PfUi\nComparisonView { width: 300; height: 500; record: ({matchType: 'pose', leftSource: 'C:/video.mp4', leftStart: 1, leftEnd: 1, leftSceneEnd: 3}) }", QUrl());
     std::unique_ptr<QObject> view(component.create());
     QVERIFY2(view != nullptr, qPrintable(component.errorString()));
     auto* play = view->findChild<QObject*>("previewPlayButton");
     QVERIFY(play);
-    QVERIFY(!play->property("visible").toBool());
+    QVERIFY(play->property("visible").toBool());
+    QVERIFY(play->property("enabled").toBool());
+    QCOMPARE(view->property("playbackEnd").toDouble(), 3.0);
     view->setProperty("record", QVariantMap{{"matchType", "motion"}, {"leftStart", 1}, {"leftEnd", 2}});
     QVERIFY(play->property("visible").toBool());
 }
@@ -529,6 +531,16 @@ void UiSmokeTests::inlinePairActuallyDecodesAndStopsAtClipEnd()
     QVERIFY(left->property("playing").toBool());
     center->setProperty("selectedRecord", QVariantMap{{"matchType", "pose"}, {"id", 99}});
     QVERIFY(!left->property("videoMode").toBool());
+    QVERIFY(!right->property("videoMode").toBool());
+    center->setProperty("selectedRecord", QVariantMap{{"matchType", "pose"}, {"leftSource", path}, {"rightSource", path},
+        {"leftStart", 0.3}, {"leftEnd", 0.3}, {"leftSceneEnd", 1.3},
+        {"rightStart", 1.5}, {"rightEnd", 1.5}, {"rightSceneEnd", 2.5}});
+    auto* staticPlay = left->findChild<QObject*>("previewPlayButton");
+    QVERIFY(staticPlay->property("visible").toBool());
+    QVERIFY(staticPlay->property("enabled").toBool());
+    QVERIFY(QMetaObject::invokeMethod(staticPlay, "clicked"));
+    QTRY_VERIFY_WITH_TIMEOUT(left->property("playing").toBool(), 15000);
+    QTRY_VERIFY_WITH_TIMEOUT(!left->property("videoMode").toBool(), 10000);
     QVERIFY(!right->property("videoMode").toBool());
 }
 
