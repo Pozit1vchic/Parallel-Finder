@@ -5,8 +5,16 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace pfservices {
+
+struct ProviderPart {
+    std::string archive;
+    std::string sha256;
+    std::uint64_t sizeBytes = 0;
+    std::string downloadUrl;
+};
 
 struct ProviderAsset {
     std::string provider;
@@ -14,6 +22,7 @@ struct ProviderAsset {
     std::string sha256;
     std::uint64_t sizeBytes = 0;
     std::string downloadUrl;
+    std::vector<ProviderPart> parts;
 };
 
 using ProviderDownloadProgress = std::function<void(std::uint64_t received,
@@ -21,6 +30,13 @@ using ProviderDownloadProgress = std::function<void(std::uint64_t received,
 
 class ProviderStore {
 public:
+    static std::optional<ProviderAsset> readManifest(const std::filesystem::path& path,
+                                                    const std::string& provider, std::string& error);
+    // Parts are ordinary byte chunks, not a ZIP multi-volume format. Verify
+    // every chunk and the complete archive before exposing it to extraction.
+    static bool assembleParts(const ProviderAsset& asset,
+                              const std::vector<std::filesystem::path>& paths,
+                              const std::filesystem::path& destination, std::string& error);
     static bool downloadDirectMl(const std::filesystem::path& destination,
                                  ProviderDownloadProgress progress, std::string& error);
     // Manifest format: { "providers": [{ "provider":"cuda",

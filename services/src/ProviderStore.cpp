@@ -13,6 +13,8 @@
 #include <QProcess>
 #include <QTimer>
 #include <QTemporaryDir>
+#include <QSaveFile>
+#include <QCryptographicHash>
 #include <QUrl>
 
 #include <algorithm>
@@ -213,7 +215,29 @@ std::optional<ProviderAsset> parseManifest(const QByteArray& bytes,
             0, object.value(QStringLiteral("sizeBytes")).toInteger()));
         if (object.value(QStringLiteral("downloadUrl")).isString())
             asset.downloadUrl = object.value(QStringLiteral("downloadUrl")).toString().toStdString();
-        if (!safeArchive(asset.archive) || asset.downloadUrl.empty()) {
+        if (object.contains("parts")) {
+            const auto parts = object.value("parts").toArray();
+            if (parts.isEmpty() || parts.size() > 16) { error = "invalid provider parts count"; return std::nullopt; }
+            std::uint64_t total = 0;
+            for (const auto& value : parts) {
+                const auto part = value.toObject();
+                ProviderPart item{part.value("archive").toString().toStdString(),
+                    part.value("sha256").toString().toStdString(),
+                    static_cast<std::uint64_t>(std::max<qint64>(0, part.value("sizeBytes").toInteger())),
+                    part.value("downloadUrl").toString().toStdString()};
+                if (!safeArchive(item.archive) || !item.sizeBytes || item.sizeBytes >= 2ULL*1024*1024*1024
+                    || item.sha256.size() != 64 || item.downloadUrl.empty()
+                    || std::any_of(asset.parts.begin(), asset.parts.end(), [&](const auto& existing) { return existing.archive == item.archive; })) {
+                    error = "invalid provider part"; return std::nullopt;
+                }
+                total += item.sizeBytes;
+                asset.parts.push_back(std::move(item));
+            }
+            if (total != asset.sizeBytes || total > 8ULL*1024*1024*1024 || asset.sha256.size() != 64) {
+                error = "provider parts size/hash metadata mismatch"; return std::nullopt;
+            }
+        }
+        if (!safeArchive(asset.archive) || (asset.downloadUrl.empty() && asset.parts.empty())) {
             error = "provider manifest contains an unsafe or incomplete archive entry";
             return std::nullopt;
         }
@@ -368,6 +392,44 @@ std::optional<ProviderAsset> ProviderStore::fetchManifest(const std::string& url
     return result;
 }
 
+std::optional<ProviderAsset> ProviderStore::readManifest(const std::filesystem::path& path,
+    const std::string& provider, std::string& error)
+{
+    QFile file(QString::fromStdWString(path.wstring()));
+    if (!file.open(QIODevice::ReadOnly) || file.size() > kMaxManifestBytes) {
+        error = "cannot read provider manifest"; return std::nullopt;
+    }
+    return parseManifest(file.readAll(), provider, error);
+}
+
+bool ProviderStore::assembleParts(const ProviderAsset& asset,
+    const std::vector<std::filesystem::path>& paths,
+    const std::filesystem::path& destination, std::string& error)
+{
+    if (asset.parts.empty() || paths.size() != asset.parts.size()) { error = "missing provider parts"; return false; }
+    QSaveFile output(QString::fromStdWString(destination.wstring()));
+    if (!output.open(QIODevice::WriteOnly)) { error = output.errorString().toStdString(); return false; }
+    std::uint64_t written = 0;
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    for (std::size_t i = 0; i < paths.size(); ++i) {
+        QFile input(QString::fromStdWString(paths[i].wstring()));
+        if (!input.open(QIODevice::ReadOnly) || static_cast<std::uint64_t>(input.size()) != asset.parts[i].sizeBytes
+            || !ModelStore::verifySha256(paths[i], asset.parts[i].sha256, error)) {
+            error = "provider part verification failed: " + error; return false;
+        }
+        while (!input.atEnd()) {
+            const auto bytes = input.read(1024*1024);
+            if (bytes.isEmpty() || output.write(bytes) != bytes.size()) { error = "provider part read/write failed"; return false; }
+            hash.addData(bytes);
+            written += static_cast<std::uint64_t>(bytes.size());
+        }
+    }
+    if (written != asset.sizeBytes) { error = "assembled provider size mismatch"; return false; }
+    if (hash.result().toHex().toStdString() != asset.sha256) { error = "assembled provider SHA-256 mismatch"; return false; }
+    if (!output.commit()) { error = output.errorString().toStdString(); return false; }
+    return true;
+}
+
 bool ProviderStore::downloadAndInstall(const ProviderAsset& asset,
                                        const std::filesystem::path& destination,
                                        ProviderDownloadProgress progress,
@@ -387,7 +449,25 @@ bool ProviderStore::downloadAndInstall(const ProviderAsset& asset,
     archive.sizeBytes = asset.sizeBytes;
     archive.downloadUrl = asset.downloadUrl;
     const auto temporary = destination / (asset.archive + ".part");
-    if (!ModelStore::download(archive, temporary, std::move(progress), error)) return false;
+    if (asset.parts.empty()) {
+        if (!ModelStore::download(archive, temporary, std::move(progress), error)) return false;
+    } else {
+        if (!QDir().mkpath(QString::fromStdWString(destination.wstring()))) { error = "cannot create provider directory"; return false; }
+        QTemporaryDir downloads(QString::fromStdWString(destination.parent_path().wstring()) + "/provider-parts-XXXXXX");
+        if (!downloads.isValid()) { error = "cannot create provider download staging"; return false; }
+        std::vector<std::filesystem::path> paths;
+        std::uint64_t completed = 0;
+        for (const auto& part : asset.parts) {
+            const auto path = std::filesystem::path(downloads.path().toStdWString()) / part.archive;
+            ModelAsset chunk{part.archive, part.sha256, part.sizeBytes, part.downloadUrl};
+            if (!ModelStore::download(chunk, path, [&](std::uint64_t received, std::uint64_t) {
+                if (progress) progress(completed + received, asset.sizeBytes);
+            }, error)) return false;
+            completed += part.sizeBytes;
+            paths.push_back(path);
+        }
+        if (!assembleParts(asset, paths, temporary, error)) return false;
+    }
     // ModelStore installs the downloaded file at `temporary`; keep it out of
     // the runtime directory until extraction has completed successfully.
     const auto staging = destination.parent_path()
