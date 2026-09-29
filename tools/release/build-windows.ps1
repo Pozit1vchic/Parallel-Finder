@@ -111,12 +111,12 @@ try {
     if ($LASTEXITCODE) { throw 'ZIP creation failed' }
     & $InnoSetup "/DStageDir=$stage" "/DOutputDir=$out" "$PSScriptRoot/installer.iss"
     if ($LASTEXITCODE) { throw 'Installer compilation failed' }
-    # Archive the same tracked working-tree sources that were just built.
-    # `git archive HEAD` silently packaged an older revision when local fixes
-    # had not been committed yet.
+    # Archive tracked working-tree sources only. Read their current contents
+    # (rather than `git archive HEAD`) so staged/uncommitted fixes are included,
+    # but unrelated untracked folders can never leak into a release archive.
     $sourceStage = Join-Path $root "build/source-$run/ParallelFinder-$tag-Source"
     New-Item -ItemType Directory -Path $sourceStage | Out-Null
-    $trackedFiles = & git ls-files --cached --others --exclude-standard
+    $trackedFiles = & git ls-files --cached
     if ($LASTEXITCODE) { throw 'git ls-files failed' }
     foreach ($relative in $trackedFiles) {
         if ([string]::IsNullOrWhiteSpace($relative)) { continue }
