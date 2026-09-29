@@ -27,7 +27,7 @@ try {
         $env:QT_QPA_PLATFORM = $releaseTestQpa
         $env:QT_PLUGIN_PATH = $releaseTestPlugins
     }
-    $tag = '0.1.0-rc.3'
+    $tag = '0.1.0-rc.4'
     $run = [guid]::NewGuid().ToString('N').Substring(0,8)
     $stage = Join-Path $root "build/package-$run/ParallelFinder"
     $out = Join-Path $root "release/$tag-$run"
@@ -38,7 +38,7 @@ try {
     & "$bin/windeployqt.exe" --release --no-translations --qmldir "$root/ui/qml" --dir $stage "$stage/ParallelFinder.exe"
     if ($LASTEXITCODE) { throw 'Qt deployment failed' }
     Copy-Item -LiteralPath "$PSScriptRoot/qt.conf" -Destination $stage
-    Copy-Item -LiteralPath "$bin/ffmpeg.exe","$bin/onnxruntime.dll" -Destination $stage
+    Copy-Item -LiteralPath "$bin/ffmpeg.exe","$bin/onnxruntime.dll","$bin/onnxruntime_providers_shared.dll" -Destination $stage
     # Follow native PE imports rather than copying an entire developer toolchain.
     $queue = [Collections.Generic.Queue[string]]::new()
     Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object Extension -in '.dll','.exe' | ForEach-Object { $queue.Enqueue($_.FullName) }
@@ -76,7 +76,9 @@ try {
         Remove-Item Env:QML_IMPORT_PATH,Env:QML2_IMPORT_PATH,Env:QT_PLUGIN_PATH -ErrorAction SilentlyContinue
         $env:QT_QPA_PLATFORM = 'windows'
         $env:PF_ORT_DLL = Join-Path $stage 'onnxruntime.dll'
-        $probe = Start-Process -FilePath "$stage/ParallelFinder.exe" -ArgumentList '--pf-ui-smoke' -WorkingDirectory $out -WindowStyle Hidden -PassThru -RedirectStandardOutput "$out/ui-smoke.log" -RedirectStandardError "$out/ui-smoke-errors.log"
+        $smokeLogPath = Join-Path (Split-Path $stage) 'ui-smoke.log'
+        $smokeErrorPath = Join-Path (Split-Path $stage) 'ui-smoke-errors.log'
+        $probe = Start-Process -FilePath "$stage/ParallelFinder.exe" -ArgumentList '--pf-ui-smoke' -WorkingDirectory $out -WindowStyle Hidden -PassThru -RedirectStandardOutput $smokeLogPath -RedirectStandardError $smokeErrorPath
         if (!$probe.WaitForExit(30000)) {
             $probe.Kill()
             $probe.WaitForExit()
@@ -88,7 +90,6 @@ try {
         $probe.WaitForExit()
         $probe.Refresh()
         $probeExitCode = $probe.ExitCode
-        $smokeErrorPath = Join-Path $out 'ui-smoke-errors.log'
         if ($null -eq $probeExitCode) {
             $details = if (Test-Path -LiteralPath $smokeErrorPath) { Get-Content -LiteralPath $smokeErrorPath -Raw } else { '' }
             throw "Packaged UI startup finished without an exit code. $details"

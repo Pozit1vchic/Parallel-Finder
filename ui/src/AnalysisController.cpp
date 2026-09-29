@@ -313,15 +313,13 @@ QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
     return QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
 }
 
-QString savePreviewAt(const std::string& source, double timestamp, const QString& name)
+QString savePreviewAt(pfcore::VideoDecoder& decoder, double timestamp, const QString& name)
 {
     try {
         QElapsedTimer timer;
         timer.start();
-        pfcore::VideoDecoder decoder;
-        decoder.open(source);
-        const auto openMs = timer.restart();
         decoder.seek(std::max(0.0, timestamp));
+        const auto seekMs = timer.restart();
         pfcore::DecodedFrame frame;
         const double target = std::max(0.0, timestamp);
         while (decoder.readNext(frame, false)) {
@@ -330,8 +328,8 @@ QString savePreviewAt(const std::string& source, double timestamp, const QString
                 const auto decodeMs = timer.restart();
                 const auto url = savePreview(frame, name);
                 if (qEnvironmentVariableIsSet("PF_DEBUG_PREVIEW"))
-                    std::fprintf(stderr, "PF_DEBUG_PREVIEW open_ms=%lld decode_ms=%lld save_ms=%lld\n",
-                        static_cast<long long>(openMs), static_cast<long long>(decodeMs),
+                    std::fprintf(stderr, "PF_DEBUG_PREVIEW seek_ms=%lld decode_ms=%lld save_ms=%lld\n",
+                        static_cast<long long>(seekMs), static_cast<long long>(decodeMs),
                         static_cast<long long>(timer.elapsed()));
                 return url;
             }
@@ -2184,10 +2182,22 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             previewA.clear();
             previewB.clear();
             std::size_t renderedPreviews = 0;
+            std::unordered_map<std::string, std::unique_ptr<pfcore::VideoDecoder>> previewDecoders;
             pfservices::PreviewMemo exactPreviews([&](const QString& source, double seconds) {
                 if (isCancelled()) return QString{};
-                return savePreviewAt(source.toStdString(), seconds,
-                    QStringLiteral("%1_match_frame_%2.png").arg(previewToken).arg(renderedPreviews++));
+                const std::string path = source.toStdString();
+                try {
+                    auto& decoder = previewDecoders[path];
+                    if (!decoder) {
+                        decoder = std::make_unique<pfcore::VideoDecoder>();
+                        decoder->open(path);
+                    }
+                    return savePreviewAt(*decoder, seconds,
+                        QStringLiteral("%1_match_frame_%2.png").arg(previewToken).arg(renderedPreviews++));
+                } catch (...) {
+                    previewDecoders.erase(path);
+                    return QString{};
+                }
             });
             for (std::size_t i = 0; i < foundMatches.size(); ++i) {
                 if (isCancelled()) { markCancelled(); break; }

@@ -5,6 +5,7 @@ param(
     [string]$Model = "D:\\PF_CUDA\\models\\yolo26m-pose-640-b1.onnx",
     [string]$OrtDll = "D:\\msys2\\ucrt64\\bin\\onnxruntime.dll",
     [string]$ReIdModel = "",
+    [ValidateSet('cpu','cuda','tensorrt','dml')][string]$Provider = 'cpu',
     [ValidateRange(1, 3600)][int]$TimeoutSec = 120,
     [ValidateRange(0, 10000)][int]$MinimumPairs = 0,
     [double]$ExpectedOffsetSec = -1,
@@ -48,7 +49,7 @@ foreach ($mode in $Modes) {
     $psi.EnvironmentVariables['QT_QPA_PLATFORM'] = 'offscreen'
     $psi.EnvironmentVariables['PF_ORT_DLL'] = $env:PF_ORT_DLL
     $psi.EnvironmentVariables['PF_MODEL_PATH'] = $env:PF_MODEL_PATH
-    $psi.EnvironmentVariables['PF_PROVIDER'] = 'cpu'
+    $psi.EnvironmentVariables['PF_PROVIDER'] = $Provider
     $psi.EnvironmentVariables['PF_ANALYSIS_TIMEOUT_SEC'] = [string]$TimeoutSec
     $psi.EnvironmentVariables['PF_ANALYSIS_MIN_PAIRS'] = [string]$MinimumPairs
     $psi.EnvironmentVariables['PF_ANALYSIS_JSON'] = '1'

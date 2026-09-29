@@ -5,8 +5,32 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <QTemporaryDir>
 
 namespace {
+
+pfcore::MotionMatch sample();
+
+TEST(Exporters, ReplacesExistingFileAndPreservesBlockedDestination)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    pfexporters::ExportOptions options;
+    options.format = pfexporters::ExportFormat::Json;
+    options.outputFolder = temporary.path().toStdString();
+    options.filePrefix = "parallel";
+    const auto destination = std::filesystem::path(options.outputFolder) / "parallel.json";
+    { std::ofstream previous(destination); previous << "previous"; }
+    std::string error;
+    ASSERT_TRUE(pfexporters::writeResults({sample()}, options, error)) << error;
+    { std::ifstream current(destination); std::string contents((std::istreambuf_iterator<char>(current)), {});
+      EXPECT_NE(contents.find("left"), std::string::npos); }
+    std::filesystem::remove(destination);
+    std::filesystem::create_directory(destination);
+    { std::ofstream sentinel(destination / "keep.txt"); sentinel << "keep"; }
+    EXPECT_FALSE(pfexporters::writeResults({sample()}, options, error));
+    EXPECT_TRUE(std::filesystem::exists(destination / "keep.txt"));
+}
 
 pfcore::MotionMatch sample()
 {
@@ -104,6 +128,29 @@ TEST(Exporters, NumberingModeControlsOrder)
     options.numbering = pfexporters::NumberingMode::RenumberSorted;
     const auto sorted = pfexporters::formatResults(matches, options);
     EXPECT_LT(sorted.find("\"start\": 10, \"end\""), sorted.find("\"start\": 1, \"end\""));
+}
+
+TEST(Exporters, FcpXmlReferencesEverySourceForMultiSourceProjects)
+{
+    for (const int sourceCount : {2, 3, 5, 7}) {
+        std::vector<pfcore::MotionMatch> matches;
+        for (int index = 0; index < sourceCount; ++index) {
+            auto match = sample();
+            match.leftSourceId = "source_" + std::to_string(index) + ".mp4";
+            match.rightSourceId = "source_" + std::to_string((index + 1) % sourceCount) + ".mp4";
+            matches.push_back(std::move(match));
+        }
+        pfexporters::ExportOptions options;
+        options.format = pfexporters::ExportFormat::FcpXml;
+        options.framesPerSecond = 24.0;
+        const auto xml = pfexporters::formatResults(matches, options);
+        for (int index = 0; index < sourceCount; ++index) {
+            const auto id = "a" + std::to_string(index + 1);
+            EXPECT_NE(xml.find("<asset id=\"" + id + "\""), std::string::npos);
+            EXPECT_NE(xml.find("<asset-clip ref=\"" + id + "\""), std::string::npos);
+        }
+        EXPECT_EQ(xml.find("<asset id=\"a" + std::to_string(sourceCount + 1) + "\""), std::string::npos);
+    }
 }
 
 } // namespace

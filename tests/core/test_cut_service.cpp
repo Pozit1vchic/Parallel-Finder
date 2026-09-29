@@ -11,6 +11,7 @@
 #include <QJsonArray>
 
 #include <filesystem>
+#include <fstream>
 #include <thread>
 #include <atomic>
 #include <chrono>
@@ -91,6 +92,39 @@ TEST(CutService, RealVideoPreservesResolutionFrameRateAndAudio)
         EXPECT_TRUE(audio);
         EXPECT_GE(metadata.value("format").toObject().value("duration").toString().toDouble(), 26.9);
     }
+}
+
+TEST(CutService, ExistingDestinationSurvivesFailedReplacement)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    if (ffmpeg.isEmpty()) GTEST_SKIP() << "FFmpeg unavailable";
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto source = temporary.filePath("source.mp4");
+    QProcess generator;
+    generator.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-f", "lavfi",
+        "-i", "color=c=blue:s=160x90:r=15", "-t", "2", "-c:v", "mpeg4",
+        "-y", source});
+    ASSERT_TRUE(generator.waitForFinished(30000));
+    ASSERT_EQ(generator.exitCode(), 0);
+    const auto destination = std::filesystem::path(temporary.filePath("cut.mp4").toStdWString());
+    pfservices::CutRequest request;
+    request.inputPath = source.toStdWString();
+    request.outputPath = destination;
+    request.startSeconds = 0;
+    request.endSeconds = 1;
+    request.mode = pfservices::CutMode::Fast;
+    pfservices::CutService cutter(ffmpeg.toStdString());
+    { std::ofstream previous(destination); previous << "previous"; }
+    const auto replaced = cutter.cut(request);
+    ASSERT_TRUE(replaced.success) << replaced.error;
+    EXPECT_GT(std::filesystem::file_size(destination), 100U);
+    std::filesystem::remove(destination);
+    std::filesystem::create_directory(destination);
+    { std::ofstream sentinel(destination / "keep.txt"); sentinel << "keep"; }
+    const auto rejected = cutter.cut(request);
+    EXPECT_FALSE(rejected.success);
+    EXPECT_TRUE(std::filesystem::exists(destination / "keep.txt"));
 }
 
 TEST(ProviderManager, KeepsIndependentInstallationsAndRejectsUnvalidatedRuntime)

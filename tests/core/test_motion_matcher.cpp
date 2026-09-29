@@ -606,6 +606,30 @@ TEST(MotionMatcher, ContextualDuplicateSuppressionIsOrientationIndependent)
     EXPECT_EQ(reversed.size(), direct.size());
 }
 
+TEST(MotionMatcher, SameScenePairKeepsDifferentVerifiedPeople)
+{
+    std::vector<pfcore::MotionWindow> windows;
+    for (int person = 0; person < 2; ++person) {
+        for (int side = 0; side < 2; ++side) {
+            auto item = gestureWindow(side == 0 ? "source-a" : "source-b", side * 8.0, false);
+            item.hasSceneIndex = true;
+            item.sceneIndex = side + 1;
+            item.trackId = static_cast<std::size_t>(person + 1);
+            item.faceEmbedding = person == 0
+                ? std::vector<float>{1.0F, 0.0F} : std::vector<float>{0.0F, 1.0F};
+            item.faceConfidence = 1.0;
+            windows.push_back(std::move(item));
+        }
+    }
+    pfcore::MotionMatcherParams params;
+    params.requireAppearance = true;
+    const auto matches = pfcore::MotionMatcher(params).findAllPairs(windows);
+    ASSERT_EQ(matches.size(), 2u);
+    for (const auto& match : matches) {
+        EXPECT_EQ(windows[match.leftIndex].trackId, windows[match.rightIndex].trackId);
+    }
+}
+
 TEST(MotionMatcher, Retains120IndependentVerifiedParallels)
 {
     std::vector<pfcore::MotionWindow> windows;

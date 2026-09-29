@@ -9,8 +9,27 @@
 #include <numeric>
 #include <sstream>
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 namespace pfexporters {
 namespace {
+
+void installExport(const std::filesystem::path& temporary,
+                   const std::filesystem::path& destination, std::error_code& error)
+{
+#if defined(_WIN32)
+    if (std::filesystem::exists(destination, error)) {
+        if (error) return;
+        if (!ReplaceFileW(destination.c_str(), temporary.c_str(), nullptr, 0, nullptr, nullptr))
+            error = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+        return;
+    }
+    if (error) return;
+#endif
+    std::filesystem::rename(temporary, destination, error);
+}
 
 std::string jsonEscape(const std::string& value)
 {
@@ -383,9 +402,8 @@ bool writeResults(const std::vector<pfcore::MotionMatch>& matches,
         return false;
     }
     output.close();
-    std::filesystem::remove(destination, filesystemError);
     filesystemError.clear();
-    std::filesystem::rename(temporary, destination, filesystemError);
+    installExport(temporary, destination, filesystemError);
     if (filesystemError) {
         error = "install export file failed: " + filesystemError.message();
         std::filesystem::remove(temporary, filesystemError);
@@ -403,9 +421,8 @@ bool writeResults(const std::vector<pfcore::MotionMatch>& matches,
         jsonOptions.format = ExportFormat::Json;
         data << formatResults(matches, jsonOptions);
         data.close();
-        std::filesystem::remove(dataDestination, filesystemError);
         filesystemError.clear();
-        std::filesystem::rename(dataTemporary, dataDestination, filesystemError);
+        installExport(dataTemporary, dataDestination, filesystemError);
         if (filesystemError) {
             error = "install AEP data file failed: " + filesystemError.message();
             std::filesystem::remove(dataTemporary, filesystemError);

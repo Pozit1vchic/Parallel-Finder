@@ -33,6 +33,23 @@ std::string processError(QProcess& process)
     return process.errorString().toStdString();
 }
 
+void installCut(const std::filesystem::path& temporary,
+                const std::filesystem::path& destination, std::error_code& error)
+{
+#if defined(_WIN32)
+    if (std::filesystem::exists(destination, error)) {
+        if (error) return;
+        if (!ReplaceFileW(destination.c_str(), temporary.c_str(), nullptr, 0, nullptr, nullptr))
+            error = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+        return;
+    }
+    if (error) return;
+#endif
+    // POSIX rename replaces atomically; Windows requires ReplaceFileW when
+    // the target exists. Never remove the previous cut before installation.
+    std::filesystem::rename(temporary, destination, error);
+}
+
 QString resolveFfmpegExecutable(const std::string& configured)
 {
     const QString requested = QString::fromStdString(configured);
@@ -223,9 +240,8 @@ CutResult CutService::cut(const CutRequest& request) const
         result.exitCode = process.exitCode();
         if (process.exitStatus() == QProcess::NormalExit && result.exitCode == 0
             && std::filesystem::is_regular_file(temporaryPath, filesystemError)) {
-            std::filesystem::remove(request.outputPath, filesystemError);
             filesystemError.clear();
-            std::filesystem::rename(temporaryPath, request.outputPath, filesystemError);
+            installCut(temporaryPath, request.outputPath, filesystemError);
             if (!filesystemError) {
                 result.success = true;
                 result.encoder = encoder;

@@ -1668,6 +1668,22 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             const bool swappedOrientation = windows[candidate.leftIndex].sourceId == windows[kept.rightIndex].sourceId
                 && windows[candidate.rightIndex].sourceId == windows[kept.leftIndex].sourceId;
             if (!sameOrientation && !swappedOrientation) return false;
+            const auto identitiesCompatible = [&](std::size_t candidateIndex, std::size_t keptIndex) {
+                const auto& candidateWindow = windows[candidateIndex];
+                const auto& keptWindow = windows[keptIndex];
+                const auto evidence = identityEvidence(candidateWindow, keptWindow, params_);
+                // A track change alone is inconclusive. Independent, confident
+                // appearance disagreement means these are different people,
+                // even when a scene index and timestamps happen to coincide.
+                return !evidence.available || evidence.verified;
+            };
+            const bool compatible = sameOrientation
+                && identitiesCompatible(candidate.leftIndex, kept.leftIndex)
+                && identitiesCompatible(candidate.rightIndex, kept.rightIndex);
+            const bool reverseCompatible = swappedOrientation
+                && identitiesCompatible(candidate.leftIndex, kept.rightIndex)
+                && identitiesCompatible(candidate.rightIndex, kept.leftIndex);
+            if (!compatible && !reverseCompatible) return false;
             const bool knownScenes = windows[candidate.leftIndex].hasSceneIndex
                 && windows[candidate.rightIndex].hasSceneIndex
                 && windows[kept.leftIndex].hasSceneIndex && windows[kept.rightIndex].hasSceneIndex;
