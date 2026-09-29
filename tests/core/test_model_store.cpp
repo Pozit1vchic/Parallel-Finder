@@ -1,12 +1,15 @@
 #include <gtest/gtest.h>
 
 #include <pfservices/ModelStore.hpp>
+#include <pfservices/ProviderStore.hpp>
 
 #include <QCryptographicHash>
+#include <QCoreApplication>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QTemporaryDir>
 
 #include <filesystem>
 
@@ -82,6 +85,63 @@ TEST(ModelStore, RejectsNonHttpsDownloads)
     EXPECT_FALSE(pfservices::ModelStore::download(asset, destination, {}, error));
     EXPECT_EQ(error, "model download requires an HTTPS URL");
     EXPECT_FALSE(std::filesystem::exists(destination));
+}
+
+TEST(ModelStore, DownloadsPublishedReleaseAssetThroughGitHubRedirect)
+{
+    if (!qEnvironmentVariableIsSet("PF_TEST_GITHUB_DOWNLOAD"))
+        GTEST_SKIP() << "Set PF_TEST_GITHUB_DOWNLOAD=1 for the live release test";
+    int argc = 1;
+    char applicationName[] = "pf_tests";
+    char* argv[] = {applicationName, nullptr};
+    QCoreApplication application(argc, argv);
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    pfservices::ModelAsset asset;
+    asset.filename = "manifest.json";
+    asset.sizeBytes = 6490;
+    asset.sha256 = "fc3af3b1a31c440c1380185e154bc603cba9fb3dca6d3790fb6678f788d1f8f5";
+    asset.downloadUrl = "https://github.com/Pozit1vchic/Parallel-Finder/releases/download/v0.1.0-models/manifest.json";
+    std::string error;
+    const auto destination = std::filesystem::path(directory.filePath("manifest.json").toStdWString());
+    ASSERT_TRUE(pfservices::ModelStore::download(asset, destination, {}, error)) << error;
+    ASSERT_TRUE(pfservices::ModelStore::verifySha256(destination, asset.sha256, error)) << error;
+}
+
+TEST(ModelStore, DownloadsPublishedYoloAndRuntimeAssets)
+{
+    if (!qEnvironmentVariableIsSet("PF_TEST_RELEASE_ASSETS"))
+        GTEST_SKIP() << "Set PF_TEST_RELEASE_ASSETS=1 for the live binary download test";
+    int argc = 1;
+    char applicationName[] = "pf_tests";
+    char* argv[] = {applicationName, nullptr};
+    QCoreApplication application(argc, argv);
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    std::string error;
+    const auto model = pfservices::ModelStore::fetchManifest(
+        "https://github.com/Pozit1vchic/Parallel-Finder/releases/download/v0.1.0-models/manifest.json",
+        "yolo26n-pose.onnx", error);
+    ASSERT_TRUE(model.has_value()) << error;
+    const auto modelPath = std::filesystem::path(directory.path().toStdWString())
+        / L"модели" / L"yolo26n-pose.onnx";
+    ASSERT_TRUE(pfservices::ModelStore::download(*model, modelPath, {}, error)) << error;
+    EXPECT_EQ(std::filesystem::file_size(modelPath), model->sizeBytes);
+
+    error.clear();
+    const auto provider = pfservices::ProviderStore::fetchManifest(
+        "https://github.com/Pozit1vchic/Parallel-Finder/releases/download/runtime-v1/providers.json",
+        "dml", error);
+    ASSERT_TRUE(provider.has_value()) << error;
+    ASSERT_FALSE(provider->downloadUrl.empty());
+    pfservices::ModelAsset archive;
+    archive.filename = provider->archive;
+    archive.sha256 = provider->sha256;
+    archive.sizeBytes = provider->sizeBytes;
+    archive.downloadUrl = provider->downloadUrl;
+    const auto archivePath = std::filesystem::path(directory.filePath("runtime.zip").toStdWString());
+    ASSERT_TRUE(pfservices::ModelStore::download(archive, archivePath, {}, error)) << error;
+    EXPECT_EQ(std::filesystem::file_size(archivePath), archive.sizeBytes);
 }
 
 } // namespace

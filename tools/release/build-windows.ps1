@@ -27,7 +27,7 @@ try {
         $env:QT_QPA_PLATFORM = $releaseTestQpa
         $env:QT_PLUGIN_PATH = $releaseTestPlugins
     }
-    $tag = '0.1.0-rc.4'
+    $tag = '0.1.0-rc.5'
     $run = [guid]::NewGuid().ToString('N').Substring(0,8)
     $stage = Join-Path $root "build/package-$run/ParallelFinder"
     $out = Join-Path $root "release/$tag-$run"

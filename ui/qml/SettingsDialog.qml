@@ -142,6 +142,7 @@ Popup {
     onOpened: {
         centerInWindow()
         AppInfo.rescanProviders()
+        appearanceAccentChoice.currentIndex = Math.max(0, root.accentIds.indexOf(customizationStore.accentColor))
         // Prevent the close icon or first tab from receiving an orange focus
         // ring just because the popup was opened with the mouse.
         Qt.callLater(function() { root.forceActiveFocus() })
@@ -185,6 +186,7 @@ Popup {
         const normalized = root.accentIds.indexOf(id) >= 0 ? id : "orange"
         Theme.accent = root.accentValue(normalized)
         customizationStore.accentColor = normalized
+        appearanceAccentChoice.currentIndex = root.accentIds.indexOf(normalized)
     }
     function providerStatusText(id) {
         const revision = AppInfo.providersRevision
@@ -384,7 +386,7 @@ Popup {
                         }
                         Text { visible: customFont.status === FontLoader.Ready; text: L10n.t("settings.fontLoaded") + ": " + customFont.name; color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
                         Text { text: L10n.t("settings.accentColor"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        PfComboBox { width: parent.width; model: root.accentLabels; currentIndex: Math.max(0, root.accentIds.indexOf(customizationStore.accentColor)); Accessible.name: L10n.t("settings.accentColor"); onActivated: root.applyAccent(root.accentIds[currentIndex]) }
+                        PfComboBox { id: appearanceAccentChoice; objectName: "appearanceAccentChoice"; width: parent.width; model: root.accentLabels; currentIndex: Math.max(0, root.accentIds.indexOf(customizationStore.accentColor)); Accessible.name: L10n.t("settings.accentColor"); onActivated: root.applyAccent(root.accentIds[currentIndex]) }
                         Text { text: L10n.t("settings.surfaceOpacity"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfSliderField { width: parent.width; label: L10n.t("settings.surfaceOpacity"); from: 0.25; to: 1.0; stepSize: 0.01; value: Theme.surfaceOpacity; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("settings.surfaceOpacityHint"); Accessible.name: L10n.t("settings.surfaceOpacity"); onValueEdited: { Theme.surfaceOpacity = nextValue; customizationStore.surfaceOpacity = nextValue } }
                         Rectangle { width: parent.width; height: 1; color: Theme.hairline }

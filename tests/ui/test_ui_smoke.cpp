@@ -203,6 +203,8 @@ void UiSmokeTests::appearancePersistsAndRejectsMissingFonts()
         QVERIFY(window);
         auto* popup = window->findChild<QObject*>("settingsDialog");
         QVERIFY(popup);
+        auto* accentChoice = popup->findChild<QObject*>("appearanceAccentChoice");
+        QVERIFY(accentChoice);
         QQmlComponent component(&engine);
         component.setData("import QtQuick\nimport PfUi\nItem { property color accent: Theme.accent; property string family: Theme.fontFamily; property bool reduced: Theme.reducedMotion; function reduce() { Theme.reducedMotion = true } }", QUrl());
         std::unique_ptr<QObject> probe(component.create());
@@ -211,6 +213,7 @@ void UiSmokeTests::appearancePersistsAndRejectsMissingFonts()
             for (const auto& color : {"blue", "orange", "blue"}) {
                 QVERIFY(QMetaObject::invokeMethod(popup, "applyAccent", Q_ARG(QVariant, QString::fromLatin1(color))));
                 QCOMPARE(probe->property("accent").value<QColor>().name(), QString::fromLatin1(color == std::string_view("blue") ? "#5d8dde" : "#d97757"));
+                QCOMPARE(accentChoice->property("currentIndex").toInt(), color == std::string_view("blue") ? 1 : 0);
             }
             const auto family = probe->property("family").toString();
             QVERIFY(QFontDatabase::families().contains(family));
@@ -221,6 +224,10 @@ void UiSmokeTests::appearancePersistsAndRejectsMissingFonts()
             QVERIFY(!popup->property("themeStatus").toString().isEmpty());
         } else {
             QCOMPARE(probe->property("accent").value<QColor>().name(), QStringLiteral("#5d8dde"));
+            QVERIFY(QMetaObject::invokeMethod(popup, "open"));
+            QTRY_VERIFY(popup->property("opened").toBool());
+            QCOMPARE(accentChoice->property("currentIndex").toInt(), 1);
+            QVERIFY(QMetaObject::invokeMethod(popup, "close"));
             QVERIFY(QMetaObject::invokeMethod(probe.get(), "reduce"));
             QVERIFY(probe->property("reduced").toBool());
             QVERIFY(QMetaObject::invokeMethod(popup, "resetAppearance"));

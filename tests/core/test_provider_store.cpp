@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <pfservices/ProviderStore.hpp>
 #include <QCryptographicHash>
+#include <QCoreApplication>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QJsonDocument>
@@ -86,4 +87,22 @@ TEST(ProviderStore, PreparedReleasePayloadsVerifyAndReassemble)
         ASSERT_TRUE(tar.waitForFinished(30000)); ASSERT_EQ(tar.exitCode(), 0);
         EXPECT_TRUE(tar.readAllStandardOutput().contains("onnxruntime.dll"));
     }
+}
+
+TEST(ProviderStore, FetchesPublishedRuntimeManifestThroughGitHubRedirect)
+{
+    if (!qEnvironmentVariableIsSet("PF_TEST_GITHUB_DOWNLOAD"))
+        GTEST_SKIP() << "Set PF_TEST_GITHUB_DOWNLOAD=1 for the live release test";
+    int argc = 1;
+    char applicationName[] = "pf_tests";
+    char* argv[] = {applicationName, nullptr};
+    QCoreApplication application(argc, argv);
+    std::string error;
+    const auto asset = pfservices::ProviderStore::fetchManifest(
+        "https://github.com/Pozit1vchic/Parallel-Finder/releases/download/runtime-v1/providers.json",
+        "cuda", error);
+    ASSERT_TRUE(asset.has_value()) << error;
+    EXPECT_EQ(asset->provider, "cuda");
+    EXPECT_FALSE(asset->downloadUrl.empty() && asset->parts.empty());
+    EXPECT_GT(asset->sizeBytes, 0U);
 }

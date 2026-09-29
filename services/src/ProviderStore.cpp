@@ -355,20 +355,32 @@ std::optional<ProviderAsset> ProviderStore::fetchManifest(const std::string& url
     QNetworkRequest request(requestUrl);
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("ParallelFinder/0.1"));
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
+                         QNetworkRequest::UserVerifiedRedirectPolicy);
+    request.setTransferTimeout(30000);
     QNetworkReply* reply = manager.get(request);
     QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::redirected, [&](const QUrl& target) {
+        if (target.scheme() == QStringLiteral("https") && trustedHost(target))
+            reply->redirectAllowed();
+        else {
+            error = "provider manifest redirected to an untrusted URL";
+            reply->abort();
+        }
+    });
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     QTimer timeout;
     timeout.setSingleShot(true);
-    QObject::connect(&timeout, &QTimer::timeout, reply, &QNetworkReply::abort);
-    timeout.start(15000);
+    QObject::connect(&timeout, &QTimer::timeout, [&] {
+        error = "provider manifest request timed out";
+        reply->abort();
+    });
+    timeout.start(90000);
     loop.exec();
     const auto networkError = reply->error();
     const std::string networkMessage = reply->errorString().toStdString();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     if (networkError != QNetworkReply::NoError) {
-        error = "provider manifest: " + networkMessage;
+        if (error.empty()) error = "provider manifest: " + networkMessage;
         reply->deleteLater();
         return std::nullopt;
     }

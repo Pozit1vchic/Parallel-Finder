@@ -13,6 +13,7 @@
 #include <QUrl>
 
 #include <cstdlib>
+#include <cstdio>
 #include <algorithm>
 #include <cctype>
 #include <limits>
@@ -51,6 +52,14 @@ bool trustedHost(const QUrl& url)
             || host == QStringLiteral("githubusercontent.com")
             || host.endsWith(QStringLiteral(".github.com"))
             || host.endsWith(QStringLiteral(".githubusercontent.com")));
+}
+
+bool trustedDownloadUrl(const QUrl& url)
+{
+    if (url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0) return false;
+    const QString host = url.host().trimmed().toLower();
+    return trustedHost(url) || host == QStringLiteral("api.nuget.org")
+        || host == QStringLiteral("globalcdn.nuget.org");
 }
 
 bool validSha256(const std::string& value)
@@ -239,20 +248,32 @@ std::optional<ModelAsset> ModelStore::fetchManifest(const std::string& url,
     QNetworkRequest request(requestUrl);
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("ParallelFinder/0.1"));
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
+                         QNetworkRequest::UserVerifiedRedirectPolicy);
+    request.setTransferTimeout(30000);
     QNetworkReply* reply = manager.get(request);
     QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::redirected, [&](const QUrl& target) {
+        if (target.scheme() == QStringLiteral("https") && trustedHost(target))
+            reply->redirectAllowed();
+        else {
+            error = "model manifest redirected to an untrusted URL";
+            reply->abort();
+        }
+    });
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     QTimer timeout;
     timeout.setSingleShot(true);
-    QObject::connect(&timeout, &QTimer::timeout, reply, &QNetworkReply::abort);
-    timeout.start(15000);
+    QObject::connect(&timeout, &QTimer::timeout, [&] {
+        error = "model manifest request timed out";
+        reply->abort();
+    });
+    timeout.start(90000);
     loop.exec();
     const auto networkError = reply->error();
     const std::string networkMessage = reply->errorString().toStdString();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     if (networkError != QNetworkReply::NoError) {
-        error = "fetch model manifest: " + networkMessage;
+        if (error.empty()) error = "fetch model manifest: " + networkMessage;
         reply->deleteLater();
         return std::nullopt;
     }
@@ -298,7 +319,7 @@ bool ModelStore::download(const ModelAsset& asset,
         error = "model download requires an HTTPS URL";
         return false;
     }
-    if (!trustedHost(url) && url.host().toLower() != QStringLiteral("api.nuget.org")) {
+    if (!trustedDownloadUrl(url)) {
         error = "model download requires an HTTPS GitHub URL";
         return false;
     }
@@ -330,8 +351,9 @@ bool ModelStore::download(const ModelAsset& asset,
     }
     error.clear();
 
-    const auto partPath = destination.string() + ".part";
-    QFile part(QString::fromStdString(partPath));
+    auto partPath = destination;
+    partPath += ".part";
+    QFile part(QString::fromStdWString(partPath.wstring()));
     qint64 offset = 0;
     if (part.exists()) {
         offset = part.size();
@@ -352,7 +374,10 @@ bool ModelStore::download(const ModelAsset& asset,
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("ParallelFinder/0.1"));
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
+                         QNetworkRequest::UserVerifiedRedirectPolicy);
+    // This is an inactivity timeout, not a cap on the entire transfer. GPU
+    // runtime archives can legitimately take much longer than two minutes.
+    request.setTransferTimeout(60000);
     if (offset > 0) {
         request.setRawHeader("Range", "bytes=" + QByteArray::number(offset) + "-");
     }
@@ -361,14 +386,31 @@ bool ModelStore::download(const ModelAsset& asset,
     QEventLoop loop;
     bool metadataSeen = false;
     qint64 expectedTotal = asset.sizeBytes == 0 ? -1 : static_cast<qint64>(asset.sizeBytes);
+    QObject::connect(reply, &QNetworkReply::redirected, [&](const QUrl& target) {
+        if (qEnvironmentVariableIsSet("PF_DEBUG_DOWNLOAD"))
+            std::fprintf(stderr, "PF_DOWNLOAD redirect host=%s\n", target.host().toUtf8().constData());
+        if (trustedDownloadUrl(target)) reply->redirectAllowed();
+        else {
+            error = "model download redirected to an untrusted URL";
+            reply->abort();
+        }
+    });
     QObject::connect(reply, &QNetworkReply::metaDataChanged, [&] {
-        metadataSeen = true;
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (qEnvironmentVariableIsSet("PF_DEBUG_DOWNLOAD"))
+            std::fprintf(stderr, "PF_DOWNLOAD metadata status=%d host=%s\n", status,
+                         reply->url().host().toUtf8().constData());
+        // GitHub Releases first responds with 302. Qt emits metadata for that
+        // response before following it; aborting here produced Operation canceled.
+        if (status >= 300 && status < 400) return;
+        metadataSeen = true;
         if (status != 200 && status != 206) {
+            error = "model download: HTTP " + std::to_string(status);
             reply->abort();
             return;
         }
-        if (!trustedHost(reply->url()) && reply->url().host().toLower() != QStringLiteral("api.nuget.org")) {
+        if (!trustedDownloadUrl(reply->url())) {
+            error = "model download reached an untrusted URL";
             reply->abort();
             return;
         }
@@ -381,10 +423,16 @@ bool ModelStore::download(const ModelAsset& asset,
         else if (total > 0) expectedTotal = total;
         if (expectedTotal > static_cast<qint64>(kMaxDownloadBytes)
             || (expectedTotal > 0 && expectedTotal < offset)) {
+            error = "model download exceeds the maximum supported size";
             reply->abort();
         }
     });
     QObject::connect(reply, &QNetworkReply::readyRead, [&] {
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (status != 200 && status != 206) {
+            reply->readAll(); // never write a redirect/error response into .part
+            return;
+        }
         const QByteArray data = reply->readAll();
         const qint64 currentSize = part.size();
         if (currentSize < 0 || static_cast<std::uint64_t>(currentSize) > kMaxDownloadBytes
@@ -394,7 +442,10 @@ bool ModelStore::download(const ModelAsset& asset,
             reply->abort();
             return;
         }
-        if (part.write(data) != data.size()) reply->abort();
+        if (part.write(data) != data.size()) {
+            error = "write partial model: " + part.errorString().toStdString();
+            reply->abort();
+        }
     });
     QObject::connect(reply, &QNetworkReply::downloadProgress,
                      [&](qint64 received, qint64 total) {
@@ -403,10 +454,20 @@ bool ModelStore::download(const ModelAsset& asset,
                                          : static_cast<std::uint64_t>(std::max<qint64>(0, expectedTotal)));
     });
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    if (qEnvironmentVariableIsSet("PF_DEBUG_DOWNLOAD"))
+        QObject::connect(reply, &QNetworkReply::finished, [&] {
+            std::fprintf(stderr, "PF_DOWNLOAD finished error=%d status=%d bytes=%lld\n",
+                         static_cast<int>(reply->error()),
+                         reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(),
+                         static_cast<long long>(reply->bytesAvailable()));
+        });
     QTimer timeout;
     timeout.setSingleShot(true);
-    QObject::connect(&timeout, &QTimer::timeout, reply, &QNetworkReply::abort);
-    timeout.start(120000);
+    QObject::connect(&timeout, &QTimer::timeout, [&] {
+        error = "model download exceeded the two-hour limit";
+        reply->abort();
+    });
+    timeout.start(2 * 60 * 60 * 1000);
     loop.exec();
     const auto networkError = reply->error();
     const std::string networkMessage = reply->errorString().toStdString();

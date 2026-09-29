@@ -1423,21 +1423,45 @@ void AnalysisController::setStatus(const QString& status)
     emit statusChanged();
 }
 
+bool AnalysisController::resumePendingInspection()
+{
+    if (!pendingInspectionPaths_) return false;
+    const QStringList paths = std::move(*pendingInspectionPaths_);
+    pendingInspectionPaths_.reset();
+    inspectFiles(paths);
+    return true;
+}
+
 void AnalysisController::inspectFiles(const QStringList& paths)
 {
-    if (busy_) return;
     const QStringList normalized = normalizedPaths(paths);
     deferredAnalyzePaths_.clear();
     results_.clear();
     matches_.clear();
+    fileCount_ = 0;
+    frameCount_ = 0;
+    durationSeconds_ = 0.0;
+    sceneCount_ = 0;
+    poseDetectionCount_ = 0;
     matchCount_ = 0;
+    sourceFps_ = 0.0;
     analysisCompleted_ = false;
     emit analysisStateChanged();
     emit resultsChanged();
     emit summaryChanged();
+    setProgress(0.0, normalized.isEmpty() ? QStringLiteral("Нет файлов")
+                                          : QStringLiteral("Открываем файлы"), 0, 0);
+    if (busy_) {
+        pendingInspectionPaths_ = normalized;
+        if (analysisCancel_) analysisCancel_->store(true, std::memory_order_relaxed);
+        return;
+    }
+    if (normalized.isEmpty()) {
+        setStatus(QStringLiteral("Добавьте видео для анализа"));
+        return;
+    }
     busy_ = true;
     emit busyChanged();
-    setProgress(0.0, QStringLiteral("Открываем файлы"), 0, 0);
     setStatus(QStringLiteral("Открываем видео…"));
     QThread* thread = QThread::create([this, paths = normalized] {
         int files = 0;
@@ -1458,6 +1482,12 @@ void AnalysisController::inspectFiles(const QStringList& paths)
             }
         }
         QMetaObject::invokeMethod(this, [this, files, frames, duration, error] {
+            if (pendingInspectionPaths_) {
+                busy_ = false;
+                emit busyChanged();
+                resumePendingInspection();
+                return;
+            }
             fileCount_ = files;
             frameCount_ = frames;
             durationSeconds_ = duration;
@@ -1596,6 +1626,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 busy_ = false;
                 emit busyChanged();
                 if (analysisCancel_ == cancel) analysisCancel_.reset();
+                if (resumePendingInspection()) return;
                 setProgress(0.0, QStringLiteral("Модель не найдена"), 0, 0);
                 setStatus(QStringLiteral("Модель поз не найдена. Укажите её в settings.json или в папке models."));
             }, Qt::QueuedConnection);
@@ -2279,6 +2310,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 .arg(poseDetections)
             : QString();
         QMetaObject::invokeMethod(this, [this, cancel, files, frames, duration, scenes, poseDetections, matches, resultRecords, foundMatches, error, processedFrames, totalFramesEstimate, sourceFps, reidStatus, debugSummary] {
+            if (pendingInspectionPaths_) {
+                busy_ = false;
+                emit busyChanged();
+                if (analysisCancel_ == cancel) analysisCancel_.reset();
+                resumePendingInspection();
+                return;
+            }
             fileCount_ = files; frameCount_ = frames; durationSeconds_ = duration; sceneCount_ = scenes;
             poseDetectionCount_ = poseDetections;
             matchCount_ = matches;
@@ -2303,6 +2341,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 emit analysisStateChanged();
                 emit busyChanged();
                 if (analysisCancel_ == cancel) analysisCancel_.reset();
+                if (resumePendingInspection()) return;
                 setProgress(0.0, QStringLiteral("Ошибка анализа"), 0, 0);
                 setStatus(QStringLiteral("Анализ не запущен: ") + message);
             }, Qt::QueuedConnection);
@@ -2313,6 +2352,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 emit analysisStateChanged();
                 emit busyChanged();
                 if (analysisCancel_ == cancel) analysisCancel_.reset();
+                if (resumePendingInspection()) return;
                 setProgress(0.0, QStringLiteral("Ошибка анализа"), 0, 0);
                 setStatus(QStringLiteral("Анализ не запущен: неизвестная ошибка"));
             }, Qt::QueuedConnection);

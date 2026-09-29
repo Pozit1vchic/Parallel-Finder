@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <atomic>
+#include <optional>
 #include <vector>
 #include <stop_token>
 #include <thread>
@@ -170,6 +171,7 @@ private:
     void saveMatcherSettings() const;
     void saveSettings() const;
     void setProgress(double value, const QString& stage, qlonglong processed, qlonglong total);
+    bool resumePendingInspection();
     int fileCount_ = 0;
     qlonglong frameCount_ = 0;
     double durationSeconds_ = 0.0;
@@ -205,6 +207,7 @@ private:
     QString modelDownloadingName_;
     int modelCatalogRevision_ = 0;
     QStringList deferredAnalyzePaths_;
+    std::optional<QStringList> pendingInspectionPaths_;
     QString cachePath_;
     double cacheLimitGb_ = 8.0;
     int processingThreads_ = 0;
