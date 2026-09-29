@@ -21,5 +21,5 @@ Hard rules:
   `MotionMatcherParams`;
 - settings/export are custom movable overlays with deliberate depth;
 - Lucide icons only for interface icons;
-- use sentence case and restrained editorial serif headings;
+- use sentence case and the shared sans-serif UI font for headings;
 - no unsupported feature may be presented as complete.

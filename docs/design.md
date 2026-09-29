@@ -42,13 +42,13 @@ No blue, cyan, generic neon, gradients, or arbitrary grey cards.
 
 ## Typography
 
-Use an editorial serif (`Georgia` fallback until a bundled licensed-safe font
-is chosen) only for the product wordmark, empty-state title, selected pair
-title and restrained dialogue headings. Use `Segoe UI` for data and controls.
+Use the shared sans-serif UI family (Inter, Segoe UI Variable or Segoe UI)
+for the wordmark, headings, body and controls. Use bundled JetBrains Mono
+for numeric statistics and paths. This supersedes the early serif proposal.
 
-- wordmark: 22px serif, normal weight;
+- wordmark: 15px sans, semibold;
 - section heading: 16px sans, semibold;
-- important value: 22–25px serif, normal weight;
+- important value: 22–25px monospace, normal weight;
 - body: 12–13px sans;
 - metadata: 10–11px sans, sentence case.
 

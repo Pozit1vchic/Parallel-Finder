@@ -1,6 +1,7 @@
 # Build output
 /build/
 /out/
+/dist/
 /release/
 /release-models/
 /cmake-build-*/
@@ -41,6 +42,16 @@ models/*.plan
 models/*.safetensors
 models/*.part
 *.onnx.part
+# Downloaded weights and TensorRT caches must not leak from other folders.
+*.onnx
+*.pt
+*.engine
+*.trt
+*.plan
+*.safetensors
+*.pfc
+# Small, intentionally versioned test fixtures may be kept here.
+!tests/fixtures/**/*.onnx
 
 # Developer-only model/source bundles
 /PF_CUDA/
@@ -68,6 +79,10 @@ settings.local.json
 *.tmp
 *.bak
 *.backup
+*.zip
+*.7z
+!tests/fixtures/**/*.zip
+!tests/fixtures/**/*.7z
 *.stackdump
 .parallel-finder/
 
