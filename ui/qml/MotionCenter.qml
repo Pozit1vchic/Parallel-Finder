@@ -186,7 +186,6 @@ ColumnLayout {
                                      && leftView.previewPlayable && rightView.previewPlayable
                             onClicked: root.togglePair()
                         }
-                        PfButton { compact: true; text: L10n.t("preview.repeat"); enabled: leftView.previewPlayable && rightView.previewPlayable; onClicked: root.startPair() }
                         Text { text: root.playbackError; color: Theme.textSecondary; width: Math.max(0, stage.width - 330); elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
                     }
                     Row {

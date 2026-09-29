@@ -8,9 +8,10 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $bin = Join-Path $Toolchain 'bin'
 $releaseOriginalPath = $env:PATH
 $env:PATH = "$bin;$env:PATH"
+$tag = '0.1.0-rc.7'
 Push-Location $root
 try {
-    & cmake --preset ucrt64-release
+    & cmake --preset ucrt64-release "-DPF_RELEASE_LABEL=$tag"
     if ($LASTEXITCODE) { throw 'Configure failed' }
     & cmake --build --preset ucrt64-release -j 4
     if ($LASTEXITCODE) { throw 'Build failed' }
@@ -27,7 +28,6 @@ try {
         $env:QT_QPA_PLATFORM = $releaseTestQpa
         $env:QT_PLUGIN_PATH = $releaseTestPlugins
     }
-    $tag = '0.1.0-rc.6'
     $run = [guid]::NewGuid().ToString('N').Substring(0,8)
     $stage = Join-Path $root "build/package-$run/ParallelFinder"
     $out = Join-Path $root "release/$tag-$run"

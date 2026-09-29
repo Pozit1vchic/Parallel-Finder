@@ -79,4 +79,4 @@ target_link_libraries(pfui PUBLIC
     Qt6::Multimedia
 )
 
-target_compile_definitions(pfui PRIVATE PF_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(pfui PRIVATE PF_VERSION="${PF_RELEASE_LABEL}")

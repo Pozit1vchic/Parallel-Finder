@@ -22,12 +22,13 @@ constexpr qsizetype kMaxSettingsBytes = 1 * 1024 * 1024;
 QJsonObject toJson(const Settings& settings)
 {
     QJsonObject json;
-    json[QStringLiteral("schemaVersion")] = 5;
+    json[QStringLiteral("schemaVersion")] = 6;
     json[QStringLiteral("provider")] = QString::fromStdString(settings.provider);
     json[QStringLiteral("language")] = QString::fromStdString(settings.language);
     json[QStringLiteral("appearance")] = settings.appearance;
     json[QStringLiteral("theme")] = QString::fromStdString(settings.theme);
     json[QStringLiteral("modelPath")] = QString::fromStdString(settings.modelPath);
+    json[QStringLiteral("modelChoice")] = QString::fromStdString(settings.modelChoice);
     json[QStringLiteral("cachePath")] = QString::fromStdString(settings.cachePath);
     json[QStringLiteral("cacheLimitBytes")] = static_cast<qint64>(
         std::min(settings.cacheLimitBytes, kMaxCacheLimitBytes));
@@ -105,6 +106,7 @@ Settings SettingsStore::load(std::string& error) const
     settings.appearance = json.value(QStringLiteral("appearance")).toObject();
     readString(json, "theme", settings.theme);
     readString(json, "modelPath", settings.modelPath);
+    readString(json, "modelChoice", settings.modelChoice);
     readString(json, "cachePath", settings.cachePath);
     // Older folder pickers persisted a file URL instead of a filesystem path.
     // Decode URLs only: percent sequences are legal in ordinary folder names.

@@ -830,8 +830,14 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     mirrorPoses_ = settings.mirrorPoses;
     costumeMode_ = settings.costumeMode;
     modelPath_ = QString::fromStdString(settings.modelPath);
-    modelChoice_ = QFileInfo(modelPath_).fileName();
-    if (modelChoice_.isEmpty()) modelChoice_ = QStringLiteral("yolo26m-pose.onnx");
+    modelChoice_ = QFileInfo(QString::fromStdString(settings.modelChoice)).fileName();
+    if (modelChoice_.isEmpty()) {
+        // Legacy settings stored only a path. An unavailable old model is not
+        // a meaningful default on a fresh install or after cache cleanup.
+        const QString legacyName = QFileInfo(modelPath_).fileName();
+        modelChoice_ = !legacyName.isEmpty() && findLocalModelFile(legacyName).has_value()
+            ? legacyName : QStringLiteral("yolo26m-pose.onnx");
+    }
     // Migrate the old developer-only default.  It was never present in the
     // public manifest, so leaving it selected on a clean update would make
     // the download control point at an unavailable asset.
@@ -895,6 +901,7 @@ void AnalysisController::saveSettings() const
     settings.mirrorPoses = mirrorPoses_;
     settings.costumeMode = costumeMode_;
     settings.modelPath = modelPath_.toStdString();
+    settings.modelChoice = modelChoice_.toStdString();
     settings.cachePath = cachePath_.toStdString();
     settings.cacheLimitBytes = static_cast<std::size_t>(std::max(0.25, cacheLimitGb_) * 1024.0 * 1024.0 * 1024.0);
     settings.processingThreads = static_cast<std::size_t>(std::clamp(processingThreads_, 0, 256));
@@ -1078,6 +1085,8 @@ void AnalysisController::setModelPath(const QString& value)
     const QString normalized = value.trimmed();
     if (modelPath_ == normalized) return;
     modelPath_ = normalized;
+    modelChoice_ = normalized.isEmpty() ? QStringLiteral("yolo26m-pose.onnx")
+                                        : QFileInfo(normalized).fileName();
     saveSettings();
     emit settingsChanged();
 }
@@ -1094,6 +1103,7 @@ void AnalysisController::selectModel(const QString& filename)
     }
 
     modelChoice_ = requested;
+    saveSettings();
     emit settingsChanged();
     if (const auto local = findLocalModelFile(requested)) {
         modelPath_ = QString::fromStdWString(local->wstring());

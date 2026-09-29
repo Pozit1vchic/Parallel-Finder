@@ -229,10 +229,21 @@ Rectangle {
                     Column { id: modelCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
                         Text { font.family: Theme.fontFamily; text: L10n.t("settings.poseModel"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfComboBox {
+                            id: modelCombo
+                            objectName: "poseModelComboBox"
                             width: parent.width
                             model: root.modelLabels
                             enabled: !Analysis.modelDownloading
-                            currentIndex: Math.max(0, root.modelFiles.indexOf(Analysis.modelChoice))
+                            function syncModelChoice() {
+                                const selected = root.modelFiles.indexOf(Analysis.modelChoice)
+                                currentIndex = selected >= 0 ? selected : root.modelFiles.indexOf("yolo26m-pose.onnx")
+                            }
+                            Component.onCompleted: Qt.callLater(syncModelChoice)
+                            onModelChanged: Qt.callLater(syncModelChoice)
+                            Connections {
+                                target: Analysis
+                                function onSettingsChanged() { Qt.callLater(modelCombo.syncModelChoice) }
+                            }
                             Accessible.name: L10n.t("settings.poseModel")
                             onActivated: Analysis.selectModel(root.modelFiles[currentIndex])
                         }

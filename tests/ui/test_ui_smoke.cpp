@@ -57,6 +57,12 @@ void UiSmokeTests::mainQmlLoadsFromResources()
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst());
     QVERIFY(window != nullptr);
     QCOMPARE(window->color().name(), QStringLiteral("#0c0d10"));
+    auto* modelCombo = window->findChild<QObject*>("poseModelComboBox");
+    QVERIFY(modelCombo);
+    const auto files = window->findChild<QObject*>("sourcesRail")->property("modelFiles").toList();
+    int expectedIndex = files.indexOf(pfui::AnalysisController::instance()->modelChoice());
+    if (expectedIndex < 0) expectedIndex = files.indexOf(QStringLiteral("yolo26m-pose.onnx"));
+    QTRY_COMPARE(modelCombo->property("currentIndex").toInt(), expectedIndex);
 }
 
 namespace {
@@ -443,9 +449,38 @@ void UiSmokeTests::staticResultsShowPlaybackControls()
     QVERIFY(play);
     QVERIFY(play->property("visible").toBool());
     QVERIFY(play->property("enabled").toBool());
+    auto* playItem = qobject_cast<QQuickItem*>(play);
+    QVERIFY(playItem);
+    auto* panelItem = qobject_cast<QQuickItem*>(view.get());
+    QVERIFY(panelItem);
+    const auto position = playItem->mapToItem(panelItem, QPointF(0, 0));
+    QVERIFY2(position.y() + playItem->height() <= panelItem->height(),
+             "Preview button must remain inside the visible comparison panel");
     QCOMPARE(view->property("playbackEnd").toDouble(), 3.0);
     view->setProperty("record", QVariantMap{{"matchType", "motion"}, {"leftStart", 1}, {"leftEnd", 2}});
     QVERIFY(play->property("visible").toBool());
+
+    QQmlComponent centerComponent(&engine);
+    centerComponent.setData(R"(
+import QtQuick
+import PfUi
+MotionCenter {
+    width: 800; height: 650
+    selectedRecord: ({matchType: 'pose', leftSource: 'C:/a.mp4', rightSource: 'C:/b.mp4',
+                      leftStart: 1, rightStart: 2, leftSceneEnd: 3, rightSceneEnd: 4})
+})", QUrl());
+    std::unique_ptr<QObject> center(centerComponent.create());
+    QVERIFY2(center != nullptr, qPrintable(centerComponent.errorString()));
+    auto* left = center->findChild<QObject*>("leftComparison");
+    auto* right = center->findChild<QObject*>("rightComparison");
+    auto* pair = center->findChild<QObject*>("pairPlaybackButton");
+    QVERIFY(left && right && pair);
+    auto* leftPlay = left->findChild<QObject*>("previewPlayButton");
+    auto* rightPlay = right->findChild<QObject*>("previewPlayButton");
+    QVERIFY(leftPlay && rightPlay);
+    QVERIFY(leftPlay->property("visible").toBool());
+    QVERIFY(rightPlay->property("visible").toBool());
+    QVERIFY(pair->property("visible").toBool());
 }
 
 void UiSmokeTests::previewIsEmbeddedAndStopsOnRecordChange()

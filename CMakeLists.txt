@@ -6,6 +6,8 @@ project(ParallelFinder
     LANGUAGES CXX
 )
 
+set(PF_RELEASE_LABEL "${PROJECT_VERSION}-dev" CACHE STRING "Version shown by the desktop application")
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

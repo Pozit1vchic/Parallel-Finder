@@ -3,7 +3,7 @@ qt_add_executable(ParallelFinder
     ParallelFinder.rc
 )
 
-target_compile_definitions(ParallelFinder PRIVATE PF_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(ParallelFinder PRIVATE PF_VERSION="${PF_RELEASE_LABEL}")
 target_link_libraries(ParallelFinder PRIVATE
     pfui               # QML module PfUi (static): Theme/L10n/Main + AppInfo
     pfui_module_import # static import of the PfUi module plugin

@@ -13,7 +13,7 @@ ApplicationWindow {
     minimumWidth: 1100
     minimumHeight: 700
     visible: true
-    title: L10n.t("app.title")
+    title: L10n.t("app.title") + " · " + AppInfo.version
     color: Theme.canvas
 
     property var sourceFiles: []

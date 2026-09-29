@@ -54,6 +54,22 @@ TEST(SettingsStore, MissingFileDefaultsToEnglishAndAppearanceRoundTrips)
     EXPECT_EQ(restored.appearance.value("accentColor").toString(), "blue");
 }
 
+TEST(SettingsStore, RemembersModelChoiceIndependentlyOfDownloadedFile)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    pfservices::SettingsStore store((directory.path() + "/settings.json").toStdString());
+    std::string error;
+    auto settings = store.load(error);
+    EXPECT_TRUE(settings.modelChoice.empty());
+    settings.modelPath = "C:/models/yolo26m-pose.onnx";
+    settings.modelChoice = "yolo26s-pose.onnx";
+    ASSERT_TRUE(store.save(settings, error)) << error;
+    const auto restored = store.load(error);
+    EXPECT_EQ(restored.modelPath, settings.modelPath);
+    EXPECT_EQ(restored.modelChoice, "yolo26s-pose.onnx");
+}
+
 TEST(SettingsStore, SavesAndLoadsAtomically)
 {
     const auto path = std::filesystem::temp_directory_path() / "parallel-finder-settings-test" / "settings.json";
