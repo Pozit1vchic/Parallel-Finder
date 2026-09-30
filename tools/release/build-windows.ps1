@@ -1,14 +1,15 @@
 param(
     [string]$Toolchain = 'D:\msys2\ucrt64',
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
-    [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+    [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
+    [string]$ReleaseTag = '0.1.0-rc.8'
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $bin = Join-Path $Toolchain 'bin'
 $releaseOriginalPath = $env:PATH
 $env:PATH = "$bin;$env:PATH"
-$tag = '0.1.0-rc.7'
+$tag = $ReleaseTag
 Push-Location $root
 try {
     & cmake --preset ucrt64-release "-DPF_RELEASE_LABEL=$tag"
@@ -109,7 +110,7 @@ try {
     $zip = Join-Path $out "ParallelFinder-$tag-Portable-x64.zip"
     & tar.exe -a -cf $zip -C (Split-Path $stage) ParallelFinder
     if ($LASTEXITCODE) { throw 'ZIP creation failed' }
-    & $InnoSetup "/DStageDir=$stage" "/DOutputDir=$out" "$PSScriptRoot/installer.iss"
+    & $InnoSetup "/DStageDir=$stage" "/DOutputDir=$out" "/DAppVersion=$tag" "$PSScriptRoot/installer.iss"
     if ($LASTEXITCODE) { throw 'Installer compilation failed' }
     # Archive tracked working-tree sources only. Read their current contents
     # (rather than `git archive HEAD`) so staged/uncommitted fixes are included,

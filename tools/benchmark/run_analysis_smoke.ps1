@@ -10,7 +10,7 @@ param(
     [ValidateRange(0, 10000)][int]$MinimumPairs = 0,
     [double]$ExpectedOffsetSec = -1,
     [string]$ReportPath = "",
-    [string[]]$Modes = @("motion", "static", "clips", "combined")
+    [string[]]$Modes = @("motion", "static", "combined")
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,7 +31,7 @@ Write-Host "runtime: $env:PF_ORT_DLL"
 if ($env:PF_REID_MODEL_PATH) { Write-Host "ReID: $env:PF_REID_MODEL_PATH" }
 
 foreach ($mode in $Modes) {
-    if ($mode -notin @("motion", "static", "clips", "combined")) {
+    if ($mode -notin @("motion", "static", "combined")) {
         throw "Unsupported mode '$mode'"
     }
     $env:PF_ANALYSIS_MODE = $mode
@@ -48,6 +48,9 @@ foreach ($mode in $Modes) {
     $psi.RedirectStandardError = $true
     $psi.EnvironmentVariables['QT_QPA_PLATFORM'] = 'offscreen'
     $psi.EnvironmentVariables['PF_ORT_DLL'] = $env:PF_ORT_DLL
+    # cuDNN/TensorRT load additional DLLs lazily. Mirror application startup
+    # when explicitly selecting an external runtime for the benchmark.
+    $psi.EnvironmentVariables['PF_PROVIDER_ROOT'] = Split-Path -Parent $env:PF_ORT_DLL
     $psi.EnvironmentVariables['PF_MODEL_PATH'] = $env:PF_MODEL_PATH
     $psi.EnvironmentVariables['PF_PROVIDER'] = $Provider
     $psi.EnvironmentVariables['PF_ANALYSIS_TIMEOUT_SEC'] = [string]$TimeoutSec

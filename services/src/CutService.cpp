@@ -13,6 +13,7 @@
 #include <system_error>
 #include <utility>
 #include <vector>
+#include <thread>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -151,6 +152,10 @@ CutResult CutService::cut(const CutRequest& request) const
             capabilities_ = std::move(capabilities);
         }
         encoders = capabilities_->h264Candidates();
+        // Compiled-in hardware support does not mean this PC has that GPU.
+        // Try the encoder that actually succeeded first for subsequent clips.
+        const auto preferred = std::find(encoders.begin(), encoders.end(), preferredEncoder_);
+        if (preferred != encoders.end()) std::rotate(encoders.begin(), preferred, preferred + 1);
         if (!capabilities_->error.empty() || encoders.empty()) {
             result.error = result.executable + ": " + (capabilities_->error.empty()
                 ? "no supported H.264 encoder; install an FFmpeg build with libx264"
@@ -167,13 +172,17 @@ CutResult CutService::cut(const CutRequest& request) const
         }
         QStringList arguments;
         arguments << QStringLiteral("-hide_banner") << QStringLiteral("-loglevel")
-                  << QStringLiteral("error") << QStringLiteral("-y");
-        if (request.mode == CutMode::Fast)
-            arguments << QStringLiteral("-ss") << seconds(request.startSeconds);
+                  << QStringLiteral("error") << QStringLiteral("-y")
+                  << QStringLiteral("-nostdin") << QStringLiteral("-nostats")
+                  << QStringLiteral("-progress") << QStringLiteral("pipe:1");
+        // Input-side seeking uses the index instead of decoding the entire
+        // prefix for EVERY cut. In Exact mode FFmpeg's default accurate_seek
+        // discards frames between the preceding keyframe and the target.
+        arguments << QStringLiteral("-ss") << seconds(request.startSeconds);
+        const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 2, 1u, 8u);
+        arguments << QStringLiteral("-threads") << QString::number(threads);
         arguments << QStringLiteral("-i")
                   << QString::fromStdWString(request.inputPath.wstring());
-        if (request.mode == CutMode::Exact)
-            arguments << QStringLiteral("-ss") << seconds(request.startSeconds);
         // This is a video-clip export, not a container clone. Mapping every
         // stream also selects subtitles/data/attachments whose codecs may not
         // be supported by MP4 (including the "codec none" encoder failure).
@@ -189,7 +198,8 @@ CutResult CutService::cut(const CutRequest& request) const
                       << QStringLiteral("-movflags") << QStringLiteral("+faststart");
             if (encoder == "libx264")
                 arguments << QStringLiteral("-crf") << QStringLiteral("18")
-                          << QStringLiteral("-preset") << QStringLiteral("medium");
+                          << QStringLiteral("-preset") << QStringLiteral("veryfast")
+                          << QStringLiteral("-threads:v") << QString::number(threads);
             if (request.maxWidth > 0 || request.maxHeight > 0) {
                 // min(iw/ih, limit) prevents upscaling while preserving aspect ratio.
                 const int width = request.maxWidth > 0 ? request.maxWidth : 100000;
@@ -223,17 +233,50 @@ CutResult CutService::cut(const CutRequest& request) const
         }
         QElapsedTimer elapsed;
         elapsed.start();
+        qint64 lastAdvanceMs = 0;
+        double encodedSeconds = -1.0;
+        QByteArray pendingProgress;
+        QByteArray diagnostic;
+        bool stalled = false;
+        const auto readProgress = [&] {
+            diagnostic += process.readAllStandardError();
+            // Retain actionable errors without growing memory for hours.
+            if (diagnostic.size() > 65536) diagnostic = diagnostic.right(65536);
+            pendingProgress += process.readAllStandardOutput();
+            qsizetype newline;
+            while ((newline = pendingProgress.indexOf('\n')) >= 0) {
+                const auto line = pendingProgress.left(newline).trimmed();
+                pendingProgress.remove(0, newline + 1);
+                if (!line.startsWith("out_time_us=")) continue;
+                bool ok = false;
+                const double current = line.mid(12).toDouble(&ok) / 1000000.0;
+                if (ok && current > encodedSeconds) {
+                    encodedSeconds = current;
+                    lastAdvanceMs = elapsed.elapsed();
+                    if (request.progress) request.progress(std::clamp(current, 0.0, duration));
+                }
+            }
+            if (pendingProgress.size() > 65536) pendingProgress.clear();
+        };
         while (process.state() != QProcess::NotRunning
                && !request.stopToken.stop_requested()
                && (request.timeoutMs <= 0 || elapsed.elapsed() < request.timeoutMs)) {
             process.waitForFinished(100);
+            readProgress();
+            if (process.state() != QProcess::NotRunning && request.stallTimeoutMs > 0
+                && elapsed.elapsed() - lastAdvanceMs >= request.stallTimeoutMs) {
+                stalled = true;
+                break;
+            }
         }
+        readProgress();
         if (request.stopToken.stop_requested() || process.state() != QProcess::NotRunning) {
             process.kill();
             process.waitForFinished(5000);
             result.cancelled = request.stopToken.stop_requested();
             result.error = result.cancelled ? "export cancelled"
-                : "ffmpeg timed out: " + processError(process);
+                : std::string(stalled ? "ffmpeg stopped advancing: " : "ffmpeg timed out: ")
+                    + diagnostic.toStdString() + processError(process);
             std::filesystem::remove(temporaryPath, filesystemError);
             return result;
         }
@@ -246,13 +289,19 @@ CutResult CutService::cut(const CutRequest& request) const
                 result.success = true;
                 result.encoder = encoder;
                 result.error.clear();
+                if (request.mode == CutMode::Exact) {
+                    std::lock_guard lock(capabilitiesMutex_);
+                    preferredEncoder_ = encoder;
+                }
+                if (request.progress) request.progress(duration);
                 return result;
             }
             result.error = "move cut into place: " + filesystemError.message();
             break;
         }
         result.error += result.executable + " [" + encoder + ", exit "
-            + std::to_string(result.exitCode) + "]: " + processError(process) + "\n";
+            + std::to_string(result.exitCode) + "]: " + diagnostic.toStdString()
+            + processError(process) + "\n";
         std::filesystem::remove(temporaryPath, filesystemError);
         if (request.mode == CutMode::Fast) break;
     }

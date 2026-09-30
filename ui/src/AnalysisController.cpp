@@ -1298,6 +1298,7 @@ bool AnalysisController::exportResults(const QString& format,
             ? pfservices::CutMode::Fast : pfservices::CutMode::Exact;
         exportBusy_ = true;
         exportCompleted_ = 0;
+        exportClipProgress_ = 0;
         exportTotal_ = static_cast<int>(selected.size() * 2);
         emit exportProgressChanged();
         emit exportBusyChanged();
@@ -1326,6 +1327,19 @@ bool AnalysisController::exportResults(const QString& format,
                 request.startSeconds = std::max(0.0, start);
                 request.endSeconds = end;
                 request.mode = mode;
+                const auto jobIndex = jobs.size();
+                const double duration = request.endSeconds - request.startSeconds;
+                request.progress = [this, jobIndex, duration, lastPercent = -1](double seconds) mutable {
+                    const int percent = duration > 0.0
+                        ? static_cast<int>(std::clamp(seconds / duration, 0.0, 1.0) * 100.0) : 0;
+                    if (percent == lastPercent) return;
+                    lastPercent = percent;
+                    QMetaObject::invokeMethod(this, [this, jobIndex, percent] {
+                        exportCompleted_ = static_cast<int>(jobIndex);
+                        exportClipProgress_ = percent;
+                        emit exportProgressChanged();
+                    }, Qt::QueuedConnection);
+                };
                 jobs.push_back(std::move(request));
             };
             const double leftStart = std::max(0.0, match.leftStartSeconds);
@@ -1342,6 +1356,7 @@ bool AnalysisController::exportResults(const QString& format,
         const auto batch = pfservices::runExportQueue(jobs, stop, [this](std::size_t done, std::size_t) {
             QMetaObject::invokeMethod(this, [this, done] {
                 exportCompleted_ = static_cast<int>(done);
+                exportClipProgress_ = 0;
                 emit exportProgressChanged();
             }, Qt::QueuedConnection);
         });

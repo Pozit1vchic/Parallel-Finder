@@ -5,6 +5,7 @@
 #include <pfservices/FfmpegCapabilities.hpp>
 #include <pfservices/ProviderManager.hpp>
 #include <pfservices/PreviewMemo.hpp>
+#include <pfcore/VideoDecoder.hpp>
 #include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -15,6 +16,8 @@
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <algorithm>
+#include <cmath>
 #include <QFileInfo>
 #include <QFile>
 #include <QProcess>
@@ -125,6 +128,93 @@ TEST(CutService, ExistingDestinationSurvivesFailedReplacement)
     const auto rejected = cutter.cut(request);
     EXPECT_FALSE(rejected.success);
     EXPECT_TRUE(std::filesystem::exists(destination / "keep.txt"));
+}
+
+TEST(CutService, ExactLateSeekPreservesFirstFrameDurationAndReportsProgress)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    if (ffmpeg.isEmpty()) GTEST_SKIP() << "FFmpeg unavailable";
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const auto source = directory.filePath("long-gop.mp4");
+    QProcess generator;
+    generator.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=10:duration=12",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+        "-g", "120", "-keyint_min", "120", "-sc_threshold", "0", source});
+    ASSERT_TRUE(generator.waitForFinished(30000));
+    ASSERT_EQ(generator.exitCode(), 0) << generator.readAllStandardError().toStdString();
+    pfcore::VideoDecoder original;
+    original.open(source.toStdString());
+    original.seek(9.3);
+    pfcore::DecodedFrame expected;
+    while (original.readNext(expected, false)) {
+        if (expected.timestampSeconds + 0.001 >= 9.3) {
+            ASSERT_TRUE(original.convertCurrentFrameToRgba(expected));
+            break;
+        }
+    }
+    ASSERT_FALSE(expected.rgba.empty());
+    pfservices::CutRequest request;
+    request.inputPath = source.toStdWString();
+    request.outputPath = directory.filePath("cut.mp4").toStdWString();
+    request.startSeconds = 9.3;
+    request.endSeconds = 10.3;
+    int updates = 0;
+    double lastProgress = -1;
+    request.progress = [&](double seconds) {
+        EXPECT_GE(seconds, 0.0);
+        EXPECT_LE(seconds, 1.0);
+        ++updates;
+        lastProgress = seconds;
+    };
+    pfservices::CutService cutter(ffmpeg.toStdString());
+    const auto cut = cutter.cut(request);
+    ASSERT_TRUE(cut.success) << cut.error;
+    const auto seek = std::find(cut.arguments.begin(), cut.arguments.end(), "-ss");
+    const auto input = std::find(cut.arguments.begin(), cut.arguments.end(), "-i");
+    EXPECT_LT(seek, input);
+    EXPECT_GT(updates, 0);
+    EXPECT_DOUBLE_EQ(lastProgress, 1.0);
+    pfcore::VideoDecoder output;
+    output.open(request.outputPath.string());
+    pfcore::DecodedFrame actual;
+    ASSERT_TRUE(output.readNext(actual));
+    ASSERT_EQ(actual.rgba.size(), expected.rgba.size());
+    double error = 0;
+    for (std::size_t i = 0; i < actual.rgba.size(); ++i)
+        error += std::abs(int(actual.rgba[i]) - int(expected.rgba[i]));
+    EXPECT_LT(error / actual.rgba.size(), 12.0); // lossy encode, not the keyframe at zero
+    int frames = 1;
+    while (output.readNext(actual, false)) ++frames;
+    EXPECT_EQ(frames, 10);
+    request.outputPath = directory.filePath("second.mp4").toStdWString();
+    const auto second = cutter.cut(request);
+    ASSERT_TRUE(second.success) << second.error;
+    EXPECT_EQ(second.encoder, cut.encoder);
+    // No failed hardware retries before the cached working encoder.
+    EXPECT_TRUE(second.error.empty());
+}
+
+TEST(CutService, StalledEncoderStopsAutomaticallyAndKeepsExistingDestination)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    pfservices::CutRequest request;
+    request.inputPath = std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4";
+    request.outputPath = directory.filePath("cut.mp4").toStdWString();
+    { std::ofstream previous(request.outputPath); previous << "keep"; }
+    request.endSeconds = 1.0;
+    request.stallTimeoutMs = 200;
+    const pfservices::CutService cutter(PF_TEST_FFMPEG_STUB);
+    const auto start = std::chrono::steady_clock::now();
+    const auto result = cutter.cut(request);
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.cancelled);
+    EXPECT_NE(result.error.find("stopped advancing"), std::string::npos);
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(5));
+    EXPECT_EQ(std::filesystem::file_size(request.outputPath), 4u);
+    EXPECT_FALSE(QFileInfo::exists(directory.filePath("cut.part.mp4")));
 }
 
 TEST(ProviderManager, KeepsIndependentInstallationsAndRejectsUnvalidatedRuntime)

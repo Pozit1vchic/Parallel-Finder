@@ -3,6 +3,9 @@ enable_testing()
 find_package(GTest CONFIG REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Test)
 
+add_executable(pf_ffmpeg_stall_stub helpers/ffmpeg_stall_stub.cpp)
+set_target_properties(pf_ffmpeg_stall_stub PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+
 # ── Core tests (Google Test): pfcore + pfservices + pfgpu ──────────────────
 add_executable(pf_tests
     core/test_scene_detector.cpp
@@ -27,6 +30,8 @@ add_executable(pf_tests
 )
 set_target_properties(pf_tests PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_compile_definitions(pf_tests PRIVATE PF_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+target_compile_definitions(pf_tests PRIVATE PF_TEST_FFMPEG_STUB="$<TARGET_FILE:pf_ffmpeg_stall_stub>")
+add_dependencies(pf_tests pf_ffmpeg_stall_stub)
 target_link_libraries(pf_tests PRIVATE
     pf::core
     pf::services

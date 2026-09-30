@@ -5,6 +5,7 @@
 #include <stop_token>
 #include <mutex>
 #include <optional>
+#include <functional>
 #include <pfservices/FfmpegCapabilities.hpp>
 
 namespace pfservices {
@@ -28,6 +29,10 @@ struct CutRequest {
     // Zero allows long source scenes; UI cancellation remains responsive.
     // Preview/automation callers may opt into a finite deadline.
     int timeoutMs = 0;
+    // Abort a stuck encoder, not a slowly advancing or long clip. Zero disables.
+    int stallTimeoutMs = 120000;
+    // Called on the export worker, with encoded seconds relative to this clip.
+    std::function<void(double)> progress;
 };
 
 struct CutResult {
@@ -53,6 +58,7 @@ private:
     std::string ffmpegExecutable_;
     mutable std::mutex capabilitiesMutex_;
     mutable std::optional<FfmpegCapabilities> capabilities_;
+    mutable std::string preferredEncoder_;
 };
 
 } // namespace pfservices

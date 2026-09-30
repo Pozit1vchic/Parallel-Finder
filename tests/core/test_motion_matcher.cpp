@@ -65,6 +65,51 @@ TEST(MotionMatcher, StaticBudgetDoesNotStarveVerifiedCloseups)
     EXPECT_EQ(pfcore::MotionMatcher(params).findAllPairs(windows).size(), 4u);
 }
 
+TEST(MotionMatcher, SameShotWindowsCannotCrowdOutVerifiedDifferentShot)
+{
+    const auto poses = deanAimingPoseFixture();
+    auto left = poses[0], right = poses[0];
+    for (auto& frame : right.frames) {
+        frame.timestampSeconds += 20.0;
+        frame.keypoints[10].x += 35.0;
+    }
+    left.sourceId = right.sourceId = "montage";
+    left.hasSceneIndex = right.hasSceneIndex = true;
+    left.sceneIndex = 1;
+    right.sceneIndex = 2;
+    left.sceneContext = {1.0F, 0.0F};
+    right.sceneContext = {0.0F, 1.0F};
+    left.sceneStartSeconds = 2.5;
+    left.sceneEndSeconds = 3.3;
+    right.sceneStartSeconds = 22.5;
+    right.sceneEndSeconds = 23.3;
+    left.faceEmbedding = {1.0F, 0.0F};
+    right.faceEmbedding = {0.96F, 0.28F};
+    left.faceConfidence = right.faceConfidence = 1.0;
+    left.appearanceEmbedding.clear();
+    right.appearanceEmbedding.clear();
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.requireAppearance = true;
+    const pfcore::MotionMatcher matcher(params);
+    ASSERT_GE(matcher.compare(left, right).similarity, params.similarityThreshold);
+    std::vector<pfcore::MotionWindow> windows;
+    for (int i = 0; i < 140; ++i) windows.push_back(left);
+    for (int i = 0; i < 140; ++i) windows.push_back(right);
+    // Each nearest-neighbour list used to be entirely filled by the SAME
+    // shot. The later same-shot rejection then left no useful candidate.
+    const auto matches = matcher.findAllPairs(windows);
+    ASSERT_EQ(matches.size(), 1u);
+    EXPECT_TRUE(matches.front().faceVerified);
+    EXPECT_NE(windows[matches.front().leftIndex].sceneIndex,
+              windows[matches.front().rightIndex].sceneIndex);
+    std::reverse(windows.begin(), windows.end());
+    EXPECT_EQ(matcher.findAllPairs(windows).size(), 1u);
+    for (auto& window : windows)
+        if (window.sceneIndex == 2) window.faceEmbedding = {0.0F, 1.0F};
+    EXPECT_TRUE(matcher.findAllPairs(windows).empty());
+}
+
 TEST(MotionMatcher, OccludedOppositeWristCannotHideContradictoryObservedArm)
 {
     pfcore::MotionWindow left;

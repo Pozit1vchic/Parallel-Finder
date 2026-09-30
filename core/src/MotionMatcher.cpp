@@ -1459,6 +1459,11 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     // motion candidates from ever reaching the temporal matcher.
     std::unordered_set<std::uint64_t> candidatePairs;
     candidatePairs.reserve(preparedCount * 24U);
+    const auto sameKnownShot = [&](std::size_t i, std::size_t j) {
+        return windows[i].sourceId == windows[j].sourceId
+            && windows[i].hasSceneIndex && windows[j].hasSceneIndex
+            && windows[i].sceneIndex == windows[j].sceneIndex;
+    };
     for (const bool staticWindow : {false, true}) {
         std::vector<std::size_t> group;
         group.reserve(preparedCount);
@@ -1480,13 +1485,23 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         const double retrievalThreshold = params_.candidateThreshold * 0.65;
         for (const std::size_t i : group) {
             const auto collect = [&](const std::vector<double>& queryEmbedding) {
-                for (const auto neighbour : index.query(queryEmbedding, candidateCount, candidateCount * 2)) {
-                    if (neighbour.id == i || neighbour.similarity + 1e-9 < retrievalThreshold)
-                        continue;
-                    const auto left = std::min(i, neighbour.id);
-                    const auto right = std::max(i, neighbour.id);
-                    candidatePairs.insert((static_cast<std::uint64_t>(left) << 32U)
-                                          | static_cast<std::uint64_t>(right));
+                // Sliding windows from one long shot can occupy all 96 ANN
+                // slots. They are rejected later, hiding a valid other shot.
+                // Grow retrieval only when needed, counting usable neighbours
+                // rather than same-shot observations. Keep expensive DTW bounded.
+                const auto limit = std::min(group.size(), candidateCount * 8);
+                for (auto requested = candidateCount;; requested = std::min(limit, requested * 2)) {
+                    std::size_t usable = 0;
+                    for (const auto neighbour : index.query(queryEmbedding, requested, requested * 2)) {
+                        if (neighbour.id == i || sameKnownShot(i, neighbour.id)
+                            || neighbour.similarity + 1e-9 < retrievalThreshold) continue;
+                        const auto left = std::min(i, neighbour.id);
+                        const auto right = std::max(i, neighbour.id);
+                        candidatePairs.insert((static_cast<std::uint64_t>(left) << 32U)
+                                              | static_cast<std::uint64_t>(right));
+                        if (++usable >= candidateCount) break;
+                    }
+                    if (usable >= candidateCount || requested >= limit) break;
                 }
             };
             collect(prepared[i].embedding);
@@ -1520,15 +1535,21 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         for (const std::size_t i : group) {
             const auto& source = useFace ? windows[i].faceEmbedding : windows[i].appearanceEmbedding;
             std::vector<double> query(source.begin(), source.end());
-            for (const auto neighbour : identityIndex.query(query, count, count * 2)) {
-                const std::size_t j = neighbour.id;
-                if (i == j || j >= windows.size()) continue;
-                if (!identityEvidence(windows[i], windows[j], params_).verified) continue;
-                const auto left = std::min(i, j);
-                const auto right = std::max(i, j);
-                if (candidatePairs.insert((static_cast<std::uint64_t>(left) << 32U)
-                                          | static_cast<std::uint64_t>(right)).second)
-                    ++appearanceCandidatePairs;
+            const auto limit = std::min(group.size(), count * 8);
+            for (auto requested = count;; requested = std::min(limit, requested * 2)) {
+                std::size_t usable = 0;
+                for (const auto neighbour : identityIndex.query(query, requested, requested * 2)) {
+                    const std::size_t j = neighbour.id;
+                    if (i == j || j >= windows.size() || sameKnownShot(i, j)) continue;
+                    if (!identityEvidence(windows[i], windows[j], params_).verified) continue;
+                    const auto left = std::min(i, j);
+                    const auto right = std::max(i, j);
+                    if (candidatePairs.insert((static_cast<std::uint64_t>(left) << 32U)
+                                              | static_cast<std::uint64_t>(right)).second)
+                        ++appearanceCandidatePairs;
+                    if (++usable >= maxAppearanceNeighbours) break;
+                }
+                if (usable >= maxAppearanceNeighbours || requested >= limit) break;
             }
         }
     };
