@@ -38,6 +38,7 @@ struct Settings {
     std::string analysisMode = "motion";
     bool normalizeSize = true;
     bool mirrorPoses = true;
+    bool expandedSearch = false;
 };
 
 class SettingsStore {

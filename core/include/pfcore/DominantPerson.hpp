@@ -79,4 +79,15 @@ struct IdentitySummary {
 // track to join two groups whose reliable face observations disagree.
 std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities);
 
+// Select the main identity within [startSeconds, endSeconds), using only
+// evidence observed in that shot. A poor profile/outfit match elsewhere in
+// the file must not discard this shot before pairwise identity verification.
+// If preferredTracks identifies the file's verified lead and that identity
+// is present in this shot, preserve it instead of choosing a foreground
+// interlocutor. Only otherwise fall back to a shot-local identity.
+// Observations are timestamp-ordered, as maintained by PersonTracker.
+std::vector<bool> selectDominantSceneTracks(const std::vector<PersonTrack>& tracks,
+                                          double startSeconds, double endSeconds,
+                                          const std::vector<bool>& preferredTracks = {});
+
 } // namespace pfcore

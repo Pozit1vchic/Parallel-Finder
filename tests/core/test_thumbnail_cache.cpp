@@ -2,11 +2,38 @@
 
 #include <pfservices/ThumbnailCache.hpp>
 #include <pfservices/PreviewImage.hpp>
+#include <pfservices/CachedPreview.hpp>
 #include <QTemporaryDir>
 
 #include <stdexcept>
 
 namespace {
+
+TEST(CachedPreview, ReusesPixelsAcrossTemporarySessionsAndRecoversCorruptEntries)
+{
+    QTemporaryDir directory, sessionA, sessionB;
+    ASSERT_TRUE(directory.isValid() && sessionA.isValid() && sessionB.isValid());
+    pfservices::PfCache cache(std::filesystem::path(directory.path().toStdWString()));
+    QImage image(32, 16, QImage::Format_RGBA8888); image.fill(Qt::blue);
+    int calls = 0; bool hit = false;
+    auto render = [&] {
+        ++calls;
+        const auto path = sessionA.filePath("render.png");
+        return image.save(path) ? QUrl::fromLocalFile(path).toString() : QString{};
+    };
+    const auto first = pfservices::cachedPreview(&cache, "source-v1|frame-123", sessionA.path(), render, hit);
+    ASSERT_FALSE(first.isEmpty()); EXPECT_FALSE(hit); EXPECT_EQ(calls, 1);
+    QFile::remove(QUrl(first).toLocalFile());
+    const auto second = pfservices::cachedPreview(&cache, "source-v1|frame-123", sessionB.path(), render, hit);
+    EXPECT_TRUE(hit); EXPECT_EQ(calls, 1);
+    EXPECT_TRUE(QImage(QUrl(second).toLocalFile()).convertToFormat(QImage::Format_RGBA8888) == image);
+    std::string error;
+    ASSERT_TRUE(cache.put("broken", {1,2,3}, error));
+    EXPECT_FALSE(pfservices::cachedPreview(&cache, "broken", sessionB.path(), render, hit).isEmpty());
+    EXPECT_FALSE(hit); EXPECT_EQ(calls, 2);
+    pfservices::cachedPreview(&cache, "different-source-fingerprint", sessionB.path(), render, hit);
+    EXPECT_FALSE(hit); EXPECT_EQ(calls, 3);
+}
 
 TEST(ThumbnailCache, FasterPreviewCompressionPreservesEveryPixel)
 {

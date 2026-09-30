@@ -36,6 +36,7 @@
 
 #include "pfcore/VideoDecoder.hpp"
 #include "pfcore/SceneDetector.hpp"
+#include <unordered_set>
 #include "pfcore/MotionMatcher.hpp"
 #include "pfcore/MotionRanker.hpp"
 #include "pfcore/DominantPerson.hpp"
@@ -51,6 +52,7 @@
 #include "pfservices/MontageExport.hpp"
 #include "pfservices/RuntimeScratch.hpp"
 #include "pfservices/PreviewMemo.hpp"
+#include "pfservices/CachedPreview.hpp"
 #include "pfservices/PreviewImage.hpp"
 #include <pfcore/PoseSupport.hpp>
 #include "pfexporters/ExportOptions.hpp"
@@ -709,9 +711,11 @@ AppearancePrototype averageAppearance(const pfcore::PersonTrack& track,
 {
     std::vector<float> sum;
     std::size_t samples = 0;
-    for (const auto& observation : track.observations) {
-        if (observation.timestampSeconds < startSeconds
-            || observation.timestampSeconds >= endSeconds) continue;
+    const auto first = std::lower_bound(track.observations.begin(), track.observations.end(), startSeconds,
+        [](const auto& observation, double time) { return observation.timestampSeconds < time; });
+    for (auto current = first; current != track.observations.end()
+         && current->timestampSeconds < endSeconds; ++current) {
+        const auto& observation = *current;
         const auto& embedding = face ? observation.faceEmbedding : observation.appearanceEmbedding;
         if (embedding.empty()) continue;
         if (sum.empty()) sum.assign(embedding.size(), 0.0F);
@@ -738,22 +742,6 @@ AppearancePrototype averageAppearance(const pfcore::PersonTrack& track,
     return {std::move(sum), std::min(1.0, static_cast<double>(samples) / 3.0)};
 }
 
-
-// Aggregate track evidence; identity clustering itself is tested in pfcore.
-std::vector<bool> selectDominantIdentityTracks(const std::vector<pfcore::PersonTrack>& tracks)
-{
-    std::vector<pfcore::IdentitySummary> summaries;
-    summaries.reserve(tracks.size());
-    for (const auto& track : tracks) {
-        const auto body = averageAppearance(track, -std::numeric_limits<double>::infinity(),
-                                             std::numeric_limits<double>::infinity());
-        const auto face = averageAppearance(track, -std::numeric_limits<double>::infinity(),
-                                             std::numeric_limits<double>::infinity(), true);
-        summaries.push_back({body.embedding, face.embedding, body.confidence, face.confidence,
-                             track.totalTimeSeconds(), track.averageArea()});
-    }
-    return pfcore::selectDominantIdentities(summaries);
-}
 
 } // namespace
 
@@ -858,6 +846,9 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
         analysisMode_ = envMode;
     normalizeSize_ = settings.normalizeSize;
     mirrorPoses_ = settings.mirrorPoses;
+    expandedSearch_ = settings.expandedSearch;
+    if (qEnvironmentVariableIsSet("PF_EXPANDED_SEARCH"))
+        expandedSearch_ = qEnvironmentVariableIntValue("PF_EXPANDED_SEARCH") != 0;
     modelPath_ = QString::fromStdString(settings.modelPath);
     modelChoice_ = QFileInfo(QString::fromStdString(settings.modelChoice)).fileName();
     if (modelChoice_.isEmpty()) {
@@ -928,6 +919,7 @@ void AnalysisController::saveSettings() const
     settings.analysisMode = analysisMode_.toStdString();
     settings.normalizeSize = normalizeSize_;
     settings.mirrorPoses = mirrorPoses_;
+    settings.expandedSearch = expandedSearch_;
     settings.modelPath = modelPath_.toStdString();
     settings.modelChoice = modelChoice_.toStdString();
     settings.cachePath = cachePath_.toStdString();
@@ -1097,6 +1089,14 @@ void AnalysisController::setMirrorPoses(bool value)
 {
     if (mirrorPoses_ == value) return;
     mirrorPoses_ = value;
+    saveSettings();
+    emit settingsChanged();
+}
+
+void AnalysisController::setExpandedSearch(bool value)
+{
+    if (expandedSearch_ == value) return;
+    expandedSearch_ = value;
     saveSettings();
     emit settingsChanged();
 }
@@ -1324,7 +1324,8 @@ bool AnalysisController::exportResults(const QString& format,
         exportTotal_ = static_cast<int>(selected.size() * 2 + (mergeChronological ? 1 : 0));
         emit exportProgressChanged();
         emit exportBusyChanged();
-        exportWorker_ = std::jthread([this, selected = std::move(selected), folder, requestedPrefix, mode, mergeChronological](std::stop_token stop) {
+        exportWorker_ = std::jthread([this, selected = std::move(selected), folder, requestedPrefix, mode, mergeChronological,
+                                     sceneThreshold = sceneThreshold_](std::stop_token stop) {
         const auto finish = [this](bool success, const QString& message) {
             QMetaObject::invokeMethod(this, [this, success, message] {
                 exportBusy_ = false;
@@ -1335,6 +1336,8 @@ bool AnalysisController::exportResults(const QString& format,
         try {
         std::vector<pfservices::CutRequest> jobs;
         jobs.reserve(selected.size() * 2);
+        std::unordered_map<std::string, std::unique_ptr<pfcore::VideoDecoder>> edgeDecoders;
+        std::unordered_map<std::string, double> refinedEnds;
         for (std::size_t index = 0; index < selected.size(); ++index) {
             const auto& match = selected[index];
             const QString ordinal = QString::number(static_cast<int>(index + 1)).rightJustified(4, QLatin1Char('0'));
@@ -1348,6 +1351,23 @@ bool AnalysisController::exportResults(const QString& format,
                     requestedPrefix + ordinal + "_" + side + ".mp4")).toStdWString());
                 request.startSeconds = std::max(0.0, start);
                 request.endSeconds = end;
+                if (mode == pfservices::CutMode::Exact || mergeChronological) {
+                    const auto key = source + "|" + std::to_string(std::llround(end * 1000000));
+                    const auto [position, inserted] = refinedEnds.try_emplace(key, end);
+                    if (inserted && !stop.stop_requested()) {
+                        try {
+                            auto& decoder = edgeDecoders[source];
+                            if (!decoder) {
+                                decoder = std::make_unique<pfcore::VideoDecoder>();
+                                pfcore::VideoDecodeOptions options; options.threads = 2;
+                                decoder->open(source, options);
+                            }
+                            if (const auto edge = pfcore::SceneDetector(sceneThreshold).refineHardCut(*decoder, end, stop))
+                                position->second = *edge;
+                        } catch (...) { /* retain the known edge on an unreadable preview */ }
+                    }
+                    if (position->second > request.startSeconds) request.endSeconds = position->second;
+                }
                 request.mode = mode;
                 const auto jobIndex = jobs.size();
                 const double duration = request.endSeconds - request.startSeconds;
@@ -1655,13 +1675,14 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     const QString providerChoice = providerChoice_;
     const QString qualityProfile = qualityProfile_;
     const QString analysisMode = analysisMode_;
+    const bool expandedSearch = expandedSearch_;
     const bool normalizeSize = normalizeSize_;
     const bool mirrorPoses = mirrorPoses_;
     const QString previewToken = QString::number(QDateTime::currentMSecsSinceEpoch());
     QThread* thread = QThread::create([this, cancel, paths = normalized, similarityThreshold, candidateThreshold, repeatGap,
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
                                         maxUniqueResults, timeWeight, providerChoice,
-                                        qualityProfile, analysisMode, normalizeSize, mirrorPoses, previewToken] {
+                                        qualityProfile, analysisMode, expandedSearch, normalizeSize, mirrorPoses, previewToken] {
         try {
         int files = 0;
         int scenes = 0;
@@ -1805,7 +1826,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 // Bump this contract whenever association or the identity
                 // policy changes; otherwise a stricter matcher can still
                 // display candidates produced by an older pipeline.
-                std::string cacheKey = "motion-v27|supported-static-runs|matcher-mirror|scene4fps|infer=1280x720|decode="
+                std::string cacheKey = "motion-v33|shot-identity-fallback|bidirectional-low-contrast-cuts|spatial-fades|supported-static-runs|matcher-mirror|scene4fps|infer=1280x720|decode="
                     + decoder.diagnostics().backend
                     + "|pose=" + cacheFileFingerprint(model) + "|"
                     + providerChoice.toStdString() + "|reid="
@@ -1821,8 +1842,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     + cacheFileFingerprint(path.toStdString());
                 if (analysisCache) {
                     if (const auto cached = analysisCache->get(cacheKey))
-                        cacheHit = deserializeMotionWindows(*cached, cachedWindows, cachedSceneCount)
-                            && !cachedWindows.empty();
+                        cacheHit = deserializeMotionWindows(*cached, cachedWindows, cachedSceneCount);
                 }
                 ++files;
                 duration += info.durationSeconds;
@@ -2088,16 +2108,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     // never crosses a shot change, and a clip can end only at
                     // the end of its scene rather than when a person briefly
                     // leaves the frame.
-                    const auto dominantTracks = selectDominantIdentityTracks(tracker.tracks());
-                    if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
-                        std::size_t selectedCount = 0;
-                        for (const bool selected : dominantTracks) {
-                            if (selected) ++selectedCount;
-                        }
-                        qInfo().noquote() << "PF_DEBUG_ANALYSIS dominantTracks="
-                                          << static_cast<qulonglong>(selectedCount)
-                                          << "/" << static_cast<qulonglong>(dominantTracks.size());
-                    }
+                    const auto preferredTracks = pfcore::selectDominantSceneTracks(tracker.tracks(),
+                        -std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity());
                     std::vector<double> sceneStarts {samples.empty() ? 0.0 : samples.front().timestampSeconds};
                     for (const auto& boundary : sceneBoundaries) sceneStarts.push_back(boundary.timestampSeconds);
                     const double lastTimestamp = samples.empty() ? info.durationSeconds : samples.back().timestampSeconds;
@@ -2106,11 +2118,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         const double sceneStart = sceneStarts[sceneIndex];
                         const double sceneEnd = sceneIndex + 1 < sceneStarts.size()
                             ? sceneStarts[sceneIndex + 1] : std::max(info.durationSeconds, lastTimestamp + 0.001);
-                        // The product contract is the dominant character, not
-                        // an all-person similarity search. Select the longest
-                        // IoU track visible in this shot; this prevents a
-                        // background actor from becoming a candidate merely
-                        // because their pose resembles the lead's.
+                        // Preserve the verified lead when present; otherwise
+                        // recover one local leading identity from a shot that
+                        // the global outfit/profile cluster would discard.
+                        // Pairwise identity checks remain mandatory.
+                        const auto dominantTracks = pfcore::selectDominantSceneTracks(
+                            tracker.tracks(), sceneStart, sceneEnd, preferredTracks);
                         std::vector<const pfcore::PersonTrack*> sceneTracks;
                         for (std::size_t trackIndex = 0;
                              trackIndex < tracker.tracks().size(); ++trackIndex) {
@@ -2247,9 +2260,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
                 // Version-7 migration or a cold pass: derive scene context
                 // once. Version 8 stores it with the expensive pose windows.
+                const pfcore::SceneContextIndex contextIndex(samples);
                 for (auto& candidate : windows) {
                     if (candidate.sourceId == path.toStdString() && !candidate.frames.empty())
-                        candidate.sceneContext = pfcore::sceneContext(samples,
+                        candidate.sceneContext = contextIndex.query(
                             candidate.frames.front().timestampSeconds, candidate.frames.back().timestampSeconds);
                 }
                 if (analysisCache && !isCancelled() && faceFailure.isEmpty() && reidFailure.isEmpty()) {
@@ -2267,6 +2281,30 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         }
         markCancelled();
         if (error.isEmpty() && windows.size() >= 2 && !isCancelled()) {
+            if (expandedSearch) {
+                // Separate cacheable observations from the current search
+                // policy. New temporal alternatives are derived after cache
+                // lookup, so enabling repeat search does not force inference.
+                std::unordered_set<std::string> ranges;
+                const auto rangeKey = [](const pfcore::MotionWindow& w) {
+                    return w.sourceId + "|" + std::to_string(w.trackId) + "|"
+                        + std::to_string(w.sceneIndex) + "|" + std::to_string(w.staticFrameSet) + "|"
+                        + std::to_string(std::llround(w.frames.front().timestampSeconds * 1000000)) + "|"
+                        + std::to_string(std::llround(w.frames.back().timestampSeconds * 1000000));
+                };
+                for (const auto& w : windows) if (!w.frames.empty()) ranges.insert(rangeKey(w));
+                const auto originalCount = windows.size();
+                for (std::size_t i = 0; i < originalCount && !isCancelled(); ++i) {
+                    for (auto& chunk : pfcore::shortPoseWindows(windows[i])) {
+                        if (!ranges.insert(rangeKey(chunk)).second) continue;
+                        windows.push_back(std::move(chunk));
+                        previewA.push_back(QString()); previewB.push_back(QString());
+                    }
+                }
+                if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
+                    std::fprintf(stderr, "PF_DEBUG_SEARCH original_windows=%zu extra_windows=%zu\n",
+                                 originalCount, windows.size() - originalCount);
+            }
             const QString diagnosticPath = qEnvironmentVariable("PF_DEBUG_POSES_JSON");
             if (!diagnosticPath.isEmpty()) {
                 QJsonArray diagnosticWindows;
@@ -2278,8 +2316,20 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             points.append(QJsonArray{point.x, point.y, point.confidence});
                         framesJson.append(QJsonObject{{"time", frame.timestampSeconds}, {"points", points}});
                     }
+                    const auto embeddingJson = [](const std::vector<float>& embedding) {
+                        QJsonArray values;
+                        for (const float value : embedding) values.append(value);
+                        return values;
+                    };
                     diagnosticWindows.append(QJsonObject{{"source", QString::fromStdString(window.sourceId)},
-                        {"static", window.staticFrameSet}, {"frames", framesJson}});
+                        {"static", window.staticFrameSet}, {"frames", framesJson},
+                        {"scene", static_cast<qint64>(window.sceneIndex)},
+                        {"sceneStart", window.sceneStartSeconds}, {"sceneEnd", window.sceneEndSeconds},
+                        {"track", static_cast<qint64>(window.trackId)},
+                        {"faceConfidence", window.faceConfidence}, {"bodyConfidence", window.appearanceConfidence},
+                        {"face", embeddingJson(window.faceEmbedding)},
+                        {"body", embeddingJson(window.appearanceEmbedding)},
+                        {"context", embeddingJson(window.sceneContext)}});
                 }
                 QSaveFile diagnosticFile(diagnosticPath);
                 if (diagnosticFile.open(QIODevice::WriteOnly)) {
@@ -2300,6 +2350,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.duplicateWindowSec = duplicateWindow;
             params.noiseFactor = noiseFactor;
             params.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults);
+            params.expandedSearch = expandedSearch;
             params.timeWeight = timeWeight;
             params.minTemporalFrames = qualityProfile == QStringLiteral("fast") ? 6U
                 : qualityProfile == QStringLiteral("medium") ? 8U : 10U;
@@ -2334,11 +2385,19 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             previewA.clear();
             previewB.clear();
             std::size_t renderedPreviews = 0;
+            std::size_t cachedPreviews = 0;
+            std::unordered_map<std::string, std::string> previewFingerprints;
             std::unordered_map<std::string, std::unique_ptr<pfcore::VideoDecoder>> previewDecoders;
             pfservices::PreviewMemo exactPreviews([&](const QString& source, double seconds) {
                 if (isCancelled()) return QString{};
                 const std::string path = source.toStdString();
                 try {
+                    auto [fingerprint, inserted] = previewFingerprints.try_emplace(path);
+                    if (inserted) fingerprint->second = cacheFileFingerprint(path);
+                    const auto key = "preview-v1|1920x1080|" + fingerprint->second + "|t="
+                        + std::to_string(std::llround(seconds * 1000000.0));
+                    bool hit = false;
+                    const auto url = pfservices::cachedPreview(analysisCache.get(), key, previewSessionPath(), [&] {
                     auto& decoder = previewDecoders[path];
                     if (!decoder) {
                         decoder = std::make_unique<pfcore::VideoDecoder>();
@@ -2347,6 +2406,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     }
                     return savePreviewAt(*decoder, seconds,
                         QStringLiteral("%1_match_frame_%2.png").arg(previewToken).arg(renderedPreviews++));
+                    }, hit);
+                    if (hit) ++cachedPreviews;
+                    return url;
                 } catch (...) {
                     previewDecoders.erase(path);
                     return QString{};
@@ -2406,8 +2468,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             foundMatches.resize(static_cast<std::size_t>(resultRecords.size()));
             matches = static_cast<int>(foundMatches.size());
             if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
-                std::fprintf(stderr, "PF_DEBUG_TIMING previews_ms=%lld rendered_previews=%zu\n",
-                    static_cast<long long>(resultTimer.elapsed()), renderedPreviews);
+                std::fprintf(stderr, "PF_DEBUG_TIMING previews_ms=%lld rendered_previews=%zu cached_previews=%zu\n",
+                    static_cast<long long>(resultTimer.elapsed()), renderedPreviews, cachedPreviews);
         }
         if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
             qInfo().noquote() << "PF_DEBUG_ANALYSIS files=" << files

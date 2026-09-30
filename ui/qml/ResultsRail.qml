@@ -178,7 +178,17 @@ Rectangle {
             color: Theme.textSecondary
         }
         PfComboBox {
+            id: resultSort
             objectName: "resultSortCombo"
+            // This choice is mouse-only; arrows belong to result navigation.
+            Keys.onPressed: function(event) {
+                if ([Qt.Key_Up, Qt.Key_Down, Qt.Key_Left, Qt.Key_Right].indexOf(event.key) < 0) return
+                if (popup.visible) popup.close()
+                resultList.forceActiveFocus()
+                if (event.key === Qt.Key_Up) root.selectPrevious()
+                if (event.key === Qt.Key_Down) root.selectNext()
+                event.accepted = true
+            }
             Layout.fillWidth: true
             visible: root.visibleResults.length > 0
             Accessible.name: L10n.t("results.sortBy")
@@ -191,6 +201,7 @@ Rectangle {
             onActivated: function(index) {
                 root.sortCriterion = index >= 4 ? "time" : index >= 2 ? "scene" : "movement"
                 root.sortDescending = index < 4 ? index % 2 === 0 : index === 5
+                resultList.forceActiveFocus()
             }
         }
         PfButton {
@@ -266,7 +277,7 @@ Rectangle {
                 MouseArea {
                     anchors.fill: parent
                     hoverEnabled: true
-                    onClicked: root.resultSelected(modelData.id)
+                    onClicked: { resultList.forceActiveFocus(); root.resultSelected(modelData.id) }
                 }
 
                 Row {

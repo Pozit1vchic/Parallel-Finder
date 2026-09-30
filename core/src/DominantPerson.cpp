@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <numeric>
 #include <stdexcept>
 
@@ -313,6 +314,63 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
         }
     }
     for (const auto i : members[best]) selected[i] = true;
+    return selected;
+}
+
+std::vector<bool> selectDominantSceneTracks(const std::vector<PersonTrack>& tracks,
+                                          double startSeconds, double endSeconds,
+                                          const std::vector<bool>& preferredTracks)
+{
+    std::vector<bool> selected(tracks.size(), false);
+    if (std::isnan(startSeconds) || std::isnan(endSeconds)
+        || endSeconds <= startSeconds) return selected;
+    // Preserve a verified lead without recomputing every embedding in the
+    // shot. Binary searches also avoid scanning long tracks per scene.
+    for (std::size_t index = 0; index < std::min(tracks.size(), preferredTracks.size()); ++index) {
+        if (!preferredTracks[index]) continue;
+        const auto& observations = tracks[index].observations;
+        const auto first = std::lower_bound(observations.begin(), observations.end(), startSeconds,
+            [](const auto& observation, double time) { return observation.timestampSeconds < time; });
+        selected[index] = first != observations.end() && std::next(first) != observations.end()
+            && std::next(first)->timestampSeconds < endSeconds;
+    }
+    if (std::any_of(selected.begin(), selected.end(), [](bool value) { return value; })) return selected;
+    std::vector<IdentitySummary> summaries;
+    std::vector<std::size_t> indices;
+    for (std::size_t index = 0; index < tracks.size(); ++index) {
+        const auto& observations = tracks[index].observations;
+        const auto first = std::lower_bound(observations.begin(), observations.end(), startSeconds,
+            [](const auto& observation, double time) { return observation.timestampSeconds < time; });
+        const auto last = std::lower_bound(first, observations.end(), endSeconds,
+            [](const auto& observation, double time) { return observation.timestampSeconds < time; });
+        const auto count = std::distance(first, last);
+        if (count < 2) continue;
+        IdentitySummary summary;
+        std::size_t bodySamples = 0, faceSamples = 0;
+        const auto add = [](std::vector<float>& sum, std::size_t& samples,
+                            const std::vector<float>& embedding) {
+            if (embedding.empty()
+                || !std::all_of(embedding.begin(), embedding.end(),
+                    [](float value) { return std::isfinite(value); })) return;
+            if (sum.empty()) sum.assign(embedding.size(), 0.0F);
+            if (sum.size() != embedding.size()) return;
+            for (std::size_t i = 0; i < sum.size(); ++i) sum[i] += embedding[i];
+            ++samples;
+        };
+        for (auto observation = first; observation != last; ++observation) {
+            summary.duration += std::max(0.0, observation->frameDurationSeconds);
+            summary.area += observation->box.area();
+            add(summary.body, bodySamples, observation->appearanceEmbedding);
+            add(summary.face, faceSamples, observation->faceEmbedding);
+        }
+        summary.area /= static_cast<double>(count);
+        summary.bodyEvidence = std::min(1.0, static_cast<double>(bodySamples) / 3.0);
+        summary.faceEvidence = std::min(1.0, static_cast<double>(faceSamples) / 3.0);
+        summaries.push_back(std::move(summary));
+        indices.push_back(index);
+    }
+    const auto local = selectDominantIdentities(summaries);
+    for (std::size_t i = 0; i < local.size(); ++i) selected[indices[i]] = local[i];
     return selected;
 }
 

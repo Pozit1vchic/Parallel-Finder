@@ -40,6 +40,7 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(QString analysisMode READ analysisMode WRITE setAnalysisMode NOTIFY settingsChanged)
     Q_PROPERTY(bool normalizeSize READ normalizeSize WRITE setNormalizeSize NOTIFY settingsChanged)
     Q_PROPERTY(bool mirrorPoses READ mirrorPoses WRITE setMirrorPoses NOTIFY settingsChanged)
+    Q_PROPERTY(bool expandedSearch READ expandedSearch WRITE setExpandedSearch NOTIFY settingsChanged)
     Q_PROPERTY(QString modelPath READ modelPath NOTIFY settingsChanged)
     Q_PROPERTY(QString modelChoice READ modelChoice NOTIFY settingsChanged)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY modelStatusChanged)
@@ -88,6 +89,7 @@ public:
     QString analysisMode() const { return analysisMode_; }
     bool normalizeSize() const noexcept { return normalizeSize_; }
     bool mirrorPoses() const noexcept { return mirrorPoses_; }
+    bool expandedSearch() const noexcept { return expandedSearch_; }
     QString modelPath() const { return modelPath_; }
     QString modelChoice() const { return modelChoice_; }
     QString modelStatus() const { return modelStatus_; }
@@ -124,6 +126,7 @@ public:
     void setAnalysisMode(const QString& value);
     void setNormalizeSize(bool value);
     void setMirrorPoses(bool value);
+    void setExpandedSearch(bool value);
     void setProcessingThreads(int value);
 
     Q_INVOKABLE void setModelPath(const QString& value);
@@ -199,6 +202,7 @@ private:
     QString analysisMode_ = QStringLiteral("motion");
     bool normalizeSize_ = true;
     bool mirrorPoses_ = true;
+    bool expandedSearch_ = false;
     QString modelPath_;
     QString modelChoice_;
     QString modelStatus_;

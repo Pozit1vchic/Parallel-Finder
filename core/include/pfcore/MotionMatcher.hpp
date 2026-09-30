@@ -59,10 +59,14 @@ struct MotionMatcherParams {
     // Within static, accepted head/body comparisons share this same budget
     // fairly; unused capacity is lent to the other observable region.
     std::size_t maxUniqueResults = 100;
-    // Independent result types share neither quotas nor duplicate metrics.
+    // Independent result types have separate budgets/duplicate metrics, but
+    // the per-shot reuse quota below is shared across both types.
     // A shot may support a few independent pairs, not an unlimited hub.
     // Zero disables this diversity quota for diagnostic comparisons.
     std::size_t maxResultsPerShot = 3;
+    // Wider deterministic retrieval; the desktop also derives short supported
+    // pose alternatives from existing observations. Acceptance stays intact.
+    bool expandedSearch = false;
     double timeWeight = 0.25;
     bool normalizeSize = true;
     // Compare both the original trajectory and a left/right mirrored copy,
@@ -167,6 +171,9 @@ struct MotionMatch {
     bool faceVerified = false;
     // Head-only geometry is not a measurement of the whole body pose.
     bool headOnlyComparison = false;
+    // Ambiguous head geometry is ranked by directly observed orientation
+    // before mirror-only alternatives, without changing the displayed score.
+    double unmirroredSimilarity = -1.0;
 };
 
 class MotionMatcher {

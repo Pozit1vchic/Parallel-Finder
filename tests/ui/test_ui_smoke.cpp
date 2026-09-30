@@ -236,6 +236,17 @@ void UiSmokeTests::settingsAndNumericTypography()
     QVERIFY(sources);
     QVERIFY(!sources->findChild<QObject*>("costumeModeCheck"));
     QVERIFY(!popup->findChild<QObject*>("costumeModeCheck"));
+    auto* repeat = sources->findChild<QQuickItem*>("expandedSearchCheck");
+    auto* options = sources->findChild<QQuickItem*>("sourceOptionsFlick");
+    QVERIFY(repeat && options);
+    QVERIFY(!repeat->property("text").toString().isEmpty());
+    if (!capture.isEmpty()) {
+        options->setProperty("contentY", std::max(0.0,
+            repeat->mapToItem(options, QPointF()).y() - options->height() + repeat->height() + 18));
+        QTest::qWait(100);
+        QVERIFY(window->grabWindow().save(capture + "/repeat-search.png"));
+        options->setProperty("contentY", 0);
+    }
     QVERIFY(QMetaObject::invokeMethod(popup, "open"));
     QTRY_VERIFY(popup->property("opened").toBool());
     if (!capture.isEmpty()) { QTest::qWait(300); QVERIFY(window->grabWindow().save(capture + "/settings-analysis.png")); }
@@ -437,6 +448,23 @@ void UiSmokeTests::resultArrowKeysWorkAfterSourceButtonFocus()
         QTest::keyClick(window, key);
         QTRY_COMPARE(selected.count(), before + 1);
         QCOMPARE(selected.last().first().toInt(), key == Qt::Key_Down ? 1 : 2);
+    }
+    // Sorting must never steal arrows, even before the user clicks a card.
+    auto* sort = window->findChild<QQuickItem*>("resultSortCombo");
+    QVERIFY(sort);
+    const auto sortIndex = sort->property("currentIndex").toInt();
+    window->setProperty("selectedRecord", QVariantMap{{"id", 2}});
+    window->setProperty("selectedResultIndex", 2);
+    sort->forceActiveFocus();
+    auto selectedBefore = selected.count();
+    QTest::keyClick(window, Qt::Key_Down);
+    QTRY_COMPARE(selected.count(), selectedBefore + 1);
+    QCOMPARE(selected.last().first().toInt(), 1);
+    QCOMPARE(sort->property("currentIndex").toInt(), sortIndex);
+    for (const auto key : {Qt::Key_Left, Qt::Key_Right}) {
+        sort->forceActiveFocus();
+        QTest::keyClick(window, key);
+        QCOMPARE(sort->property("currentIndex").toInt(), sortIndex);
     }
     // Typing and modal settings retain ownership of their arrow keys.
     control.setData("import QtQuick\nimport QtQuick.Controls.Basic\nTextField { text: 'abc' }", QUrl());

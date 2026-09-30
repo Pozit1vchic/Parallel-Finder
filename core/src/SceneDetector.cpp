@@ -1,4 +1,5 @@
 #include "pfcore/SceneDetector.hpp"
+#include "pfcore/VideoDecoder.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -112,6 +113,37 @@ void SceneDetector::setThreshold(double threshold)
 
 std::vector<SceneBoundary> SceneDetector::detect() const { return {}; }
 
+std::optional<double> SceneDetector::refineHardCut(VideoDecoder& decoder, double approximate,
+                                                   std::stop_token stop) const
+{
+    if (stop.stop_requested() || !std::isfinite(approximate) || approximate <= 0.0) return {};
+    const double fps = decoder.info().frameRate;
+    const double frameDuration = fps > 0 ? 1.0 / fps : 1.0 / 24.0;
+    if (approximate >= decoder.info().durationSeconds - frameDuration * 0.5) return {};
+    const double start = std::max(0.0, approximate - 0.35 - frameDuration);
+    // A sampled boundary is the first frame of the NEXT shot, so search
+    // backwards; never move an end into a later, unrelated shot.
+    decoder.setRgbaMaxDimensions(kCompactWidth, kCompactHeight);
+    decoder.seek(start);
+    CompactFrame previous;
+    DecodedFrame frame;
+    double bestScore = 0.0;
+    std::optional<double> best;
+    while (!stop.stop_requested() && decoder.readNext(frame, false)) {
+        if (frame.timestampSeconds > approximate + 1e-4) break;
+        if (frame.timestampSeconds + 1e-6 < start) continue;
+        if (!decoder.convertCurrentFrameToRgba(frame)) continue;
+        auto current = compact({frame.timestampSeconds, frame.width, frame.height, frame.rgba});
+        const double score = hsvDistance(previous, current);
+        if (score >= threshold_ && score > bestScore
+            && frame.timestampSeconds >= approximate - 0.35) {
+            bestScore = score; best = frame.timestampSeconds;
+        }
+        previous = std::move(current);
+    }
+    return stop.stop_requested() ? std::nullopt : best;
+}
+
 void SceneDetector::setMinSceneFrames(std::size_t value)
 {
     if (value == 0) throw std::invalid_argument("SceneDetector: minSceneFrames must be >= 1");
@@ -147,10 +179,31 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
         std::sort(sortedRecent.begin(), sortedRecent.end());
         const double localMean = sortedRecent.empty() ? deltas[i]
             : sortedRecent[sortedRecent.size() / 2];
-        const bool adaptivePass = adaptiveMultiplier_ == 0.0 || recent.empty()
-            || deltas[i] >= localMean * adaptiveMultiplier_;
+        // A moving outgoing shot raises the past-only baseline and hides a
+        // real cut into a quiet shot. Confirm that discontinuity against the
+        // next three deltas as well (bounded lookahead on existing thumbnails,
+        // no extra decoding). Ignore the next cut via the robust median, and
+        // require a jump over the immediately preceding delta: merely slowing
+        // camera motion must not manufacture a boundary.
+        std::array<double, 3> following {};
+        std::size_t followingCount = 0;
+        for (std::size_t j = i + 1; j < deltas.size() && j <= i + 3; ++j)
+            following[followingCount++] = deltas[j];
+        std::sort(following.begin(), following.begin() + followingCount);
+        const bool forwardOutlier = followingCount >= 2
+            && deltas[i] >= following[followingCount / 2] * adaptiveMultiplier_
+            && (i <= 1 || deltas[i] >= deltas[i - 1] * 1.5);
+        const bool adaptivePass = adaptiveMultiplier_ == 0.0 || (recent.empty() && boundaries.empty())
+            || deltas[i] >= localMean * adaptiveMultiplier_ || forwardOutlier;
         const bool validTimestamp = samples[i].timestampSeconds >= samples[i - 1].timestampSeconds;
-        if (validTimestamp && !frames[i].pixels.empty() && deltas[i] >= threshold_
+        // Same-colour reverse angles/zoom cuts can be below the absolute HSV
+        // threshold. Admit only an isolated discontinuity confirmed on BOTH
+        // sides, with a substantial absolute floor (never detector noise).
+        const bool lowContrastCut = !recent.empty() && forwardOutlier
+            && deltas[i] >= localMean * adaptiveMultiplier_
+            && deltas[i] >= threshold_ * .5;
+        if (validTimestamp && !frames[i].pixels.empty()
+            && (deltas[i] >= threshold_ || lowContrastCut)
             && adaptivePass && framesSinceBoundary >= minSceneFrames_) {
             boundaries.push_back({samples[i].timestampSeconds,
                                   boundaryScore(deltas[i], threshold_)});
@@ -193,8 +246,21 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
         const std::size_t length = i - softStart + 1;
         const double brightnessChange = std::abs(frames[i].meanValue
                                                   - frames[softStart].meanValue);
+        // Summing small deltas alone splits a continuous talking head or
+        // moving camera into fake shots. A fade needs an actual sustained
+        // whole-frame brightness change, not accumulated local motion.
+        std::size_t eligible = 0, changing = 0;
+        const auto& from = frames[softStart].pixels;
+        const auto& to = frames[i].pixels;
+        for (std::size_t p = 0; p < std::min(from.size(), to.size()); ++p) {
+            if (from[p].value < 12 && to[p].value < 12) continue; // letterbox
+            ++eligible;
+            const double change = to[p].value - from[p].value;
+            if (std::abs(change) >= threshold_ * .3
+                && (change > 0 ? 1.0 : -1.0) == softDirection) ++changing;
+        }
         const bool enoughChange = brightnessChange >= threshold_ * 0.7
-            || softAccumulated >= threshold_ * 1.6;
+            && eligible && changing * 5 >= eligible * 3;
         if (length >= 3 && enoughChange) {
             const std::size_t boundaryIndex = softStart + length / 2;
             const bool tooCloseToExisting = std::any_of(boundaries.begin(), boundaries.end(),
@@ -230,15 +296,20 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
     return boundaries;
 }
 
-std::vector<float> sceneContext(std::span<const SceneSample> samples,
-                                double startSeconds, double endSeconds)
+SceneContextIndex::SceneContextIndex(std::span<const SceneSample> samples)
 {
-    std::vector<float> histogram(44, 0.0F);
-    std::size_t count = 0;
+    timestamps_.reserve(samples.size()); prefix_.reserve(samples.size() + 1);
+    prefix_.push_back({});
     for (const auto& sample : samples) {
-        if (sample.timestampSeconds < startSeconds || sample.timestampSeconds > endSeconds
-            || sample.width <= 0 || sample.height <= 0
-            || sample.rgba.size() < static_cast<std::size_t>(sample.width) * sample.height * 4) continue;
+        if (!std::isfinite(sample.timestampSeconds)
+            || (!timestamps_.empty() && sample.timestampSeconds < timestamps_.back()))
+            throw std::invalid_argument("SceneContextIndex: ordered finite timestamps required");
+        timestamps_.push_back(sample.timestampSeconds);
+        auto histogram = prefix_.back();
+        if (sample.width <= 0 || sample.height <= 0
+            || sample.rgba.size() < static_cast<std::size_t>(sample.width) * sample.height * 4) {
+            prefix_.push_back(histogram); continue;
+        }
         for (int y = sample.height / 8; y < sample.height * 7 / 8; ++y) {
             for (int x = 0; x < sample.width; ++x) {
                 if (x > sample.width / 4 && x < sample.width * 3 / 4) continue;
@@ -250,13 +321,29 @@ std::vector<float> sceneContext(std::span<const SceneSample> samples,
                 const int v = std::clamp(static_cast<int>(hsv.value * 8 / 256), 0, 7);
                 histogram[h * 3 + s] += 0.75F;
                 histogram[36 + v] += 0.25F;
-                ++count;
+                histogram[44] += 1;
             }
         }
+        prefix_.push_back(histogram);
     }
+}
+
+std::vector<float> SceneContextIndex::query(double start, double end) const
+{
+    if (!std::isfinite(start) || !std::isfinite(end) || end < start) return {};
+    const auto first = static_cast<std::size_t>(std::lower_bound(timestamps_.begin(), timestamps_.end(), start) - timestamps_.begin());
+    const auto last = static_cast<std::size_t>(std::upper_bound(timestamps_.begin(), timestamps_.end(), end) - timestamps_.begin());
+    const double count = prefix_[last][44] - prefix_[first][44];
     if (count < 32) return {};
-    for (auto& value : histogram) value /= static_cast<float>(count);
+    std::vector<float> histogram(44);
+    for (std::size_t i = 0; i < histogram.size(); ++i)
+        histogram[i] = static_cast<float>((prefix_[last][i] - prefix_[first][i]) / count);
     return histogram;
+}
+
+std::vector<float> sceneContext(std::span<const SceneSample> samples, double start, double end)
+{
+    return SceneContextIndex(samples).query(start, end);
 }
 
 } // namespace pfcore

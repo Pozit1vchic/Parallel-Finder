@@ -3,8 +3,12 @@
 #include <cstdint>
 #include <span>
 #include <vector>
+#include <optional>
+#include <stop_token>
+#include <array>
 
 namespace pfcore {
+class VideoDecoder;
 
 // One detected scene/shot boundary inside a single source file.
 // Scene detection is a whole-shot change (cut / fade / strong visual change),
@@ -25,6 +29,17 @@ struct SceneSample {
 // letterboxing. A heuristic for nearby shots of one setting, not identity.
 std::vector<float> sceneContext(std::span<const SceneSample> samples,
                                 double startSeconds, double endSeconds);
+
+// Build colour histograms once, then query overlapping motion chunks in
+// O(log samples + histogram bins), not by re-converting the same pixels.
+class SceneContextIndex {
+public:
+    explicit SceneContextIndex(std::span<const SceneSample> samples);
+    std::vector<float> query(double startSeconds, double endSeconds) const;
+private:
+    std::vector<double> timestamps_;
+    std::vector<std::array<double, 45>> prefix_;
+};
 
 // Scene change detector (stage 2b). Frames are compared in compact HSV space
 // with an adaptive short baseline. Hard cuts and slow fade/dissolve transitions
@@ -57,6 +72,12 @@ public:
 
     // Convenience overload for callers that have no decoded samples yet.
     std::vector<SceneBoundary> detect() const;
+
+    // The analysis uses sparse thumbnails; its hard-cut timestamp can be
+    // up to one sampling interval late. Export resolves only the requested
+    // nearby edge at native frame cadence. No evidence => no invented edge.
+    std::optional<double> refineHardCut(VideoDecoder& decoder, double approximateSeconds,
+                                        std::stop_token stop = {}) const;
 
 private:
     double threshold_;

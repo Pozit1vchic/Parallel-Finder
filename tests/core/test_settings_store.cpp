@@ -46,11 +46,14 @@ TEST(SettingsStore, MissingFileDefaultsToEnglishAndAppearanceRoundTrips)
     std::string error;
     auto settings = store.load(error);
     EXPECT_EQ(settings.language, "en");
+    EXPECT_FALSE(settings.expandedSearch);
+    settings.expandedSearch = true;
     settings.language = "ru";
     settings.appearance.insert("accentColor", "blue");
     ASSERT_TRUE(store.save(settings, error));
     auto restored = store.load(error);
     EXPECT_EQ(restored.language, "ru");
+    EXPECT_TRUE(restored.expandedSearch);
     EXPECT_EQ(restored.appearance.value("accentColor").toString(), "blue");
 }
 

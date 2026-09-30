@@ -84,6 +84,7 @@ Rectangle {
 
     Flickable {
         id: sourceFlick
+        objectName: "sourceOptionsFlick"
         anchors.fill: parent; anchors.margins: 16; anchors.bottomMargin: 100; clip: true; contentWidth: width; contentHeight: Math.max(content.implicitHeight, content.childrenRect.height) + 18
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
@@ -216,6 +217,15 @@ Rectangle {
                         }
                     }
                 }
+            }
+            PfCheckBox {
+                objectName: "expandedSearchCheck"
+                Layout.fillWidth: true
+                text: L10n.t("search.reanalyze")
+                tooltipText: L10n.t("search.reanalyzeHint")
+                checked: Analysis.expandedSearch
+                enabled: !Analysis.busy
+                onToggled: Analysis.expandedSearch = checked
             }
             CollapsibleSection {
                 objectName: "advancedSection"

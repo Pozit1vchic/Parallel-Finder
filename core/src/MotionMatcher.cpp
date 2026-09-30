@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <utility>
 #include <unordered_set>
+#include <unordered_map>
+#include <memory>
 
 namespace pfcore {
 namespace {
@@ -66,7 +68,7 @@ bool differentTrackSegment(const MotionWindow& left, const MotionWindow& right)
 
 struct IdentityEvidence { bool available = false; bool verified = false; bool face = false; double score = 0; };
 
-bool observedBody(const MotionWindow& window)
+bool observedBody(const MotionWindow& window, double confidence = kMinimumKeypointConfidence)
 {
     constexpr std::size_t chains[4][3] = {{5, 7, 9}, {6, 8, 10}, {11, 13, 15}, {12, 14, 16}};
     std::size_t supported = 0;
@@ -75,7 +77,7 @@ bool observedBody(const MotionWindow& window)
         if (std::any_of(std::begin(chains), std::end(chains), [&](const auto& chain) {
             return std::all_of(std::begin(chain), std::end(chain), [&](std::size_t i) {
                 const auto& p = frame.keypoints[i];
-                return p.confidence >= kMinimumKeypointConfidence
+                return p.confidence >= confidence
                     && std::isfinite(p.x) && std::isfinite(p.y);
             });
         })) ++supported;
@@ -103,7 +105,7 @@ IdentityEvidence identityEvidence(const MotionWindow& left, const MotionWindow& 
 }
 
 bool separateVerifiedShots(const MotionWindow& left, const MotionWindow& right,
-                           const MotionMatcherParams& params)
+                           const MotionMatcherParams& params, const IdentityEvidence* knownIdentity = nullptr)
 {
     if (left.sourceId != right.sourceId || !left.hasSceneIndex || !right.hasSceneIndex
         || left.sceneIndex == right.sceneIndex) return false;
@@ -117,7 +119,7 @@ bool separateVerifiedShots(const MotionWindow& left, const MotionWindow& right,
     return validBounds(left) && validBounds(right)
         && (left.sceneEndSeconds <= right.sceneStartSeconds
             || right.sceneEndSeconds <= left.sceneStartSeconds)
-        && identityEvidence(left, right, params).verified;
+        && (knownIdentity ? *knownIdentity : identityEvidence(left, right, params)).verified;
 }
 
 std::vector<NormalizedPose> normalizePoses(const MotionWindow& window,
@@ -1052,6 +1054,8 @@ std::vector<double> embedding(const std::vector<Descriptor>& descriptors,
 }
 
 struct PreparedWindow {
+    double noise = 0.0;
+    double mirroredNoise = 0.0;
     std::vector<NormalizedPose> poses;
     std::vector<NormalizedPose> articulation;
     std::vector<NormalizedPose> mirroredArticulation;
@@ -1063,13 +1067,53 @@ struct PreparedWindow {
     double motionDelta = 0.0;
     double activeTransitionRatio = 0.0;
     double trajectoryRange = 0.0;
+    bool closeup = false;
+    bool headRegion = false;
+    MotionWindow headSource;
+    std::unique_ptr<PreparedWindow> head;
 };
+
+void prepareCloseup(PreparedWindow& prepared, const MotionWindow& window,
+                    const MotionMatcherParams& params)
+{
+    if (!window.staticFrameSet || window.faceEmbedding.empty() || window.frames.empty()
+        || observedBody(window)) return;
+    std::size_t closeups = 0;
+    for (const auto& frame : window.frames) {
+        if (frame.keypoints.size() != 17) return;
+        const auto visible = std::count_if(frame.keypoints.begin(), frame.keypoints.end(), [](const auto& p) {
+            return p.confidence >= kMinimumKeypointConfidence && std::isfinite(p.x) && std::isfinite(p.y);
+        });
+        if (visible < static_cast<int>(kMinimumComparableJoints)) ++closeups;
+    }
+    // Only switch normalization when an actual face-only crop needs it.
+    // Two face-and-shoulder views retain their measured neck/torso anchor;
+    // throwing it away made unlike portraits look almost identical.
+    prepared.closeup = closeups * 2 >= window.frames.size();
+    prepared.headSource = window;
+    for (auto& frame : prepared.headSource.frames) frame.keypoints.resize(5);
+    prepared.head = std::make_unique<PreparedWindow>();
+    auto& head = *prepared.head;
+    head.headRegion = true;
+    head.poses = normalizePoses(prepared.headSource, params.normalizeSize);
+    head.articulation = articulationPoses(prepared.headSource);
+    head.descriptors = describe(head.poses, prepared.headSource);
+    head.noise = noiseFloor(head.descriptors);
+    if (params.mirrorInvariant) {
+        const auto mirrored = mirroredWindow(prepared.headSource);
+        head.mirroredPoses = normalizePoses(mirrored, params.normalizeSize);
+        head.mirroredArticulation = articulationPoses(mirrored);
+        head.mirroredDescriptors = describe(head.mirroredPoses, mirrored);
+        head.mirroredNoise = noiseFloor(head.mirroredDescriptors);
+    }
+}
 
 MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
                             const PreparedWindow& leftPrepared,
                             const PreparedWindow& rightPrepared,
                             const MotionMatcherParams& params,
-                            std::size_t leftIndex, std::size_t rightIndex, bool mirrorRight = false)
+                            std::size_t leftIndex, std::size_t rightIndex, bool mirrorRight = false,
+                            const IdentityEvidence* knownIdentity = nullptr)
 {
     const auto& a = leftPrepared.descriptors;
     const auto& b = mirrorRight ? rightPrepared.mirroredDescriptors : rightPrepared.descriptors;
@@ -1103,47 +1147,46 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         result.similarity = 0.0;
         return result;
     }
-    const auto identity = identityEvidence(left, right, params);
+    const auto identity = knownIdentity ? *knownIdentity : identityEvidence(left, right, params);
     const double sceneSimilarity = sceneContextSimilarity(left, right);
+    const bool independentGesture = separateVerifiedShots(left, right, params, &identity)
+        && (!left.staticFrameSet || (observedBody(left) && observedBody(right)));
     if (left.sourceId == right.sourceId
         && std::abs(result.leftStartSeconds - result.rightStartSeconds) <= params.sameSceneContextGapSec
-        && sceneSimilarity >= params.sameSceneContextThreshold) return result;
+        && sceneSimilarity >= params.sameSceneContextThreshold
+        && !independentGesture) return result;
     result.appearanceSimilarity = identity.score;
     result.sceneSimilarity = sceneSimilarity;
     result.appearanceVerified = identity.verified;
     result.faceVerified = identity.verified && identity.face;
+    if (left.staticFrameSet && right.staticFrameSet && result.faceVerified
+        && !observedBody(left) && !observedBody(right)) {
+        result.headOnlyComparison = true;
+        // A few facial points are more ambiguous than an observed limb
+        // gesture. Do not cherry-pick three momentary head positions: require
+        // a sustained portrait on each side, without interpolating samples.
+        if (left.frames.size() < 6 || right.frames.size() < 6
+            || duration(left) < .75 || duration(right) < .75) return result;
+    }
     // Close-up comparison has its own observable region. Do not normalize a
     // five-landmark head crop by its head radius and the other shot by torso
     // width. This fallback is pose-only, requires independent face identity,
     // and never promotes a held head pose to a repeated body movement.
     if (left.staticFrameSet && right.staticFrameSet && result.faceVerified) {
-        auto headOnly = [](const MotionWindow& window) {
-            if (window.frames.empty()) return false;
-            std::size_t closeups = 0;
-            for (const auto& frame : window.frames) {
-                if (frame.keypoints.size() != 17) return false;
-                std::size_t visible = 0;
-                for (const auto& p : frame.keypoints)
-                    if (p.confidence >= kMinimumKeypointConfidence
-                        && std::isfinite(p.x) && std::isfinite(p.y)) ++visible;
-                if (visible < kMinimumComparableJoints) ++closeups;
-            }
-            return closeups * 2 >= window.frames.size();
-        };
         // A face crop can still match a face-and-shoulders view. But an
         // observed body gesture must not be reduced to a face to match a
         // hidden, potentially contradictory arm pose in the other shot.
-        if ((headOnly(left) || headOnly(right)) && !observedBody(left) && !observedBody(right)) {
-            auto head = [](MotionWindow window) {
-                for (auto& frame : window.frames) {
-                    if (frame.keypoints.size() != 17) { frame.keypoints.clear(); continue; }
-                    frame.keypoints.resize(5);
-                }
-                return window;
-            };
-            const auto headLeft = head(left), headRight = head(right);
-            auto headMatch = MotionMatcher(params).compare(headLeft, headRight, leftIndex, rightIndex);
+        if ((leftPrepared.closeup || rightPrepared.closeup) && leftPrepared.head && rightPrepared.head) {
+            auto headMatch = comparePrepared(leftPrepared.headSource, rightPrepared.headSource,
+                *leftPrepared.head, *rightPrepared.head, params, leftIndex, rightIndex, false, &identity);
+            const double directScore = headMatch.similarity;
+            if (params.mirrorInvariant) {
+                const auto mirrored = comparePrepared(leftPrepared.headSource, rightPrepared.headSource,
+                    *leftPrepared.head, *rightPrepared.head, params, leftIndex, rightIndex, true, &identity);
+                if (mirrored.similarity > headMatch.similarity) headMatch = mirrored;
+            }
             headMatch.headOnlyComparison = true;
+            headMatch.unmirroredSimilarity = directScore;
             return headMatch;
         }
     }
@@ -1220,11 +1263,41 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     }
     // Score the supported trajectory, not the original window diagonal:
     // alignment has already found where the repeated gesture occurs.
+    if (!staticPair && left.frames.front().keypoints.size() == 17
+        && right.frames.front().keypoints.size() == 17) {
+        const bool leftBody = observedBody(left, .5), rightBody = observedBody(right, .5);
+        // Weak inferred elbows must not turn a head/camera trajectory into
+        // the same body action. Both sides need confident homologous limbs.
+        if (leftBody != rightBody) return result;
+        if (leftBody && rightBody) {
+            constexpr std::size_t chains[4][3] = {{5,7,9},{6,8,10},{11,13,15},{12,14,16}};
+            constexpr std::size_t reflection[17] = {0,2,1,4,3,6,5,8,7,10,9,12,11,14,13,16,15};
+            std::size_t supported = 0;
+            for (const auto& [i, j] : alignment.path) {
+                const auto& a = left.frames[i].keypoints;
+                const auto& b = right.frames[j].keypoints;
+                if (a.size() != 17 || b.size() != 17) continue;
+                const auto visible = [](const auto& p) {
+                    return std::isfinite(p.x) && std::isfinite(p.y)
+                        && std::isfinite(p.confidence) && p.confidence >= .5;
+                };
+                if (std::any_of(std::begin(chains), std::end(chains), [&](const auto& chain) {
+                    return std::all_of(std::begin(chain), std::end(chain), [&](std::size_t joint) {
+                        return visible(a[joint]) && visible(b[mirrorRight ? reflection[joint] : joint]);
+                    });
+                })) ++supported;
+            }
+            if (supported * 4 < alignment.path.size() * 3) return result;
+        } else if (identity.face) {
+            result.headOnlyComparison = true;
+        }
+    }
     const auto& scoreA = staticPair ? a : alignedA;
     const auto& scoreB = staticPair ? b : alignedB;
     if (!staticPair && activeBodyAgreement(scoreA, scoreB) < 0.35) return result;
     const std::size_t rows = scoreA.size(), cols = scoreB.size();
-    const double noise = params.noiseFactor * std::max(noiseFloor(a), noiseFloor(b));
+    const double noise = params.noiseFactor * std::max(leftPrepared.noise,
+        mirrorRight ? rightPrepared.mirroredNoise : rightPrepared.noise);
     const double inf = std::numeric_limits<double>::infinity();
     std::vector<double> previous(cols + 1, inf), current(cols + 1, inf);
     std::vector<std::size_t> previousSteps(cols + 1, 0), currentSteps(cols + 1, 0);
@@ -1298,6 +1371,12 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
                      leftIndex, rightIndex, dtwScore, anatomyScore);
     }
     if (staticPair) {
+        // Five facial landmarks contain much less information than a limb
+        // skeleton. Require stronger actual landmark alignment, separately
+        // from the final score; face identity/shoulder resemblance cannot
+        // turn a different head position into a body-pose parallel.
+        if (leftPrepared.headRegion && (dtwScore < std::max(.90, params.staticPoseSimilarityThreshold)))
+            return result;
         // Pose agreement and proportions are complementary observations of
         // the same geometry, not independent probabilities. Use their
         // geometric mean; do not add a fictitious perfect direction score.
@@ -1311,9 +1390,14 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         poseScore = std::max(poseScore, articulation);
         // Background colour is displayed separately. Different lighting or
         // locations cannot make an independently verified pose less similar.
+        // Holding the same pose for a different length is not a different
+        // pose. Temporal support was already verified above; duration/speed
+        // penalties are meaningful only for moving trajectories.
         result.similarity = (poseScore >= params.staticPoseSimilarityThreshold
             || articulation >= params.staticArticulationSimilarityThreshold)
-            ? std::clamp(poseScore - timePenalty, 0.0, 0.994) : 0.0;
+            ? std::clamp(poseScore, 0.0, 0.994) : 0.0;
+        if (result.faceVerified && !observedBody(left) && !observedBody(right))
+            result.headOnlyComparison = true;
         return result;
     }
     // The number shown to the editor is *motion* similarity. Body-ReID is a
@@ -1397,28 +1481,37 @@ MotionMatch MotionMatcher::compare(const MotionWindow& left, const MotionWindow&
     leftPrepared.articulation = articulationPoses(left);
     leftPrepared.poses = leftPoses;
     leftPrepared.descriptors = describe(leftPoses, left);
+    leftPrepared.noise = noiseFloor(leftPrepared.descriptors);
     leftPrepared.motionDelta = leftActivity.meanDelta;
     leftPrepared.activeTransitionRatio = leftActivity.activeTransitionRatio;
     leftPrepared.trajectoryRange = leftActivity.trajectoryRange;
+    prepareCloseup(leftPrepared, left, params_);
     PreparedWindow rightPrepared;
     rightPrepared.articulation = articulationPoses(right);
     rightPrepared.poses = rightPoses;
     rightPrepared.descriptors = describe(rightPoses, right);
+    rightPrepared.noise = noiseFloor(rightPrepared.descriptors);
     rightPrepared.motionDelta = rightActivity.meanDelta;
     rightPrepared.activeTransitionRatio = rightActivity.activeTransitionRatio;
     rightPrepared.trajectoryRange = rightActivity.trajectoryRange;
+    prepareCloseup(rightPrepared, right, params_);
 
     MotionMatch best = comparePrepared(left, right, leftPrepared, rightPrepared,
                                        params_, leftIndex, rightIndex);
-    if (params_.mirrorInvariant) {
+    const bool headMirrorsAlreadyChecked = left.staticFrameSet && best.headOnlyComparison
+        && (leftPrepared.closeup || rightPrepared.closeup);
+    const double directScore = best.unmirroredSimilarity >= 0 ? best.unmirroredSimilarity : best.similarity;
+    if (params_.mirrorInvariant && !headMirrorsAlreadyChecked) {
         const MotionWindow mirroredSource = mirroredWindow(right);
         rightPrepared.mirroredPoses = normalizePoses(mirroredSource, params_.normalizeSize);
         rightPrepared.mirroredDescriptors = describe(rightPrepared.mirroredPoses, mirroredSource);
+        rightPrepared.mirroredNoise = noiseFloor(rightPrepared.mirroredDescriptors);
         rightPrepared.mirroredArticulation = articulationPoses(mirroredSource);
         const MotionMatch mirrored = comparePrepared(left, right, leftPrepared, rightPrepared,
                                                      params_, leftIndex, rightIndex, true);
         if (mirrored.similarity > best.similarity) best = mirrored;
     }
+    best.unmirroredSimilarity = directScore;
     return best;
 }
 
@@ -1439,11 +1532,13 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         prepared[index].poses = poses;
         prepared[index].articulation = articulationPoses(windows[index]);
         prepared[index].descriptors = describe(poses, windows[index]);
+        prepared[index].noise = noiseFloor(prepared[index].descriptors);
         if (params_.mirrorInvariant) {
             const MotionWindow mirroredSource = mirroredWindow(windows[index]);
             prepared[index].mirroredPoses = normalizePoses(mirroredSource, params_.normalizeSize);
             prepared[index].mirroredArticulation = articulationPoses(mirroredSource);
             prepared[index].mirroredDescriptors = describe(prepared[index].mirroredPoses, mirroredSource);
+            prepared[index].mirroredNoise = noiseFloor(prepared[index].mirroredDescriptors);
         }
         const MotionActivity activity = motionActivity(windows[index], poses);
         prepared[index].motionDelta = activity.meanDelta;
@@ -1469,6 +1564,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             continue;
         }
         ++preparedCount;
+        prepareCloseup(prepared[index], windows[index], params_);
         if (staticWindow) ++preparedStatic;
         else {
             ++preparedMotion;
@@ -1490,6 +1586,26 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             embeddingDimension = std::max(embeddingDimension, descriptor.size());
     }
     if (embeddingDimension == 0) return matches;
+    // Identity descriptors do not change during this search. Reuse pair
+    // evidence through retrieval, both mirror passes and result selection.
+    // The bound prevents quadratic memory growth on very long sources.
+    std::unordered_map<std::uint64_t, IdentityEvidence> identityMemo;
+    constexpr std::size_t identityMemoLimit = 262144;
+    identityMemo.reserve(std::min(identityMemoLimit, preparedCount * 64U));
+    const auto evidence = [&](std::size_t i, std::size_t j) {
+        const auto key = (static_cast<std::uint64_t>(std::min(i,j)) << 32U) | std::max(i,j);
+        if (const auto found = identityMemo.find(key); found != identityMemo.end()) return found->second;
+        const auto value = identityEvidence(windows[i], windows[j], params_);
+        if (identityMemo.size() < identityMemoLimit) identityMemo.emplace(key, value);
+        return value;
+    };
+    std::unordered_map<std::string, std::size_t> shotIds;
+    std::vector<std::size_t> shotOf(windows.size());
+    for (std::size_t i = 0; i < windows.size(); ++i) {
+        const auto key = windows[i].sourceId + "\n" + (windows[i].hasSceneIndex
+            ? std::to_string(windows[i].sceneIndex) : "unknown-" + std::to_string(i));
+        shotOf[i] = shotIds.try_emplace(key, shotIds.size()).first->second;
+    }
 
     // HNSW returns a bounded candidate set. The union of both query
     // directions keeps the all-pairs semantics while making DTW the expensive
@@ -1513,7 +1629,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         // ANN slots. Contradictory people must not hide a valid other shot.
         // Optional identity matching remains optional when that gate is off.
         return !(crossTrack || params_.requireAppearance)
-            || identityEvidence(windows[i], windows[j], params_).verified;
+            || evidence(i,j).verified;
     };
     for (const bool staticWindow : {false, true}) {
         std::vector<std::size_t> group;
@@ -1532,7 +1648,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if (group.size() < 2) continue;
         index.build();
         const std::size_t candidateCount = std::min<std::size_t>(group.size(),
-            std::max<std::size_t>(24, std::min<std::size_t>(96, group.size())));
+            std::max<std::size_t>(24, std::min<std::size_t>(params_.expandedSearch ? 192 : 96, group.size())));
         const double retrievalThreshold = params_.candidateThreshold * 0.65;
         for (const std::size_t i : group) {
             const auto collect = [&](const std::vector<double>& queryEmbedding) {
@@ -1541,13 +1657,18 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 // Grow retrieval only when needed, counting usable neighbours
                 // rather than same-shot or disallowed-identity observations.
                 // Keep expensive DTW bounded.
-                const auto limit = std::min(group.size(), candidateCount * 8);
+                const auto limit = std::min(group.size(), candidateCount * (params_.expandedSearch ? 16 : 8));
                 for (auto requested = candidateCount;; requested = std::min(limit, requested * 2)) {
                     std::size_t usable = 0;
+                    std::unordered_map<std::size_t, std::size_t> shotSlots;
                     for (const auto neighbour : index.query(queryEmbedding, requested, requested * 2)) {
                         if (neighbour.id == i || sameKnownShot(i, neighbour.id)
                             || neighbour.similarity + 1e-9 < retrievalThreshold) continue;
                         if (!identityAllowed(i, neighbour.id)) continue;
+                        // One other long shot must not fill every ANN slot.
+                        // Keep several temporal alternatives, then retrieve
+                        // deeper for independently edited shots.
+                        if (windows[neighbour.id].hasSceneIndex && shotSlots[shotOf[neighbour.id]]++ >= (params_.expandedSearch ? 8U : 4U)) continue;
                         const auto left = std::min(i, neighbour.id);
                         const auto right = std::max(i, neighbour.id);
                         candidatePairs.insert((static_cast<std::uint64_t>(left) << 32U)
@@ -1569,7 +1690,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     // L2-normalized by their estimators, so Euclidean ANN preserves cosine
     // neighbourhood ordering without an O(N^2) scan.
     std::size_t appearanceCandidatePairs = 0;
-    constexpr std::size_t maxAppearanceNeighbours = 64;
+    const std::size_t maxAppearanceNeighbours = params_.expandedSearch ? 128 : 64;
     auto addAppearanceCandidates = [&](bool useFace, bool staticWindow) {
         MotionIndex identityIndex;
         std::vector<std::size_t> group;
@@ -1591,10 +1712,12 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             const auto limit = std::min(group.size(), count * 8);
             for (auto requested = count;; requested = std::min(limit, requested * 2)) {
                 std::size_t usable = 0;
+                std::unordered_map<std::size_t, std::size_t> shotSlots;
                 for (const auto neighbour : identityIndex.query(query, requested, requested * 2)) {
                     const std::size_t j = neighbour.id;
                     if (i == j || j >= windows.size() || sameKnownShot(i, j)) continue;
-                    if (!identityEvidence(windows[i], windows[j], params_).verified) continue;
+                    if (!evidence(i,j).verified) continue;
+                    if (windows[j].hasSceneIndex && shotSlots[shotOf[j]]++ >= (params_.expandedSearch ? 8U : 4U)) continue;
                     const auto left = std::min(i, j);
                     const auto right = std::max(i, j);
                     if (candidatePairs.insert((static_cast<std::uint64_t>(left) << 32U)
@@ -1626,7 +1749,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if (sameSource && params_.requireSameTrackWithinSource
             && windows[i].trackId != 0 && windows[j].trackId != 0
             && differentTrackSegment(windows[i], windows[j])) {
-            const bool sameAppearance = identityEvidence(windows[i], windows[j], params_).verified;
+            const bool sameAppearance = evidence(i,j).verified;
             if (!sameAppearance) {
                 if (std::getenv("PF_DEBUG_MATCHER") != nullptr && !windows[i].staticFrameSet) {
                     std::fprintf(stderr,
@@ -1650,8 +1773,9 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         const double leftStart = windows[i].frames.front().timestampSeconds;
         const double rightStart = windows[j].frames.front().timestampSeconds;
         const double gap = std::abs(leftStart - rightStart);
+        const auto pairIdentity = evidence(i,j);
         const double requiredGap = sameSource
-            ? (separateVerifiedShots(windows[i], windows[j], params_) ? 0.0
+            ? (separateVerifiedShots(windows[i], windows[j], params_, &pairIdentity) ? 0.0
                : std::max({params_.sameSourceGapFloorSec, params_.sameFileGapSec,
                            params_.minRepeatGapSec}))
             : params_.crossFileGapSec;
@@ -1660,7 +1784,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         // The index is a retrieval stage, not the score shown to the user.
         // Keep its recall broad, then let DTW plus the continuous temporal
         // run make the final acceptance decision.
-        const bool identityCandidate = identityEvidence(windows[i], windows[j], params_).verified;
+        const bool identityCandidate = pairIdentity.verified;
         double coarse = coarseSimilarity(prepared[i].descriptors, prepared[j].descriptors);
         if (params_.mirrorInvariant && !prepared[j].mirroredDescriptors.empty())
             coarse = std::max(coarse, coarseSimilarity(prepared[i].descriptors,
@@ -1669,12 +1793,17 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         ++coarsePassed;
         ++compared;
         MotionMatch candidate = comparePrepared(windows[i], windows[j], prepared[i], prepared[j],
-                                                params_, i, j);
-        if (params_.mirrorInvariant && !prepared[j].mirroredDescriptors.empty()) {
+                                                params_, i, j, false, &pairIdentity);
+        const double directScore = candidate.unmirroredSimilarity >= 0
+            ? candidate.unmirroredSimilarity : candidate.similarity;
+        const bool headMirrorsAlreadyChecked = windows[i].staticFrameSet && candidate.headOnlyComparison
+            && (prepared[i].closeup || prepared[j].closeup);
+        if (params_.mirrorInvariant && !headMirrorsAlreadyChecked && !prepared[j].mirroredDescriptors.empty()) {
             const MotionMatch mirroredCandidate = comparePrepared(windows[i], windows[j],
-                                                                  prepared[i], prepared[j], params_, i, j, true);
+                                                                  prepared[i], prepared[j], params_, i, j, true, &pairIdentity);
             if (mirroredCandidate.similarity > candidate.similarity) candidate = mirroredCandidate;
         }
+        candidate.unmirroredSimilarity = directScore;
         if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
             std::fprintf(stderr, "PF_DEBUG_MATCHER compared a=%zu b=%zu t=%.3f/%.3f static=%d/%d similarity=%.3f dtw=%.3f appearance=%.3f\n",
                          i, j,
@@ -1719,6 +1848,24 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             (match.headOnlyComparison ? heads : bodies).push_back(&match);
     }
     std::size_t nextHead = 0, nextBody = 0, keptHeads = 0, keptBodies = 0;
+    // A mirror hypothesis must not crowd out direct head-angle evidence.
+    // Keep mirror-only discoveries eligible after the direct candidates;
+    // body poses retain the normal strongest-score ordering.
+    std::stable_sort(heads.begin(), heads.end(), [&](const auto* a, const auto* b) {
+        const bool directA = a->unmirroredSimilarity >= params_.similarityThreshold;
+        const bool directB = b->unmirroredSimilarity >= params_.similarityThreshold;
+        if (directA != directB) return directA;
+        if (directA && std::abs(a->unmirroredSimilarity - b->unmirroredSimilarity) > 1e-12)
+            return a->unmirroredSimilarity > b->unmirroredSimilarity;
+        return strongestFirst(*a, *b);
+    });
+    // First cover unused shots, then lend the remaining budget to repeats.
+    // Head/body and motion retain their independent result budgets, but a
+    // shot has ONE shared reuse quota across all result types.
+    std::vector<std::size_t> shotUseCounts(shotIds.size());
+    const auto rounds = params_.maxResultsPerShot == 0 ? 1U : params_.maxResultsPerShot;
+    for (std::size_t round = 0; round < rounds; ++round) {
+    nextHead = nextBody = 0;
     for (const MotionMatch& ranked : matches) {
         const MotionMatch* next = &ranked;
         if (windows[ranked.leftIndex].staticFrameSet) {
@@ -1738,24 +1885,9 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 typeCount, params_.maxUniqueResults);
         }
         if (typeCount >= params_.maxUniqueResults) continue;
-        const auto shotUses = [&](std::size_t index) {
-            const auto& shot = windows[index];
-            if (!shot.hasSceneIndex) return std::size_t{0};
-            return static_cast<std::size_t>(std::count_if(unique.begin(), unique.end(), [&](const auto& kept) {
-                if (staticCandidate != windows[kept.leftIndex].staticFrameSet) return false;
-                const auto sameShot = [&](std::size_t other) {
-                    const auto& previous = windows[other];
-                    if (shot.sourceId != previous.sourceId || !previous.hasSceneIndex
-                        || shot.sceneIndex != previous.sceneIndex) return false;
-                    const auto identity = identityEvidence(shot, previous, params_);
-                    return !identity.available || identity.verified;
-                };
-                return sameShot(kept.leftIndex) || sameShot(kept.rightIndex);
-            }));
-        };
+        const auto shotUses = [&](std::size_t index) { return windows[index].hasSceneIndex ? shotUseCounts[shotOf[index]] : 0U; };
         if (params_.maxResultsPerShot > 0
-            && (shotUses(candidate.leftIndex) >= params_.maxResultsPerShot
-                || shotUses(candidate.rightIndex) >= params_.maxResultsPerShot)) continue;
+            && (shotUses(candidate.leftIndex) > round || shotUses(candidate.rightIndex) > round)) continue;
         const bool duplicate = std::any_of(unique.begin(), unique.end(), [&](const MotionMatch& kept) {
             // A pose result is not a duplicate of a repeated movement. Their
             // scores measure different things and cannot compete in NMS.
@@ -1766,13 +1898,11 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 && windows[candidate.rightIndex].sourceId == windows[kept.leftIndex].sourceId;
             if (!sameOrientation && !swappedOrientation) return false;
             const auto identitiesCompatible = [&](std::size_t candidateIndex, std::size_t keptIndex) {
-                const auto& candidateWindow = windows[candidateIndex];
-                const auto& keptWindow = windows[keptIndex];
-                const auto evidence = identityEvidence(candidateWindow, keptWindow, params_);
+                const auto identity = evidence(candidateIndex, keptIndex);
                 // A track change alone is inconclusive. Independent, confident
                 // appearance disagreement means these are different people,
                 // even when a scene index and timestamps happen to coincide.
-                return !evidence.available || evidence.verified;
+                return !identity.available || identity.verified;
             };
             const bool compatible = sameOrientation
                 && identitiesCompatible(candidate.leftIndex, kept.leftIndex)
@@ -1875,9 +2005,12 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         });
         if (!duplicate) {
             unique.push_back(candidate);
+            ++shotUseCounts[shotOf[candidate.leftIndex]];
+            ++shotUseCounts[shotOf[candidate.rightIndex]];
             ++typeCount;
             if (staticCandidate) ++(candidate.headOnlyComparison ? keptHeads : keptBodies);
         }
+    }
     }
     // Retrieval policy must not change the public descending-score ordering.
     std::sort(unique.begin(), unique.end(), strongestFirst);

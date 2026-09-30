@@ -8,6 +8,7 @@
 #include <pfservices/ProviderManager.hpp>
 #include <pfservices/PreviewMemo.hpp>
 #include <pfcore/VideoDecoder.hpp>
+#include <pfcore/SceneDetector.hpp>
 #include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -57,6 +58,43 @@ TEST(RuntimeScratch, RemovesOwnExpiredFilesButProtectsActiveSessionsAndUnknownFi
     }
     EXPECT_FALSE(QFileInfo::exists(firstPath)); EXPECT_FALSE(QFileInfo::exists(secondPath));
     EXPECT_TRUE(QFileInfo::exists(root.filePath("user.png")));
+}
+
+TEST(SceneBoundaryExport, RefinesLateSparseBoundaryAndExcludesTheNextShot)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    ASSERT_FALSE(ffmpeg.isEmpty());
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    const auto source = directory.filePath("two-shots.mp4");
+    QProcess generate;
+    generate.start(ffmpeg, {"-v", "error", "-f", "lavfi", "-i", "color=c=red:s=128x72:r=24:d=2",
+        "-f", "lavfi", "-i", "color=c=blue:s=128x72:r=24:d=2", "-filter_complex",
+        "[0:v]trim=end_frame=23,setpts=PTS-STARTPTS[a];[1:v]trim=end_frame=24,setpts=PTS-STARTPTS[b];[a][b]concat=n=2:v=1:a=0[v]",
+        "-map", "[v]", "-c:v", "libx264", "-threads", "2", "-pix_fmt", "yuv420p", source});
+    ASSERT_TRUE(generate.waitForFinished(30000));
+    ASSERT_EQ(generate.exitCode(), 0) << generate.readAllStandardError().toStdString();
+    pfcore::VideoDecoder decoder; decoder.open(source.toStdString());
+    pfcore::SceneDetector detector;
+    const auto boundary = detector.refineHardCut(decoder, 1.0);
+    ASSERT_TRUE(boundary);
+    EXPECT_NEAR(*boundary, 23.0 / 24.0, 1e-6);
+    EXPECT_FALSE(detector.refineHardCut(decoder, .5)); // no fabricated cut
+    std::stop_source cancelled; cancelled.request_stop();
+    EXPECT_FALSE(detector.refineHardCut(decoder, 1, cancelled.get_token()));
+    pfservices::CutRequest request;
+    request.inputPath = std::filesystem::path(source.toStdWString());
+    request.outputPath = std::filesystem::path(directory.filePath("red-only.mp4").toStdWString());
+    request.endSeconds = *boundary;
+    ASSERT_TRUE(pfservices::CutService(ffmpeg.toStdString()).cut(request).success);
+    pfcore::VideoDecoder exported; exported.open(request.outputPath.string());
+    pfcore::DecodedFrame frame;
+    int count = 0;
+    while (exported.readNext(frame)) {
+        ++count;
+        ASSERT_FALSE(frame.rgba.empty());
+        EXPECT_GT(frame.rgba[0], frame.rgba[2]); // no blue frame from following shot
+    }
+    EXPECT_EQ(count, 23);
 }
 
 TEST(PreviewMemo, RendersEachSourceTimestampOnlyOnce)

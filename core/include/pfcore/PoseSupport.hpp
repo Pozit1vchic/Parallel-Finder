@@ -5,6 +5,43 @@
 
 namespace pfcore {
 struct PoseSampleRange { std::size_t begin = 0, end = 0; }; // inclusive endpoints
+inline std::vector<PoseSampleRange> observedPoseRuns(const MotionWindow& window);
+
+// A brief held gesture inside a longer changing pose must be checked as its
+// own temporal observation, not as a single best frame. Repeat search can
+// derive these alternatives from cached windows without running YOLO again.
+inline std::vector<MotionWindow> shortPoseWindows(const MotionWindow& window)
+{
+    std::vector<MotionWindow> result;
+    if (!window.staticFrameSet || window.frames.size() < 4) return result;
+    for (std::size_t begin = 0; begin < window.frames.size();) {
+        const double start = window.frames[begin].timestampSeconds;
+        if (!std::isfinite(start)) { ++begin; continue; }
+        std::size_t end = begin;
+        while (end + 1 < window.frames.size()) {
+            const double next = window.frames[end + 1].timestampSeconds;
+            const double step = next - window.frames[end].timestampSeconds;
+            if (!std::isfinite(next) || step <= 0 || step > .5 || next > start + .60 + 1e-9) break;
+            ++end;
+        }
+        if (end - begin + 1 >= MotionMatcherParams::minimumStaticSamples
+            && window.frames[end].timestampSeconds - start + 1e-9
+                >= MotionMatcherParams::minimumStaticSpanSeconds
+            && (begin != 0 || end + 1 != window.frames.size())) {
+            auto chunk = window;
+            chunk.frames.assign(window.frames.begin() + begin, window.frames.begin() + end + 1);
+            // Do not cherry-pick a momentary face angle in a conversation
+            // and publish it as a new gesture. Additional temporal slices
+            // require sustained observed limb evidence.
+            const auto support = observedPoseRuns(chunk);
+            if (!support.empty()) result.push_back(std::move(chunk));
+        }
+        ++begin;
+        while (begin < window.frames.size() && window.frames[begin].timestampSeconds < start + .50)
+            ++begin;
+    }
+    return result;
+}
 
 // Extra held-pose candidates come from contiguous observed limbs, never a
 // lucky frame or interpolated hidden hand. This reuses existing detections.

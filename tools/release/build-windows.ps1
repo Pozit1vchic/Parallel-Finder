@@ -2,7 +2,7 @@ param(
     [string]$Toolchain = 'D:\msys2\ucrt64',
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-    [string]$ReleaseTag = '0.1.0-rc.13'
+    [string]$ReleaseTag = '0.1.0-rc.14'
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
