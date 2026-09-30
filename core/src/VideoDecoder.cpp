@@ -5,6 +5,8 @@
 #include <limits>
 #include <stdexcept>
 #include <utility>
+#include <chrono>
+#include <thread>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -13,6 +15,7 @@ extern "C" {
 #include <libavutil/display.h>
 #include <libavutil/error.h>
 #include <libavutil/mathematics.h>
+#include <libavutil/hwcontext.h>
 #include <libswscale/swscale.h>
 }
 
@@ -33,6 +36,26 @@ double rationalOr(const AVRational value, double fallback)
     return value.den ? av_q2d(value) : fallback;
 }
 
+struct ElapsedMeasurement {
+    double& total;
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    ~ElapsedMeasurement() {
+        total += std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start).count();
+    }
+};
+
+const char* cuvidDecoder(AVCodecID codec)
+{
+    switch (codec) {
+    case AV_CODEC_ID_H264: return "h264_cuvid";
+    case AV_CODEC_ID_HEVC: return "hevc_cuvid";
+    case AV_CODEC_ID_AV1: return "av1_cuvid";
+    case AV_CODEC_ID_VP9: return "vp9_cuvid";
+    default: return nullptr;
+    }
+}
+
 } // namespace
 
 struct VideoDecoder::Impl {
@@ -40,6 +63,8 @@ struct VideoDecoder::Impl {
     AVCodecContext* codec = nullptr;
     AVPacket* packet = nullptr;
     AVFrame* decoded = nullptr;
+    AVFrame* downloaded = nullptr;
+    std::vector<std::uint8_t> chromaU, chromaV;
     SwsContext* scaler = nullptr;
     int scalerSourceWidth = 0;
     int scalerSourceHeight = 0;
@@ -52,6 +77,12 @@ struct VideoDecoder::Impl {
     bool frameAvailable = false;
     int rgbaMaxWidth = 0;
     int rgbaMaxHeight = 0;
+    VideoDecodeOptions options;
+    VideoDecodeDiagnostics diagnostics;
+    bool hardware = false;
+    double lastDelivered = -std::numeric_limits<double>::infinity();
+    double recoveryTarget = -std::numeric_limits<double>::infinity();
+    bool recoveryIncludeTarget = false;
 
     ~Impl() { reset(); }
 
@@ -59,6 +90,7 @@ struct VideoDecoder::Impl {
     {
         if (scaler) sws_freeContext(scaler);
         if (decoded) av_frame_free(&decoded);
+        if (downloaded) av_frame_free(&downloaded);
         if (packet) av_packet_free(&packet);
         if (codec) avcodec_free_context(&codec);
         if (format) avformat_close_input(&format);
@@ -74,11 +106,116 @@ struct VideoDecoder::Impl {
         rgbaMaxWidth = 0;
         rgbaMaxHeight = 0;
         metadata = {};
+        options = {};
+        diagnostics = {};
+        hardware = false;
+        std::vector<std::uint8_t>().swap(chromaU);
+        std::vector<std::uint8_t>().swap(chromaV);
+        lastDelivered = recoveryTarget = -std::numeric_limits<double>::infinity();
+        recoveryIncludeTarget = false;
+    }
+
+    int openCodec(const AVCodec* decoder, bool useHardware, int width = 0, int height = 0)
+    {
+        avcodec_free_context(&codec);
+        hardware = false;
+        codec = avcodec_alloc_context3(decoder);
+        if (!codec) return AVERROR(ENOMEM);
+        int result = avcodec_parameters_to_context(codec, format->streams[streamIndex]->codecpar);
+        if (result < 0) return result;
+        codec->pkt_timebase = format->streams[streamIndex]->time_base;
+        codec->thread_count = useHardware ? 1 : diagnostics.threads;
+        codec->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+        AVDictionary* codecOptions = nullptr;
+        if (useHardware) {
+            const auto device = std::to_string(options.nvidiaDevice);
+            result = av_hwdevice_ctx_create(&codec->hw_device_ctx, AV_HWDEVICE_TYPE_CUDA,
+                                            device.c_str(), nullptr, 0);
+            if (result < 0) return result;
+            codec->get_format = [](AVCodecContext*, const AVPixelFormat* formats) {
+                for (const auto* format = formats; *format != AV_PIX_FMT_NONE; ++format)
+                    if (*format == AV_PIX_FMT_CUDA) return AV_PIX_FMT_CUDA;
+                return AV_PIX_FMT_NONE;
+            };
+            if (options.resizeOnNvidia) {
+                const auto resize = std::to_string(width) + "x" + std::to_string(height);
+                av_dict_set(&codecOptions, "resize", resize.c_str(), 0);
+            }
+        }
+        result = avcodec_open2(codec, decoder, &codecOptions);
+        av_dict_free(&codecOptions);
+        if (result >= 0) {
+            hardware = useHardware;
+            diagnostics.backend = hardware ? "nvdec" : "cpu";
+        }
+        return result;
+    }
+
+    void fallBackToCpu(const std::string& reason, double target, bool includeTarget)
+    {
+        diagnostics.fallbackReason = reason;
+        const auto* stream = format->streams[streamIndex];
+        const auto* software = avcodec_find_decoder(stream->codecpar->codec_id);
+        if (!software) throw std::runtime_error("no software decoder for hardware fallback");
+        av_frame_unref(decoded);
+        if (downloaded) av_frame_unref(downloaded);
+        frameAvailable = false;
+        av_packet_unref(packet);
+        const int result = openCodec(software, false);
+        if (result < 0) throw std::runtime_error("open fallback decoder: " + ffError(result));
+        const double seekSeconds = std::isfinite(target) ? std::max(0.0, target) : 0.0;
+        const auto timestamp = static_cast<int64_t>(seekSeconds / av_q2d(stream->time_base));
+        const int seekResult = av_seek_frame(format, streamIndex, timestamp, AVSEEK_FLAG_BACKWARD);
+        if (seekResult < 0) throw std::runtime_error("seek fallback decoder: " + ffError(seekResult));
+        draining = false;
+        recoveryTarget = target;
+        recoveryIncludeTarget = includeTarget;
     }
 
     void copyCurrentFrameToRgba(DecodedFrame& output)
     {
+        ElapsedMeasurement measurement{diagnostics.conversionMilliseconds};
         const AVFrame* source = decoded;
+        AVFrame planarView {};
+        if (source->format == AV_PIX_FMT_CUDA) {
+            if (!downloaded) downloaded = av_frame_alloc();
+            if (!downloaded) throw std::runtime_error("allocate hardware download frame failed");
+            av_frame_unref(downloaded);
+            const int transfer = av_hwframe_transfer_data(downloaded, decoded, 0);
+            if (transfer < 0) throw std::runtime_error("download GPU frame: " + ffError(transfer));
+            const int props = av_frame_copy_props(downloaded, decoded);
+            if (props < 0) throw std::runtime_error("copy hardware frame metadata: " + ffError(props));
+            source = downloaded;
+            ++diagnostics.hardwareDownloads;
+        }
+        if (decoded->format == AV_PIX_FMT_CUDA && source->format == AV_PIX_FMT_NV12) {
+            // NV12 and planar YUV420 can take different swscale fast paths
+            // (different rounding near scene/matcher thresholds). Deinterleave
+            // chroma, borrowing the unchanged luma, to keep CPU analysis pixels.
+            const int chromaWidth = (source->width + 1) / 2;
+            const int chromaHeight = (source->height + 1) / 2;
+            const auto size = static_cast<std::size_t>(chromaWidth) * chromaHeight;
+            chromaU.resize(size);
+            chromaV.resize(size);
+            for (int y = 0; y < chromaHeight; ++y) {
+                const auto* uv = source->data[1] + y * source->linesize[1];
+                auto* u = chromaU.data() + static_cast<std::size_t>(y) * chromaWidth;
+                auto* v = chromaV.data() + static_cast<std::size_t>(y) * chromaWidth;
+                for (int x = 0; x < chromaWidth; ++x) {
+                    u[x] = uv[2 * x];
+                    v[x] = uv[2 * x + 1];
+                }
+            }
+            planarView.width = source->width;
+            planarView.height = source->height;
+            planarView.format = AV_PIX_FMT_YUV420P;
+            planarView.data[0] = source->data[0];
+            planarView.linesize[0] = source->linesize[0];
+            planarView.data[1] = chromaU.data();
+            planarView.data[2] = chromaV.data();
+            planarView.linesize[1] = planarView.linesize[2] = chromaWidth;
+            source = &planarView; // borrowed pointers are used only in this call
+        }
         const auto pixelFormat = static_cast<AVPixelFormat>(source->format);
 
         // Convert into display geometry, not merely coded pixel geometry.
@@ -167,6 +304,7 @@ struct VideoDecoder::Impl {
             output.height = rotatedHeight;
             output.rgba.swap(rotated);
         }
+        ++diagnostics.convertedFrames;
     }
 };
 
@@ -175,9 +313,17 @@ VideoDecoder::~VideoDecoder() = default;
 VideoDecoder::VideoDecoder(VideoDecoder&&) noexcept = default;
 VideoDecoder& VideoDecoder::operator=(VideoDecoder&&) noexcept = default;
 
-void VideoDecoder::open(const std::string& path)
+void VideoDecoder::open(const std::string& path, VideoDecodeOptions options)
 {
     close();
+    if (options.threads < 0 || options.threads > 256 || options.nvidiaDevice < 0
+        || options.maxWidth < 0 || options.maxHeight < 0)
+        throw std::invalid_argument("invalid video decoder options");
+    impl_->options = options;
+    impl_->diagnostics.threads = options.threads > 0 ? std::min(options.threads, 8)
+        : static_cast<int>(std::clamp(std::thread::hardware_concurrency() / 2, 1u, 8u));
+    impl_->rgbaMaxWidth = options.maxWidth;
+    impl_->rgbaMaxHeight = options.maxHeight;
     AVFormatContext* format = nullptr;
     int result = avformat_open_input(&format, path.c_str(), nullptr, nullptr);
     if (result < 0) throw std::runtime_error("open video '" + path + "': " + ffError(result));
@@ -204,9 +350,6 @@ void VideoDecoder::open(const std::string& path)
             * static_cast<std::uint64_t>(impl_->codec->height) > kMaxDecodedFramePixels) {
         close();
         throw std::runtime_error("video frame dimensions exceed the safe decode limit");
-    }
-    if ((result = avcodec_open2(impl_->codec, decoder, nullptr)) < 0) {
-        close(); throw std::runtime_error("open decoder: " + ffError(result));
     }
     impl_->packet = av_packet_alloc();
     impl_->decoded = av_frame_alloc();
@@ -243,11 +386,47 @@ void VideoDecoder::open(const std::string& path)
         try { impl_->metadata.rotationDegrees = std::stod(rotate->value); }
         catch (const std::exception&) { /* malformed metadata: keep zero */ }
     }
+    // Keep source metadata intact: export/preview still refer to the original.
+    // Rotated/anamorphic and unvalidated color formats retain the CPU path.
+    bool openedHardware = false;
+    if (options.preferNvidia) {
+        const char* name = cuvidDecoder(stream->codecpar->codec_id);
+        const auto* hardwareDecoder = name ? avcodec_find_decoder_by_name(name) : nullptr;
+        if (!hardwareDecoder) impl_->diagnostics.fallbackReason = "codec has no CUVID decoder";
+        else if (static_cast<std::uint64_t>(impl_->metadata.width) * impl_->metadata.height
+                 < options.minimumNvidiaPixels)
+            impl_->diagnostics.fallbackReason = "source below hardware size threshold";
+        else if (stream->codecpar->color_range == AVCOL_RANGE_JPEG
+                 || (stream->codecpar->format != AV_PIX_FMT_YUV420P
+                     && stream->codecpar->format != AV_PIX_FMT_NONE))
+            impl_->diagnostics.fallbackReason = "non-standard color format uses validated CPU path";
+        else if (stream->codecpar->field_order != AV_FIELD_UNKNOWN
+                 && stream->codecpar->field_order != AV_FIELD_PROGRESSIVE)
+            impl_->diagnostics.fallbackReason = "interlaced source uses validated CPU path";
+        else if (std::abs(impl_->metadata.sampleAspectRatio - 1.0) > 1e-6
+                 || std::abs(impl_->metadata.rotationDegrees) > 1e-6)
+            impl_->diagnostics.fallbackReason = "rotated/anamorphic source uses display-correct CPU path";
+        else if (options.resizeOnNvidia && (options.maxWidth < 2 || options.maxHeight < 2))
+            impl_->diagnostics.fallbackReason = "hardware analysis requires working dimensions";
+        else {
+            const double scale = std::min({1.0, double(options.maxWidth) / impl_->metadata.width,
+                                           double(options.maxHeight) / impl_->metadata.height});
+            const int width = std::max(2, static_cast<int>(impl_->metadata.width * scale) / 2 * 2);
+            const int height = std::max(2, static_cast<int>(impl_->metadata.height * scale) / 2 * 2);
+            result = impl_->openCodec(hardwareDecoder, true, width, height);
+            openedHardware = result >= 0;
+            if (!openedHardware) impl_->diagnostics.fallbackReason = "NVDEC unavailable: " + ffError(result);
+        }
+    }
+    if (!openedHardware && (result = impl_->openCodec(decoder, false)) < 0) {
+        close(); throw std::runtime_error("open decoder: " + ffError(result));
+    }
 }
 
 void VideoDecoder::close() noexcept { if (impl_) impl_->reset(); }
 bool VideoDecoder::isOpen() const noexcept { return impl_ && impl_->codec != nullptr; }
 const VideoInfo& VideoDecoder::info() const { if (!isOpen()) throw std::logic_error("decoder is not open"); return impl_->metadata; }
+VideoDecodeDiagnostics VideoDecoder::diagnostics() const { return impl_->diagnostics; }
 
 void VideoDecoder::setRgbaMaxDimensions(int maxWidth, int maxHeight) noexcept
 {
@@ -268,6 +447,7 @@ void VideoDecoder::setRgbaMaxDimensions(int maxWidth, int maxHeight) noexcept
 bool VideoDecoder::readNext(DecodedFrame& output, bool convertToRgba)
 {
     if (!isOpen()) throw std::logic_error("decoder is not open");
+    ElapsedMeasurement measurement{impl_->diagnostics.readMilliseconds};
     // A timestamp-only caller can ask for the current frame later. Release it
     // just before receiving the next one, which keeps AVFrame ownership fully
     // inside this RAII wrapper.
@@ -278,6 +458,7 @@ bool VideoDecoder::readNext(DecodedFrame& output, bool convertToRgba)
     for (;;) {
         int result = avcodec_receive_frame(impl_->codec, impl_->decoded);
         if (result == 0) {
+            ++impl_->diagnostics.decodedFrames;
             const AVFrame* source = impl_->decoded;
             if (source->width <= 0 || source->height <= 0
                 || static_cast<std::uint64_t>(source->width)
@@ -289,14 +470,37 @@ bool VideoDecoder::readNext(DecodedFrame& output, bool convertToRgba)
             const AVStream* stream = impl_->format->streams[impl_->streamIndex];
             const int64_t pts = source->best_effort_timestamp == AV_NOPTS_VALUE ? 0 : source->best_effort_timestamp;
             output.timestampSeconds = pts * av_q2d(stream->time_base);
+            if (impl_->hardware && source->color_range == AVCOL_RANGE_JPEG) {
+                impl_->fallBackToCpu("full-range frame uses validated CPU conversion",
+                                    output.timestampSeconds, true);
+                continue;
+            }
+            if (std::isfinite(impl_->recoveryTarget)) {
+                const bool skip = impl_->recoveryIncludeTarget
+                    ? output.timestampSeconds + 1e-6 < impl_->recoveryTarget
+                    : output.timestampSeconds <= impl_->recoveryTarget + 1e-6;
+                if (skip) { av_frame_unref(impl_->decoded); continue; }
+                impl_->recoveryTarget = -std::numeric_limits<double>::infinity();
+            }
             if (!convertToRgba) {
                 output.rgba.clear();
                 impl_->frameAvailable = true;
+                impl_->lastDelivered = output.timestampSeconds;
                 return true;
             }
-            impl_->copyCurrentFrameToRgba(output);
+            try { impl_->copyCurrentFrameToRgba(output); }
+            catch (const std::exception& error) {
+                if (!impl_->hardware) throw;
+                impl_->fallBackToCpu(error.what(), output.timestampSeconds, true);
+                continue;
+            }
+            impl_->lastDelivered = output.timestampSeconds;
             av_frame_unref(impl_->decoded);
             return true;
+        }
+        if (result != AVERROR(EAGAIN) && result != AVERROR_EOF && impl_->hardware) {
+            impl_->fallBackToCpu("NVDEC decode failed: " + ffError(result), impl_->lastDelivered, false);
+            continue;
         }
         if (result != AVERROR(EAGAIN) && result != AVERROR_EOF)
             throw std::runtime_error("decode frame: " + ffError(result));
@@ -308,6 +512,10 @@ bool VideoDecoder::readNext(DecodedFrame& output, bool convertToRgba)
             if (impl_->packet->stream_index == impl_->streamIndex) {
                 result = avcodec_send_packet(impl_->codec, impl_->packet);
                 av_packet_unref(impl_->packet);
+                if (result < 0 && result != AVERROR(EAGAIN) && impl_->hardware) {
+                    impl_->fallBackToCpu("NVDEC packet failed: " + ffError(result), impl_->lastDelivered, false);
+                    continue;
+                }
                 if (result < 0 && result != AVERROR(EAGAIN)) throw std::runtime_error("send packet: " + ffError(result));
             } else av_packet_unref(impl_->packet);
         }
@@ -317,7 +525,12 @@ bool VideoDecoder::readNext(DecodedFrame& output, bool convertToRgba)
 bool VideoDecoder::convertCurrentFrameToRgba(DecodedFrame& output)
 {
     if (!isOpen() || !impl_->frameAvailable) return false;
-    impl_->copyCurrentFrameToRgba(output);
+    try { impl_->copyCurrentFrameToRgba(output); }
+    catch (const std::exception& error) {
+        if (!impl_->hardware) throw;
+        impl_->fallBackToCpu(error.what(), impl_->lastDelivered, true);
+        return readNext(output, true);
+    }
     return true;
 }
 
@@ -333,6 +546,7 @@ void VideoDecoder::seek(double timestampSeconds)
     const int result = av_seek_frame(impl_->format, impl_->streamIndex, timestamp, AVSEEK_FLAG_BACKWARD);
     if (result < 0) throw std::runtime_error("seek: " + ffError(result));
     avcodec_flush_buffers(impl_->codec); impl_->draining = false;
+    impl_->lastDelivered = impl_->recoveryTarget = -std::numeric_limits<double>::infinity();
 }
 
 void VideoDecoder::rewind() { seek(0.0); }

@@ -1729,7 +1729,26 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             if (isCancelled()) { markCancelled(); break; }
             try {
                 pfcore::VideoDecoder decoder;
-                decoder.open(path.toStdString());
+                pfcore::VideoDecodeOptions decodeOptions;
+                decodeOptions.threads = static_cast<int>(std::min<std::size_t>(settings.processingThreads, 8));
+                decodeOptions.maxWidth = 1280;
+                decodeOptions.maxHeight = 720;
+                // Avoid CUDA initialization/download overhead on ordinary HD.
+                // 4K retains accelerated decode with the validated CPU resize.
+                decodeOptions.minimumNvidiaPixels = 1920ULL * 1080ULL + 1;
+                decodeOptions.preferNvidia = providerChoice == QStringLiteral("cuda")
+                    || providerChoice == QStringLiteral("tensorrt")
+                    || (providerChoice == QStringLiteral("auto") && !cpuOnly
+                        && requestedProvider.has_value()
+                        && (pfgpu::resolveProvider(*requestedProvider) == pfgpu::Provider::Cuda
+                            || pfgpu::resolveProvider(*requestedProvider) == pfgpu::Provider::TensorRt));
+                const QString decodeOverride = qEnvironmentVariable("PF_VIDEO_DECODE").toLower();
+                if (decodeOverride == QStringLiteral("cpu")) decodeOptions.preferNvidia = false;
+                else if (decodeOverride == QStringLiteral("nvdec")) {
+                    decodeOptions.preferNvidia = true;
+                    decodeOptions.minimumNvidiaPixels = 0; // explicit benchmark override
+                }
+                decoder.open(path.toStdString(), decodeOptions);
                 // Decode only the working resolution needed by pose/ReID.
                 // The separate preview decoder below remains full-resolution
                 // when the user opens an A/B result.
@@ -1744,7 +1763,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 // Bump this contract whenever association or the identity
                 // policy changes; otherwise a stricter matcher can still
                 // display candidates produced by an older pipeline.
-                std::string cacheKey = "motion-v23|short-static|matcher-mirror|scene4fps|infer=1280x720|pose=" + cacheFileFingerprint(model) + "|"
+                std::string cacheKey = "motion-v26|short-static|matcher-mirror|scene4fps|infer=1280x720|decode="
+                    + decoder.diagnostics().backend
+                    + "|pose=" + cacheFileFingerprint(model) + "|"
                     + providerChoice.toStdString() + "|reid="
                     + (reidModelPresent ? cacheFileFingerprint(reidModel) : std::string("none")) + "|"
                     + "face=" + (!settings.costumeMode && faceDetectorPath && faceRecognizerPath
@@ -1970,6 +1991,15 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     if (!frame.rgba.empty()) lastFrame = std::move(frame);
                 }
                 if (!isCancelled()) flushPoseBatch();
+                if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
+                    const auto stats = decoder.diagnostics();
+                    std::fprintf(stderr, "PF_DECODE backend=%s threads=%d cache_hit=%d decoded=%llu converted=%llu downloads=%llu read_ms=%.1f conversion_ms=%.1f fallback=%s\n",
+                        stats.backend.c_str(), stats.threads, cacheHit ? 1 : 0,
+                        static_cast<unsigned long long>(stats.decodedFrames),
+                        static_cast<unsigned long long>(stats.convertedFrames),
+                        static_cast<unsigned long long>(stats.hardwareDownloads),
+                        stats.readMilliseconds, stats.conversionMilliseconds, stats.fallbackReason.c_str());
+                }
                 markCancelled();
                 if (!error.isEmpty()) break;
                 std::vector<pfcore::SceneSample> samples;

@@ -6,3 +6,7 @@ add_executable(pf_matcher_regression
 set_target_properties(pf_matcher_regression PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(pf_matcher_regression PRIVATE pf::core GTest::gtest_main)
 add_test(NAME pf_matcher_regression COMMAND pf_matcher_regression)
+
+add_executable(pf_decode_probe decode_probe.cpp)
+set_target_properties(pf_decode_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_link_libraries(pf_decode_probe PRIVATE pf::core)

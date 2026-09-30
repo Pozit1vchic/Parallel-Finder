@@ -81,7 +81,12 @@ foreach ($mode in $Modes) {
         if (-not $jsonLine) { throw 'Missing results JSON; rebuild the executable.' }
         $pairs = @((($jsonLine -replace '^\s*results_json :\s*', '') | ConvertFrom-Json))
         if ($ReportPath) {
-            $report = @{ video=$Video; mode=$mode; results=$pairs }
+            $elapsedMatch = [regex]::Match($stdout, '(?m)^\s*elapsed_ms\s*:\s*(\d+)')
+            $framesMatch = [regex]::Match($stdout, '(?m)^\s*frames\s*:\s*(\d+)')
+            $report = @{ video=$Video; mode=$mode; results=$pairs;
+                elapsedMs=$(if ($elapsedMatch.Success) { [long]$elapsedMatch.Groups[1].Value } else { $null });
+                frameCount=$(if ($framesMatch.Success) { [long]$framesMatch.Groups[1].Value } else { $null });
+                decodeDiagnostics=@([regex]::Matches($stderr, 'PF_DECODE [^\r\n]+') | ForEach-Object { $_.Value }) }
             $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $ReportPath -Encoding UTF8
         }
     }
