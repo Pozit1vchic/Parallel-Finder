@@ -683,16 +683,15 @@ std::vector<NormalizedPose> articulationPoses(const MotionWindow& window)
 double articulationSimilarity(const std::vector<NormalizedPose>& left,
                               const std::vector<NormalizedPose>& right,
                               const std::vector<NormalizedPose>& leftContext,
-                              const std::vector<NormalizedPose>& rightContext,
-                              bool allowHiddenFace)
+                              const std::vector<NormalizedPose>& rightContext)
 {
     if (left.empty() || right.empty()) return 0.0;
     constexpr std::size_t chains[4][4] = {
         {5, 7, 9, 6}, {6, 8, 10, 5}, {11, 13, 15, 12}, {12, 14, 16, 11}
     };
     const auto features = [](const NormalizedPose& pose, const auto& chain,
-                             double (&out)[3], bool bodyOnly) {
-        if (pose.size() != 17 || (!bodyOnly && !validPoint(pose[0]))) return false;
+                             double (&out)[3]) {
+        if (pose.size() != 17 || !validPoint(pose[0])) return false;
         for (const auto joint : chain) if (!validPoint(pose[joint])) return false;
         const auto vector = [&](std::size_t a, std::size_t b) {
             return std::pair{pose[b].first - pose[a].first,
@@ -703,21 +702,8 @@ double articulationSimilarity(const std::vector<NormalizedPose>& left,
         const auto across = vector(chain[0], chain[3]);
         const auto upper = vector(chain[0], chain[1]);
         const auto lower = vector(chain[1], chain[2]);
-        // Compare the same reference on both sides. A masked nose is never
-        // imputed: body-only reach starts at the observed shoulder/hip pair.
-        const std::pair origin{(pose[chain[0]].first + pose[chain[3]].first) * 0.5,
-                               (pose[chain[0]].second + pose[chain[3]].second) * 0.5};
-        auto head = bodyOnly ? std::pair{0.0, -1.0} : vector(chain[0], 0);
-        if (bodyOnly && validPoint(pose[5]) && validPoint(pose[6])
-            && validPoint(pose[11]) && validPoint(pose[12])) {
-            head = {(pose[5].first + pose[6].first - pose[11].first - pose[12].first) * 0.5,
-                    (pose[5].second + pose[6].second - pose[11].second - pose[12].second) * 0.5};
-        }
-        // Without hips the reference is image vertical (upright footage),
-        // not a fabricated head. Rotated/lying masked subjects need review.
-        const auto reach = bodyOnly ? std::pair{pose[chain[2]].first - origin.first,
-                                                pose[chain[2]].second - origin.second}
-                                    : vector(0, chain[2]);
+        const auto head = vector(chain[0], 0);
+        const auto reach = vector(0, chain[2]);
         const double acrossLength = std::hypot(across.first, across.second);
         const double upperLength = std::hypot(upper.first, upper.second);
         const double lowerLength = std::hypot(lower.first, lower.second);
@@ -743,13 +729,11 @@ double articulationSimilarity(const std::vector<NormalizedPose>& left,
         const auto& b = right[sample * (right.size()-1) / std::max<std::size_t>(1, samples-1)];
         const auto& contextA = leftContext[sample * (leftContext.size()-1) / std::max<std::size_t>(1, samples-1)];
         const auto& contextB = rightContext[sample * (rightContext.size()-1) / std::max<std::size_t>(1, samples-1)];
-        if (a.size() != 17 || b.size() != 17) continue;
         double worst = 0.0;
         std::size_t observed = 0;
         for (const auto& chain : chains) {
             double x[3], y[3];
-            const bool bodyOnly = allowHiddenFace && (!validPoint(a[0]) || !validPoint(b[0]));
-            if (!features(a, chain, x, bodyOnly) || !features(b, chain, y, bodyOnly)) continue;
+            if (!features(a, chain, x) || !features(b, chain, y)) continue;
             const auto angularDistance = [](double angle) {
                 return std::atan2(std::sin(angle), std::cos(angle));
             };
@@ -1015,9 +999,9 @@ bool hasTemporalRun(const std::vector<Descriptor>& left,
                    const std::vector<Descriptor>& right,
                    const MotionWindow& leftWindow,
                    const MotionWindow& rightWindow,
-                   const MotionMatcherParams& params)
+                   const MotionMatcherParams& params,
+                   const TemporalAlignment& alignment)
 {
-    const auto alignment = alignTemporal(left, right, params.temporalSimilarityThreshold);
     const double runDuration = alignment.run == 0 ? 0.0 : std::min(
         leftWindow.frames[std::min(alignment.endLeft, leftWindow.frames.size() - 1)].timestampSeconds
             - leftWindow.frames[std::min(alignment.startLeft, leftWindow.frames.size() - 1)].timestampSeconds,
@@ -1085,10 +1069,12 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
                             const PreparedWindow& leftPrepared,
                             const PreparedWindow& rightPrepared,
                             const MotionMatcherParams& params,
-                            std::size_t leftIndex, std::size_t rightIndex)
+                            std::size_t leftIndex, std::size_t rightIndex, bool mirrorRight = false)
 {
     const auto& a = leftPrepared.descriptors;
-    const auto& b = rightPrepared.descriptors;
+    const auto& b = mirrorRight ? rightPrepared.mirroredDescriptors : rightPrepared.descriptors;
+    const auto& rightPoses = mirrorRight ? rightPrepared.mirroredPoses : rightPrepared.poses;
+    const auto& rightArticulation = mirrorRight ? rightPrepared.mirroredArticulation : rightPrepared.articulation;
     MotionMatch result;
     result.leftIndex = leftIndex;
     result.rightIndex = rightIndex;
@@ -1126,11 +1112,6 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     result.sceneSimilarity = sceneSimilarity;
     result.appearanceVerified = identity.verified;
     result.faceVerified = identity.verified && identity.face;
-    // Without usable face identity, a face/shoulder-only crop cannot supply
-    // evidence of a masked person's body gesture. Fail closed, not on clothes
-    // or a hallucinated head pose. Generic non-COCO test skeletons are exempt.
-    if (params.requireObservedBodyForIdentity && params.requireAppearance && identity.verified && !identity.face
-        && (!observedBody(left) || !observedBody(right))) return result;
     // Close-up comparison has its own observable region. Do not normalize a
     // five-landmark head crop by its head radius and the other shot by torso
     // width. This fallback is pose-only, requires independent face identity,
@@ -1170,8 +1151,8 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         && params.requireSameTrackWithinSource && left.trackId != 0 && right.trackId != 0
         && differentTrackSegment(left, right);
     // A required identity check must fail closed: missing/weak evidence is
-    // not proof that two motions belong to the same person. Costume handling
-    // can supply body evidence, but must not silently bypass this gate.
+    // not proof that two motions belong to the same person. Body appearance
+    // can supply evidence, but must not silently bypass this gate.
     if ((crossTrack || params.requireAppearance) && !identity.verified)
         return result;
     if (left.sourceId == right.sourceId
@@ -1191,7 +1172,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
             return bits;
         };
         std::fprintf(stderr, "PF_DEBUG_MATCHER pose-support a=%zu b=%zu mask=%x/%x\n",
-                     leftIndex, rightIndex, mask(leftPrepared.poses), mask(rightPrepared.poses));
+                     leftIndex, rightIndex, mask(leftPrepared.poses), mask(rightPoses));
     }
     const bool leftSamples = hasDistinctTemporalSamples(left, a, params);
     const bool rightSamples = hasDistinctTemporalSamples(right, b, params);
@@ -1202,7 +1183,9 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     // Actual displacement is checked by the trajectory-range gate instead.
     const bool leftDiversity = true;
     const bool rightDiversity = true;
-    const bool temporalRun = staticPair || hasTemporalRun(a, b, left, right, params);
+    const auto alignment = staticPair ? TemporalAlignment{}
+        : alignTemporal(a, b, params.temporalSimilarityThreshold);
+    const bool temporalRun = staticPair || hasTemporalRun(a, b, left, right, params, alignment);
     const bool motionGateFails = leftPrepared.motionDelta < params.motionDeltaThreshold
         || rightPrepared.motionDelta < params.motionDeltaThreshold
         || leftPrepared.activeTransitionRatio < params.minActiveTransitionRatio
@@ -1231,8 +1214,6 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         result.similarity = 0.0;
         return result;
     }
-    const auto alignment = staticPair ? TemporalAlignment{}
-        : alignTemporal(a, b, params.temporalSimilarityThreshold);
     std::vector<Descriptor> alignedA, alignedB;
     for (const auto& [i, j] : alignment.path) {
         alignedA.push_back(a[i]); alignedB.push_back(b[j]);
@@ -1303,7 +1284,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         result.similarity = 0.0;
         return result;
     }
-    const double anatomyScore = shapeSimilarity(leftPrepared.poses, rightPrepared.poses);
+    const double anatomyScore = shapeSimilarity(leftPrepared.poses, rightPoses);
     // Context is a sanity gate, not a replacement for motion. It suppresses
     // the common false-positive class where the same/front-facing actor is
     // present but the actual shot composition and trajectory do not agree.
@@ -1322,9 +1303,8 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         // geometric mean; do not add a fictitious perfect direction score.
         double poseScore = std::sqrt(dtwScore * anatomyScore);
         const double articulation = identity.verified
-            ? articulationSimilarity(leftPrepared.articulation, rightPrepared.articulation,
-                                     leftPrepared.poses, rightPrepared.poses,
-                                     params.requireObservedBodyForIdentity) : 0.0;
+            ? articulationSimilarity(leftPrepared.articulation, rightArticulation,
+                                     leftPrepared.poses, rightPoses) : 0.0;
         if (std::getenv("PF_DEBUG_MATCHER") != nullptr)
             std::fprintf(stderr, "PF_DEBUG_MATCHER articulation a=%zu b=%zu score=%.4f\n",
                 leftIndex, rightIndex, articulation);
@@ -1434,12 +1414,9 @@ MotionMatch MotionMatcher::compare(const MotionWindow& left, const MotionWindow&
         const MotionWindow mirroredSource = mirroredWindow(right);
         rightPrepared.mirroredPoses = normalizePoses(mirroredSource, params_.normalizeSize);
         rightPrepared.mirroredDescriptors = describe(rightPrepared.mirroredPoses, mirroredSource);
-        PreparedWindow mirroredRight = rightPrepared;
-        mirroredRight.articulation = articulationPoses(mirroredSource);
-        mirroredRight.poses = mirroredRight.mirroredPoses;
-        mirroredRight.descriptors = mirroredRight.mirroredDescriptors;
-        const MotionMatch mirrored = comparePrepared(left, right, leftPrepared, mirroredRight,
-                                                     params_, leftIndex, rightIndex);
+        rightPrepared.mirroredArticulation = articulationPoses(mirroredSource);
+        const MotionMatch mirrored = comparePrepared(left, right, leftPrepared, rightPrepared,
+                                                     params_, leftIndex, rightIndex, true);
         if (mirrored.similarity > best.similarity) best = mirrored;
     }
     return best;
@@ -1694,13 +1671,8 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         MotionMatch candidate = comparePrepared(windows[i], windows[j], prepared[i], prepared[j],
                                                 params_, i, j);
         if (params_.mirrorInvariant && !prepared[j].mirroredDescriptors.empty()) {
-            PreparedWindow mirrored = prepared[j];
-            mirrored.articulation = mirrored.mirroredArticulation;
-            mirrored.poses = mirrored.mirroredPoses;
-            mirrored.descriptors = mirrored.mirroredDescriptors;
-            mirrored.embedding = mirrored.mirroredEmbedding;
             const MotionMatch mirroredCandidate = comparePrepared(windows[i], windows[j],
-                                                                  prepared[i], mirrored, params_, i, j);
+                                                                  prepared[i], prepared[j], params_, i, j, true);
             if (mirroredCandidate.similarity > candidate.similarity) candidate = mirroredCandidate;
         }
         if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {

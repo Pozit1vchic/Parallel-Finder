@@ -108,6 +108,13 @@ CutResult CutService::cut(const CutRequest& request) const
         result.error = "resolution cap requires exact cut mode";
         return result;
     }
+    const bool montage = request.canvasWidth > 0 || request.canvasHeight > 0 || request.ensureStereoAudio;
+    if (montage && (request.mode != CutMode::Exact || request.canvasWidth < 2 || request.canvasHeight < 2
+        || request.canvasWidth % 2 || request.canvasHeight % 2
+        || !std::isfinite(request.outputFrameRate) || request.outputFrameRate <= 0.0)) {
+        result.error = "montage normalization requires an exact cut and valid even canvas/FPS";
+        return result;
+    }
     std::error_code filesystemError;
     if (!std::filesystem::is_regular_file(request.inputPath, filesystemError)) {
         result.error = "input video does not exist: " + request.inputPath.string();
@@ -183,13 +190,17 @@ CutResult CutService::cut(const CutRequest& request) const
         arguments << QStringLiteral("-threads") << QString::number(threads);
         arguments << QStringLiteral("-i")
                   << QString::fromStdWString(request.inputPath.wstring());
+        if (request.ensureStereoAudio && !request.sourceHasAudio)
+            arguments << "-f" << "lavfi" << "-i" << "anullsrc=r=48000:cl=stereo";
         // This is a video-clip export, not a container clone. Mapping every
         // stream also selects subtitles/data/attachments whose codecs may not
         // be supported by MP4 (including the "codec none" encoder failure).
         // Require the primary video, retain optional audio, omit other streams.
         arguments << QStringLiteral("-t") << seconds(duration)
                   << QStringLiteral("-map") << QStringLiteral("0:v:0")
-                  << QStringLiteral("-map") << QStringLiteral("0:a?");
+                  << QStringLiteral("-map") << (request.ensureStereoAudio
+                    ? (request.sourceHasAudio ? QStringLiteral("0:a:0") : QStringLiteral("1:a:0"))
+                    : QStringLiteral("0:a?"));
         if (request.mode == CutMode::Fast) {
             arguments << QStringLiteral("-c") << QStringLiteral("copy");
         } else {
@@ -200,7 +211,12 @@ CutResult CutService::cut(const CutRequest& request) const
                 arguments << QStringLiteral("-crf") << QStringLiteral("18")
                           << QStringLiteral("-preset") << QStringLiteral("veryfast")
                           << QStringLiteral("-threads:v") << QString::number(threads);
-            if (request.maxWidth > 0 || request.maxHeight > 0) {
+            if (montage) {
+                arguments << "-vf" << QString("scale=%1:%2:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=%1:%2:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=%3,format=yuv420p")
+                    .arg(request.canvasWidth).arg(request.canvasHeight).arg(request.outputFrameRate, 0, 'g', 12);
+                arguments << "-profile:v" << "high" << "-ar" << "48000" << "-ac" << "2"
+                          << "-af" << "aresample=async=1:first_pts=0,apad";
+            } else if (request.maxWidth > 0 || request.maxHeight > 0) {
                 // min(iw/ih, limit) prevents upscaling while preserving aspect ratio.
                 const int width = request.maxWidth > 0 ? request.maxWidth : 100000;
                 const int height = request.maxHeight > 0 ? request.maxHeight : 100000;

@@ -77,6 +77,10 @@ models/*.part
 settings.local.json
 *.part
 *.tmp
+*.tmp.*
+*.trace
+/.parallelfinder-montage-*/
+/pf-session-*/
 *.bak
 *.backup
 *.zip

@@ -48,6 +48,8 @@
 #include "pfservices/PfCache.hpp"
 #include "pfservices/CutService.hpp"
 #include "pfservices/ExportQueue.hpp"
+#include "pfservices/MontageExport.hpp"
+#include "pfservices/RuntimeScratch.hpp"
 #include "pfservices/PreviewMemo.hpp"
 #include "pfservices/PreviewImage.hpp"
 #include <pfcore/PoseSupport.hpp>
@@ -297,11 +299,18 @@ QStringList normalizedPaths(const QStringList& values)
     return result;
 }
 
+QString previewSessionPath()
+{
+    static const pfservices::RuntimeScratch scratch(QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+        + QStringLiteral("/ParallelFinder/previews"));
+    return scratch.path();
+}
+
 QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
 {
     if (frame.rgba.empty() || frame.width <= 0 || frame.height <= 0) return {};
-    const QString directory = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/ParallelFinder/previews");
-    QDir().mkpath(directory);
+    const QString directory = previewSessionPath();
+    if (directory.isEmpty()) return {};
     const QString path = directory + QLatin1Char('/') + name;
     QImage image(frame.rgba.data(), frame.width, frame.height, QImage::Format_RGBA8888);
     QImage preview = image; // borrowed source stays alive until synchronous encoding finishes
@@ -426,12 +435,13 @@ bool readBytes(const std::vector<std::uint8_t>& input, std::size_t& offset, T& v
     return true;
 }
 
-std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::MotionWindow>& windows)
+std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::MotionWindow>& windows, int sceneCount)
 {
     std::vector<std::uint8_t> output;
-    const std::uint32_t version = 7;
+    const std::uint32_t version = 8;
     appendBytes(output, version);
     appendBytes(output, static_cast<std::uint32_t>(windows.size()));
+    appendBytes(output, static_cast<std::uint32_t>(sceneCount));
     for (const auto& window : windows) {
         appendBytes(output, static_cast<std::uint32_t>(window.sourceId.size()));
         output.insert(output.end(), window.sourceId.begin(), window.sourceId.end());
@@ -444,6 +454,8 @@ std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::Motio
         appendBytes(output, window.appearanceConfidence);
         appendBytes(output, static_cast<std::uint32_t>(window.appearanceEmbedding.size()));
         for (const float value : window.appearanceEmbedding) appendBytes(output, value);
+        appendBytes(output, static_cast<std::uint32_t>(window.sceneContext.size()));
+        for (const float value : window.sceneContext) appendBytes(output, value);
         appendBytes(output, window.faceConfidence);
         appendBytes(output, static_cast<std::uint32_t>(window.faceEmbedding.size()));
         for (const float value : window.faceEmbedding) appendBytes(output, value);
@@ -462,12 +474,18 @@ std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::Motio
 }
 
 bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
-                              std::vector<pfcore::MotionWindow>& windows)
+                              std::vector<pfcore::MotionWindow>& windows, int& cachedSceneCount)
 {
+    cachedSceneCount = -1;
     std::size_t offset = 0;
     std::uint32_t version = 0, windowCount = 0;
-    if (!readBytes(input, offset, version) || version != 7
+    if (!readBytes(input, offset, version) || (version != 7 && version != 8)
         || !readBytes(input, offset, windowCount) || windowCount > 100'000U) return false;
+    if (version == 8) {
+        std::uint32_t count = 0;
+        if (!readBytes(input, offset, count) || count > 10'000'000U) return false;
+        cachedSceneCount = static_cast<int>(count);
+    }
     windows.clear();
     windows.reserve(windowCount);
     std::uint64_t totalFrames = 0;
@@ -499,6 +517,15 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
         window.appearanceEmbedding.resize(embeddingSize);
         for (float& value : window.appearanceEmbedding) {
             if (!readBytes(input, offset, value) || !std::isfinite(value)) return false;
+        }
+        if (version == 8) {
+            std::uint32_t contextSize = 0;
+            // A fully black/short shot legitimately has no histogram. Empty
+            // context is missing evidence, not a corrupt or incomplete cache.
+            if (!readBytes(input, offset, contextSize) || contextSize > 4096U) return false;
+            window.sceneContext.resize(contextSize);
+            for (auto& value : window.sceneContext)
+                if (!readBytes(input, offset, value) || !std::isfinite(value) || value < 0.0F) return false;
         }
         if (!readBytes(input, offset, window.faceConfidence) || !std::isfinite(window.faceConfidence)
             || !readBytes(input, offset, embeddingSize) || embeddingSize > 4096U) return false;
@@ -831,11 +858,6 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
         analysisMode_ = envMode;
     normalizeSize_ = settings.normalizeSize;
     mirrorPoses_ = settings.mirrorPoses;
-    costumeMode_ = settings.costumeMode;
-    // Diagnostic override only: never persist a benchmark's costume choice.
-    const QString envCostume = qEnvironmentVariable("PF_COSTUME_MODE");
-    if (envCostume == QStringLiteral("1") || envCostume == QStringLiteral("0"))
-        costumeMode_ = envCostume == QStringLiteral("1");
     modelPath_ = QString::fromStdString(settings.modelPath);
     modelChoice_ = QFileInfo(QString::fromStdString(settings.modelChoice)).fileName();
     if (modelChoice_.isEmpty()) {
@@ -906,7 +928,6 @@ void AnalysisController::saveSettings() const
     settings.analysisMode = analysisMode_.toStdString();
     settings.normalizeSize = normalizeSize_;
     settings.mirrorPoses = mirrorPoses_;
-    settings.costumeMode = costumeMode_;
     settings.modelPath = modelPath_.toStdString();
     settings.modelChoice = modelChoice_.toStdString();
     settings.cachePath = cachePath_.toStdString();
@@ -1071,13 +1092,6 @@ void AnalysisController::setNormalizeSize(bool value)
     emit settingsChanged();
 }
 
-void AnalysisController::setCostumeMode(bool value)
-{
-    if (busy_ || costumeMode_ == value) return;
-    costumeMode_ = value;
-    saveSettings();
-    emit settingsChanged();
-}
 
 void AnalysisController::setMirrorPoses(bool value)
 {
@@ -1264,7 +1278,8 @@ bool AnalysisController::exportResults(const QString& format,
                                        int cutMode,
                                        const QString& outputFolder,
                                        const QString& prefix,
-                                       const QVariantList& selectedIndexes)
+                                       const QVariantList& selectedIndexes,
+                                       bool mergeChronological)
 {
     if (exportBusy_) return false;
     std::vector<pfcore::MotionMatch> selected;
@@ -1306,10 +1321,10 @@ bool AnalysisController::exportResults(const QString& format,
         exportBusy_ = true;
         exportCompleted_ = 0;
         exportClipProgress_ = 0;
-        exportTotal_ = static_cast<int>(selected.size() * 2);
+        exportTotal_ = static_cast<int>(selected.size() * 2 + (mergeChronological ? 1 : 0));
         emit exportProgressChanged();
         emit exportBusyChanged();
-        exportWorker_ = std::jthread([this, selected = std::move(selected), folder, requestedPrefix, mode](std::stop_token stop) {
+        exportWorker_ = std::jthread([this, selected = std::move(selected), folder, requestedPrefix, mode, mergeChronological](std::stop_token stop) {
         const auto finish = [this](bool success, const QString& message) {
             QMetaObject::invokeMethod(this, [this, success, message] {
                 exportBusy_ = false;
@@ -1359,6 +1374,21 @@ bool AnalysisController::exportResults(const QString& format,
             const double rightEnd = rightSceneEnd;
             enqueue(match.leftSourceId, leftStart, leftEnd, QStringLiteral("A"));
             enqueue(match.rightSourceId, rightStart, rightEnd, QStringLiteral("B"));
+        }
+        if (mergeChronological) {
+            const auto output = std::filesystem::path(QDir(folder).filePath(requestedPrefix + "combined.mp4").toStdWString());
+            const auto result = pfservices::exportChronologicalMontage(std::move(jobs), output, stop,
+                [this](std::size_t done, std::size_t total, int percent) {
+                    QMetaObject::invokeMethod(this, [this, done, total, percent] {
+                        exportCompleted_ = static_cast<int>(done);
+                        exportTotal_ = static_cast<int>(total);
+                        exportClipProgress_ = percent;
+                        emit exportProgressChanged();
+                    }, Qt::QueuedConnection);
+                });
+            finish(result.success, result.success ? QStringLiteral("MP4: ") + QString::fromStdWString(output.wstring())
+                : QString::fromStdString(result.error));
+            return;
         }
         const auto batch = pfservices::runExportQueue(jobs, stop, [this](std::size_t done, std::size_t) {
             QMetaObject::invokeMethod(this, [this, done] {
@@ -1627,12 +1657,11 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     const QString analysisMode = analysisMode_;
     const bool normalizeSize = normalizeSize_;
     const bool mirrorPoses = mirrorPoses_;
-    const bool costumeMode = costumeMode_;
     const QString previewToken = QString::number(QDateTime::currentMSecsSinceEpoch());
     QThread* thread = QThread::create([this, cancel, paths = normalized, similarityThreshold, candidateThreshold, repeatGap,
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
                                         maxUniqueResults, timeWeight, providerChoice,
-                                        qualityProfile, analysisMode, normalizeSize, mirrorPoses, costumeMode, previewToken] {
+                                        qualityProfile, analysisMode, normalizeSize, mirrorPoses, previewToken] {
         try {
         int files = 0;
         int scenes = 0;
@@ -1721,7 +1750,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         const auto faceDetectorPath = findLocalModelFile(QStringLiteral("face_detection_yunet_2023mar.onnx"));
         const auto faceRecognizerPath = findLocalModelFile(QStringLiteral("face_recognition_sface_2021dec.onnx"));
         std::shared_ptr<pfgpu::FaceEstimator> face;
-        if (!costumeMode && faceDetectorPath && faceRecognizerPath)
+        if (faceDetectorPath && faceRecognizerPath)
             face = sharedFaceEstimator(*faceDetectorPath, *faceRecognizerPath, providerChoice);
         QString faceFailure;
         const bool reidModelPresent = !reidModel.empty();
@@ -1768,6 +1797,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 const auto info = decoder.info();
                 std::vector<pfcore::MotionWindow> cachedWindows;
                 bool cacheHit = false;
+                int cachedSceneCount = -1;
                 // Bump whenever the detector/window contract changes. Reusing
                 // a pre-ReID or pre-batched cache can silently produce empty
                 // track windows and make a valid source look matchless.
@@ -1780,10 +1810,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     + "|pose=" + cacheFileFingerprint(model) + "|"
                     + providerChoice.toStdString() + "|reid="
                     + (reidModelPresent ? cacheFileFingerprint(reidModel) : std::string("none")) + "|"
-                    + "face=" + (!costumeMode && faceDetectorPath && faceRecognizerPath
+                    + "face=" + (faceDetectorPath && faceRecognizerPath
                         ? cacheFileFingerprint(*faceDetectorPath) + cacheFileFingerprint(*faceRecognizerPath)
                         : std::string("none")) + "|"
-                    + (costumeMode ? "masked-limb-runs=v1|" : "")
                     + "quality=" + qualityProfile.toStdString() + "|"
                     + "mode=" + analysisMode.toStdString() + "|scene="
                     + std::to_string(settings.sceneThreshold) + ":"
@@ -1792,13 +1821,24 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     + cacheFileFingerprint(path.toStdString());
                 if (analysisCache) {
                     if (const auto cached = analysisCache->get(cacheKey))
-                        cacheHit = deserializeMotionWindows(*cached, cachedWindows)
+                        cacheHit = deserializeMotionWindows(*cached, cachedWindows, cachedSceneCount)
                             && !cachedWindows.empty();
                 }
                 ++files;
                 duration += info.durationSeconds;
                 if (sourceFps <= 0.0) sourceFps = info.frameRate;
                 frames += static_cast<qlonglong>(std::max(0.0, info.durationSeconds * info.frameRate));
+                if (cacheHit && cachedSceneCount >= 0) {
+                    scenes += cachedSceneCount;
+                    for (auto& cached : cachedWindows) {
+                        windows.push_back(std::move(cached));
+                        previewA.push_back(QString());
+                        previewB.push_back(QString());
+                    }
+                    if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
+                        std::fprintf(stderr, "PF_DEBUG_TIMING complete_cache_hit=1 decoded=0 source=%s\n", qPrintable(path));
+                    continue;
+                }
                 std::vector<std::vector<std::uint8_t>> sceneBuffers;
                 std::vector<double> sceneTimestamps;
                 sceneBuffers.reserve(static_cast<std::size_t>(std::max(1.0, info.durationSeconds * 4.0)) + 1U);
@@ -2196,7 +2236,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                 appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds, true);
                             }
                             if (analysisMode != QStringLiteral("motion")) {
-                                for (const auto range : pfcore::observedPoseRuns(window, costumeMode)) {
+                                for (const auto range : pfcore::observedPoseRuns(window)) {
                                     if (range.begin == 0 && range.end + 1 == window.frames.size()) continue;
                                     appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds,
                                                  true, range.begin, range.end + 1);
@@ -2204,23 +2244,21 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             }
                         }
                     }
-                    if (analysisCache && faceFailure.isEmpty() && reidFailure.isEmpty()) {
-                        std::vector<pfcore::MotionWindow> fileWindows;
-                        // Only entries from this source are serialized, so a
-                        // later run can skip pose inference for the same file.
-                        for (const auto& candidate : windows) {
-                            if (candidate.sourceId == path.toStdString()) fileWindows.push_back(candidate);
-                        }
-                        std::string cacheError;
-                        analysisCache->put(cacheKey, serializeMotionWindows(fileWindows), cacheError);
-                    }
                 }
-                // Cheap scene context is recomputed from the current decoded
-                // thumbnails, including when expensive pose data is cached.
+                // Version-7 migration or a cold pass: derive scene context
+                // once. Version 8 stores it with the expensive pose windows.
                 for (auto& candidate : windows) {
                     if (candidate.sourceId == path.toStdString() && !candidate.frames.empty())
                         candidate.sceneContext = pfcore::sceneContext(samples,
                             candidate.frames.front().timestampSeconds, candidate.frames.back().timestampSeconds);
+                }
+                if (analysisCache && !isCancelled() && faceFailure.isEmpty() && reidFailure.isEmpty()) {
+                    std::vector<pfcore::MotionWindow> fileWindows;
+                    for (const auto& candidate : windows)
+                        if (candidate.sourceId == path.toStdString()) fileWindows.push_back(candidate);
+                    std::string cacheError;
+                    analysisCache->put(cacheKey, serializeMotionWindows(fileWindows,
+                        static_cast<int>(sceneBoundaries.size()) + 1), cacheError);
                 }
             } catch (const std::exception& exception) {
                 error = QString::fromUtf8(exception.what());
@@ -2250,7 +2288,6 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
             }
             pfcore::MotionMatcherParams params;
-            params.requireObservedBodyForIdentity = costumeMode;
             bool reuseOverrideValid = false;
             const int reuseOverride = qEnvironmentVariableIntValue("PF_RESULTS_PER_SHOT", &reuseOverrideValid);
             if (reuseOverrideValid && reuseOverride >= 0 && reuseOverride <= 100)
@@ -2333,7 +2370,6 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert(QStringLiteral("identityVerified"), item.appearanceVerified);
                 record.insert(QStringLiteral("faceVerified"), item.faceVerified);
                 record.insert(QStringLiteral("headOnlyComparison"), item.headOnlyComparison);
-                record.insert(QStringLiteral("costumeMode"), costumeMode);
                 if (item.leftIndex < windows.size())
                     record.insert(QStringLiteral("leftTrackId"), static_cast<qulonglong>(windows[item.leftIndex].trackId));
                 if (item.rightIndex < windows.size())

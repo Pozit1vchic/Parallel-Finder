@@ -25,6 +25,12 @@ struct CutRequest {
     // Resizing requires Exact mode because Fast mode stream-copies frames.
     int maxWidth = 0;
     int maxHeight = 0;
+    // Internal montage normalization. Ordinary clips leave these unset.
+    int canvasWidth = 0;
+    int canvasHeight = 0;
+    double outputFrameRate = 0.0;
+    bool ensureStereoAudio = false;
+    bool sourceHasAudio = true;
     std::stop_token stopToken;
     // Zero allows long source scenes; UI cancellation remains responsive.
     // Preview/automation callers may opt into a finite deadline.

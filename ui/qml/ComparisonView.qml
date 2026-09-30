@@ -23,6 +23,8 @@ Item {
     property real zoom: 1.0
     property real panX: 0
     property real panY: 0
+    property real pairSignalPhase: 0
+    readonly property bool transitionRunning: pairSignal.running || frameReveal.running
     signal frameUnavailable(string side)
     signal previewRequested()
     signal playbackFinished()
@@ -33,7 +35,31 @@ Item {
     readonly property var player: playerLoader.item
     readonly property bool playing: !!player && player.playbackState === MediaPlayer.PlayingState
 
-    onRecordChanged: stopPlayback()
+    onRecordChanged: {
+        stopPlayback()
+        resetView()
+        if (record && pairSignal && !Theme.reducedMotion) pairSignal.restart()
+    }
+    NumberAnimation {
+        id: pairSignal
+        target: root; property: "pairSignalPhase"
+        from: 1; to: 0; duration: Theme.motionRevealDuration
+        easing.type: Easing.OutCubic
+    }
+    NumberAnimation {
+        id: frameReveal
+        target: frameImage; property: "opacity"
+        from: 0.35; to: 1; duration: Theme.motionChangeDuration
+        easing.type: Easing.OutCubic
+    }
+    Connections {
+        target: Theme
+        function onReducedMotionChanged() {
+            if (!Theme.reducedMotion) return
+            pairSignal.stop(); frameReveal.stop()
+            root.pairSignalPhase = 0; frameImage.opacity = 1
+        }
+    }
     function preparePlayback() {
         stopPlayback()
         if (!root.previewPlayable || !player) return
@@ -147,7 +173,11 @@ Item {
             Row {
                 width: parent.width
                 height: 24
-                Text { text: root.title; color: root.accentColor; font.family: Theme.displayFont; font.pixelSize: 16; verticalAlignment: Text.AlignVCenter }
+                Rectangle {
+                    width: 24; height: 24; radius: 6
+                    color: Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.14)
+                    Text { anchors.centerIn: parent; text: root.title; color: root.accentColor; font.family: Theme.monoFont; font.pixelSize: 13; font.weight: Font.DemiBold }
+                }
                 Item { width: parent.width - timeText.implicitWidth - resetButton.width - 16; height: 1 }
                 Text { font.family: Theme.fontFamily; id: timeText; text: root.timecode(root.timestamp); color: Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
                 PfIconButton {
@@ -187,7 +217,11 @@ Item {
                         smooth: true
                         mipmap: true
                         visible: status === Image.Ready && !root.videoMode
-                        onStatusChanged: if (status === Image.Error) root.frameUnavailable(root.side)
+                        onStatusChanged: {
+                            if (status === Image.Error) root.frameUnavailable(root.side)
+                            else if (status === Image.Ready && !Theme.reducedMotion) frameReveal.restart()
+                            else opacity = 1
+                        }
                     }
                     Loader {
                         id: videoLoader
@@ -266,5 +300,14 @@ Item {
                 }
             }
         }
+    }
+    // A finite signal connects a pair change to both A/B frames without
+    // animating video surfaces, running a shader or caching another texture.
+    Rectangle {
+        anchors.fill: parent
+        color: "transparent"; radius: Theme.radiusButton
+        border.color: root.accentColor; border.width: 2
+        opacity: root.pairSignalPhase * 0.65
+        visible: opacity > 0
     }
 }

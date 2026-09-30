@@ -120,8 +120,8 @@ ApplicationWindow {
                     Layout.maximumWidth: 310
                     Layout.fillHeight: true
                     results: Analysis.results; selectedRows: root.selectedExportRows; selectedIndex: root.selectedResultIndex
-                    onExportSelectionChanged: root.selectedExportRows = rows
-                    onResultSelected: root.selectResult(index)
+                    onExportSelectionChanged: function(rows) { root.selectedExportRows = rows }
+                    onResultSelected: function(index) { root.selectResult(index) }
                     onExportRequested: exportDialog.open()
                 }
                 }

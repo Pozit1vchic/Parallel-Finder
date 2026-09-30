@@ -2,6 +2,8 @@
 
 #include <pfservices/CutService.hpp>
 #include <pfservices/ExportQueue.hpp>
+#include <pfservices/MontageExport.hpp>
+#include <pfservices/RuntimeScratch.hpp>
 #include <pfservices/FfmpegCapabilities.hpp>
 #include <pfservices/ProviderManager.hpp>
 #include <pfservices/PreviewMemo.hpp>
@@ -23,6 +25,39 @@
 #include <QProcess>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+
+TEST(RuntimeScratch, RemovesOwnExpiredFilesButProtectsActiveSessionsAndUnknownFiles)
+{
+    QTemporaryDir root;
+    ASSERT_TRUE(root.isValid());
+    const auto old = std::filesystem::file_time_type::clock::now() - std::chrono::hours(48);
+    const auto write = [&](const QString& name) {
+        QFile file(root.filePath(name));
+        if (!file.open(QIODevice::WriteOnly)) return false;
+        file.write("keep"); file.close();
+        std::filesystem::last_write_time(std::filesystem::path(file.fileName().toStdWString()), old);
+        return true;
+    };
+    ASSERT_TRUE(write("123_match_frame_1.png"));
+    ASSERT_TRUE(write("123_1_start.png"));
+    ASSERT_TRUE(write("user.png"));
+    ASSERT_TRUE(QDir().mkpath(root.filePath("pf-session-ABC123")));
+    QString firstPath, secondPath;
+    {
+        pfservices::RuntimeScratch first(root.path(), 0);
+        firstPath = first.path(); ASSERT_FALSE(firstPath.isEmpty());
+        pfservices::RuntimeScratch second(root.path(), 0);
+        secondPath = second.path(); ASSERT_FALSE(secondPath.isEmpty());
+        EXPECT_NE(firstPath, secondPath);
+        EXPECT_TRUE(QFileInfo::exists(firstPath));
+        EXPECT_FALSE(QFileInfo::exists(root.filePath("pf-session-ABC123")));
+        EXPECT_FALSE(QFileInfo::exists(root.filePath("123_match_frame_1.png")));
+        EXPECT_FALSE(QFileInfo::exists(root.filePath("123_1_start.png")));
+        EXPECT_TRUE(QFileInfo::exists(root.filePath("user.png")));
+    }
+    EXPECT_FALSE(QFileInfo::exists(firstPath)); EXPECT_FALSE(QFileInfo::exists(secondPath));
+    EXPECT_TRUE(QFileInfo::exists(root.filePath("user.png")));
+}
 
 TEST(PreviewMemo, RendersEachSourceTimestampOnlyOnce)
 {
@@ -95,6 +130,87 @@ TEST(CutService, RealVideoPreservesResolutionFrameRateAndAudio)
         EXPECT_TRUE(audio);
         EXPECT_GE(metadata.value("format").toObject().value("duration").toString().toDouble(), 26.9);
     }
+}
+
+TEST(MontageExport, SortsDeduplicatesAndNormalizesMixedSilentAndAudioVideos)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    if (ffmpeg.isEmpty()) GTEST_SKIP() << "FFmpeg unavailable";
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto red = temporary.filePath("red.mp4");
+    const auto blue = temporary.filePath("blue.mp4");
+    QProcess generator;
+    generator.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+        "-i", "color=c=red:s=160x90:r=10:d=3", "-c:v", "libx264", red});
+    ASSERT_TRUE(generator.waitForFinished(30000));
+    ASSERT_EQ(generator.exitCode(), 0) << generator.readAllStandardError().toStdString();
+    generator.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+        "-i", "color=c=blue:s=320x180:r=15:d=3", "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+        "-c:v", "libx264", "-c:a", "aac", "-shortest", blue});
+    ASSERT_TRUE(generator.waitForFinished(30000));
+    ASSERT_EQ(generator.exitCode(), 0) << generator.readAllStandardError().toStdString();
+    pfservices::CutRequest a, b;
+    a.inputPath = blue.toStdWString(); a.startSeconds = 1; a.endSeconds = 2;
+    b.inputPath = red.toStdWString(); b.startSeconds = 0; b.endSeconds = 1;
+    const auto output = temporary.filePath("montage.mp4");
+    std::size_t done = 0, total = 0;
+    const auto exported = pfservices::exportChronologicalMontage({a, b, a}, output.toStdWString(), {},
+        [&](std::size_t completed, std::size_t expected, int) { done = completed; total = expected; }, ffmpeg.toStdString());
+    ASSERT_TRUE(exported.success) << exported.error;
+    EXPECT_EQ(done, 3U); EXPECT_EQ(total, 3U); // two unique clips and final mux
+    pfcore::VideoDecoder decoder;
+    decoder.open(output.toStdString());
+    EXPECT_EQ(decoder.info().width, 160); EXPECT_EQ(decoder.info().height, 90);
+    EXPECT_NEAR(decoder.info().frameRate, 10, .01);
+    EXPECT_TRUE(decoder.info().hasAudio);
+    EXPECT_NEAR(decoder.info().durationSeconds, 2, .3);
+    pfcore::DecodedFrame frame;
+    ASSERT_TRUE(decoder.readNext(frame));
+    ASSERT_GE(frame.rgba.size(), 4U);
+    EXPECT_GT(frame.rgba[0], frame.rgba[2] + 100); // chronological red first
+    decoder.seek(1.5);
+    ASSERT_TRUE(decoder.readNext(frame));
+    EXPECT_GT(frame.rgba[2], frame.rgba[0] + 100); // blue second
+    EXPECT_TRUE(QDir(temporary.path()).entryList({".parallelfinder-montage-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
+}
+
+TEST(MontageExport, CancellationPreservesDestinationAndRemovesStaging)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    if (ffmpeg.isEmpty()) GTEST_SKIP() << "FFmpeg unavailable";
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto source = temporary.filePath("source.mp4");
+    QProcess generator;
+    generator.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+        "-i", "color=c=red:s=160x90:r=10:d=3", "-c:v", "libx264", source});
+    ASSERT_TRUE(generator.waitForFinished(30000));
+    ASSERT_EQ(generator.exitCode(), 0);
+    pfservices::CutRequest a, b;
+    a.inputPath = b.inputPath = source.toStdWString();
+    a.startSeconds = 0; a.endSeconds = 1; b.startSeconds = 1; b.endSeconds = 2;
+    const auto output = temporary.filePath("montage.mp4");
+    { QFile previous(output); ASSERT_TRUE(previous.open(QIODevice::WriteOnly)); previous.write("previous"); }
+    std::stop_source stop;
+    const auto exported = pfservices::exportChronologicalMontage({a, b}, output.toStdWString(), stop.get_token(),
+        [&](std::size_t completed, std::size_t, int) { if (completed > 0) stop.request_stop(); }, ffmpeg.toStdString());
+    EXPECT_FALSE(exported.success); EXPECT_TRUE(exported.cancelled);
+    QFile previous(output); ASSERT_TRUE(previous.open(QIODevice::ReadOnly));
+    EXPECT_EQ(previous.readAll(), "previous");
+    EXPECT_TRUE(QDir(temporary.path()).entryList({".parallelfinder-montage-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
+}
+
+TEST(MontageExport, RejectsEmptyRequestsAndSourceReplacement)
+{
+    QTemporaryDir temporary;
+    const auto path = temporary.filePath("keep.mp4");
+    { QFile sentinel(path); ASSERT_TRUE(sentinel.open(QIODevice::WriteOnly)); sentinel.write("keep"); }
+    EXPECT_FALSE(pfservices::exportChronologicalMontage({}, path.toStdWString()).success);
+    pfservices::CutRequest clip; clip.inputPath = path.toStdWString(); clip.endSeconds = 1;
+    EXPECT_FALSE(pfservices::exportChronologicalMontage({clip}, path.toStdWString()).success);
+    QFile sentinel(path); ASSERT_TRUE(sentinel.open(QIODevice::ReadOnly));
+    EXPECT_EQ(sentinel.readAll(), "keep");
 }
 
 TEST(CutService, ExistingDestinationSurvivesFailedReplacement)

@@ -28,7 +28,8 @@ ComboBox {
         width: 12
         height: 12
         source: "qrc:/qt/qml/PfUi/qml/assets/chevron-right.svg"
-        rotation: 90
+        rotation: control.popup.visible ? 270 : 90
+        Behavior on rotation { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
         opacity: control.enabled ? (control.hovered || control.visualFocus ? 0.95 : 0.65) : 0.3
     }
 
@@ -61,6 +62,8 @@ ComboBox {
     }
 
     popup: Popup {
+        enter: Transition { enabled: !Theme.reducedMotion; NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
+        exit: Transition { enabled: !Theme.reducedMotion; NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.motionDuration; easing.type: Easing.InCubic } }
         y: control.height + 4
         width: control.width
         padding: 4

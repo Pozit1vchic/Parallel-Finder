@@ -156,6 +156,8 @@ ColumnLayout {
                     y: 1
                     radius: 3
                     color: Analysis.busy ? Theme.accent : Theme.sage
+                    Behavior on width { enabled: !Theme.reducedMotion && Analysis.progress > 0; NumberAnimation { duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic } }
+                    Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionChangeDuration } }
                 }
             }
 
@@ -232,6 +234,21 @@ ColumnLayout {
                         anchors.centerIn: parent
                         width: Math.min(parent.width - 32, 560)
                         spacing: 9
+                        Item {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: 82; height: 42
+                            Rectangle { x: 28; y: 20; width: 26; height: 1; color: Theme.hairlineStrong }
+                            Rectangle {
+                                x: 0; y: 3; width: 30; height: 34; radius: 7
+                                color: Theme.accentMuted; border.color: Theme.accent
+                                Text { anchors.centerIn: parent; text: "A"; color: Theme.accent; font.family: Theme.monoFont; font.pixelSize: 14 }
+                            }
+                            Rectangle {
+                                x: 52; y: 3; width: 30; height: 34; radius: 7
+                                color: Theme.sageMuted; border.color: Theme.sage
+                                Text { anchors.centerIn: parent; text: "B"; color: Theme.sage; font.family: Theme.monoFont; font.pixelSize: 14 }
+                            }
+                        }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: Analysis.busy

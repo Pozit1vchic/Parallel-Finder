@@ -6,8 +6,8 @@ import PfUi
 CheckBox {
     id: control
     property string tooltipText: ""
-    implicitHeight: 28
-    height: 28
+    implicitHeight: Math.max(28, contentItem.implicitHeight + 8)
+    height: implicitHeight
     spacing: 9
 
     ToolTip {
@@ -57,13 +57,17 @@ CheckBox {
         color: control.checked ? Theme.accent : Theme.canvas
         border.color: control.activeFocus ? Theme.accent : control.checked ? Theme.accent : Theme.hairline
         border.width: control.activeFocus ? 2 : 1
+        Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
 
         Image {
             anchors.centerIn: parent
             source: "qrc:/qt/qml/PfUi/qml/assets/check.svg"
             sourceSize.width: 13
             sourceSize.height: 13
-            visible: control.checked
+            opacity: control.checked ? 1 : 0
+            scale: control.checked || Theme.reducedMotion ? 1 : 0.7
+            Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionDuration } }
+            Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
             layer.enabled: GraphicsInfo.api !== GraphicsInfo.Software
             layer.effect: MultiEffect { colorization: 1; colorizationColor: Theme.canvas }
         }
@@ -75,5 +79,6 @@ CheckBox {
         verticalAlignment: Text.AlignVCenter
         leftPadding: 27
         font.pixelSize: 11
+        wrapMode: Text.WordWrap
     }
 }

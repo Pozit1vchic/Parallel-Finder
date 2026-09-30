@@ -8,8 +8,7 @@ struct PoseSampleRange { std::size_t begin = 0, end = 0; }; // inclusive endpoin
 
 // Extra held-pose candidates come from contiguous observed limbs, never a
 // lucky frame or interpolated hidden hand. This reuses existing detections.
-inline std::vector<PoseSampleRange> observedPoseRuns(const MotionWindow& window,
-                                                    bool allowHiddenFace = false)
+inline std::vector<PoseSampleRange> observedPoseRuns(const MotionWindow& window)
 {
     std::vector<PoseSampleRange> result;
     std::size_t begin = 0;
@@ -29,18 +28,11 @@ inline std::vector<PoseSampleRange> observedPoseRuns(const MotionWindow& window,
                 && points[j].confidence >= 0.5;
         };
         unsigned mask = 0;
-        const bool completeArms = visible(5) && visible(6) && visible(7)
-            && visible(8) && visible(9) && visible(10);
-        const bool completeLegs = visible(11) && visible(12) && visible(13)
-            && visible(14) && visible(15) && visible(16);
-        // A hidden face is not invented as a nose landmark. Six directly
-        // observed limb joints can support a body-only costume candidate.
-        if ((visible(0) || (allowHiddenFace && completeArms))
-            && visible(5) && visible(6) && visible(9) && visible(10)) {
+        if (visible(0) && visible(5) && visible(6) && visible(9) && visible(10)) {
             if (visible(7)) mask |= 1;
             if (visible(8)) mask |= 2;
         }
-        if ((visible(0) || (allowHiddenFace && completeLegs)) && visible(11) && visible(12)) {
+        if (visible(0) && visible(11) && visible(12)) {
             if (visible(13) && visible(15)) mask |= 4;
             if (visible(14) && visible(16)) mask |= 8;
         }

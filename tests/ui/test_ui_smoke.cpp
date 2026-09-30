@@ -39,7 +39,10 @@ private slots:
     void backendProbeFailureLeavesHonestUnavailableState();
     void settingsAndNumericTypography();
     void appearancePersistsAndRejectsMissingFonts();
-    void resultNavigationWrapsAndScrolls();
+    void resultNavigationStopsAtEnds();
+    void sourcesLiveInsideDropAreaAboveActions();
+    void finiteAnimationsRespectReducedMotion();
+    void idleWorkspaceStopsRequestingFrames();
     void resultArrowKeysWorkAfterSourceButtonFocus();
     void selectsAllResultsWithoutDisplayLimit();
     void exportModesAreSelectable();
@@ -231,7 +234,7 @@ void UiSmokeTests::settingsAndNumericTypography()
     QVERIFY(popup);
     auto* sources = window->findChild<QObject*>("sourcesRail");
     QVERIFY(sources);
-    QVERIFY(sources->findChild<QObject*>("costumeModeCheck"));
+    QVERIFY(!sources->findChild<QObject*>("costumeModeCheck"));
     QVERIFY(!popup->findChild<QObject*>("costumeModeCheck"));
     QVERIFY(QMetaObject::invokeMethod(popup, "open"));
     QTRY_VERIFY(popup->property("opened").toBool());
@@ -296,7 +299,91 @@ void UiSmokeTests::appearancePersistsAndRejectsMissingFonts()
     }
 }
 
-void UiSmokeTests::resultNavigationWrapsAndScrolls()
+void UiSmokeTests::idleWorkspaceStopsRequestingFrames()
+{
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    auto* window = loadWindow(engine);
+    QVERIFY(window);
+    QTest::qWait(600); // initial font/image loading and probe publication
+    QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+    QVERIFY(frames.isValid());
+    QTest::qWait(350);
+    QVERIFY2(frames.count() <= 3, qPrintable(QString("Idle workspace rendered %1 frames").arg(frames.count())));
+}
+
+void UiSmokeTests::finiteAnimationsRespectReducedMotion()
+{
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(R"(
+import QtQuick
+import PfUi
+Item {
+    width: 800; height: 600
+    function reduce(value) { Theme.reducedMotion = value }
+    function swap(id) { panel.record = {id: id, matchType: 'pose', leftStart: id, leftEnd: id + 1} }
+    ComparisonView { id: panel; objectName: "animationPanel"; width: 300; height: 400 }
+    CollapsibleSection { objectName: "animationDisclosure"; x: 320; width: 200; Rectangle { width: 200; height: 100 } }
+    ResultsRail { objectName: "animationResults"; x: 530; width: 270; height: 600; results: [{id: 1, similarity: .8}, {id: 2, similarity: .9}] }
+})", QUrl());
+    std::unique_ptr<QObject> root(component.create());
+    QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+    auto* panel = root->findChild<QObject*>("animationPanel");
+    auto* disclosure = root->findChild<QObject*>("animationDisclosure");
+    QVERIFY(panel && disclosure);
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "reduce", Q_ARG(QVariant, false)));
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "swap", Q_ARG(QVariant, 1)));
+    QVERIFY(panel->property("transitionRunning").toBool());
+    QTRY_VERIFY_WITH_TIMEOUT(!panel->property("transitionRunning").toBool(), 1000);
+    QCOMPARE(panel->property("pairSignalPhase").toDouble(), 0.0);
+    disclosure->setProperty("expanded", true);
+    QTRY_COMPARE(disclosure->property("reveal").toDouble(), 1.0);
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "swap", Q_ARG(QVariant, 2)));
+    QVERIFY(panel->property("transitionRunning").toBool());
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "reduce", Q_ARG(QVariant, true)));
+    QVERIFY(!panel->property("transitionRunning").toBool());
+    QCOMPARE(panel->property("pairSignalPhase").toDouble(), 0.0);
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "swap", Q_ARG(QVariant, 3)));
+    QVERIFY(!panel->property("transitionRunning").toBool());
+    disclosure->setProperty("expanded", false);
+    QCOMPARE(disclosure->property("reveal").toDouble(), 0.0);
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "reduce", Q_ARG(QVariant, false)));
+    disclosure->setProperty("expanded", true);
+    QTest::qWait(30);
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "reduce", Q_ARG(QVariant, true)));
+    QCOMPARE(disclosure->property("reveal").toDouble(), 1.0);
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "reduce", Q_ARG(QVariant, false)));
+}
+
+void UiSmokeTests::sourcesLiveInsideDropAreaAboveActions()
+{
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    auto* window = loadWindow(engine);
+    QVERIFY(window);
+    auto* sources = window->findChild<QObject*>("sourcesRail");
+    QVERIFY(sources);
+    sources->setProperty("sourceFiles", QStringList{"D:/one.mp4", "D:/two.mp4"});
+    auto* list = sources->findChild<QQuickItem*>("loadedSourcesList");
+    auto* drop = sources->findChild<QQuickItem*>("sourceDropArea");
+    auto* remove = sources->findChild<QQuickItem*>("removeSourceButton");
+    auto* clear = sources->findChild<QQuickItem*>("clearSourcesButton");
+    QVERIFY(list && drop && remove && clear);
+    QCOMPARE(list->parentItem(), drop);
+    QTest::qWait(50);
+    QVERIFY(list->mapToScene(QPointF(0, list->height())).y() < clear->mapToScene(QPointF()).y());
+    QVERIFY(!remove->isEnabled());
+    const auto capture = qEnvironmentVariable("PF_UI_CAPTURE_DIR");
+    if (!capture.isEmpty()) { QDir().mkpath(capture); QVERIFY(window->grabWindow().save(capture + "/loaded-sources.png")); }
+    sources->setProperty("selectedSourceIndex", 1);
+    QVERIFY(remove->isEnabled());
+    sources->setProperty("sourceFiles", QStringList{});
+    QVERIFY(!remove->isEnabled()); QVERIFY(!clear->isEnabled());
+}
+
+void UiSmokeTests::resultNavigationStopsAtEnds()
 {
     pfui::AppInfo::registerQmlTypes();
     QQmlApplicationEngine engine;
@@ -309,9 +396,14 @@ void UiSmokeTests::resultNavigationWrapsAndScrolls()
     QVERIFY(QMetaObject::invokeMethod(rail.get(), "selectNext"));
     QCOMPARE(rail->property("selectedIndex").toInt(), 1);
     QVERIFY(QMetaObject::invokeMethod(rail.get(), "selectNext"));
+    QCOMPARE(rail->property("selectedIndex").toInt(), 1);
+    QVERIFY(QMetaObject::invokeMethod(rail.get(), "selectPrevious"));
     QCOMPARE(rail->property("selectedIndex").toInt(), 2);
     QVERIFY(QMetaObject::invokeMethod(rail.get(), "selectPrevious"));
-    QCOMPARE(rail->property("selectedIndex").toInt(), 1);
+    QCOMPARE(rail->property("selectedIndex").toInt(), 2);
+    QVERIFY(QMetaObject::invokeMethod(rail.get(), "selectNext"));
+    QVERIFY(QMetaObject::invokeMethod(rail.get(), "goToTop"));
+    QCOMPARE(rail->property("selectedIndex").toInt(), 2);
 }
 
 
@@ -336,14 +428,15 @@ void UiSmokeTests::resultArrowKeysWorkAfterSourceButtonFocus()
     window->requestActivate();
     QTRY_VERIFY(window->isActive());
     for (const auto key : {Qt::Key_Down, Qt::Key_Up}) {
-        window->setProperty("selectedRecord", QVariantMap{{"id", 2}});
-        window->setProperty("selectedResultIndex", 2);
+        const int initial = key == Qt::Key_Down ? 2 : 1;
+        window->setProperty("selectedRecord", QVariantMap{{"id", initial}});
+        window->setProperty("selectedResultIndex", initial);
         button->forceActiveFocus();
         QTRY_VERIFY(button->hasActiveFocus());
         const auto before = selected.count();
         QTest::keyClick(window, key);
         QTRY_COMPARE(selected.count(), before + 1);
-        QCOMPARE(selected.last().first().toInt(), 1);
+        QCOMPARE(selected.last().first().toInt(), key == Qt::Key_Down ? 1 : 2);
     }
     // Typing and modal settings retain ownership of their arrow keys.
     control.setData("import QtQuick\nimport QtQuick.Controls.Basic\nTextField { text: 'abc' }", QUrl());
@@ -379,8 +472,25 @@ void UiSmokeTests::selectsAllResultsWithoutDisplayLimit()
     QCOMPARE(selection.size(), 200);
     QVERIFY(selection.contains("0"));
     QVERIFY(selection.contains("199"));
+    QVERIFY(rail->findChild<QObject*>("clearResultsSelectionButton")->property("enabled").toBool());
+    QVERIFY(!rail->findChild<QObject*>("selectAllResultsButton")->property("enabled").toBool());
+    auto* sort = rail->findChild<QObject*>("resultSortCombo");
+    QVERIFY(sort);
+    sort->setProperty("currentIndex", 1);
+    QVERIFY(QMetaObject::invokeMethod(sort, "activated", Q_ARG(int, 1)));
+    QVERIFY(!rail->property("sortDescending").toBool());
+    sort->setProperty("currentIndex", 4);
+    QVERIFY(QMetaObject::invokeMethod(sort, "activated", Q_ARG(int, 4)));
+    QCOMPARE(rail->property("sortCriterion").toString(), QStringLiteral("time"));
+    for (int i = 0; i < 6; ++i) {
+        sort->setProperty("currentIndex", i);
+        QVERIFY(QMetaObject::invokeMethod(sort, "activated", Q_ARG(int, i)));
+        QCOMPARE(rail->property("sortCriterion").toString(), i >= 4 ? QStringLiteral("time") : i >= 2 ? QStringLiteral("scene") : QStringLiteral("movement"));
+        QCOMPARE(rail->property("sortDescending").toBool(), i < 4 ? i % 2 == 0 : i == 5);
+    }
     QVERIFY(QMetaObject::invokeMethod(rail.get(), "clearSelection"));
     QCOMPARE(rail->property("selectedRows").value<QJSValue>().toVariant().toMap().size(), 0);
+    QVERIFY(!rail->findChild<QObject*>("clearResultsSelectionButton")->property("enabled").toBool());
 }
 
 void UiSmokeTests::exportModesAreSelectable()
@@ -411,6 +521,15 @@ void UiSmokeTests::exportModesAreSelectable()
     QCOMPARE(popup->property("selectedNumbering").toInt(), 1);
     QVERIFY(click("videoNumberingButton"));
     QCOMPARE(popup->property("selectedNumbering").toInt(), 0);
+    auto* merge = popup->findChild<QObject*>("mergeChronologicalCheck");
+    QVERIFY(merge);
+    merge->setProperty("checked", true);
+    QVERIFY(popup->property("mergeChronological").toBool());
+    QCOMPARE(popup->property("selectedCutMode").toInt(), 0);
+    QVERIFY(!popup->findChild<QQuickItem*>("fastCutButton")->isEnabled());
+    const auto capture = qEnvironmentVariable("PF_UI_CAPTURE_DIR");
+    if (!capture.isEmpty()) { QDir().mkpath(capture); QTest::qWait(150); QVERIFY(window->grabWindow().save(capture + "/montage-export.png")); }
+    merge->setProperty("checked", false);
 }
 
 void UiSmokeTests::advancedOpensOnFirstClickAndStatusTranslates()

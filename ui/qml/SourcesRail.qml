@@ -30,6 +30,11 @@ Rectangle {
     signal analyzeRequested()
     implicitWidth: Theme.sidePanelWidth; color: Theme.rail; radius: Theme.radiusCard; border.color: Theme.border
 
+    onSourceFilesChanged: {
+        if (selectedSourceIndex >= sourceFiles.length) selectedSourceIndex = -1
+        if (sourceFlick) sourceFlick.contentY = 0
+    }
+
     function sourceName(path) {
         const pieces = String(path).replace(/\\/g, "/").split("/")
         return pieces[pieces.length - 1] || path
@@ -78,6 +83,7 @@ Rectangle {
     function markCustom() { Analysis.accuracyPreset = "custom" }
 
     Flickable {
+        id: sourceFlick
         anchors.fill: parent; anchors.margins: 16; anchors.bottomMargin: 100; clip: true; contentWidth: width; contentHeight: Math.max(content.implicitHeight, content.childrenRect.height) + 18
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
@@ -91,29 +97,21 @@ Rectangle {
             }
             DropArea {
                 id: rootDrop
+                objectName: "sourceDropArea"
                 Layout.fillWidth: true
-                width: parent.width; height: 102
+                width: parent.width; height: root.sourceFiles.length > 0 ? Math.min(160, Math.max(78, root.sourceFiles.length * 32 + 16)) : 102
                 Accessible.name: L10n.t("sources.dropTitle")
                 onDropped: if (drop.hasUrls) root.filesRequested(drop.urls)
                 Rectangle { anchors.fill: parent; radius: Theme.radiusButton; color: parent.containsDrag ? Theme.accentMuted : Theme.well
                     Shape { anchors.fill: parent; ShapePath { strokeColor: rootDrop.containsDrag ? Theme.accent : Theme.hairlineStrong; strokeWidth: 1; strokeStyle: ShapePath.DashLine; dashPattern: [4, 4]; fillColor: "transparent"; PathRectangle { x: 0.5; y: 0.5; width: rootDrop.width - 1; height: rootDrop.height - 1; radius: Theme.radiusButton } } }
-                    Column { anchors.centerIn: parent; width: parent.width - 24; spacing: 7
+                    Column { visible: root.sourceFiles.length === 0; anchors.centerIn: parent; width: parent.width - 24; spacing: 7
                         Text { font.family: Theme.fontFamily; width: parent.width; horizontalAlignment: Text.AlignHCenter; text: L10n.t("sources.dropTitle"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap; maximumLineCount: 2; clip: true }
                         Text { font.family: Theme.fontFamily; width: parent.width; horizontalAlignment: Text.AlignHCenter; text: L10n.t("sources.dropHint"); color: Theme.textSecondary; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap; maximumLineCount: 2; clip: true }
                     }
                 }
-            }
-            RowLayout { Layout.fillWidth: true; spacing: 7
-                PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.add"); onClicked: root.filesRequested([]) }
-                PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.folder"); quiet: true; onClicked: root.folderRequested() }
-            }
-            RowLayout { Layout.fillWidth: true; spacing: 7
-                PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.clear"); quiet: true; enabled: root.sourceFiles.length > 0; onClicked: root.clearRequested() }
-                PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.remove"); quiet: true; enabled: root.selectedSourceIndex >= 0; onClicked: root.removeRequested(root.selectedSourceIndex) }
-            }
             ListView {
-                Layout.fillWidth: true
-                width: parent.width; height: root.sourceFiles.length > 0 ? Math.min(128, root.sourceFiles.length * 30) : 34; clip: true; model: root.sourceFiles; focus: true; activeFocusOnTab: true
+                objectName: "loadedSourcesList"; anchors.fill: parent; anchors.margins: 8; visible: root.sourceFiles.length > 0; boundsBehavior: Flickable.StopAtBounds; clip: true; model: root.sourceFiles; focus: true; activeFocusOnTab: true
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 Accessible.name: L10n.t("sources.title")
                 Keys.onUpPressed: { root.selectedSourceIndex = Math.max(0, root.selectedSourceIndex < 0 ? 0 : root.selectedSourceIndex - 1); positionViewAtIndex(root.selectedSourceIndex, ListView.Contain); event.accepted = true }
                 Keys.onDownPressed: { root.selectedSourceIndex = Math.min(root.sourceFiles.length - 1, root.selectedSourceIndex < 0 ? 0 : root.selectedSourceIndex + 1); positionViewAtIndex(root.selectedSourceIndex, ListView.Contain); event.accepted = true }
@@ -124,6 +122,15 @@ Rectangle {
                     MouseArea { anchors.fill: parent; onClicked: root.selectedSourceIndex = index }
                 }
                 Text { font.family: Theme.fontFamily; anchors.centerIn: parent; visible: root.sourceFiles.length === 0; text: L10n.t("sources.empty"); color: Theme.textDisabled; font.pixelSize: 10 }
+            }
+            }
+            RowLayout { Layout.fillWidth: true; spacing: 7
+                PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.add"); onClicked: root.filesRequested([]) }
+                PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.folder"); quiet: true; onClicked: root.folderRequested() }
+            }
+            RowLayout { Layout.fillWidth: true; spacing: 7
+                PfButton { objectName: "clearSourcesButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.clear"); quiet: true; enabled: root.sourceFiles.length > 0; onClicked: root.clearRequested() }
+                PfButton { objectName: "removeSourceButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.remove"); quiet: true; enabled: root.selectedSourceIndex >= 0 && root.selectedSourceIndex < root.sourceFiles.length; onClicked: root.removeRequested(root.selectedSourceIndex) }
             }
             Rectangle { Layout.fillWidth: true; width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: accuracyCard.implicitHeight + 24
                 Column { id: accuracyCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
@@ -149,7 +156,6 @@ Rectangle {
                     }
                     PfCheckBox { text: L10n.t("search.normalize"); tooltipText: L10n.t("search.normalizeHint"); checked: Analysis.normalizeSize; onToggled: Analysis.normalizeSize = checked }
                     PfCheckBox { text: L10n.t("search.mirror"); tooltipText: L10n.t("search.mirrorHint"); checked: Analysis.mirrorPoses; onToggled: Analysis.mirrorPoses = checked }
-                    PfCheckBox { objectName: "costumeModeCheck"; text: L10n.t("search.costume"); tooltipText: L10n.t("search.costumeHint"); checked: Analysis.costumeMode; enabled: !Analysis.busy; onToggled: Analysis.costumeMode = checked }
                 }
             }
             Rectangle {

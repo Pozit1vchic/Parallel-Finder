@@ -39,7 +39,6 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(QString qualityProfile READ qualityProfile WRITE setQualityProfile NOTIFY settingsChanged)
     Q_PROPERTY(QString analysisMode READ analysisMode WRITE setAnalysisMode NOTIFY settingsChanged)
     Q_PROPERTY(bool normalizeSize READ normalizeSize WRITE setNormalizeSize NOTIFY settingsChanged)
-    Q_PROPERTY(bool costumeMode READ costumeMode WRITE setCostumeMode NOTIFY settingsChanged)
     Q_PROPERTY(bool mirrorPoses READ mirrorPoses WRITE setMirrorPoses NOTIFY settingsChanged)
     Q_PROPERTY(QString modelPath READ modelPath NOTIFY settingsChanged)
     Q_PROPERTY(QString modelChoice READ modelChoice NOTIFY settingsChanged)
@@ -88,7 +87,6 @@ public:
     QString qualityProfile() const { return qualityProfile_; }
     QString analysisMode() const { return analysisMode_; }
     bool normalizeSize() const noexcept { return normalizeSize_; }
-    bool costumeMode() const noexcept { return costumeMode_; }
     bool mirrorPoses() const noexcept { return mirrorPoses_; }
     QString modelPath() const { return modelPath_; }
     QString modelChoice() const { return modelChoice_; }
@@ -126,7 +124,6 @@ public:
     void setAnalysisMode(const QString& value);
     void setNormalizeSize(bool value);
     void setMirrorPoses(bool value);
-    void setCostumeMode(bool value);
     void setProcessingThreads(int value);
 
     Q_INVOKABLE void setModelPath(const QString& value);
@@ -141,7 +138,8 @@ public:
                                    int cutMode,
                                    const QString& outputFolder,
                                    const QString& prefix,
-                                   const QVariantList& selectedIndexes);
+                                   const QVariantList& selectedIndexes,
+                                   bool mergeChronological = false);
     Q_INVOKABLE bool exportTheme(const QString& path, const QVariantMap& theme) const;
     Q_INVOKABLE QVariantMap importTheme(const QString& path) const;
     Q_INVOKABLE QString videoSourceUrl(const QString& sourcePath) const;
@@ -201,7 +199,6 @@ private:
     QString analysisMode_ = QStringLiteral("motion");
     bool normalizeSize_ = true;
     bool mirrorPoses_ = true;
-    bool costumeMode_ = false;
     QString modelPath_;
     QString modelChoice_;
     QString modelStatus_;

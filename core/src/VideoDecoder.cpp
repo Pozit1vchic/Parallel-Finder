@@ -356,6 +356,7 @@ void VideoDecoder::open(const std::string& path, VideoDecodeOptions options)
     if (!impl_->packet || !impl_->decoded) { close(); throw std::runtime_error("allocate decode buffers failed"); }
 
     impl_->metadata.width = impl_->codec->width;
+    impl_->metadata.hasAudio = av_find_best_stream(impl_->format, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0) >= 0;
     impl_->metadata.height = impl_->codec->height;
     impl_->metadata.durationSeconds = stream->duration == AV_NOPTS_VALUE
         ? (format->duration == AV_NOPTS_VALUE ? 0.0 : format->duration / static_cast<double>(AV_TIME_BASE))

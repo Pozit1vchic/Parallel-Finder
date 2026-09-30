@@ -20,6 +20,13 @@ Rectangle {
     radius: Theme.radiusCard
     border.color: Theme.border
     property var visibleResults: []
+    readonly property int selectedCount: visibleResults.filter(function(item) { return selectedRows[item.id] === true }).length
+    readonly property int currentVisibleIndex: visibleResults.findIndex(function(item) { return Number(item.id) === root.selectedIndex })
+    function goToTop() {
+        if (!visibleResults.length) return
+        root.resultSelected(Number(visibleResults[0].id))
+        resultList.positionViewAtBeginning()
+    }
 
     function movementSimilarity(item) {
         return Number(item.similarity || 0)
@@ -39,12 +46,6 @@ Rectangle {
 
     function timeValue(item) {
         return Number(item.leftStart || 0)
-    }
-
-    function criterionLabel() {
-        if (sortCriterion === "scene") return L10n.t("results.sceneSimilarity")
-        if (sortCriterion === "time") return L10n.t("results.time")
-        return L10n.t("results.score")
     }
 
     function compareValues(a, b) {
@@ -79,14 +80,16 @@ Rectangle {
     function selectPrevious() {
         if (!visibleResults.length) return
         const current = visibleResults.findIndex(function(item) { return Number(item.id) === root.selectedIndex })
-        const target = current <= 0 ? visibleResults[visibleResults.length - 1] : visibleResults[current - 1]
+        if (current <= 0) return
+        const target = visibleResults[current - 1]
         root.resultSelected(Number(target.id))
     }
 
     function selectNext() {
         if (!visibleResults.length) return
         const current = visibleResults.findIndex(function(item) { return Number(item.id) === root.selectedIndex })
-        const target = current < 0 || current >= visibleResults.length - 1 ? visibleResults[0] : visibleResults[current + 1]
+        if (current >= visibleResults.length - 1) return
+        const target = visibleResults[current < 0 ? 0 : current + 1]
         root.resultSelected(Number(target.id))
     }
 
@@ -105,8 +108,8 @@ Rectangle {
             Layout.fillWidth: true
             visible: root.visibleResults.length > 0
             spacing: 6
-            PfButton { Layout.fillWidth: true; text: L10n.t("results.selectAll"); onClicked: root.selectAll() }
-            PfButton { Layout.fillWidth: true; text: L10n.t("results.clearSelection"); onClicked: root.clearSelection() }
+            PfButton { objectName: "selectAllResultsButton"; Layout.fillWidth: true; quiet: true; enabled: root.selectedCount < root.visibleResults.length; text: L10n.t("results.selectAll"); onClicked: root.selectAll() }
+            PfButton { objectName: "clearResultsSelectionButton"; Layout.fillWidth: true; quiet: true; enabled: root.selectedCount > 0; text: L10n.t("results.clearSelection"); onClicked: root.clearSelection() }
         }
 
         ColumnLayout {
@@ -144,7 +147,7 @@ Rectangle {
                 iconSource: "qrc:/qt/qml/PfUi/qml/assets/chevron-right.svg"
                 iconRotation: -90
                 accessibleName: L10n.t("results.previous")
-                enabled: root.visibleResults.length > 0
+                enabled: root.currentVisibleIndex > 0
                 onClicked: root.selectPrevious()
             }
             Item { Layout.fillWidth: true; Layout.minimumWidth: 0 }
@@ -154,7 +157,7 @@ Rectangle {
                 iconSource: "qrc:/qt/qml/PfUi/qml/assets/chevron-right.svg"
                 iconRotation: 90
                 accessibleName: L10n.t("results.next")
-                enabled: root.visibleResults.length > 0
+                enabled: root.currentVisibleIndex < root.visibleResults.length - 1
                 onClicked: root.selectNext()
             }
         }
@@ -166,68 +169,49 @@ Rectangle {
             color: Theme.hairline
         }
 
-        ColumnLayout {
+        Text {
             Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            Layout.preferredHeight: root.visibleResults.length > 0 ? implicitHeight : 0
             visible: root.visibleResults.length > 0
-            spacing: 6
-
-            Text {
-                font.family: Theme.fontFamily
-                text: L10n.t("results.sortBy")
-                color: Theme.textSecondary
-                font.pixelSize: 10
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 6
-                PfButton {
-                    Layout.fillWidth: true
-                    text: L10n.t("results.score")
-                    quiet: root.sortCriterion !== "movement"
-                    onClicked: root.sortCriterion = "movement"
-                }
-                PfButton {
-                    Layout.fillWidth: true
-                    text: L10n.t("results.scene")
-                    quiet: root.sortCriterion !== "scene"
-                    onClicked: root.sortCriterion = "scene"
-                }
-                PfButton {
-                    Layout.fillWidth: true
-                    text: L10n.t("results.time")
-                    quiet: root.sortCriterion !== "time"
-                    onClicked: root.sortCriterion = "time"
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 6
-                PfButton {
-                    Layout.fillWidth: true
-                    text: root.criterionLabel() + (root.sortDescending ? " ↓" : " ↑")
-                    quiet: true
-                    onClicked: root.sortDescending = !root.sortDescending
-                }
-                PfButton {
-                    Layout.fillWidth: true
-                    text: L10n.t("results.export")
-                    enabled: Object.keys(root.selectedRows).length > 0
-                    quiet: Object.keys(root.selectedRows).length === 0
-                    onClicked: root.exportRequested()
-                }
+            text: L10n.t("results.sortBy")
+            font.family: Theme.fontFamily
+            font.pixelSize: 10
+            color: Theme.textSecondary
+        }
+        PfComboBox {
+            objectName: "resultSortCombo"
+            Layout.fillWidth: true
+            visible: root.visibleResults.length > 0
+            Accessible.name: L10n.t("results.sortBy")
+            model: [L10n.t("results.scoreHigh"), L10n.t("results.scoreLow"),
+                    L10n.t("results.sceneHigh"), L10n.t("results.sceneLow"),
+                    L10n.t("results.timeEarly"), L10n.t("results.timeLate")]
+            currentIndex: root.sortCriterion === "time" ? (root.sortDescending ? 5 : 4)
+                : root.sortCriterion === "scene" ? (root.sortDescending ? 2 : 3)
+                : (root.sortDescending ? 0 : 1)
+            onActivated: function(index) {
+                root.sortCriterion = index >= 4 ? "time" : index >= 2 ? "scene" : "movement"
+                root.sortDescending = index < 4 ? index % 2 === 0 : index === 5
             }
         }
+        PfButton {
+            Layout.fillWidth: true
+            visible: root.visibleResults.length > 0
+            text: L10n.t("results.export") + (root.selectedCount > 0 ? " · " + root.selectedCount : "")
+            enabled: root.selectedCount > 0
+            primary: enabled
+            onClicked: root.exportRequested()
+        }
 
-        ListView {
-            id: resultList
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.minimumWidth: 0
             Layout.minimumHeight: 80
+        ListView {
+            id: resultList
+            anchors.fill: parent
+            objectName: "resultList"
+            boundsBehavior: Flickable.StopAtBounds
+            keyNavigationWraps: false
             clip: true
             spacing: 5
             model: root.visibleResults
@@ -240,11 +224,42 @@ Rectangle {
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
             delegate: Rectangle {
+                id: resultCard
+                property real entranceOffset: 0
+                transform: Translate { y: resultCard.entranceOffset }
+                Component.onCompleted: {
+                    // Only six first-visible cards, never thousands of rows.
+                    if (index < 6 && !Theme.reducedMotion) {
+                        opacity = 0; entranceOffset = 6; cardReveal.start()
+                    }
+                }
+                SequentialAnimation {
+                    id: cardReveal
+                    PauseAnimation { duration: Theme.reducedMotion ? 0 : Math.max(0, index) * 18 }
+                    ParallelAnimation {
+                        NumberAnimation { target: resultCard; property: "opacity"; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic }
+                        NumberAnimation { target: resultCard; property: "entranceOffset"; to: 0; duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic }
+                    }
+                }
+                Connections {
+                    target: Theme
+                    function onReducedMotionChanged() {
+                        if (!Theme.reducedMotion) return
+                        cardReveal.stop(); resultCard.opacity = 1; resultCard.entranceOffset = 0
+                    }
+                }
                 width: Math.max(0, resultList.width - 8)
                 height: Math.max(96, rowContent.implicitHeight + 16)
                 radius: 7
                 color: root.selectedRows[modelData.id] ? Theme.accentMuted : Theme.surfaceRaised
                 border.color: Number(modelData.id) === root.selectedIndex ? Theme.accent : Theme.border
+                Behavior on border.color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
+                Rectangle {
+                    x: 0; y: 14; width: 2; height: parent.height - 28; radius: 1
+                    color: Theme.accent
+                    opacity: Number(modelData.id) === root.selectedIndex ? 1 : 0
+                    Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration } }
+                }
                 Accessible.name: L10n.matchLabel(modelData) + " " + Math.round(root.movementSimilarity(modelData) * 100) + "%"
                 Accessible.role: Accessible.ListItem
 
@@ -327,6 +342,21 @@ Rectangle {
                 font.pixelSize: 12
                 lineHeight: 1.25
             }
+        }
+        PfButton {
+            objectName: "resultsToTopButton"
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 10
+            compact: true
+            text: "↑ " + L10n.t("results.toTop")
+            opacity: resultList.contentY > 32 ? 1 : 0
+            scale: 0.94 + 0.06 * opacity
+            visible: opacity > 0
+            enabled: resultList.contentY > 32
+            Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
+            onClicked: root.goToTop()
+        }
         }
     }
 

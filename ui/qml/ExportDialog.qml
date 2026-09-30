@@ -9,7 +9,8 @@ Popup {
     id: root
     objectName: "exportDialog"
     readonly property int selectedNumbering: exportNumbering.currentIndex
-    readonly property int selectedCutMode: cutMode.currentIndex
+    readonly property int selectedCutMode: mergeChronological ? 0 : cutMode.currentIndex
+    readonly property bool mergeChronological: selectedFormat === "FFMPEG" && mergeCheck.checked
     readonly property string selectedFormat: ["FFMPEG", "JSON", "CSV", "TXT"][exportFormat.currentIndex] || "FFMPEG"
     readonly property string fileBaseName: prefixField.text
     property var rootWindow
@@ -19,7 +20,7 @@ Popup {
     property bool userPositioned: false
     modal: true; focus: true; padding: 0
     width: Math.min(600, rootWindow ? rootWindow.width - 40 : 560)
-    height: Math.min(620, rootWindow ? rootWindow.height - 32 : 580)
+    height: Math.min(700, rootWindow ? rootWindow.height - 32 : 660)
     x: 0; y: 0
     transformOrigin: Item.Center
     enter: Transition {
@@ -63,11 +64,17 @@ Popup {
             folderDialog.currentFolder = "file:///" + root.outputFolder.replace(/\\/g, "/")
         folderDialog.open()
     }
-    contentItem: Column { anchors.fill: parent; anchors.margins: 24; spacing: 14
-        Item { width: parent.width; height: 38
+    contentItem: Flickable {
+        clip: true
+        contentWidth: width
+        contentHeight: exportColumn.height + 48
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        Column { id: exportColumn; x: 24; y: 24; width: parent.width - 48; spacing: 14
+        Item { width: parent.width; height: 56
             Column { anchors.left: parent.left; anchors.top: parent.top; width: parent.width - 42; spacing: 4
                 Text { text: L10n.t("export.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 25 }
-                Text { text: Object.keys(root.selectedRows).length + " " + L10n.t("export.selected"); color: Theme.textSecondary; font.pixelSize: 12 }
+                Text { font.family: Theme.fontFamily; text: Object.keys(root.selectedRows).length + " " + L10n.t("export.selected"); color: Theme.textSecondary; font.pixelSize: 12 }
             }
             PfIconButton { anchors.right: parent.right; anchors.top: parent.top; iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); onClicked: root.close() }
             MouseArea {
@@ -86,16 +93,24 @@ Popup {
             }
         }
         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-        Text { text: L10n.t("export.format"); color: Theme.textSecondary; font.pixelSize: 11 }
+        Text { font.family: Theme.fontFamily; text: L10n.t("export.format"); color: Theme.textSecondary; font.pixelSize: 11 }
         PfComboBox { id: exportFormat; width: parent.width; model: [L10n.t("export.videoFormat"), "JSON", "CSV", "TXT"]; currentIndex: 0; Accessible.name: L10n.t("export.format") }
-        Text { text: L10n.t("export.numbering"); color: Theme.textSecondary; font.pixelSize: 11 }
-            Row { width: parent.width; spacing: 8
+        PfCheckBox {
+            id: mergeCheck
+            objectName: "mergeChronologicalCheck"
+            width: parent.width
+            visible: root.selectedFormat === "FFMPEG"
+            enabled: !Analysis.exportBusy
+            text: L10n.t("export.mergeChronological")
+        }
+        Text { font.family: Theme.fontFamily; text: L10n.t("export.numbering"); color: Theme.textSecondary; font.pixelSize: 11 }
+            Row { width: parent.width; spacing: 8; enabled: !root.mergeChronological
                 PfButton { width: (parent.width - 8) / 2; objectName: "videoNumberingButton"; text: L10n.t("export.asVideo"); selected: exportNumbering.currentIndex === 0; onClicked: exportNumbering.currentIndex = 0 }
                 PfButton { width: (parent.width - 8) / 2; objectName: "sortNumberingButton"; text: L10n.t("export.bySort"); selected: exportNumbering.currentIndex === 1; onClicked: exportNumbering.currentIndex = 1 }
             }
         ComboBox { id: exportNumbering; visible: false; model: [0, 1]; currentIndex: 0 }
-        Text { text: L10n.t("export.cutMode"); color: Theme.textSecondary; font.pixelSize: 11 }
-        Row { width: parent.width; spacing: 8
+        Text { font.family: Theme.fontFamily; text: L10n.t("export.cutMode"); color: Theme.textSecondary; font.pixelSize: 11 }
+        Row { width: parent.width; spacing: 8; enabled: !root.mergeChronological
             PfButton { width: (parent.width - 8) / 2; objectName: "exactCutButton"; text: L10n.t("export.exact"); selected: cutMode.currentIndex === 0; onClicked: cutMode.currentIndex = 0 }
             PfButton { width: (parent.width - 8) / 2; objectName: "fastCutButton"; text: L10n.t("export.fast"); selected: cutMode.currentIndex === 1; onClicked: cutMode.currentIndex = 1 }
         }
@@ -105,17 +120,18 @@ Popup {
             PfButton { width: 102; text: L10n.t("export.chooseFolder"); quiet: true; onClicked: root.chooseFolder() }
         }
         PfTextField { id: prefixField; width: parent.width; text: "frame"; placeholderText: L10n.t("export.prefix"); Accessible.name: L10n.t("export.prefix") }
-        Text {
+        Text { font.family: Theme.fontFamily;
             width: parent.width
             text: root.exportStatus || (root.selectedFormat === "FFMPEG"
-                ? L10n.t("export.ffmpegHint")
+                ? L10n.t(root.mergeChronological ? "export.mergeHint" : "export.ffmpegHint")
                 : L10n.t("export.hint"))
             color: root.exportStatus ? Theme.accent : Theme.textSecondary
             font.pixelSize: 11
             wrapMode: Text.WordWrap
         }
-        PfButton { width: parent.width; primary: true; text: Analysis.exportBusy ? L10n.t("export.running") + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal + " · " + Analysis.exportClipProgress + "%" : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, cutMode.currentIndex, root.outputFolder, prefixField.text, root.selectedIndexes()) }
+        PfButton { width: parent.width; primary: true; text: Analysis.exportBusy ? L10n.t("export.running") + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal + " · " + Analysis.exportClipProgress + "%" : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological) }
         PfButton { width: parent.width; visible: Analysis.exportBusy; text: L10n.t("export.cancel"); onClicked: Analysis.cancelExport() }
+        }
     }
 
     function centerInWindow() {

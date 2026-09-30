@@ -15,6 +15,7 @@ struct VideoInfo {
     double sampleAspectRatio = 1.0;
     double rotationDegrees = 0.0;
     bool variableFrameRate = false;
+    bool hasAudio = false;
 };
 
 struct DecodedFrame {

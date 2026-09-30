@@ -79,7 +79,6 @@ TEST(SettingsStore, SavesAndLoadsAtomically)
     pfservices::SettingsStore store(path.string());
     pfservices::Settings expected;
     expected.provider = "dml";
-    expected.costumeMode = true;
     expected.cacheLimitBytes = 123456;
     expected.processingThreads = 12;
     expected.sceneThreshold = 42.0;
@@ -100,7 +99,6 @@ TEST(SettingsStore, SavesAndLoadsAtomically)
     const auto loaded = store.load(error);
     EXPECT_TRUE(error.empty()) << error;
     EXPECT_EQ(loaded.provider, "dml");
-    EXPECT_TRUE(loaded.costumeMode);
     EXPECT_EQ(loaded.cacheLimitBytes, 123456U);
     EXPECT_EQ(loaded.processingThreads, 12U);
     EXPECT_DOUBLE_EQ(loaded.sceneThreshold, 42.0);

@@ -63,8 +63,6 @@ struct MotionMatcherParams {
     // A shot may support a few independent pairs, not an unlimited hub.
     // Zero disables this diversity quota for diagnostic comparisons.
     std::size_t maxResultsPerShot = 3;
-    // Body-only costume identity needs a visible limb, not a face crop.
-    bool requireObservedBodyForIdentity = false;
     double timeWeight = 0.25;
     bool normalizeSize = true;
     // Compare both the original trajectory and a left/right mirrored copy,
@@ -130,8 +128,7 @@ struct MotionMatcherParams {
     bool requireSameTrackWithinSource = true;
     bool allowStaticFrames = false;
     bool requireAppearance = false;
-    // Required appearance fails closed on absent/weak evidence. Costume
-    // matching may use body evidence but must not bypass identity checks.
+    // Required appearance fails closed on absent/weak identity evidence.
     double minAppearanceSimilarity = 0.80;
     // Kept for settings compatibility. Appearance is an identity gate only;
     // it deliberately never inflates the user-visible motion similarity.

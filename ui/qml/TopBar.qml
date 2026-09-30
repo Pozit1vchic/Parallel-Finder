@@ -44,7 +44,6 @@ Item {
             color: AppInfo.backendIsGpu ? Theme.sageMuted : Theme.surfaceRaised; border.color: Theme.border
             RowLayout { anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 8
                 Rectangle { Layout.alignment: Qt.AlignVCenter; Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: !AppInfo.backendInitializing && AppInfo.backendAvailable(Analysis.providerChoice) ? "#22C55E" : Theme.textDisabled
-                    SequentialAnimation on opacity { running: AppInfo.backendIsGpu && !Theme.reducedMotion && root.Window.active; loops: Animation.Infinite; NumberAnimation { to: 0.5; duration: 1100 } NumberAnimation { to: 1; duration: 1100 } }
                 }
                 Text { font.family: Theme.fontFamily;
                     id: gpuLabel
