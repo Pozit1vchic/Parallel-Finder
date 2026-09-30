@@ -30,17 +30,18 @@ Item {
     property bool videoMode: false
     property bool playbackReady: false
     property bool pendingSinglePlayback: false
-    readonly property bool playing: player.playbackState === MediaPlayer.PlayingState
+    readonly property var player: playerLoader.item
+    readonly property bool playing: !!player && player.playbackState === MediaPlayer.PlayingState
 
     onRecordChanged: stopPlayback()
     function preparePlayback() {
         stopPlayback()
-        if (!root.previewPlayable) return
+        if (!root.previewPlayable || !player) return
         videoMode = true
         player.source = Analysis.videoSourceUrl(root.sourcePath)
     }
-    function playPrepared() { player.play() }
-    function pausePlayback() { player.pause() }
+    function playPrepared() { if (player) player.play() }
+    function pausePlayback() { if (player) player.pause() }
     function togglePlayback() {
         if (playing) pausePlayback()
         else if (videoMode && playbackReady) playPrepared()
@@ -62,28 +63,35 @@ Item {
     function stopPlayback() {
         pendingSinglePlayback = false
         playbackReady = false
-        player.stop()
-        player.source = ""
+        if (player) {
+            player.stop()
+            player.source = ""
+        }
         videoMode = false
     }
-    MediaPlayer {
-        id: player
-        objectName: "inlineMediaPlayer"
-        videoOutput: inlineVideo
-        audioOutput: AudioOutput { muted: true }
-        onMediaStatusChanged: {
-            if (mediaStatus === MediaPlayer.LoadedMedia) {
-                position = Math.round(root.timestamp * 1000)
-                root.playbackReady = true
+    Loader {
+        id: playerLoader
+        active: !!root.record
+        sourceComponent: Component {
+            MediaPlayer {
+                objectName: "inlineMediaPlayer"
+                videoOutput: videoLoader.item
+                audioOutput: AudioOutput { muted: true }
+                onMediaStatusChanged: {
+                    if (mediaStatus === MediaPlayer.LoadedMedia) {
+                        position = Math.round(root.timestamp * 1000)
+                        root.playbackReady = true
+                    }
+                    if (mediaStatus === MediaPlayer.EndOfMedia) root.playbackFinished()
+                }
+                onErrorOccurred: function(error, errorString) { root.playbackFailed(errorString); root.stopPlayback() }
             }
-            if (mediaStatus === MediaPlayer.EndOfMedia) root.playbackFinished()
         }
-        onErrorOccurred: function(error, errorString) { root.playbackFailed(errorString); root.stopPlayback() }
     }
     Timer {
         interval: 25; repeat: true; running: root.playing
         onTriggered: {
-            if (player.position >= root.playbackEnd * 1000) root.playbackFinished()
+            if (player && player.position >= root.playbackEnd * 1000) root.playbackFinished()
         }
     }
 
@@ -181,13 +189,18 @@ Item {
                         visible: status === Image.Ready && !root.videoMode
                         onStatusChanged: if (status === Image.Error) root.frameUnavailable(root.side)
                     }
-                    VideoOutput {
-                        id: inlineVideo
-                        objectName: "inlineVideoOutput"
+                    Loader {
+                        id: videoLoader
                         anchors.fill: parent
                         anchors.margins: 6 * root.zoom
-                        fillMode: VideoOutput.PreserveAspectFit
-                        visible: root.videoMode
+                        active: !!root.record
+                        sourceComponent: Component {
+                            VideoOutput {
+                                objectName: "inlineVideoOutput"
+                                fillMode: VideoOutput.PreserveAspectFit
+                                visible: root.videoMode
+                            }
+                        }
                     }
                 }
 

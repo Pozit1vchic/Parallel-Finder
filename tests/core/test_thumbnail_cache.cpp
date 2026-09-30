@@ -1,10 +1,31 @@
 #include <gtest/gtest.h>
 
 #include <pfservices/ThumbnailCache.hpp>
+#include <pfservices/PreviewImage.hpp>
+#include <QTemporaryDir>
 
 #include <stdexcept>
 
 namespace {
+
+TEST(ThumbnailCache, FasterPreviewCompressionPreservesEveryPixel)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    QImage original(128, 72, QImage::Format_RGBA8888);
+    for (int y = 0; y < original.height(); ++y)
+        for (int x = 0; x < original.width(); ++x)
+            original.setPixel(x, y, qRgba(x * 7 % 256, y * 11 % 256, (x + y) * 13 % 256,
+                                         (x + 3 * y) % 256));
+    const auto copy = original.copy();
+    const auto path = directory.filePath("preview.png");
+    ASSERT_TRUE(pfservices::saveLosslessPreview(original, path));
+    const QImage restored(path);
+    ASSERT_FALSE(restored.isNull());
+    EXPECT_TRUE(restored.convertToFormat(QImage::Format_RGBA8888) == original);
+    EXPECT_TRUE(original == copy);
+    EXPECT_FALSE(pfservices::saveLosslessPreview(original, directory.filePath("missing/preview.png")));
+}
 
 TEST(ThumbnailCache, DefaultCapacityIsLru64)
 {

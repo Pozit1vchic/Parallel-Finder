@@ -1464,6 +1464,17 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             && windows[i].hasSceneIndex && windows[j].hasSceneIndex
             && windows[i].sceneIndex == windows[j].sceneIndex;
     };
+    const auto identityAllowed = [&](std::size_t i, std::size_t j) {
+        const bool crossTrack = windows[i].sourceId == windows[j].sourceId
+            && params_.requireSameTrackWithinSource
+            && windows[i].trackId != 0 && windows[j].trackId != 0
+            && differentTrackSegment(windows[i], windows[j]);
+        // Apply exactly the identity gate of comparePrepared before counting
+        // ANN slots. Contradictory people must not hide a valid other shot.
+        // Optional identity matching remains optional when that gate is off.
+        return !(crossTrack || params_.requireAppearance)
+            || identityEvidence(windows[i], windows[j], params_).verified;
+    };
     for (const bool staticWindow : {false, true}) {
         std::vector<std::size_t> group;
         group.reserve(preparedCount);
@@ -1488,13 +1499,15 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 // Sliding windows from one long shot can occupy all 96 ANN
                 // slots. They are rejected later, hiding a valid other shot.
                 // Grow retrieval only when needed, counting usable neighbours
-                // rather than same-shot observations. Keep expensive DTW bounded.
+                // rather than same-shot or disallowed-identity observations.
+                // Keep expensive DTW bounded.
                 const auto limit = std::min(group.size(), candidateCount * 8);
                 for (auto requested = candidateCount;; requested = std::min(limit, requested * 2)) {
                     std::size_t usable = 0;
                     for (const auto neighbour : index.query(queryEmbedding, requested, requested * 2)) {
                         if (neighbour.id == i || sameKnownShot(i, neighbour.id)
                             || neighbour.similarity + 1e-9 < retrievalThreshold) continue;
+                        if (!identityAllowed(i, neighbour.id)) continue;
                         const auto left = std::min(i, neighbour.id);
                         const auto right = std::max(i, neighbour.id);
                         candidatePairs.insert((static_cast<std::uint64_t>(left) << 32U)

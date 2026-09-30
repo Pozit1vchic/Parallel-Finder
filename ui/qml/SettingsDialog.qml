@@ -147,6 +147,12 @@ Popup {
         // ring just because the popup was opened with the mouse.
         Qt.callLater(function() { root.forceActiveFocus() })
     }
+    Connections {
+        target: AppInfo
+        function onBackendInitializationChanged() {
+            if (root.visible && !AppInfo.backendInitializing) AppInfo.rescanProviders()
+        }
+    }
 
     function centerInWindow() {
         if (!rootWindow || root.userPositioned) return
@@ -190,6 +196,7 @@ Popup {
     }
     function providerStatusText(id) {
         const revision = AppInfo.providersRevision
+        if (AppInfo.backendInitializing) return L10n.t("settings.providerChecking")
         const key = String(id || "auto").toLowerCase()
         if (key === "auto") return L10n.t("settings.providerAutoHint")
         if (AppInfo.backendAvailable(key)) return "✓ " + L10n.t("settings.providerReady")
@@ -337,7 +344,7 @@ Popup {
                                 Layout.minimumWidth: 0
                                 compact: true
                                 text: AppInfo.providerDownloading ? L10n.t("settings.providerDownloading") : L10n.t("settings.providerDownload")
-                                enabled: !AppInfo.providerDownloading && !AppInfo.providersScanning
+                                enabled: !AppInfo.backendInitializing && !AppInfo.providerDownloading && !AppInfo.providersScanning
                                 onClicked: AppInfo.downloadProvider(Analysis.providerChoice)
                             }
                             PfButton {
@@ -358,7 +365,7 @@ Popup {
                                 wrapMode: Text.WordWrap
                             }
                         }
-                        PfButton { Layout.fillWidth: true; compact: true; text: L10n.t("settings.providerRescan"); enabled: !AppInfo.providersScanning && !AppInfo.providerDownloading; onClicked: AppInfo.rescanProviders() }
+                        PfButton { Layout.fillWidth: true; compact: true; text: L10n.t("settings.providerRescan"); enabled: !AppInfo.backendInitializing && !AppInfo.providersScanning && !AppInfo.providerDownloading; onClicked: AppInfo.rescanProviders() }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.cache"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout { Layout.fillWidth: true; spacing: 8
                             PfTextField { Layout.fillWidth: true; font.family: Theme.monoFont; text: Analysis.cachePath; placeholderText: L10n.t("settings.cachePlaceholder"); Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }

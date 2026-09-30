@@ -5,6 +5,8 @@
 #include <QString>
 #include <QVariantMap>
 #include <thread>
+#include <functional>
+#include <pfgpu/DeviceInfo.hpp>
 
 namespace pfui {
 
@@ -30,6 +32,7 @@ class AppInfo : public QObject {
     Q_PROPERTY(QString providerDownloadState READ providerDownloadState NOTIFY providerDownloadChanged)
     Q_PROPERTY(int providersRevision READ providersRevision NOTIFY providersChanged)
     Q_PROPERTY(bool providersScanning READ providersScanning NOTIFY providersChanged)
+    Q_PROPERTY(bool backendInitializing READ backendInitializing NOTIFY backendInitializationChanged)
 
 public:
     static AppInfo* instance();
@@ -47,6 +50,10 @@ public:
     QString gpuSummary() const;   // display form: "cuda · NVIDIA GeForce RTX 4070"
     QString ortVersion() const;   // ONNX Runtime version, "" when not loaded
     bool backendIsGpu() const;
+    bool backendInitializing() const { return backendInitializing_; }
+    void prepareBackendInitialization();
+    void initializeBackendsAsync(std::function<pfgpu::BackendProbe()> probe = {});
+    void publishBackendProbe(const pfgpu::BackendProbe& probe);
     Q_INVOKABLE bool backendAvailable(const QString& backend) const;
     Q_INVOKABLE QString backendReason(const QString& backend) const;
     Q_INVOKABLE QString providerGuideUrl(const QString& backend) const;
@@ -70,6 +77,7 @@ public:
                     const QString& ortVersion);
 
 signals:
+    void backendInitializationChanged();
     void gpuInfoChanged();
     void providerDownloadChanged();
     void providersChanged();
@@ -87,6 +95,10 @@ private:
     bool providersScanning_ = false;
     QVariantMap installations_;
     std::jthread providerScan_;
+    bool backendInitializing_ = false;
+    bool backendSnapshotReady_ = false;
+    QVariantMap backendStatuses_;
+    std::jthread backendProbe_;
 };
 
 } // namespace pfui

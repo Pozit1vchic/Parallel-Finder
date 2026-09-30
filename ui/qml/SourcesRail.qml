@@ -306,7 +306,7 @@ Rectangle {
                         : (Analysis.modelDownloading
                             ? L10n.t("settings.modelDownloading")
                             : L10n.t("search.start"))
-                    enabled: root.sourceFiles.length === 0 || (!Analysis.busy && !Analysis.modelDownloading)
+                    enabled: root.sourceFiles.length === 0 || (!Analysis.busy && !Analysis.modelDownloading && !AppInfo.backendInitializing)
                     onClicked: root.sourceFiles.length === 0 ? root.filesRequested([]) : root.analyzeRequested()
                     Accessible.name: text
                 }

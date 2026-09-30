@@ -57,7 +57,52 @@ AppInfo::AppInfo(QObject* parent)
     connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, [this] {
         providerScan_.request_stop();
         if (providerScan_.joinable()) providerScan_.join();
+        backendProbe_.request_stop();
+        if (backendProbe_.joinable()) backendProbe_.join();
     });
+}
+
+void AppInfo::prepareBackendInitialization()
+{
+    if (backendInitializing_ || backendSnapshotReady_) return;
+    backendInitializing_ = true;
+    emit backendInitializationChanged();
+}
+
+void AppInfo::initializeBackendsAsync(std::function<pfgpu::BackendProbe()> probe)
+{
+    if (backendProbe_.joinable() || backendSnapshotReady_) return;
+    prepareBackendInitialization();
+    backendProbe_ = std::jthread([this, probe = std::move(probe)](std::stop_token stop) {
+        pfgpu::BackendProbe result;
+        try { result = probe ? probe() : pfgpu::probeBackends(); }
+        catch (const std::exception& error) { result.ortError = error.what(); }
+        if (stop.stop_requested()) return;
+        QMetaObject::invokeMethod(this, [this, result = std::move(result)] {
+            publishBackendProbe(result);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void AppInfo::publishBackendProbe(const pfgpu::BackendProbe& probe)
+{
+    backendStatuses_.clear();
+    backendStatuses_.insert(QStringLiteral("auto"), QVariantMap{{"available", probe.ortLoaded},
+        {"reason", QString::fromStdString(probe.ortError)}});
+    const pfgpu::BackendStatus* selected = nullptr;
+    for (const auto& status : probe.backends) {
+        backendStatuses_.insert(QString::fromLatin1(pfgpu::providerName(status.provider)).toLower(),
+            QVariantMap{{"available", status.available}, {"reason", QString::fromStdString(status.reason)}});
+        if (!selected && status.available) selected = &status;
+    }
+    backendSnapshotReady_ = true;
+    backendInitializing_ = false;
+    setGpuInfo(selected ? QString::fromLatin1(pfgpu::providerName(selected->provider)) : QStringLiteral("cpu"),
+        selected ? QString::fromStdString(selected->deviceName) : QString(),
+        selected && selected->provider != pfgpu::Provider::Cpu, QString::fromStdString(probe.ortVersion));
+    ++providersRevision_;
+    emit backendInitializationChanged();
+    emit providersChanged();
 }
 
 QVariantMap AppInfo::providerInstallation(const QString& backend) const
@@ -67,7 +112,7 @@ QVariantMap AppInfo::providerInstallation(const QString& backend) const
 
 void AppInfo::rescanProviders()
 {
-    if (providersScanning_ || providerDownloading_) return;
+    if (backendInitializing_ || providersScanning_ || providerDownloading_) return;
     providersScanning_ = true;
     emit providersChanged();
     const QStringList roots{
@@ -152,7 +197,11 @@ bool AppInfo::backendIsGpu() const
 
 bool AppInfo::backendAvailable(const QString& backend) const
 {
+    if (backendInitializing_) return false; // never wait on the pfgpu probe mutex in QML
     const auto provider = pfgpu::parseProvider(backend.toStdString());
+    if (!provider) return false;
+    if (backendSnapshotReady_)
+        return backendStatuses_.value(QString::fromLatin1(pfgpu::providerName(*provider))).toMap().value("available").toBool();
     return provider.has_value() && pfgpu::isProviderAvailable(*provider);
 }
 
@@ -170,8 +219,11 @@ QString AppInfo::providerGuideUrl(const QString& backend) const
 
 QString AppInfo::backendReason(const QString& backend) const
 {
+    if (backendInitializing_) return QStringLiteral("Provider initialization in progress");
     const auto provider = pfgpu::parseProvider(backend.toStdString());
     if (!provider.has_value()) return QStringLiteral("Неизвестный провайдер");
+    if (backendSnapshotReady_)
+        return backendStatuses_.value(QString::fromLatin1(pfgpu::providerName(*provider))).toMap().value("reason").toString();
     if (const auto* status = pfgpu::findBackendStatus(*provider))
         return status->available ? QString() : QString::fromStdString(status->reason);
     return QStringLiteral("Провайдер недоступен");
@@ -186,7 +238,7 @@ void AppInfo::downloadProvider(const QString& backend)
         emit providerDownloadChanged();
         return;
     }
-    if (providerDownloading_ || providersScanning_) return;
+    if (backendInitializing_ || providerDownloading_ || providersScanning_) return;
     providerDownloading_ = true;
     providerDownloadState_ = QStringLiteral("checking");
     providerDownloadProgress_ = 0.0;

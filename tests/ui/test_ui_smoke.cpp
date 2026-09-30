@@ -22,6 +22,9 @@
 #include <QVideoSink>
 #include <QSignalSpy>
 #include <functional>
+#include <atomic>
+#include <QElapsedTimer>
+#include <QTimer>
 
 class UiSmokeTests : public QObject {
     Q_OBJECT
@@ -32,6 +35,8 @@ private slots:
     void themeSingletonResolves();
     void appInfoBridgeResolves();
     void gpuInfoPropagatesToQml();
+    void backendProbeDoesNotBlockUiAndPublishesReadiness();
+    void backendProbeFailureLeavesHonestUnavailableState();
     void settingsAndNumericTypography();
     void appearancePersistsAndRejectsMissingFonts();
     void resultNavigationWrapsAndScrolls();
@@ -119,6 +124,51 @@ void UiSmokeTests::appInfoBridgeResolves()
     QVERIFY2(!version.isEmpty(), "AppInfo.version must not be empty");
     QVERIFY2(!backend.isEmpty(), "AppInfo.gpuBackend must not be empty");
     delete item;
+}
+
+void UiSmokeTests::backendProbeDoesNotBlockUiAndPublishesReadiness()
+{
+    pfui::AppInfo info;
+    std::atomic_bool release{false};
+    QSignalSpy ready(&info, &pfui::AppInfo::backendInitializationChanged);
+    QElapsedTimer elapsed;
+    elapsed.start();
+    info.prepareBackendInitialization();
+    info.initializeBackendsAsync([&] {
+        while (!release.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        pfgpu::BackendProbe result;
+        result.ortLoaded = true;
+        result.ortVersion = "test";
+        result.backends.push_back({pfgpu::Provider::Cuda, true, {}, "test GPU"});
+        result.backends.push_back({pfgpu::Provider::Cpu, true, {}, "test CPU"});
+        return result;
+    });
+    const bool pending = info.backendInitializing();
+    const bool notReady = !info.backendAvailable("cuda");
+    bool eventDelivered = false;
+    QTimer::singleShot(0, &info, [&] { eventDelivered = true; });
+    QTest::qWait(20);
+    const auto responsiveMs = elapsed.elapsed();
+    release.store(true); // release before any assertion can unwind/join
+    QTRY_VERIFY(!info.backendInitializing());
+    QVERIFY(pending);
+    QVERIFY(notReady);
+    QVERIFY(eventDelivered);
+    QVERIFY(responsiveMs < 200);
+    QVERIFY(info.backendAvailable("cuda"));
+    QVERIFY(info.backendAvailable("auto"));
+    QCOMPARE(info.gpuDevice(), QStringLiteral("test GPU"));
+    QCOMPARE(ready.count(), 2);
+}
+
+void UiSmokeTests::backendProbeFailureLeavesHonestUnavailableState()
+{
+    pfui::AppInfo info;
+    info.initializeBackendsAsync([]() -> pfgpu::BackendProbe { throw std::runtime_error("test probe failure"); });
+    QTRY_VERIFY(!info.backendInitializing());
+    QVERIFY(!info.backendAvailable("auto"));
+    QVERIFY(!info.backendAvailable("cuda"));
+    QCOMPARE(info.backendReason("auto"), QStringLiteral("test probe failure"));
 }
 
 // The app's init step pushes the pfgpu probe result through setGpuInfo; QML
@@ -492,11 +542,17 @@ void UiSmokeTests::previewIsEmbeddedAndStopsOnRecordChange()
     component.setData("import QtQuick\nimport PfUi\nComparisonView { width: 300; height: 500 }", QUrl());
     std::unique_ptr<QObject> view(component.create());
     QVERIFY2(view != nullptr, qPrintable(component.errorString()));
-    QVERIFY(view->findChild<QObject*>("inlineVideoOutput"));
-    QVERIFY(view->findChild<QObject*>("inlineMediaPlayer"));
+    QVERIFY(!view->findChild<QObject*>("inlineVideoOutput"));
+    // Opening an empty workspace must not initialize two unused decoders
+    // and audio device backends before the first frame of the window.
+    QVERIFY(!view->findChild<QObject*>("inlineMediaPlayer"));
     view->setProperty("videoMode", true);
     view->setProperty("record", QVariantMap{{"matchType", "motion"}, {"leftStart", 1}, {"leftEnd", 2}});
+    QVERIFY(view->findChild<QObject*>("inlineMediaPlayer"));
+    QVERIFY(view->findChild<QObject*>("inlineVideoOutput"));
     QVERIFY(!view->property("videoMode").toBool());
+    view->setProperty("record", QVariant());
+    QTRY_VERIFY(!view->findChild<QObject*>("inlineMediaPlayer"));
 }
 
 void UiSmokeTests::inlinePairActuallyDecodesAndStopsAtClipEnd()

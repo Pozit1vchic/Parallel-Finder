@@ -86,7 +86,8 @@ foreach ($mode in $Modes) {
             $report = @{ video=$Video; mode=$mode; results=$pairs;
                 elapsedMs=$(if ($elapsedMatch.Success) { [long]$elapsedMatch.Groups[1].Value } else { $null });
                 frameCount=$(if ($framesMatch.Success) { [long]$framesMatch.Groups[1].Value } else { $null });
-                decodeDiagnostics=@([regex]::Matches($stderr, 'PF_DECODE [^\r\n]+') | ForEach-Object { $_.Value }) }
+                decodeDiagnostics=@([regex]::Matches($stderr, 'PF_DECODE [^\r\n]+') | ForEach-Object { $_.Value });
+                timingDiagnostics=@([regex]::Matches($stderr, 'PF_DEBUG_TIMING [^\r\n]+') | ForEach-Object { $_.Value }) }
             $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $ReportPath -Encoding UTF8
         }
     }

@@ -1,4 +1,5 @@
 #include "AnalysisController.h"
+#include "AppInfo.h"
 
 #include <QMetaObject>
 #include <QCoreApplication>
@@ -48,6 +49,7 @@
 #include "pfservices/CutService.hpp"
 #include "pfservices/ExportQueue.hpp"
 #include "pfservices/PreviewMemo.hpp"
+#include "pfservices/PreviewImage.hpp"
 #include "pfexporters/ExportOptions.hpp"
 
 namespace pfui {
@@ -301,13 +303,13 @@ QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
     QDir().mkpath(directory);
     const QString path = directory + QLatin1Char('/') + name;
     QImage image(frame.rgba.data(), frame.width, frame.height, QImage::Format_RGBA8888);
-    QImage preview = image.copy();
+    QImage preview = image; // borrowed source stays alive until synchronous encoding finishes
     // Keep enough source detail for a large A/B viewport. The old 960x540
     // cap was visibly soft on 1440p/4K footage after the image was enlarged
     // by PreserveAspectFit.
     if (preview.width() > 1920 || preview.height() > 1080)
         preview = preview.scaled(1920, 1080, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-    if (!preview.save(path, "PNG")) return {};
+    if (!pfservices::saveLosslessPreview(preview, path)) return {};
     // Image.source is a URL in QML.  A bare Windows path such as C:/tmp/a.png
     // may be parsed as a URL with the scheme "c" and fail silently.
     return QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
@@ -1576,6 +1578,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     // A manually selected execution provider is a hard requirement. Do not
     // silently fall back to CPU after the user explicitly chose CUDA, TensorRT
     // or DirectML; report the real probe reason before touching the files.
+    if (AppInfo::instance()->backendInitializing()) {
+        setStatus(QStringLiteral("Проверяем провайдеры — дождитесь готовности"));
+        return;
+    }
     if (const auto requested = pfgpu::parseProvider(providerChoice_.toStdString());
         requested.has_value() && *requested != pfgpu::Provider::Auto
         && !pfgpu::isProviderAvailable(*requested)) {
@@ -1972,18 +1978,18 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         }
                     }
                     if (samplePose && !frame.rgba.empty()) {
-                        const InferenceSample inference = makeInferenceSample(frame);
+                        InferenceSample inference = makeInferenceSample(frame);
                         if (inference.rgba.empty()) continue;
                         if (poseBatchSize <= 1) {
                             PendingPoseSample sample{frame.timestampSeconds, inference.width,
                                                      inference.height, poseSampleIndex,
-                                                     inference.rgba};
+                                                     std::move(inference.rgba)};
                             pfgpu::PoseImage image{sample.width, sample.height, sample.rgba.data()};
                             processPose(sample, pose->infer(image));
                         } else {
                             PendingPoseSample sample{frame.timestampSeconds, inference.width,
                                                      inference.height, poseSampleIndex,
-                                                     inference.rgba};
+                                                     std::move(inference.rgba)};
                             pendingPose.push_back(std::move(sample));
                             if (pendingPose.size() >= poseBatchSize) flushPoseBatch();
                         }
@@ -2277,6 +2283,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     if (!decoder) {
                         decoder = std::make_unique<pfcore::VideoDecoder>();
                         decoder->open(path);
+                        decoder->setRgbaMaxDimensions(1920, 1080);
                     }
                     return savePreviewAt(*decoder, seconds,
                         QStringLiteral("%1_match_frame_%2.png").arg(previewToken).arg(renderedPreviews++));

@@ -20,8 +20,8 @@ Item {
         return summary.split("·")[0].trim() || "Auto"
     }
     function backendStatus(id) {
+        if (AppInfo.backendInitializing) return L10n.t("settings.providerChecking")
         const key = String(id || "auto").toLowerCase()
-        if (key === "auto") return L10n.t("top.ready")
         return AppInfo.backendAvailable(key) ? L10n.t("top.ready") : L10n.t("settings.providerUnavailable")
     }
 
@@ -34,7 +34,7 @@ Item {
     }
     RowLayout {
         anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 14
-        Text { font.family: Theme.fontFamily; Layout.alignment: Qt.AlignVCenter; text: root.busy ? L10n.t("top.analyzing") : L10n.t("top.ready"); color: root.busy ? Theme.accent : Theme.textSecondary; font.pixelSize: 11 }
+        Text { font.family: Theme.fontFamily; Layout.alignment: Qt.AlignVCenter; text: root.busy ? L10n.t("top.analyzing") : AppInfo.backendInitializing ? L10n.t("settings.providerChecking") : L10n.t("top.ready"); color: root.busy ? Theme.accent : Theme.textSecondary; font.pixelSize: 11 }
         Rectangle {
             Layout.alignment: Qt.AlignVCenter
             Layout.preferredWidth: 226
@@ -43,7 +43,7 @@ Item {
             width: 226; height: 28; radius: 8
             color: AppInfo.backendIsGpu ? Theme.sageMuted : Theme.surfaceRaised; border.color: Theme.border
             RowLayout { anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 8
-                Rectangle { Layout.alignment: Qt.AlignVCenter; Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: Analysis.providerChoice === "auto" || AppInfo.backendAvailable(Analysis.providerChoice) ? "#22C55E" : Theme.textDisabled
+                Rectangle { Layout.alignment: Qt.AlignVCenter; Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: !AppInfo.backendInitializing && AppInfo.backendAvailable(Analysis.providerChoice) ? "#22C55E" : Theme.textDisabled
                     SequentialAnimation on opacity { running: AppInfo.backendIsGpu && !Theme.reducedMotion && root.Window.active; loops: Animation.Infinite; NumberAnimation { to: 0.5; duration: 1100 } NumberAnimation { to: 1; duration: 1100 } }
                 }
                 Text { font.family: Theme.fontFamily;
@@ -53,7 +53,7 @@ Item {
                     text: Analysis.providerChoice === "auto"
                         ? backendLabel("auto") + " · " + backendStatus("auto")
                         : backendLabel(Analysis.providerChoice) + " · " + backendStatus(Analysis.providerChoice)
-                    color: Analysis.providerChoice !== "auto" && !AppInfo.backendAvailable(Analysis.providerChoice)
+                    color: !AppInfo.backendInitializing && Analysis.providerChoice !== "auto" && !AppInfo.backendAvailable(Analysis.providerChoice)
                         ? Theme.accent : "#E4E4E7"
                     font.pixelSize: 12
                     horizontalAlignment: Text.AlignHCenter
@@ -63,7 +63,7 @@ Item {
             }
             ToolTip.visible: gpuHover.hovered
             ToolTip.delay: 400
-            ToolTip.text: Analysis.providerChoice === "auto"
+            ToolTip.text: AppInfo.backendInitializing ? L10n.t("settings.providerChecking") : Analysis.providerChoice === "auto"
                 ? AppInfo.gpuSummary
                 : backendLabel(Analysis.providerChoice) + " · "
                   + (AppInfo.backendAvailable(Analysis.providerChoice)

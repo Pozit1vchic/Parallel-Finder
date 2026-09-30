@@ -69,15 +69,7 @@ private:
 // UI bridge. The app never computes backend decisions itself.
 void publishGpuInfo()
 {
-    const pfgpu::BackendProbe& probe = pfgpu::probeBackends();
-    const pfgpu::Provider provider = pfgpu::defaultProvider();
-    const pfgpu::BackendStatus* status = pfgpu::findBackendStatus(provider);
-
-    pfui::AppInfo::instance()->setGpuInfo(
-        QString::fromLatin1(pfgpu::providerName(provider)),
-        status ? QString::fromStdString(status->deviceName) : QString(),
-        provider != pfgpu::Provider::Cpu,
-        QString::fromStdString(probe.ortVersion));
+    pfui::AppInfo::instance()->publishBackendProbe(pfgpu::probeBackends());
 }
 
 // --pf-smoke: CI/dev path that proves the binary runs without a window and
@@ -117,6 +109,8 @@ int runSmoke()
 
 int main(int argc, char* argv[])
 {
+    QElapsedTimer startupTimer;
+    startupTimer.start();
     bool providerProbe = false;
     bool diagnostic = false;
     for (int i = 1; i < argc; ++i) {
@@ -146,6 +140,8 @@ int main(int argc, char* argv[])
     if (providerProbe) application = std::make_unique<QCoreApplication>(argc, argv);
     else application = std::make_unique<QGuiApplication>(argc, argv);
     auto& app = *application;
+    if (qEnvironmentVariableIsSet("PF_DEBUG_STARTUP"))
+        std::fprintf(stderr, "PF_STARTUP application_ms=%lld\n", static_cast<long long>(startupTimer.elapsed()));
 #if defined(Q_OS_WIN)
     if (desktopInstance) app.installNativeEventFilter(desktopInstance.get());
 #endif
@@ -230,8 +226,23 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    publishGpuInfo();
+    const bool windowDiagnostic = app.arguments().contains(QStringLiteral("--pf-ui-smoke"));
+    if (diagnostic && !windowDiagnostic) publishGpuInfo();
+    else {
+        auto* info = pfui::AppInfo::instance();
+        if (qEnvironmentVariableIsSet("PF_DEBUG_STARTUP"))
+            QObject::connect(info, &pfui::AppInfo::backendInitializationChanged, &app, [info, startupTimer] {
+                if (!info->backendInitializing())
+                    std::fprintf(stderr, "PF_STARTUP backend_ready_ms=%lld\n", static_cast<long long>(startupTimer.elapsed()));
+            });
+        // CUDA/DirectML initialization can contend with the Qt renderer in
+        // the driver even on another thread. Publish pending now, but do not
+        // start loading providers until the first window frame is presented.
+        info->prepareBackendInitialization();
+    }
     pfui::AppInfo::registerQmlTypes();
+    if (qEnvironmentVariableIsSet("PF_DEBUG_STARTUP"))
+        std::fprintf(stderr, "PF_STARTUP bridge_ms=%lld\n", static_cast<long long>(startupTimer.elapsed()));
 
     const QStringList args = app.arguments();
     if (args.contains(QStringLiteral("--pf-smoke"))) {
@@ -293,6 +304,8 @@ int main(int argc, char* argv[])
     // Load by URL: loadFromModule() needs the module's plugin registered,
     // which shared-Qt builds of static modules do not do automatically.
     engine.load(QUrl(QStringLiteral("qrc:/qt/qml/PfUi/qml/Main.qml")));
+    if (qEnvironmentVariableIsSet("PF_DEBUG_STARTUP"))
+        std::fprintf(stderr, "PF_STARTUP qml_ms=%lld\n", static_cast<long long>(startupTimer.elapsed()));
     if (engine.rootObjects().isEmpty()) {
         std::fprintf(stderr, "Fatal: failed to load PfUi.Main\n");
         return 1;
@@ -301,14 +314,35 @@ int main(int argc, char* argv[])
     if (desktopInstance)
         desktopInstance->setWindow(qobject_cast<QQuickWindow*>(engine.rootObjects().first()));
 #endif
+    if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
+        QObject::connect(window, &QQuickWindow::frameSwapped, &app, [] {
+            pfui::AppInfo::instance()->initializeBackendsAsync();
+        }, Qt::SingleShotConnection);
+    }
+    if (qEnvironmentVariableIsSet("PF_DEBUG_STARTUP")) {
+        auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+        if (window) QObject::connect(window, &QQuickWindow::frameSwapped, &app, [startupTimer] {
+            std::fprintf(stderr, "PF_STARTUP first_frame_ms=%lld backend_pending=%d\n",
+                static_cast<long long>(startupTimer.elapsed()), pfui::AppInfo::instance()->backendInitializing() ? 1 : 0);
+        }, Qt::SingleShotConnection);
+    }
     // Unlike --pf-smoke, exercise the shipped QML imports and actual renderer.
     if (args.contains(QStringLiteral("--pf-ui-smoke"))) {
         auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
         if (!window) return 2;
         QObject::connect(window, &QQuickWindow::frameSwapped, &app, [&app] {
             std::printf("ParallelFinder UI smoke: window rendered\n");
+            if (qEnvironmentVariableIsSet("PF_UI_SMOKE_WAIT_BACKEND")) {
+                auto* info = pfui::AppInfo::instance();
+                if (info->backendInitializing()) {
+                    QObject::connect(info, &pfui::AppInfo::backendInitializationChanged, &app, [&app, info] {
+                        if (!info->backendInitializing()) app.exit(0);
+                    });
+                    return;
+                }
+            }
             app.exit(0);
-        }, Qt::QueuedConnection);
+        }, Qt::SingleShotConnection);
         QTimer::singleShot(15000, &app, [&app] { app.exit(3); });
         QTimer::singleShot(100, window, [window] {
             // A hidden launcher can suppress the first native ShowWindow call.

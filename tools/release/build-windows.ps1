@@ -2,7 +2,7 @@ param(
     [string]$Toolchain = 'D:\msys2\ucrt64',
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-    [string]$ReleaseTag = '0.1.0-rc.9'
+    [string]$ReleaseTag = '0.1.0-rc.10'
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
@@ -70,13 +70,16 @@ try {
     Copy-Item -LiteralPath "$root/docs/release-audit.md" -Destination (Join-Path $stage 'RELEASE-NOTES.md')
     # Test real QML loading/rendering without developer import paths or DLL paths.
     $savedEnv = @{}
-    $envNames = @('PATH','QML_IMPORT_PATH','QML2_IMPORT_PATH','QT_PLUGIN_PATH','QT_QPA_PLATFORM','PF_ORT_DLL')
+    $envNames = @('PATH','QML_IMPORT_PATH','QML2_IMPORT_PATH','QT_PLUGIN_PATH','QT_QPA_PLATFORM','PF_ORT_DLL','PF_PROVIDER_ROOT','PF_DEBUG_STARTUP','PF_UI_SMOKE_WAIT_BACKEND')
     foreach ($name in $envNames) { $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
     try {
         $env:PATH = "$stage;$env:SystemRoot/System32;$env:SystemRoot"
         Remove-Item Env:QML_IMPORT_PATH,Env:QML2_IMPORT_PATH,Env:QT_PLUGIN_PATH -ErrorAction SilentlyContinue
         $env:QT_QPA_PLATFORM = 'windows'
         $env:PF_ORT_DLL = Join-Path $stage 'onnxruntime.dll'
+        $env:PF_PROVIDER_ROOT = $stage
+        $env:PF_DEBUG_STARTUP = '1'
+        $env:PF_UI_SMOKE_WAIT_BACKEND = '1'
         $smokeLogPath = Join-Path (Split-Path $stage) 'ui-smoke.log'
         $smokeErrorPath = Join-Path (Split-Path $stage) 'ui-smoke-errors.log'
         $probe = Start-Process -FilePath "$stage/ParallelFinder.exe" -ArgumentList '--pf-ui-smoke' -WorkingDirectory $out -WindowStyle Hidden -PassThru -RedirectStandardOutput $smokeLogPath -RedirectStandardError $smokeErrorPath

@@ -110,6 +110,67 @@ TEST(MotionMatcher, SameShotWindowsCannotCrowdOutVerifiedDifferentShot)
     EXPECT_TRUE(matcher.findAllPairs(windows).empty());
 }
 
+TEST(MotionMatcher, ContradictoryPeopleCannotConsumePoseRetrievalBudget)
+{
+    auto left = deanAimingPoseFixture()[0], right = left;
+    constexpr int identities = 322;
+    const auto identify = [&](pfcore::MotionWindow& window, int identity) {
+        window.faceEmbedding.assign(identities, 0.0F);
+        window.faceEmbedding[identity] = 1.0F;
+        window.faceConfidence = 1.0;
+        window.appearanceEmbedding.clear();
+    };
+    identify(left, 0);
+    identify(right, 0);
+    right.faceEmbedding[0] = 0.96F;
+    right.faceEmbedding[1] = 0.28F;
+    left.sourceId = right.sourceId = "crowded-montage";
+    left.hasSceneIndex = right.hasSceneIndex = true;
+    left.sceneIndex = 1; right.sceneIndex = 2;
+    left.sceneContext = {1,0}; right.sceneContext = {0,1};
+    for (auto& frame : right.frames) {
+        frame.timestampSeconds += 20;
+        frame.keypoints[10].x += 35;
+    }
+    left.sceneStartSeconds = 2.5; left.sceneEndSeconds = 3.3;
+    right.sceneStartSeconds = 22.5; right.sceneEndSeconds = 23.3;
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.requireAppearance = true;
+    const pfcore::MotionMatcher matcher(params);
+    ASSERT_GE(matcher.compare(left, right).similarity, params.similarityThreshold);
+    std::vector<pfcore::MotionWindow> windows{left, right};
+    // Pose neighbours: many more similar poses belonging to OTHER people.
+    for (int i = 0; i < 320; ++i) {
+        auto distractor = i % 2 ? left : right;
+        identify(distractor, i + 2);
+        distractor.sceneIndex = i + 10;
+        windows.push_back(std::move(distractor));
+    }
+    // Identity neighbours: the actor in a contradictory posture. They fill
+    // face ANN budgets; the positive must therefore survive pose retrieval.
+    for (int side = 0; side < 2; ++side) {
+        auto distractor = side ? right : left;
+        distractor.sceneIndex = side + 3;
+        for (auto& frame : distractor.frames) {
+            frame.timestampSeconds += 100;
+            frame.keypoints[9] = frame.keypoints[0];
+            frame.keypoints[10] = frame.keypoints[0];
+        }
+        ASSERT_LT(matcher.compare(left, distractor).similarity, params.similarityThreshold);
+        for (int i = 0; i < 140; ++i) windows.push_back(distractor);
+    }
+    for (int order = 0; order < 2; ++order) {
+        const auto found = matcher.findAllPairs(windows);
+        EXPECT_TRUE(std::any_of(found.begin(), found.end(), [&](const auto& match) {
+            const auto a = windows[match.leftIndex].sceneIndex;
+            const auto b = windows[match.rightIndex].sceneIndex;
+            return (a == 1 && b == 2) || (a == 2 && b == 1);
+        }));
+        std::reverse(windows.begin(), windows.end());
+    }
+}
+
 TEST(MotionMatcher, OccludedOppositeWristCannotHideContradictoryObservedArm)
 {
     pfcore::MotionWindow left;
