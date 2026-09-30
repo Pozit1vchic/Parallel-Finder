@@ -102,6 +102,9 @@ struct MotionMatcherParams {
     // Static-pose mode is stricter: it has no motion trajectory to help
     // disambiguate the same person standing in unrelated scenes.
     double staticPoseSimilarityThreshold = 0.86;
+    // Independently verified, sustained limb articulation tolerates view
+    // changes separately from generic pose geometry and head-only matches.
+    double staticArticulationSimilarityThreshold = 0.86;
     // At least ten observations are sampled for a window, but a valid
     // alignment may be a shorter, six-frame gesture. Half a second is long
     // enough to rule out a copied still frame while retaining real edits

@@ -1,15 +1,118 @@
 #include <gtest/gtest.h>
 #include <pfcore/MotionMatcher.hpp>
+#include <pfcore/PoseSupport.hpp>
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <set>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include "dean_aiming_pose_fixture.hpp"
 #include "dean_folded_arms_pose_fixture.hpp"
 #include "dean_disputed_motion_fixture.hpp"
 #include "soldier_head_pose_fixture.hpp"
 
 namespace {
+
+std::vector<pfcore::MotionWindow> recordedPoseFixture(const char* filename, bool staticFrameSet)
+{
+    QFile file(QString::fromUtf8(PF_TEST_FIXTURE_DIR) + "/" + QString::fromUtf8(filename));
+    if (!file.open(QIODevice::ReadOnly)) return {};
+    std::vector<pfcore::MotionWindow> windows;
+    for (const auto& value : QJsonDocument::fromJson(file.readAll()).array()) {
+        pfcore::MotionWindow window;
+        window.sourceId = "recorded-shot-" + std::to_string(windows.size());
+        window.staticFrameSet = staticFrameSet;
+        window.appearanceEmbedding = {1.0F, 0.0F};
+        window.appearanceConfidence = 1.0;
+        window.sceneContext = {1.0F, 0.0F};
+        for (const auto& item : value.toObject().value("frames").toArray()) {
+            const auto f = item.toObject();
+            pfcore::PoseFrame frame;
+            frame.timestampSeconds = f.value("time").toDouble();
+            for (const auto& point : f.value("points").toArray()) {
+                const auto p = point.toArray();
+                frame.keypoints.push_back({p[0].toDouble(), p[1].toDouble(), p[2].toDouble()});
+            }
+            window.frames.push_back(std::move(frame));
+        }
+        windows.push_back(std::move(window));
+    }
+    return windows;
+}
+
+TEST(MotionMatcher, ReliableShortAimingPoseIsNotLostToOccludedEndpoints)
+{
+    const auto windows = recordedPoseFixture("dean-partial-aiming-pose.json", true);
+    ASSERT_EQ(windows.size(), 4U);
+    auto supported = windows[3];
+    const auto runs = pfcore::observedPoseRuns(windows[3]);
+    ASSERT_EQ(runs.size(), 1U);
+    EXPECT_EQ(runs[0].begin, 2U);
+    EXPECT_EQ(runs[0].end, 4U);
+    supported.frames.assign(windows[3].frames.begin() + runs[0].begin,
+                            windows[3].frames.begin() + runs[0].end + 1);
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.requireAppearance = true;
+    params.mirrorInvariant = true;
+    params.similarityThreshold = 0.70;
+    params.timeWeight = 0.10;
+    params.staticArticulationSimilarityThreshold = 0.82; // quick profile, not generic pose/head threshold
+    const auto score = pfcore::MotionMatcher(params).compare(windows[0], supported).similarity;
+    EXPECT_GE(score, params.similarityThreshold);
+    auto precise = params;
+    precise.staticArticulationSimilarityThreshold = 0.92;
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(precise).compare(windows[0], supported).similarity, 0.0);
+    auto otherPerson = supported;
+    otherPerson.appearanceEmbedding = {0.0F, 1.0F};
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(windows[0], otherPerson).similarity, 0.0);
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(windows[0], windows[3]).similarity, 0.0);
+    auto single = windows[3];
+    single.frames.resize(1);
+    EXPECT_TRUE(pfcore::observedPoseRuns(single).empty());
+}
+
+TEST(MotionMatcher, ReliablePoseRunsDoNotBridgeMissingSamplesOrTimestampGaps)
+{
+    const auto windows = recordedPoseFixture("dean-partial-aiming-pose.json", true);
+    ASSERT_EQ(windows.size(), 4U);
+    auto broken = windows[3];
+    broken.frames[3].keypoints[9].confidence = 0.0;
+    EXPECT_TRUE(pfcore::observedPoseRuns(broken).empty());
+    broken = windows[3];
+    broken.frames[3].timestampSeconds += 1.0;
+    EXPECT_TRUE(pfcore::observedPoseRuns(broken).empty());
+    broken = windows[3];
+    broken.frames[3].timestampSeconds = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_TRUE(pfcore::observedPoseRuns(broken).empty());
+    broken = windows[3];
+    broken.frames[3].keypoints[9].x = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_TRUE(pfcore::observedPoseRuns(broken).empty());
+}
+
+TEST(MotionMatcher, ObservedArmPoseIsNotReducedToAHeadOnlyMatch)
+{
+    auto head = soldierHeadPoseFixture()[0];
+    auto body = head;
+    body.sourceId = "observed-body-shot";
+    const auto folded = deanFoldedArmsPoseFixture()[0];
+    ASSERT_EQ(folded.frames.front().keypoints.size(), 17U);
+    for (auto& frame : body.frames)
+        for (std::size_t i = 5; i < 17; ++i)
+            frame.keypoints[i] = folded.frames.front().keypoints[i];
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.requireAppearance = true;
+    auto repeat = head;
+    repeat.sourceId = "head-repeat";
+    ASSERT_GE(pfcore::MotionMatcher(params).compare(head, repeat).similarity, params.similarityThreshold);
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(head, body).similarity, 0.0);
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(body, head).similarity, 0.0);
+}
 
 TEST(MotionMatcher, StaticBudgetDoesNotStarveVerifiedCloseups)
 {
@@ -41,7 +144,7 @@ TEST(MotionMatcher, StaticBudgetDoesNotStarveVerifiedCloseups)
     }), 1);
     for (const auto& match : matches) {
         EXPECT_TRUE(match.faceVerified);
-        if (match.headOnlyComparison) EXPECT_DOUBLE_EQ(match.similarity, head.similarity);
+        if (match.headOnlyComparison) { EXPECT_DOUBLE_EQ(match.similarity, head.similarity); }
     }
     auto duplicated = windows;
     for (int i = 0; i < 4; ++i) {
@@ -200,7 +303,7 @@ TEST(MotionMatcher, DisputedDeanMotionDoesNotPassOnWeakDirectionalAgreement)
     params.similarityThreshold = 0.70; // quick-search acceptance, not a stricter test profile
     params.mirrorInvariant = true;
     const pfcore::MotionMatcher matcher(params);
-    for (const auto [a,b] : {std::pair{0,1}, std::pair{0,2}, std::pair{2,3}})
+    for (const auto& [a,b] : {std::pair{0,1}, std::pair{0,2}, std::pair{2,3}})
         EXPECT_LT(matcher.compare(poses[a], poses[b]).similarity, params.similarityThreshold);
     // Retain genuine trajectory evidence rather than fixing precision by
     // disabling motion: each recorded observation still matches its repeat.
@@ -209,6 +312,22 @@ TEST(MotionMatcher, DisputedDeanMotionDoesNotPassOnWeakDirectionalAgreement)
         repeat.sourceId += "-repeat";
         EXPECT_GT(matcher.compare(pose, repeat).similarity, params.similarityThreshold);
     }
+}
+
+TEST(MotionMatcher, FoldedArmsCannotMatchAnOccludedAimingBodyMotion)
+{
+    const auto poses = recordedPoseFixture("dean-folded-vs-aiming-motion.json", false);
+    ASSERT_EQ(poses.size(), 2U);
+    pfcore::MotionMatcherParams params;
+    params.similarityThreshold = 0.70;
+    params.minTemporalFrames = 6;
+    params.timeWeight = 0.10;
+    params.mirrorInvariant = true;
+    const pfcore::MotionMatcher matcher(params);
+    EXPECT_LT(matcher.compare(poses[0], poses[1]).similarity, params.similarityThreshold);
+    auto repeat = poses[0];
+    repeat.sourceId += "-repeat";
+    EXPECT_GT(matcher.compare(poses[0], repeat).similarity, params.similarityThreshold);
 }
 
 TEST(MotionMatcher, SimilarElbowAnglesDoNotConfuseFoldedArmsWithAiming)

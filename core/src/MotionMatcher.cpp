@@ -471,6 +471,25 @@ double frameDistance(const Descriptor& left, const Descriptor& right)
     std::size_t comparableJoints = 0;
     std::size_t comparableVelocities = 0;
     const std::size_t joints = left.size() / 4U;
+    if (joints == 18) { // COCO body motion plus the root-translation channel
+        constexpr std::size_t chains[4][3] = {{5, 7, 9}, {6, 8, 10},
+                                              {11, 13, 15}, {12, 14, 16}};
+        const auto observes = [](const Descriptor& descriptor, const auto& chain) {
+            return std::all_of(std::begin(chain), std::end(chain), [&](std::size_t joint) {
+                const auto offset = joint * 4;
+                return std::isfinite(descriptor[offset]) && std::isfinite(descriptor[offset + 1]);
+            });
+        };
+        const bool sharedLimb = std::any_of(std::begin(chains), std::end(chains), [&](const auto& chain) {
+            return observes(left, chain) && observes(right, chain);
+        });
+        // Head/shoulders plus camera drift are not evidence of an arm/body
+        // gesture. Never fill an occluded limb with a fictitious agreement.
+        // Symmetric head-only trajectories retain their existing checks.
+        const bool leftBody = std::any_of(std::begin(chains), std::end(chains), [&](const auto& c) { return observes(left, c); });
+        const bool rightBody = std::any_of(std::begin(chains), std::end(chains), [&](const auto& c) { return observes(right, c); });
+        if ((leftBody || rightBody) && !sharedLimb) return 1.0;
+    }
     for (std::size_t joint = 0; joint < joints; ++joint) {
         const std::size_t offset = joint * 4U;
         if (!std::isfinite(left[offset]) || !std::isfinite(left[offset + 1U])
@@ -1092,7 +1111,26 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
             }
             return closeups * 2 >= window.frames.size();
         };
-        if (headOnly(left) || headOnly(right)) {
+        const auto observedBody = [](const MotionWindow& window) {
+            constexpr std::size_t chains[4][3] = {{5, 7, 9}, {6, 8, 10},
+                                                  {11, 13, 15}, {12, 14, 16}};
+            std::size_t supported = 0;
+            for (const auto& frame : window.frames) {
+                if (frame.keypoints.size() != 17) return true;
+                if (std::any_of(std::begin(chains), std::end(chains), [&](const auto& chain) {
+                    return std::all_of(std::begin(chain), std::end(chain), [&](std::size_t i) {
+                        const auto& p = frame.keypoints[i];
+                        return p.confidence >= kMinimumKeypointConfidence
+                            && std::isfinite(p.x) && std::isfinite(p.y);
+                    });
+                })) ++supported;
+            }
+            return supported * 2 >= window.frames.size();
+        };
+        // A face crop can still match a face-and-shoulders view. But an
+        // observed body gesture must not be reduced to a face to match a
+        // hidden, potentially contradictory arm pose in the other shot.
+        if ((headOnly(left) || headOnly(right)) && !observedBody(left) && !observedBody(right)) {
             auto head = [](MotionWindow window) {
                 for (auto& frame : window.frames) {
                     if (frame.keypoints.size() != 17) { frame.keypoints.clear(); continue; }
@@ -1270,7 +1308,8 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         poseScore = std::max(poseScore, articulation);
         // Background colour is displayed separately. Different lighting or
         // locations cannot make an independently verified pose less similar.
-        result.similarity = poseScore >= params.staticPoseSimilarityThreshold
+        result.similarity = (poseScore >= params.staticPoseSimilarityThreshold
+            || articulation >= params.staticArticulationSimilarityThreshold)
             ? std::clamp(poseScore - timePenalty, 0.0, 0.994) : 0.0;
         return result;
     }
@@ -1311,7 +1350,8 @@ MotionMatcher::MotionMatcher(MotionMatcherParams params) : params_(params) { set
 
 void MotionMatcher::setParams(MotionMatcherParams params)
 {
-    if (!(params.similarityThreshold >= 0.0 && params.similarityThreshold <= 1.0)
+    if (!(params.staticArticulationSimilarityThreshold > 0.0 && params.staticArticulationSimilarityThreshold <= 1.0)
+        || !(params.similarityThreshold >= 0.0 && params.similarityThreshold <= 1.0)
         || !(params.candidateThreshold >= 0.0 && params.candidateThreshold <= 1.0)
         || params.maxUniqueResults == 0 || params.dtwBand == 0 || params.noiseFactor < 0.0)
         throw std::invalid_argument("MotionMatcher: invalid parameters");

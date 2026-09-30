@@ -50,6 +50,7 @@
 #include "pfservices/ExportQueue.hpp"
 #include "pfservices/PreviewMemo.hpp"
 #include "pfservices/PreviewImage.hpp"
+#include <pfcore/PoseSupport.hpp>
 #include "pfexporters/ExportOptions.hpp"
 
 namespace pfui {
@@ -1769,7 +1770,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 // Bump this contract whenever association or the identity
                 // policy changes; otherwise a stricter matcher can still
                 // display candidates produced by an older pipeline.
-                std::string cacheKey = "motion-v26|short-static|matcher-mirror|scene4fps|infer=1280x720|decode="
+                std::string cacheKey = "motion-v27|supported-static-runs|matcher-mirror|scene4fps|infer=1280x720|decode="
                     + decoder.diagnostics().backend
                     + "|pose=" + cacheFileFingerprint(model) + "|"
                     + providerChoice.toStdString() + "|reid="
@@ -2130,15 +2131,18 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             const auto appendChunks = [&](double windowSeconds,
                                                           double strideSeconds,
                                                           double minimumWindowSeconds,
-                                                          bool staticFrameSet) {
-                                if (window.frames.size() < 2) return;
-                                std::size_t start = 0;
-                                while (start < window.frames.size()) {
+                                                          bool staticFrameSet,
+                                                          std::size_t first = 0,
+                                                          std::size_t stop = std::numeric_limits<std::size_t>::max()) {
+                                const auto limit = std::min(stop, window.frames.size());
+                                if (first >= limit || limit - first < 2) return;
+                                std::size_t start = first;
+                                while (start < limit) {
                                     if (isCancelled()) { markCancelled(); break; }
                                     const double startTime = window.frames[start].timestampSeconds;
                                     if (startTime + minimumWindowSeconds > sceneEnd + 1e-9) break;
                                     std::size_t end = start;
-                                    while (end + 1 < window.frames.size()
+                                    while (end + 1 < limit
                                            && window.frames[end + 1].timestampSeconds
                                                <= startTime + windowSeconds + 1e-9
                                            && window.frames[end + 1].timestampSeconds
@@ -2170,7 +2174,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                     }
                                     const double nextTime = startTime + strideSeconds;
                                     std::size_t next = start + 1;
-                                    while (next < window.frames.size()
+                                    while (next < limit
                                            && window.frames[next].timestampSeconds < nextTime) {
                                         ++next;
                                     }
@@ -2184,6 +2188,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             } else { // combined: independent motion and static passes
                                 appendChunks(2.5, 0.75, 0.75, false);
                                 appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds, true);
+                            }
+                            if (analysisMode != QStringLiteral("motion")) {
+                                for (const auto range : pfcore::observedPoseRuns(window)) {
+                                    if (range.begin == 0 && range.end + 1 == window.frames.size()) continue;
+                                    appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds,
+                                                 true, range.begin, range.end + 1);
+                                }
                             }
                         }
                     }
@@ -2248,6 +2259,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 || analysisMode == QStringLiteral("combined");
             params.normalizeSize = normalizeSize;
             params.mirrorInvariant = mirrorPoses;
+            params.staticArticulationSimilarityThreshold = std::clamp(similarityThreshold + 0.08, 0.82, 0.96);
             // Same-person evidence is mandatory; missing identity data must
             // never silently admit a different actor into the results.
             params.requireAppearance = true;
