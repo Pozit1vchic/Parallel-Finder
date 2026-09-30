@@ -66,6 +66,23 @@ bool differentTrackSegment(const MotionWindow& left, const MotionWindow& right)
 
 struct IdentityEvidence { bool available = false; bool verified = false; bool face = false; double score = 0; };
 
+bool observedBody(const MotionWindow& window)
+{
+    constexpr std::size_t chains[4][3] = {{5, 7, 9}, {6, 8, 10}, {11, 13, 15}, {12, 14, 16}};
+    std::size_t supported = 0;
+    for (const auto& frame : window.frames) {
+        if (frame.keypoints.size() != 17) return true; // other skeleton contracts
+        if (std::any_of(std::begin(chains), std::end(chains), [&](const auto& chain) {
+            return std::all_of(std::begin(chain), std::end(chain), [&](std::size_t i) {
+                const auto& p = frame.keypoints[i];
+                return p.confidence >= kMinimumKeypointConfidence
+                    && std::isfinite(p.x) && std::isfinite(p.y);
+            });
+        })) ++supported;
+    }
+    return !window.frames.empty() && supported * 2 >= window.frames.size();
+}
+
 IdentityEvidence identityEvidence(const MotionWindow& left, const MotionWindow& right,
                                   const MotionMatcherParams& params)
 {
@@ -666,15 +683,16 @@ std::vector<NormalizedPose> articulationPoses(const MotionWindow& window)
 double articulationSimilarity(const std::vector<NormalizedPose>& left,
                               const std::vector<NormalizedPose>& right,
                               const std::vector<NormalizedPose>& leftContext,
-                              const std::vector<NormalizedPose>& rightContext)
+                              const std::vector<NormalizedPose>& rightContext,
+                              bool allowHiddenFace)
 {
     if (left.empty() || right.empty()) return 0.0;
     constexpr std::size_t chains[4][4] = {
         {5, 7, 9, 6}, {6, 8, 10, 5}, {11, 13, 15, 12}, {12, 14, 16, 11}
     };
     const auto features = [](const NormalizedPose& pose, const auto& chain,
-                             double (&out)[3]) {
-        if (pose.size() != 17 || !validPoint(pose[0])) return false;
+                             double (&out)[3], bool bodyOnly) {
+        if (pose.size() != 17 || (!bodyOnly && !validPoint(pose[0]))) return false;
         for (const auto joint : chain) if (!validPoint(pose[joint])) return false;
         const auto vector = [&](std::size_t a, std::size_t b) {
             return std::pair{pose[b].first - pose[a].first,
@@ -685,8 +703,21 @@ double articulationSimilarity(const std::vector<NormalizedPose>& left,
         const auto across = vector(chain[0], chain[3]);
         const auto upper = vector(chain[0], chain[1]);
         const auto lower = vector(chain[1], chain[2]);
-        const auto head = vector(chain[0], 0);
-        const auto reach = vector(0, chain[2]);
+        // Compare the same reference on both sides. A masked nose is never
+        // imputed: body-only reach starts at the observed shoulder/hip pair.
+        const std::pair origin{(pose[chain[0]].first + pose[chain[3]].first) * 0.5,
+                               (pose[chain[0]].second + pose[chain[3]].second) * 0.5};
+        auto head = bodyOnly ? std::pair{0.0, -1.0} : vector(chain[0], 0);
+        if (bodyOnly && validPoint(pose[5]) && validPoint(pose[6])
+            && validPoint(pose[11]) && validPoint(pose[12])) {
+            head = {(pose[5].first + pose[6].first - pose[11].first - pose[12].first) * 0.5,
+                    (pose[5].second + pose[6].second - pose[11].second - pose[12].second) * 0.5};
+        }
+        // Without hips the reference is image vertical (upright footage),
+        // not a fabricated head. Rotated/lying masked subjects need review.
+        const auto reach = bodyOnly ? std::pair{pose[chain[2]].first - origin.first,
+                                                pose[chain[2]].second - origin.second}
+                                    : vector(0, chain[2]);
         const double acrossLength = std::hypot(across.first, across.second);
         const double upperLength = std::hypot(upper.first, upper.second);
         const double lowerLength = std::hypot(lower.first, lower.second);
@@ -712,11 +743,13 @@ double articulationSimilarity(const std::vector<NormalizedPose>& left,
         const auto& b = right[sample * (right.size()-1) / std::max<std::size_t>(1, samples-1)];
         const auto& contextA = leftContext[sample * (leftContext.size()-1) / std::max<std::size_t>(1, samples-1)];
         const auto& contextB = rightContext[sample * (rightContext.size()-1) / std::max<std::size_t>(1, samples-1)];
+        if (a.size() != 17 || b.size() != 17) continue;
         double worst = 0.0;
         std::size_t observed = 0;
         for (const auto& chain : chains) {
             double x[3], y[3];
-            if (!features(a, chain, x) || !features(b, chain, y)) continue;
+            const bool bodyOnly = allowHiddenFace && (!validPoint(a[0]) || !validPoint(b[0]));
+            if (!features(a, chain, x, bodyOnly) || !features(b, chain, y, bodyOnly)) continue;
             const auto angularDistance = [](double angle) {
                 return std::atan2(std::sin(angle), std::cos(angle));
             };
@@ -1093,6 +1126,11 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     result.sceneSimilarity = sceneSimilarity;
     result.appearanceVerified = identity.verified;
     result.faceVerified = identity.verified && identity.face;
+    // Without usable face identity, a face/shoulder-only crop cannot supply
+    // evidence of a masked person's body gesture. Fail closed, not on clothes
+    // or a hallucinated head pose. Generic non-COCO test skeletons are exempt.
+    if (params.requireObservedBodyForIdentity && params.requireAppearance && identity.verified && !identity.face
+        && (!observedBody(left) || !observedBody(right))) return result;
     // Close-up comparison has its own observable region. Do not normalize a
     // five-landmark head crop by its head radius and the other shot by torso
     // width. This fallback is pose-only, requires independent face identity,
@@ -1110,22 +1148,6 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
                 if (visible < kMinimumComparableJoints) ++closeups;
             }
             return closeups * 2 >= window.frames.size();
-        };
-        const auto observedBody = [](const MotionWindow& window) {
-            constexpr std::size_t chains[4][3] = {{5, 7, 9}, {6, 8, 10},
-                                                  {11, 13, 15}, {12, 14, 16}};
-            std::size_t supported = 0;
-            for (const auto& frame : window.frames) {
-                if (frame.keypoints.size() != 17) return true;
-                if (std::any_of(std::begin(chains), std::end(chains), [&](const auto& chain) {
-                    return std::all_of(std::begin(chain), std::end(chain), [&](std::size_t i) {
-                        const auto& p = frame.keypoints[i];
-                        return p.confidence >= kMinimumKeypointConfidence
-                            && std::isfinite(p.x) && std::isfinite(p.y);
-                    });
-                })) ++supported;
-            }
-            return supported * 2 >= window.frames.size();
         };
         // A face crop can still match a face-and-shoulders view. But an
         // observed body gesture must not be reduced to a face to match a
@@ -1301,7 +1323,8 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         double poseScore = std::sqrt(dtwScore * anatomyScore);
         const double articulation = identity.verified
             ? articulationSimilarity(leftPrepared.articulation, rightPrepared.articulation,
-                                     leftPrepared.poses, rightPrepared.poses) : 0.0;
+                                     leftPrepared.poses, rightPrepared.poses,
+                                     params.requireObservedBodyForIdentity) : 0.0;
         if (std::getenv("PF_DEBUG_MATCHER") != nullptr)
             std::fprintf(stderr, "PF_DEBUG_MATCHER articulation a=%zu b=%zu score=%.4f\n",
                 leftIndex, rightIndex, articulation);
@@ -1689,7 +1712,17 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                          candidate.similarity, candidate.dtwDistance,
                          candidate.appearanceSimilarity);
         }
-        if (candidate.similarity >= params_.similarityThreshold) matches.push_back(candidate);
+        // Repeated reverse cuts of the same held pose in a conversation are
+        // not independent montage material. Require both near-identical pose
+        // AND measured visual context; context alone cannot reject a gesture.
+        // Distant scenes and motion trajectories remain eligible.
+        const bool repeatedView = windows[i].staticFrameSet && sameSource
+            && !windows[i].sceneContext.empty() && !windows[j].sceneContext.empty()
+            && gap <= 180.0 && candidate.sceneSimilarity >= 0.97
+            && shapeSimilarity(prepared[i].poses, prepared[j].poses)
+                >= ((!observedBody(windows[i]) && !observedBody(windows[j])) ? 0.98 : 0.86);
+        if (!repeatedView && candidate.similarity >= params_.similarityThreshold)
+            matches.push_back(candidate);
     }
     const auto strongestFirst = [](const auto& a, const auto& b) {
         if (std::abs(a.similarity - b.similarity) > 1e-12) return a.similarity > b.similarity;
@@ -1733,6 +1766,24 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 typeCount, params_.maxUniqueResults);
         }
         if (typeCount >= params_.maxUniqueResults) continue;
+        const auto shotUses = [&](std::size_t index) {
+            const auto& shot = windows[index];
+            if (!shot.hasSceneIndex) return std::size_t{0};
+            return static_cast<std::size_t>(std::count_if(unique.begin(), unique.end(), [&](const auto& kept) {
+                if (staticCandidate != windows[kept.leftIndex].staticFrameSet) return false;
+                const auto sameShot = [&](std::size_t other) {
+                    const auto& previous = windows[other];
+                    if (shot.sourceId != previous.sourceId || !previous.hasSceneIndex
+                        || shot.sceneIndex != previous.sceneIndex) return false;
+                    const auto identity = identityEvidence(shot, previous, params_);
+                    return !identity.available || identity.verified;
+                };
+                return sameShot(kept.leftIndex) || sameShot(kept.rightIndex);
+            }));
+        };
+        if (params_.maxResultsPerShot > 0
+            && (shotUses(candidate.leftIndex) >= params_.maxResultsPerShot
+                || shotUses(candidate.rightIndex) >= params_.maxResultsPerShot)) continue;
         const bool duplicate = std::any_of(unique.begin(), unique.end(), [&](const MotionMatch& kept) {
             // A pose result is not a duplicate of a repeated movement. Their
             // scores measure different things and cannot compete in NMS.

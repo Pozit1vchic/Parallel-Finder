@@ -945,6 +945,128 @@ TEST(MotionMatcher, ThreeAdjacentShotsRetainThreeDifferentScenePairs)
     EXPECT_EQ(pairs.size(), 3U); // A/B, A/C, B/C, not three sliding copies.
 }
 
+TEST(MotionMatcher, OneShotCannotBecomeAnUnlimitedResultHub)
+{
+    std::vector<pfcore::MotionWindow> shots;
+    for (std::size_t i = 0; i < 10; ++i) {
+        auto shot = window("long-video", 10.0 * i);
+        shot.hasSceneIndex = true;
+        shot.sceneIndex = i;
+        shot.sceneStartSeconds = 10.0 * i;
+        shot.sceneEndSeconds = 10.0 * i + 1.0;
+        shot.appearanceEmbedding = {1.0F, 0.0F};
+        shot.appearanceConfidence = 1.0;
+        shots.push_back(shot);
+    }
+    pfcore::MotionMatcherParams params;
+    params.requireAppearance = true;
+    const auto pairs = pfcore::MotionMatcher(params).findAllPairs(shots);
+    ASSERT_FALSE(pairs.empty());
+    std::vector<std::size_t> degree(shots.size());
+    for (const auto& pair : pairs) { ++degree[pair.leftIndex]; ++degree[pair.rightIndex]; }
+    EXPECT_LE(*std::max_element(degree.begin(), degree.end()), 3U);
+    EXPECT_GE(std::count_if(degree.begin(), degree.end(), [](auto n) { return n > 0; }), 8);
+    params.maxResultsPerShot = 0;
+    EXPECT_GT(pfcore::MotionMatcher(params).findAllPairs(shots).size(), pairs.size());
+}
+
+TEST(MotionMatcher, RepeatedCameraPoseDoesNotFillTheStaticBudget)
+{
+    auto a = deanAimingPoseFixture()[0], b = a;
+    a.sourceId = b.sourceId = "conversation";
+    a.sceneContext = b.sceneContext = {1.0F, 0.0F};
+    for (auto& f : b.frames) f.timestampSeconds += 60.0;
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    ASSERT_GE(pfcore::MotionMatcher(params).compare(a,b).similarity, params.similarityThreshold);
+    EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs({a,b}).empty());
+    b.sceneContext = {0.0F, 1.0F};
+    EXPECT_EQ(pfcore::MotionMatcher(params).findAllPairs({a,b}).size(), 1U);
+    b.sceneContext = a.sceneContext;
+    for (auto& f : b.frames) f.timestampSeconds += 240.0;
+    EXPECT_EQ(pfcore::MotionMatcher(params).findAllPairs({a,b}).size(), 1U);
+}
+
+TEST(MotionMatcher, MaskedBodyEvidenceCannotOverrideKnownDifferentFaces)
+{
+    auto a = deanAimingPoseFixture()[0], b = a;
+    a.sourceId = "masked-shot-a"; b.sourceId = "masked-shot-b";
+    a.faceEmbedding.clear(); b.faceEmbedding.clear();
+    a.appearanceEmbedding = b.appearanceEmbedding = {1.0F, 0.0F};
+    a.appearanceConfidence = b.appearanceConfidence = 1.0;
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.requireAppearance = true;
+    ASSERT_GE(pfcore::MotionMatcher(params).compare(a,b).similarity, params.similarityThreshold);
+    b.appearanceEmbedding = {0.0F, 1.0F};
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(a,b).similarity, 0.0);
+    b.appearanceEmbedding = a.appearanceEmbedding;
+    a.faceEmbedding = {1.0F, 0.0F}; b.faceEmbedding = {0.0F, 1.0F};
+    a.faceConfidence = b.faceConfidence = 1.0;
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(a,b).similarity, 0.0);
+    a.faceEmbedding.clear(); b.faceEmbedding.clear();
+    a.appearanceConfidence = b.appearanceConfidence = 0.1;
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(a,b).similarity, 0.0);
+}
+
+TEST(MotionMatcher, HiddenFaceNeedsSixObservedLimbJointsForStaticSupport)
+{
+    auto body = deanFoldedArmsPoseFixture()[0];
+    for (auto& f : body.frames)
+        for (std::size_t j = 0; j < 5; ++j) f.keypoints[j].confidence = 0.0;
+    EXPECT_TRUE(pfcore::observedPoseRuns(body).empty());
+    ASSERT_FALSE(pfcore::observedPoseRuns(body, true).empty());
+    auto repeat = body;
+    repeat.sourceId = "masked-repeat";
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.requireAppearance = true;
+    params.requireObservedBodyForIdentity = true;
+    EXPECT_GE(pfcore::MotionMatcher(params).compare(body,repeat).similarity, params.similarityThreshold);
+    for (auto& f : body.frames) f.keypoints[9].confidence = 0.0;
+    EXPECT_TRUE(pfcore::observedPoseRuns(body, true).empty());
+}
+
+TEST(MotionMatcher, HiddenFaceArticulationDoesNotConfuseFoldedArmsWithAiming)
+{
+    auto folded = deanFoldedArmsPoseFixture()[0];
+    auto aiming = deanAimingPoseFixture()[0];
+    for (auto* shot : {&folded, &aiming}) {
+        shot->faceEmbedding.clear();
+        for (auto& f : shot->frames)
+            for (std::size_t j = 0; j < 5; ++j) f.keypoints[j].confidence = 0.0;
+    }
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.requireAppearance = true;
+    params.requireObservedBodyForIdentity = true;
+    params.staticArticulationSimilarityThreshold = 0.82;
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(folded, aiming).similarity, 0.0);
+    auto otherPerson = folded;
+    otherPerson.sourceId = "other-masked-person";
+    otherPerson.appearanceEmbedding = {0.0F, 1.0F};
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(folded, otherPerson).similarity, 0.0);
+}
+
+TEST(MotionMatcher, BodyIdentityCannotValidateAnUnobservedMaskedGesture)
+{
+    auto a = deanAimingPoseFixture()[0], b = a;
+    a.sourceId = "mask-a"; b.sourceId = "mask-b";
+    for (auto* shot : {&a, &b}) {
+        shot->faceEmbedding.clear();
+        shot->appearanceEmbedding = {1.0F, 0.0F};
+        shot->appearanceConfidence = 1.0;
+        for (auto& frame : shot->frames)
+            for (std::size_t joint = 7; joint < frame.keypoints.size(); ++joint)
+                frame.keypoints[joint].confidence = 0.0;
+    }
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.requireAppearance = true;
+    params.requireObservedBodyForIdentity = true;
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(a,b).similarity, 0.0);
+}
+
 TEST(MotionMatcher, ShortStaticShotHasIndependentTemporalSupport)
 {
     auto left = window("a", 0, false, 3, 1.0 / 6.0);

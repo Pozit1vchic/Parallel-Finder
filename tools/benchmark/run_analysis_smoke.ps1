@@ -5,6 +5,8 @@ param(
     [string]$Model = "D:\\PF_CUDA\\models\\yolo26m-pose-640-b1.onnx",
     [string]$OrtDll = "D:\\msys2\\ucrt64\\bin\\onnxruntime.dll",
     [string]$ReIdModel = "",
+    [string[]]$AdditionalVideos = @(),
+    [ValidateSet('offscreen','windows')][string]$QpaPlatform = 'offscreen',
     [ValidateSet('cpu','cuda','tensorrt','dml')][string]$Provider = 'cpu',
     [ValidateRange(1, 3600)][int]$TimeoutSec = 120,
     [ValidateRange(0, 10000)][int]$MinimumPairs = 0,
@@ -16,6 +18,9 @@ param(
 $ErrorActionPreference = "Stop"
 if (-not (Test-Path -LiteralPath $Exe)) { throw "Executable not found: $Exe" }
 if (-not (Test-Path -LiteralPath $Video)) { throw "Video not found: $Video" }
+foreach ($additionalVideo in $AdditionalVideos) {
+    if (-not (Test-Path -LiteralPath $additionalVideo)) { throw "Video not found: $additionalVideo" }
+}
 if (-not (Test-Path -LiteralPath $Model)) { throw "Pose model not found: $Model" }
 if (-not (Test-Path -LiteralPath $OrtDll)) { throw "ONNX Runtime DLL not found: $OrtDll" }
 if ($ReIdModel -and -not (Test-Path -LiteralPath $ReIdModel)) { throw "ReID model not found: $ReIdModel" }
@@ -41,12 +46,17 @@ foreach ($mode in $Modes) {
     # `$LASTEXITCODE` empty and hiding the actual result.
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = $Exe
-    $psi.Arguments = '--pf-analysis-smoke "' + $Video.Replace('"', '\\"') + '"'
+    $psi.Arguments = '--pf-analysis-smoke ' + ((@($Video) + $AdditionalVideos | ForEach-Object {
+        '"' + $_.Replace('"', '\\"') + '"'
+    }) -join ' ')
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
-    $psi.EnvironmentVariables['QT_QPA_PLATFORM'] = 'offscreen'
+    # Packaged Windows builds ship qwindows, not the developer offscreen
+    # plugin. Analysis smoke creates no window; -QpaPlatform windows permits
+    # testing that actual package without injecting developer Qt plugins.
+    $psi.EnvironmentVariables['QT_QPA_PLATFORM'] = $QpaPlatform
     $psi.EnvironmentVariables['PF_ORT_DLL'] = $env:PF_ORT_DLL
     # cuDNN/TensorRT load additional DLLs lazily. Mirror application startup
     # when explicitly selecting an external runtime for the benchmark.
@@ -83,7 +93,7 @@ foreach ($mode in $Modes) {
         if ($ReportPath) {
             $elapsedMatch = [regex]::Match($stdout, '(?m)^\s*elapsed_ms\s*:\s*(\d+)')
             $framesMatch = [regex]::Match($stdout, '(?m)^\s*frames\s*:\s*(\d+)')
-            $report = @{ video=$Video; mode=$mode; results=$pairs;
+            $report = @{ video=$Video; inputVideos=@($Video) + $AdditionalVideos; mode=$mode; results=$pairs;
                 elapsedMs=$(if ($elapsedMatch.Success) { [long]$elapsedMatch.Groups[1].Value } else { $null });
                 frameCount=$(if ($framesMatch.Success) { [long]$framesMatch.Groups[1].Value } else { $null });
                 decodeDiagnostics=@([regex]::Matches($stderr, 'PF_DECODE [^\r\n]+') | ForEach-Object { $_.Value });

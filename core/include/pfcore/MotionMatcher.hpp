@@ -59,6 +59,12 @@ struct MotionMatcherParams {
     // Within static, accepted head/body comparisons share this same budget
     // fairly; unused capacity is lent to the other observable region.
     std::size_t maxUniqueResults = 100;
+    // Independent result types share neither quotas nor duplicate metrics.
+    // A shot may support a few independent pairs, not an unlimited hub.
+    // Zero disables this diversity quota for diagnostic comparisons.
+    std::size_t maxResultsPerShot = 3;
+    // Body-only costume identity needs a visible limb, not a face crop.
+    bool requireObservedBodyForIdentity = false;
     double timeWeight = 0.25;
     bool normalizeSize = true;
     // Compare both the original trajectory and a left/right mirrored copy,

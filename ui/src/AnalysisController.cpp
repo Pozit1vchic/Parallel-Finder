@@ -832,6 +832,10 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     normalizeSize_ = settings.normalizeSize;
     mirrorPoses_ = settings.mirrorPoses;
     costumeMode_ = settings.costumeMode;
+    // Diagnostic override only: never persist a benchmark's costume choice.
+    const QString envCostume = qEnvironmentVariable("PF_COSTUME_MODE");
+    if (envCostume == QStringLiteral("1") || envCostume == QStringLiteral("0"))
+        costumeMode_ = envCostume == QStringLiteral("1");
     modelPath_ = QString::fromStdString(settings.modelPath);
     modelChoice_ = QFileInfo(QString::fromStdString(settings.modelChoice)).fileName();
     if (modelChoice_.isEmpty()) {
@@ -1623,11 +1627,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     const QString analysisMode = analysisMode_;
     const bool normalizeSize = normalizeSize_;
     const bool mirrorPoses = mirrorPoses_;
+    const bool costumeMode = costumeMode_;
     const QString previewToken = QString::number(QDateTime::currentMSecsSinceEpoch());
     QThread* thread = QThread::create([this, cancel, paths = normalized, similarityThreshold, candidateThreshold, repeatGap,
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
                                         maxUniqueResults, timeWeight, providerChoice,
-                                        qualityProfile, analysisMode, normalizeSize, mirrorPoses, previewToken] {
+                                        qualityProfile, analysisMode, normalizeSize, mirrorPoses, costumeMode, previewToken] {
         try {
         int files = 0;
         int scenes = 0;
@@ -1716,7 +1721,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         const auto faceDetectorPath = findLocalModelFile(QStringLiteral("face_detection_yunet_2023mar.onnx"));
         const auto faceRecognizerPath = findLocalModelFile(QStringLiteral("face_recognition_sface_2021dec.onnx"));
         std::shared_ptr<pfgpu::FaceEstimator> face;
-        if (!settings.costumeMode && faceDetectorPath && faceRecognizerPath)
+        if (!costumeMode && faceDetectorPath && faceRecognizerPath)
             face = sharedFaceEstimator(*faceDetectorPath, *faceRecognizerPath, providerChoice);
         QString faceFailure;
         const bool reidModelPresent = !reidModel.empty();
@@ -1775,9 +1780,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     + "|pose=" + cacheFileFingerprint(model) + "|"
                     + providerChoice.toStdString() + "|reid="
                     + (reidModelPresent ? cacheFileFingerprint(reidModel) : std::string("none")) + "|"
-                    + "face=" + (!settings.costumeMode && faceDetectorPath && faceRecognizerPath
+                    + "face=" + (!costumeMode && faceDetectorPath && faceRecognizerPath
                         ? cacheFileFingerprint(*faceDetectorPath) + cacheFileFingerprint(*faceRecognizerPath)
                         : std::string("none")) + "|"
+                    + (costumeMode ? "masked-limb-runs=v1|" : "")
                     + "quality=" + qualityProfile.toStdString() + "|"
                     + "mode=" + analysisMode.toStdString() + "|scene="
                     + std::to_string(settings.sceneThreshold) + ":"
@@ -2190,7 +2196,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                 appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds, true);
                             }
                             if (analysisMode != QStringLiteral("motion")) {
-                                for (const auto range : pfcore::observedPoseRuns(window)) {
+                                for (const auto range : pfcore::observedPoseRuns(window, costumeMode)) {
                                     if (range.begin == 0 && range.end + 1 == window.frames.size()) continue;
                                     appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds,
                                                  true, range.begin, range.end + 1);
@@ -2244,6 +2250,11 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
             }
             pfcore::MotionMatcherParams params;
+            params.requireObservedBodyForIdentity = costumeMode;
+            bool reuseOverrideValid = false;
+            const int reuseOverride = qEnvironmentVariableIntValue("PF_RESULTS_PER_SHOT", &reuseOverrideValid);
+            if (reuseOverrideValid && reuseOverride >= 0 && reuseOverride <= 100)
+                params.maxResultsPerShot = static_cast<std::size_t>(reuseOverride);
             params.similarityThreshold = similarityThreshold;
             params.candidateThreshold = candidateThreshold;
             params.minRepeatGapSec = repeatGap;
@@ -2322,7 +2333,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert(QStringLiteral("identityVerified"), item.appearanceVerified);
                 record.insert(QStringLiteral("faceVerified"), item.faceVerified);
                 record.insert(QStringLiteral("headOnlyComparison"), item.headOnlyComparison);
-                record.insert(QStringLiteral("costumeMode"), settings.costumeMode);
+                record.insert(QStringLiteral("costumeMode"), costumeMode);
                 if (item.leftIndex < windows.size())
                     record.insert(QStringLiteral("leftTrackId"), static_cast<qulonglong>(windows[item.leftIndex].trackId));
                 if (item.rightIndex < windows.size())
