@@ -9,6 +9,9 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <atomic>
+#include <cstdlib>
+#include <cstdio>
 
 #include "pfgpu/DeviceInfo.hpp"
 #include "pfgpu/OrtRuntime.hpp"
@@ -54,6 +57,15 @@ std::string buildCacheKey(const ModelRef& model, const SessionKey& key, Provider
         + std::to_string(key.intraOpThreads);
 }
 
+std::size_t effectiveThreadCount(const SessionKey& key, Provider resolved)
+{
+    // Auto must not create an all-core CPU pool for every NVIDIA model. GPU work
+    // is submitted by the calling thread; unused pools steal decode resources.
+    // Explicit user counts and the CPU provider retain their existing policy.
+    const bool nvidia = resolved == Provider::Cuda || resolved == Provider::TensorRt;
+    return key.intraOpThreads == 0 && nvidia ? 1 : key.intraOpThreads;
+}
+
 } // namespace
 
 ModelRef ModelRef::fromPath(std::string path)
@@ -73,9 +85,14 @@ ModelRef ModelRef::fromBytes(std::string bytes, std::string tag)
 }
 
 struct SessionCache::Entry {
+    Entry(OrtSession* value, Provider ep, const std::string& key)
+        : session(value), provider(ep), cacheKey(key) {}
     OrtSession* session = nullptr;
     Provider provider = Provider::Cpu;
     std::string cacheKey;
+    mutable std::mutex profileMutex;
+    mutable std::size_t profileRuns = 0;
+    mutable std::atomic_bool profiling{false};
 };
 
 struct SessionCache::Impl {
@@ -145,6 +162,7 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
             result.handle.provider = it->second.entry->provider;
             result.handle.cacheKey = cacheKey;
             result.handle.createdNow = false;
+            result.handle.profiling = it->second.entry->profiling;
             return result;
         }
         impl.stats.misses += 1;
@@ -182,11 +200,18 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
     } cleanup { api, options };
 
     if (!checkStatus(*api, api->SetIntraOpNumThreads(options,
-                                                     static_cast<int>(key.intraOpThreads)), error)
+                                                     static_cast<int>(effectiveThreadCount(key, resolved))), error)
         || !checkStatus(*api, api->SetSessionGraphOptimizationLevel(options, ORT_ENABLE_ALL),
                         error)
         || !factory->configure(*api, *options, factory->defaultOptions(), error)) {
         result.error = "session options: " + error;
+        return result;
+    }
+
+    if ((resolved == Provider::Cuda || resolved == Provider::TensorRt)
+        && (!checkStatus(*api, api->AddSessionConfigEntry(options, "session.intra_op.allow_spinning", "0"), error)
+            || !checkStatus(*api, api->AddSessionConfigEntry(options, "session.inter_op.allow_spinning", "0"), error))) {
+        result.error = "session thread policy: " + error;
         return result;
     }
 
@@ -201,6 +226,20 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
             // TensorRT itself is already valid; a missing optional CUDA
             // fallback must not make the whole session unusable.
             (void)cuda->configure(*api, *options, cuda->defaultOptions(), cudaFallbackError);
+        }
+    }
+
+    const auto* profileRoot = std::getenv("PF_ORT_PROFILE_ROOT");
+    const bool profiling = profileRoot && *profileRoot;
+    if (profiling) {
+        static std::atomic_uint64_t sequence{0};
+        const std::filesystem::path directory(std::u8string(profileRoot, profileRoot + std::char_traits<char>::length(profileRoot)));
+        std::error_code ioError;
+        std::filesystem::create_directories(directory, ioError);
+        if (ioError) { result.error = "profiling directory: " + ioError.message(); return result; }
+        const auto prefix = directory / (std::string(providerName(resolved)) + "-" + std::to_string(sequence.fetch_add(1)));
+        if (!checkStatus(*api, api->EnableProfiling(options, prefix.c_str()), error)) {
+            result.error = "EnableProfiling: " + error; return result;
         }
     }
 
@@ -233,6 +272,7 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
                                             }
                                             delete raw;
                                         });
+    entry->profiling = profiling;
 
     {
         Impl& impl = *impl_;
@@ -268,7 +308,28 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
     result.handle.provider = resolved;
     result.handle.cacheKey = cacheKey;
     result.handle.createdNow = true;
+    result.handle.profiling = profiling;
     return result;
+}
+
+void SessionCache::recordProfilingRun(const SessionHandle& handle)
+{
+    if (!handle.profiling || !handle.owner) return;
+    const auto entry = std::static_pointer_cast<const Entry>(handle.owner);
+    const std::lock_guard lock(entry->profileMutex);
+    if (!entry->profiling || ++entry->profileRuns < 16) return;
+    entry->profiling = false;
+    const auto* api = ortApi();
+    OrtAllocator* allocator = nullptr;
+    std::string error;
+    if (!checkStatus(*api, api->GetAllocatorWithDefaultOptions(&allocator), error)) return;
+    char* path = nullptr;
+    if (checkStatus(*api, api->SessionEndProfiling(entry->session, allocator, &path), error)) {
+        std::fprintf(stderr, "PF_DEBUG_ORT_PROFILE runs=%zu key=%s path=%s\n", entry->profileRuns, entry->cacheKey.c_str(), path ? path : "");
+    } else std::fprintf(stderr, "PF_DEBUG_ORT_PROFILE error=%s\n", error.c_str());
+    if (path) {
+        if (auto* status = api->AllocatorFree(allocator, path)) api->ReleaseStatus(status);
+    }
 }
 
 SessionCache::Stats SessionCache::stats()

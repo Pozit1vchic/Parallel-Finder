@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "pfcore/VideoDecoder.hpp"
+#include "pfcore/VideoSampleReader.hpp"
 #include "pfcore/SceneDetector.hpp"
 #include <unordered_set>
 #include "pfcore/MotionMatcher.hpp"
@@ -53,6 +54,7 @@
 #include "pfservices/RuntimeScratch.hpp"
 #include "pfservices/PreviewMemo.hpp"
 #include "pfservices/CachedPreview.hpp"
+#include "pfservices/PreviewWriter.hpp"
 #include "pfservices/PreviewImage.hpp"
 #include <pfcore/PoseSupport.hpp>
 #include "pfexporters/ExportOptions.hpp"
@@ -327,7 +329,8 @@ QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
     return QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
 }
 
-QString savePreviewAt(pfcore::VideoDecoder& decoder, double timestamp, const QString& name)
+QString savePreviewAt(pfcore::VideoDecoder& decoder, double timestamp, const QString& name,
+    const std::function<QString(const pfcore::DecodedFrame&, const QString&)>& save = {})
 {
     try {
         QElapsedTimer timer;
@@ -340,7 +343,7 @@ QString savePreviewAt(pfcore::VideoDecoder& decoder, double timestamp, const QSt
             if (frame.timestampSeconds + 1e-3 >= target) {
                 if (!decoder.convertCurrentFrameToRgba(frame)) return {};
                 const auto decodeMs = timer.restart();
-                const auto url = savePreview(frame, name);
+                const auto url = save ? save(frame, name) : savePreview(frame, name);
                 if (qEnvironmentVariableIsSet("PF_DEBUG_PREVIEW"))
                     std::fprintf(stderr, "PF_DEBUG_PREVIEW seek_ms=%lld decode_ms=%lld save_ms=%lld\n",
                         static_cast<long long>(seekMs), static_cast<long long>(decodeMs),
@@ -388,9 +391,11 @@ struct InferenceSample {
     int width = 0;
     int height = 0;
     std::vector<std::uint8_t> rgba;
+    const std::uint8_t* borrowed = nullptr;
+    const std::uint8_t* pixels() const noexcept { return borrowed ? borrowed : (rgba.empty() ? nullptr : rgba.data()); }
 };
 
-InferenceSample makeInferenceSample(const pfcore::DecodedFrame& frame)
+InferenceSample makeInferenceSample(const pfcore::DecodedFrame& frame, bool allowBorrow = false)
 {
     InferenceSample result;
     if (frame.width <= 0 || frame.height <= 0 || frame.rgba.empty()) return result;
@@ -406,7 +411,11 @@ InferenceSample makeInferenceSample(const pfcore::DecodedFrame& frame)
     result.width = targetWidth;
     result.height = targetHeight;
     if (targetWidth == frame.width && targetHeight == frame.height) {
-        result.rgba = frame.rgba;
+        // Batch-1 pose/face/ReID finish before the next decoded frame is read.
+        // Borrow those already-sized, immutable bytes instead of allocating
+        // and copying another working frame. Queued batches retain ownership.
+        if (allowBorrow) result.borrowed = frame.rgba.data();
+        else result.rgba = frame.rgba;
         return result;
     }
     QImage source(frame.rgba.data(), frame.width, frame.height,
@@ -1757,9 +1766,15 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         }, Qt::QueuedConnection);
         std::unique_ptr<pfservices::PfCache> analysisCache;
         try {
-            const std::filesystem::path cacheRoot = settings.cachePath.empty()
+            std::filesystem::path cacheRoot = settings.cachePath.empty()
                 ? std::filesystem::u8path(pfservices::SettingsStore::defaultDirectory()) / "cache"
                 : std::filesystem::u8path(settings.cachePath);
+            // A smoke benchmark can use a fresh, isolated cache without
+            // deleting the user's data or changing their saved preferences.
+            const QString benchmarkCache = qEnvironmentVariable("PF_BENCHMARK_CACHE_ROOT");
+            if (QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
+                && !benchmarkCache.isEmpty())
+                cacheRoot = std::filesystem::u8path(benchmarkCache.toStdString());
             analysisCache = std::make_unique<pfservices::PfCache>(cacheRoot, settings.cacheLimitBytes);
         } catch (const std::exception&) {
             // Cache is an optimization; analysis remains usable when its path
@@ -1826,7 +1841,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 // Bump this contract whenever association or the identity
                 // policy changes; otherwise a stricter matcher can still
                 // display candidates produced by an older pipeline.
-                std::string cacheKey = "motion-v33|shot-identity-fallback|bidirectional-low-contrast-cuts|spatial-fades|supported-static-runs|matcher-mirror|scene4fps|infer=1280x720|decode="
+                std::string cacheKey = "motion-v36|shot-local-tracking|duration-first-lead|co-visible-identities|shot-identity-fallback|stable-motion-cuts|bidirectional-low-contrast-cuts|spatial-fades|supported-static-runs|matcher-mirror|scene4fps|infer=1280x720|decode="
                     + decoder.diagnostics().backend
                     + "|pose=" + cacheFileFingerprint(model) + "|"
                     + providerChoice.toStdString() + "|reid="
@@ -1840,6 +1855,19 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     + std::to_string(settings.sceneMinFrames) + ":"
                     + std::to_string(settings.sceneAdaptiveMultiplier) + "|source="
                     + cacheFileFingerprint(path.toStdString());
+                if (requestedProvider) {
+                    const auto resolved = pfgpu::resolveProvider(*requestedProvider);
+                    // Auto may resolve differently after installing a runtime;
+                    // cached observations from the former backend are not a
+                    // substitute for analyzing with the newly selected one.
+                    if (*requestedProvider == pfgpu::Provider::Auto)
+                        cacheKey += std::string("|resolved=") + pfgpu::providerName(resolved);
+                    // V2 now really applies TensorRT's existing FP16 policy.
+                    // Do not reuse legacy FP32 observations as FP16 results.
+                    // CUDA's bit-exact preparation keeps its current cache.
+                    if (resolved == pfgpu::Provider::TensorRt)
+                        cacheKey += "|trt-v2-fp16-v1|ort=" + pfgpu::ortRuntimeVersion();
+                }
                 if (analysisCache) {
                     if (const auto cached = analysisCache->get(cacheKey))
                         cacheHit = deserializeMotionWindows(*cached, cachedWindows, cachedSceneCount);
@@ -1860,6 +1888,11 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     continue;
                 }
                 std::vector<std::vector<std::uint8_t>> sceneBuffers;
+                const bool profilePipeline = qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS");
+                QElapsedTimer pipelineTimer;
+                pipelineTimer.start();
+                const auto stageNow = [&] { return profilePipeline ? pipelineTimer.nsecsElapsed() : 0LL; };
+                qint64 poseNs = 0, faceNs = 0, reidNs = 0, trackerNs = 0, inferenceSampleNs = 0, sceneThumbnailNs = 0;
                 std::vector<double> sceneTimestamps;
                 sceneBuffers.reserve(static_cast<std::size_t>(std::max(1.0, info.durationSeconds * 4.0)) + 1U);
                 sceneTimestamps.reserve(sceneBuffers.capacity());
@@ -1868,15 +1901,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 pfcore::DecodedFrame lastFrame;
                 pfcore::DecodedFrame frame;
                 std::size_t poseSampleIndex = 0;
-                double nextPoseSample = -std::numeric_limits<double>::infinity();
-                double nextSceneSample = -std::numeric_limits<double>::infinity();
                 double previousPoseTimestamp = -1.0;
                 // Keep motion sampling stable in time rather than in frame
                 // numbers. This behaves correctly for 24/30/60 fps and VFR
                 // input while still decoding RGBA only for selected frames.
                 const double targetPoseFps = qualityProfile == QStringLiteral("fast") ? 6.0
                     : qualityProfile == QStringLiteral("medium") ? 10.0 : 15.0;
-                const double poseSampleInterval = 1.0 / targetPoseFps;
                 // Four thumbnails per second preserve short edited shots.
                 // Sampling is timestamp-based so VFR input does not drift;
                 // readNext can stay metadata-only and convert only the exact
@@ -1894,6 +1924,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     int height = 0;
                     std::size_t sampleIndex = 0;
                     std::vector<std::uint8_t> rgba;
+                    const std::uint8_t* borrowed = nullptr;
+                    const std::uint8_t* pixels() const noexcept { return borrowed ? borrowed : rgba.data(); }
                 };
                 std::vector<PendingPoseSample> pendingPose;
                 const std::size_t requestedPoseBatch = pose
@@ -1943,8 +1975,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         frameDetections.push_back(std::move(person));
                         if (sampleAppearance && face && detection.confidence >= 0.4F) {
                             try {
+                                const auto stageStart = stageNow();
                                 frameDetections.back().faceEmbedding = face->infer({sample.width, sample.height,
-                                    sample.rgba.data(), detection.left, detection.top, detection.right, detection.bottom});
+                                    sample.pixels(), detection.left, detection.top, detection.right, detection.bottom});
+                                faceNs += stageNow() - stageStart;
                             } catch (const std::exception& exception) {
                                 faceFailure = QString::fromUtf8(exception.what());
                                 face.reset();
@@ -1964,7 +1998,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             && cropHeight / std::max(cropWidth, 1.0F) >= 0.35F
                             && cropHeight / std::max(cropWidth, 1.0F) <= 5.0F;
                         if (viableReIdCrop) {
-                            reidImages.push_back({sample.width, sample.height, sample.rgba.data(),
+                            reidImages.push_back({sample.width, sample.height, sample.pixels(),
                                                   detection.left, detection.top,
                                                   detection.right, detection.bottom});
                             reidDetectionIndices.push_back(frameDetections.size() - 1U);
@@ -1972,7 +2006,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     }
                     if (sampleAppearance && reid && !reidImages.empty()) {
                         try {
+                            const auto stageStart = stageNow();
                             const auto embeddings = reid->inferBatch(reidImages);
+                            reidNs += stageNow() - stageStart;
                             for (std::size_t image = 0;
                                  image < std::min(embeddings.size(), reidDetectionIndices.size());
                                  ++image) {
@@ -1989,7 +2025,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     const double frameDuration = previousPoseTimestamp >= 0.0
                         ? std::max(0.0, sample.timestamp - previousPoseTimestamp)
                         : (info.frameRate > 0.0 ? 1.0 / info.frameRate : 0.0);
+                    const auto trackerStart = stageNow();
                     tracker.update(sample.timestamp, frameDuration, frameDetections);
+                    trackerNs += stageNow() - trackerStart;
                     previousPoseTimestamp = sample.timestamp;
                 };
                 const auto flushPoseBatch = [&] {
@@ -1997,35 +2035,40 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     std::vector<pfgpu::PoseImage> images;
                     images.reserve(pendingPose.size());
                     for (const auto& sample : pendingPose)
-                        images.push_back({sample.width, sample.height, sample.rgba.data()});
+                        images.push_back({sample.width, sample.height, sample.pixels()});
+                    const auto stageStart = stageNow();
                     const auto batchDetections = pose->inferBatch(images);
+                    poseNs += stageNow() - stageStart;
                     for (std::size_t index = 0;
                          index < std::min(batchDetections.size(), pendingPose.size()); ++index)
                         processPose(pendingPose[index], batchDetections[index]);
                     pendingPose.clear();
                 };
+                // CPU inference can already occupy every core. Do not add
+                // decode contention there without a measured benefit; the
+                // bounded overlap is enabled by default for GPU inference.
+                const QString prefetchOverride = qEnvironmentVariable("PF_ANALYSIS_PREFETCH");
+                const bool prefetchFrames = prefetchOverride == QStringLiteral("1")
+                    || (prefetchOverride != QStringLiteral("0") && !cpuOnly);
+                pfcore::VideoSampleReader sampleReader(decoder,
+                    pose && !cacheHit ? targetPoseFps : 0.0, 4.0, isCancelled,
+                    prefetchFrames, 3, profilePipeline);
+                const auto framesBeforeFile = processedFrames;
+                qlonglong lastProgressFrames = processedFrames;
+                pfcore::VideoSample decodedSample;
                 for (;;) {
                     // Decode timestamps first. Once a timestamp is selected,
                     // convert the retained AVFrame exactly once for scene and/or
                     // pose inference. This avoids frame-index drift on VFR input.
-                    if (!decoder.readNext(frame, false)) break;
+                    if (!sampleReader.readNext(decodedSample)) break;
                     if (isCancelled()) { markCancelled(); break; }
-                    const bool samplePose = pose && !cacheHit
-                        && frame.timestampSeconds + 1e-9 >= nextPoseSample;
-                    const bool sampleScene = frame.timestampSeconds + 1e-9 >= nextSceneSample;
-                    if ((samplePose || sampleScene) && frame.rgba.empty())
-                        decoder.convertCurrentFrameToRgba(frame);
-                    if (samplePose) {
-                        ++poseSampleIndex;
-                        if (!std::isfinite(nextPoseSample))
-                            nextPoseSample = frame.timestampSeconds + poseSampleInterval;
-                        else {
-                            do { nextPoseSample += poseSampleInterval; }
-                            while (nextPoseSample <= frame.timestampSeconds + 1e-9);
-                        }
-                    }
-                    ++processedFrames;
-                    if (processedFrames % 10 == 0 || processedFrames == totalFramesEstimate) {
+                    frame = std::move(decodedSample.frame);
+                    const bool samplePose = decodedSample.pose;
+                    const bool sampleScene = decodedSample.scene;
+                    if (samplePose) ++poseSampleIndex;
+                    processedFrames = framesBeforeFile + static_cast<qlonglong>(decodedSample.decodedFrames);
+                    if (processedFrames - lastProgressFrames >= 10 || processedFrames == totalFramesEstimate) {
+                        lastProgressFrames = processedFrames;
                         const double localProgress = totalFramesEstimate > 0
                             ? static_cast<double>(processedFrames) / static_cast<double>(totalFramesEstimate)
                             : 0.0;
@@ -2035,24 +2078,25 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     }
                     if (firstFrame.rgba.empty() && !frame.rgba.empty()) firstFrame = frame;
                     if (sampleScene && !frame.rgba.empty()) {
+                        const auto before = stageNow();
                         sceneBuffers.push_back(sceneThumbnail(frame));
                         sceneTimestamps.push_back(frame.timestampSeconds);
-                        if (!std::isfinite(nextSceneSample))
-                            nextSceneSample = frame.timestampSeconds + 0.25;
-                        else {
-                            do { nextSceneSample += 0.25; }
-                            while (nextSceneSample <= frame.timestampSeconds + 1e-9);
-                        }
+                        sceneThumbnailNs += stageNow() - before;
                     }
                     if (samplePose && !frame.rgba.empty()) {
-                        InferenceSample inference = makeInferenceSample(frame);
-                        if (inference.rgba.empty()) continue;
+                        const auto before = stageNow();
+                        InferenceSample inference = makeInferenceSample(frame, poseBatchSize <= 1);
+                        inferenceSampleNs += stageNow() - before;
+                        if (!inference.pixels()) continue;
                         if (poseBatchSize <= 1) {
                             PendingPoseSample sample{frame.timestampSeconds, inference.width,
                                                      inference.height, poseSampleIndex,
-                                                     std::move(inference.rgba)};
-                            pfgpu::PoseImage image{sample.width, sample.height, sample.rgba.data()};
-                            processPose(sample, pose->infer(image));
+                                                     std::move(inference.rgba), inference.borrowed};
+                            pfgpu::PoseImage image{sample.width, sample.height, sample.pixels()};
+                            const auto stageStart = stageNow();
+                            const auto detections = pose->infer(image);
+                            poseNs += stageNow() - stageStart;
+                            processPose(sample, detections);
                         } else {
                             PendingPoseSample sample{frame.timestampSeconds, inference.width,
                                                      inference.height, poseSampleIndex,
@@ -2063,7 +2107,16 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     }
                     if (!frame.rgba.empty()) lastFrame = std::move(frame);
                 }
+                sampleReader.finish(); // decoder diagnostics are safe only after join
+                if (profilePipeline) {
+                    const auto waits = sampleReader.waitDiagnostics();
+                    std::fprintf(stderr, "PF_DEBUG_TIMING consumer_queue_wait_ms=%.3f producer_queue_wait_ms=%.3f consumer_waits=%llu producer_waits=%llu inference_sample_ms=%.3f scene_thumbnail_ms=%.3f batch_slots=%zu\n",
+                        waits.consumerMilliseconds, waits.producerMilliseconds,
+                        static_cast<unsigned long long>(waits.consumerWaits), static_cast<unsigned long long>(waits.producerWaits),
+                        inferenceSampleNs / 1e6, sceneThumbnailNs / 1e6, requestedPoseBatch);
+                }
                 if (!isCancelled()) flushPoseBatch();
+                const auto decodeAndInferNs = stageNow();
                 if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
                     const auto stats = decoder.diagnostics();
                     std::fprintf(stderr, "PF_DECODE backend=%s threads=%d cache_hit=%d decoded=%llu converted=%llu downloads=%llu read_ms=%.1f conversion_ms=%.1f fallback=%s\n",
@@ -2086,6 +2139,59 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                                             * 4.0 / std::max(1.0, info.frameRate)))),
                                                     settings.sceneAdaptiveMultiplier);
                 const auto sceneBoundaries = sceneDetector.detect(samples);
+                const auto sceneDetectNs = stageNow() - decodeAndInferNs;
+                if (!cacheHit && !sceneBoundaries.empty()) {
+                    std::vector<double> cuts;
+                    cuts.reserve(sceneBoundaries.size());
+                    for (const auto& cut : sceneBoundaries) cuts.push_back(cut.timestampSeconds);
+                    const auto trackingStart = stageNow();
+                    tracker.retrackScenes(cuts);
+                    trackerNs += stageNow() - trackingStart;
+                }
+                // Opt-in identity audit: preserve independently sampled crops
+                // before scene prototypes hide track switches or mixed faces.
+                // No allocations or observation traversal in normal analysis.
+                const QString appearanceAuditPath = qEnvironmentVariable("PF_DEBUG_APPEARANCE_JSON");
+                if (!appearanceAuditPath.isEmpty() && !cacheHit) {
+                    QJsonArray observations;
+                    const auto vectorJson = [](const std::vector<float>& values) {
+                        QJsonArray array;
+                        for (const auto value : values) array.append(value);
+                        return array;
+                    };
+                    for (const auto& track : tracker.tracks()) {
+                        for (const auto& observation : track.observations) {
+                            if (observation.faceEmbedding.empty() && observation.appearanceEmbedding.empty()) continue;
+                            QJsonArray points;
+                            for (const auto& point : observation.keypoints)
+                                points.append(QJsonArray{point.x, point.y, point.confidence});
+                            observations.append(QJsonObject{
+                                {"track", static_cast<qint64>(track.id)},
+                                {"time", observation.timestampSeconds},
+                                {"box", QJsonArray{observation.box.left, observation.box.top,
+                                                    observation.box.right, observation.box.bottom}},
+                                {"points", points},
+                                {"face", vectorJson(observation.faceEmbedding)},
+                                {"body", vectorJson(observation.appearanceEmbedding)}});
+                        }
+                    }
+                    const QString destination = paths.size() == 1 ? appearanceAuditPath
+                        : appearanceAuditPath + QStringLiteral(".%1.json").arg(files);
+                    if (QFileInfo::exists(destination)) {
+                        qWarning("Identity audit refuses to overwrite existing observations.");
+                    } else {
+                        QSaveFile diagnosticFile(destination);
+                        if (diagnosticFile.open(QIODevice::WriteOnly)) {
+                            const auto bytes = QJsonDocument(QJsonObject{{"source", path},
+                                {"policy", QStringLiteral("Diagnostic model observations, not independent ground truth")},
+                                {"observations", observations}}).toJson(QJsonDocument::Compact);
+                            if (diagnosticFile.write(bytes) != bytes.size()) {
+                                diagnosticFile.cancelWriting();
+                                qWarning("Cannot write complete identity audit.");
+                            } else if (!diagnosticFile.commit()) qWarning("Cannot commit identity audit.");
+                        } else qWarning("Cannot open identity audit output.");
+                    }
+                }
                 // A boundary separates two scenes; the user-facing counter is
                 // the number of actual segments, not the number of cuts.
                 scenes += samples.empty() ? 0 : static_cast<int>(sceneBoundaries.size() + 1U);
@@ -2266,6 +2372,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         candidate.sceneContext = contextIndex.query(
                             candidate.frames.front().timestampSeconds, candidate.frames.back().timestampSeconds);
                 }
+                const auto windowsReadyNs = stageNow();
                 if (analysisCache && !isCancelled() && faceFailure.isEmpty() && reidFailure.isEmpty()) {
                     std::vector<pfcore::MotionWindow> fileWindows;
                     for (const auto& candidate : windows)
@@ -2274,6 +2381,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     analysisCache->put(cacheKey, serializeMotionWindows(fileWindows,
                         static_cast<int>(sceneBoundaries.size()) + 1), cacheError);
                 }
+                if (profilePipeline)
+                    std::fprintf(stderr, "PF_DEBUG_TIMING cold_pipeline_ms=%.1f decode_infer_ms=%.1f pose_ms=%.1f face_ms=%.1f reid_ms=%.1f tracker_ms=%.1f scene_ms=%.1f windows_ms=%.1f cache_write_ms=%.1f pose_samples=%zu tracks=%zu prefetch=%d peak_buffered=%zu\n",
+                        stageNow() / 1e6, decodeAndInferNs / 1e6, poseNs / 1e6, faceNs / 1e6,
+                        reidNs / 1e6, trackerNs / 1e6, sceneDetectNs / 1e6,
+                        (windowsReadyNs - decodeAndInferNs - sceneDetectNs) / 1e6,
+                        (stageNow() - windowsReadyNs) / 1e6, poseSampleIndex, tracker.tracks().size(),
+                        prefetchFrames ? 1 : 0, sampleReader.peakBufferedSamples());
             } catch (const std::exception& exception) {
                 error = QString::fromUtf8(exception.what());
                 break;
@@ -2350,6 +2464,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.duplicateWindowSec = duplicateWindow;
             params.noiseFactor = noiseFactor;
             params.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults);
+            params.maxComparisonThreads = settings.processingThreads == 0 ? 0
+                : std::min<std::size_t>(settings.processingThreads, 4);
             params.expandedSearch = expandedSearch;
             params.timeWeight = timeWeight;
             params.minTemporalFrames = qualityProfile == QStringLiteral("fast") ? 6U
@@ -2388,31 +2504,89 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             std::size_t cachedPreviews = 0;
             std::unordered_map<std::string, std::string> previewFingerprints;
             std::unordered_map<std::string, std::unique_ptr<pfcore::VideoDecoder>> previewDecoders;
-            pfservices::PreviewMemo exactPreviews([&](const QString& source, double seconds) {
-                if (isCancelled()) return QString{};
-                const std::string path = source.toStdString();
+            // In particular, an empty warm result must not create a temporary
+            // session or scan old preview folders for files it will never save.
+            const QString previewDirectory = foundMatches.empty() ? QString{} : previewSessionPath();
+            const auto previewKey = [&](const std::string& path, double seconds) {
+                if (!std::isfinite(seconds)) return std::string{};
+                auto [fingerprint, inserted] = previewFingerprints.try_emplace(path);
+                if (inserted) fingerprint->second = cacheFileFingerprint(path);
+                return "preview-v1|1920x1080|" + fingerprint->second + "|t="
+                    + std::to_string(std::llround(std::max(0.0, seconds) * 1000000.0));
+            };
+            struct PreviewRequest {
+                std::string source;
+                double seconds;
+                QString url;
+                std::shared_future<QString> encoded;
+            };
+            std::vector<PreviewRequest> requests;
+            std::vector<std::string> previewKeys;
+            std::unordered_map<std::string, std::size_t> requestIndex;
+            const auto requestPreview = [&](const std::string& path, double seconds) {
+                const auto key = previewKey(path, seconds);
+                if (key.empty()) return;
+                const auto [entry, inserted] = requestIndex.try_emplace(key, requests.size());
+                (void)entry;
+                if (inserted) {
+                    requests.push_back({path, std::max(0.0, seconds), {}, {}});
+                    previewKeys.push_back(key);
+                }
+            };
+            // Preserve first-use ordering/timestamps. Only PNG validation and
+            // saving overlap; decoder ownership and all matcher data stay serial.
+            for (const auto& item : foundMatches) {
+                if (isCancelled()) break;
+                requestPreview(item.leftSourceId, item.leftStartSeconds);
+                requestPreview(item.rightSourceId, item.rightStartSeconds);
+            }
+            const auto previewWorkers = QThread::idealThreadCount() >= 8 ? 4U : 1U;
+            const auto cachedUrls = pfservices::materializeCachedPreviews(analysisCache.get(), previewKeys,
+                previewDirectory, isCancelled, previewWorkers);
+            const auto cacheStageMs = resultTimer.elapsed();
+            // No encoder thread is needed when every still is cached (or the
+            // result set is empty). Start it only for the first decoded miss.
+            std::unique_ptr<pfservices::PreviewWriter> previewWriter;
+            for (std::size_t i = 0; i < requests.size() && !previewDirectory.isEmpty(); ++i) {
+                if (isCancelled()) break;
+                auto& request = requests[i];
+                if (!cachedUrls[i].isEmpty()) {
+                    request.url = cachedUrls[i]; ++cachedPreviews; continue;
+                }
                 try {
-                    auto [fingerprint, inserted] = previewFingerprints.try_emplace(path);
-                    if (inserted) fingerprint->second = cacheFileFingerprint(path);
-                    const auto key = "preview-v1|1920x1080|" + fingerprint->second + "|t="
-                        + std::to_string(std::llround(seconds * 1000000.0));
-                    bool hit = false;
-                    const auto url = pfservices::cachedPreview(analysisCache.get(), key, previewSessionPath(), [&] {
-                    auto& decoder = previewDecoders[path];
+                    auto& decoder = previewDecoders[request.source];
                     if (!decoder) {
                         decoder = std::make_unique<pfcore::VideoDecoder>();
-                        decoder->open(path);
+                        decoder->open(request.source);
                         decoder->setRgbaMaxDimensions(1920, 1080);
                     }
-                    return savePreviewAt(*decoder, seconds,
-                        QStringLiteral("%1_match_frame_%2.png").arg(previewToken).arg(renderedPreviews++));
-                    }, hit);
-                    if (hit) ++cachedPreviews;
-                    return url;
-                } catch (...) {
-                    previewDecoders.erase(path);
-                    return QString{};
-                }
+                    savePreviewAt(*decoder, request.seconds,
+                        QStringLiteral("%1_match_frame_%2.png").arg(previewToken).arg(renderedPreviews++),
+                        [&](const pfcore::DecodedFrame& exact, const QString& name) {
+                            // QImage wraps borrowed decoder bytes; an owned copy
+                            // must cross the encoder thread boundary.
+                            QImage image(exact.rgba.data(), exact.width, exact.height, QImage::Format_RGBA8888);
+                            if (image.width() > 1920 || image.height() > 1080)
+                                image = image.scaled(1920, 1080, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                            else image = image.copy();
+                            const auto path = previewDirectory + QLatin1Char('/') + name;
+                            if (!previewWriter)
+                                previewWriter = std::make_unique<pfservices::PreviewWriter>(analysisCache.get());
+                            request.encoded = previewWriter->submit(std::move(image), path, previewKeys[i]);
+                            return QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
+                        });
+                } catch (...) { previewDecoders.erase(request.source); }
+            }
+            if (previewWriter) previewWriter->finish(); // All PNG/cache writes complete before publication.
+            for (auto& request : requests)
+                if (request.encoded.valid()) request.url = request.encoded.get();
+            if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
+                std::fprintf(stderr, "PF_DEBUG_TIMING preview_cache_stage_ms=%lld preview_workers=%u unique_previews=%zu\n",
+                    static_cast<long long>(cacheStageMs), previewWorkers, requests.size());
+            pfservices::PreviewMemo exactPreviews([&](const QString& source, double seconds) {
+                if (isCancelled()) return QString{};
+                const auto found = requestIndex.find(previewKey(source.toStdString(), seconds));
+                return found == requestIndex.end() ? QString{} : requests[found->second].url;
             });
             for (std::size_t i = 0; i < foundMatches.size(); ++i) {
                 if (isCancelled()) { markCancelled(); break; }

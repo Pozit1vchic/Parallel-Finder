@@ -7,8 +7,14 @@
 #include <QSaveFile>
 #include <QUrl>
 #include <functional>
+#include <vector>
 
 namespace pfservices {
+// A miss, corrupt PNG or failed materialization returns an empty URL. Pixel
+// validation is deliberately retained, even on the parallel cache path.
+QString materializeCachedPreview(PfCache* cache, const std::string& key, const QString& directory);
+std::vector<QString> materializeCachedPreviews(PfCache* cache, const std::vector<std::string>& keys,
+    const QString& directory, const std::function<bool()>& cancelled = {}, std::size_t workers = 4);
 // Encoded frames share the normal bounded cache, but never reference a prior
 // temporary session. A hit is materialized into this session's own directory.
 inline QString cachedPreview(PfCache* cache, const std::string& key,
@@ -16,19 +22,9 @@ inline QString cachedPreview(PfCache* cache, const std::string& key,
                              const std::function<QString()>& render, bool& hit)
 {
     hit = false;
-    if (cache && !directory.isEmpty()) {
-        if (const auto bytes = cache->get(key); bytes && !bytes->empty()) {
-            const QByteArray encoded(reinterpret_cast<const char*>(bytes->data()), static_cast<qsizetype>(bytes->size()));
-            if (!QImage::fromData(encoded, "PNG").isNull()) {
-                const auto name = QCryptographicHash::hash(QByteArray::fromStdString(key), QCryptographicHash::Sha256).toHex();
-                const QString path = directory + QLatin1Char('/') + QString::fromLatin1(name) + QStringLiteral(".png");
-                QSaveFile file(path);
-                if (file.open(QIODevice::WriteOnly) && file.write(encoded) == encoded.size() && file.commit()) {
-                    hit = true;
-                    return QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
-                }
-            }
-        }
+    if (const auto url = materializeCachedPreview(cache, key, directory); !url.isEmpty()) {
+        hit = true;
+        return url;
     }
     const auto url = render();
     if (cache && !url.isEmpty()) {

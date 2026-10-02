@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <mutex>
 #include <unordered_map>
+#include <cstdlib>
 
 #include "pfgpu/OrtRuntime.hpp"
 
@@ -27,25 +28,67 @@ int deviceIdFrom(const IProviderFactory::OptionList& options)
     return 0;
 }
 
-IProviderFactory::OptionList tensorRtRuntimeOptions(const IProviderFactory::OptionList& defaults)
+bool tensorRtRuntimeOptions(const IProviderFactory::OptionList& defaults,
+                           IProviderFactory::OptionList& options, std::string& message)
 {
-    IProviderFactory::OptionList options = defaults;
+    options = defaults;
+    std::error_code error;
+    std::filesystem::path cacheRoot;
+    // The GUI sets this to its persistent cache root; probes/benchmarks can
+    // supply an isolated directory. Qt's environment value is UTF-8 on Windows.
+    if (const auto* overridePath = std::getenv("PF_TRT_CACHE_PATH"); overridePath && *overridePath)
+        cacheRoot = std::filesystem::path(std::u8string(overridePath, overridePath + std::strlen(overridePath)));
+    else cacheRoot = std::filesystem::temp_directory_path(error) / "ParallelFinder" / "trt-cache";
+    if (!error) std::filesystem::create_directories(cacheRoot, error);
+    if (error) {
+        // Do not enable a cache without its path: ORT would silently write to
+        // the working directory rather than the user-selected cache location.
+        message = "TensorRT cache directory is unavailable: " + error.message();
+        return false;
+    }
+    const auto utf8Path = cacheRoot.u8string();
+    const std::string cachePath(utf8Path.begin(), utf8Path.end());
     options.push_back({"trt_fp16_enable", "1"});
     options.push_back({"trt_engine_cache_enable", "1"});
     options.push_back({"trt_timing_cache_enable", "1"});
+    options.push_back({"trt_engine_cache_path", cachePath});
+    options.push_back({"trt_timing_cache_path", cachePath});
+    return true;
+}
 
-    std::error_code error;
-    const auto cacheRoot = std::filesystem::temp_directory_path(error)
-        / "ParallelFinder" / "trt-cache";
-    if (!error) {
-        std::filesystem::create_directories(cacheRoot, error);
-        if (!error) {
-            const std::string cachePath = cacheRoot.string();
-            options.push_back({"trt_engine_cache_path", cachePath});
-            options.push_back({"trt_timing_cache_path", cachePath});
-        }
-    }
+IProviderFactory::OptionList cudaRuntimeOptions(const IProviderFactory::OptionList& defaults)
+{
+    auto options = defaults;
+    // Diagnostic only: compare tuning policies in separate benchmark processes
+    // before changing the production default (ORT's EXHAUSTIVE search).
+    if (const auto* search = std::getenv("PF_CUDA_CONV_SEARCH"); search
+        && (std::strcmp(search, "EXHAUSTIVE") == 0 || std::strcmp(search, "HEURISTIC") == 0
+            || std::strcmp(search, "DEFAULT") == 0))
+        options.emplace_back("cudnn_conv_algo_search", search);
     return options;
+}
+
+// Public opaque option objects are ABI-stable and part of OrtApi since 1.11
+// (TensorRT V2 predates that). Unlike the classic exported device-id function,
+// these calls actually apply cache/tuning options. No CUDA/TRT SDK link needed.
+template<class Options, class Create, class Update, class Append, class Release>
+bool attachOpaqueOptions(const OrtApi& api, OrtSessionOptions& sessionOptions,
+                         const IProviderFactory::OptionList& options,
+                         Create create, Update update, Append append, Release release,
+                         std::string& error)
+{
+    Options* raw = nullptr;
+    OrtStatus* status = create(&raw);
+    const std::unique_ptr<Options, Release> owner(raw, release);
+    if (!checkStatus(api, status, error)) return false;
+    if (!raw) { error = "provider returned null options"; return false; }
+    std::vector<const char*> keys, values;
+    keys.reserve(options.size()); values.reserve(options.size());
+    for (const auto& [key, value] : options) {
+        keys.push_back(key.c_str()); values.push_back(value.c_str());
+    }
+    return checkStatus(api, update(raw, keys.data(), values.data(), keys.size()), error)
+        && checkStatus(api, append(&sessionOptions, raw), error);
 }
 
 // Every provider we ship except CPU goes through attachExecutionProvider.
@@ -78,7 +121,12 @@ public:
         // callers and tests rely on that stable factory contract. TensorRT's
         // performance options are runtime configuration, not provider identity.
         if (provider_ == Provider::TensorRt) {
-            const auto effectiveOptions = tensorRtRuntimeOptions(optionsToApply);
+            OptionList effectiveOptions;
+            if (!tensorRtRuntimeOptions(optionsToApply, effectiveOptions, error)) return false;
+            return IProviderFactory::configure(api, options, effectiveOptions, error);
+        }
+        if (provider_ == Provider::Cuda) {
+            const auto effectiveOptions = cudaRuntimeOptions(optionsToApply);
             return IProviderFactory::configure(api, options, effectiveOptions, error);
         }
         return IProviderFactory::configure(api, options, optionsToApply, error);
@@ -196,6 +244,26 @@ bool attachExecutionProvider(const OrtApi& api,
                              std::string& error)
 {
     const std::uint32_t apiVersion = ortRuntimeStatus().apiVersion;
+    const auto opaqueResult = [&](bool ok) {
+        if (!ok) error = std::string(factory.epName()) + ": " + error
+            + "; install the matching GPU runtime and its dependencies";
+        return ok;
+    };
+    // OrtApi is append-only; do not read these fields on an older API table.
+    if (apiVersion >= 11) {
+        if (factory.provider() == Provider::Cuda && api.CreateCUDAProviderOptions
+            && api.UpdateCUDAProviderOptions && api.SessionOptionsAppendExecutionProvider_CUDA_V2
+            && api.ReleaseCUDAProviderOptions)
+            return opaqueResult(attachOpaqueOptions<OrtCUDAProviderOptionsV2>(api, options, optionsToApply,
+                api.CreateCUDAProviderOptions, api.UpdateCUDAProviderOptions,
+                api.SessionOptionsAppendExecutionProvider_CUDA_V2, api.ReleaseCUDAProviderOptions, error));
+        if (factory.provider() == Provider::TensorRt && api.CreateTensorRTProviderOptions
+            && api.UpdateTensorRTProviderOptions && api.SessionOptionsAppendExecutionProvider_TensorRT_V2
+            && api.ReleaseTensorRTProviderOptions)
+            return opaqueResult(attachOpaqueOptions<OrtTensorRTProviderOptionsV2>(api, options, optionsToApply,
+                api.CreateTensorRTProviderOptions, api.UpdateTensorRTProviderOptions,
+                api.SessionOptionsAppendExecutionProvider_TensorRT_V2, api.ReleaseTensorRTProviderOptions, error));
+    }
     if (apiVersion >= kEpDeviceApiVersion) {
         if (attachViaEpDeviceApi(api, options, factory, optionsToApply, error)) return true;
         // Official GPU builds can expose built-in EPs only via classic factories.
@@ -212,10 +280,16 @@ bool attachExecutionProvider(const OrtApi& api,
         return false;
     }
 
-    // The classic entry point takes only a device id; richer options (TRT
-    // engine cache, cuDNN tuning) require the OrtApi struct variants, which we
-    // deliberately do not depend on — see ProviderFactory.hpp. Our built-in
-    // defaults are device_id only, so nothing is silently dropped in practice.
+    // Older runtimes can still select a device, but must not pretend to apply
+    // richer cache/tuning options that this classic ABI cannot represent.
+    for (const auto& [key, value] : optionsToApply) {
+        (void)value;
+        if (key != "device_id") {
+            error = "runtime has no compatible provider-options API for '" + key
+                + "'; install a newer matching GPU runtime";
+            return false;
+        }
+    }
     if (factory.provider() == Provider::Dml) {
         if (!checkStatus(api, api.DisableMemPattern(&options), error)
             || !checkStatus(api, api.SetSessionExecutionMode(&options, ORT_SEQUENTIAL), error)) return false;

@@ -17,8 +17,12 @@ Item {
     property real previewStart: record ? (side === "left" ? Number(record.leftSceneStart !== undefined ? record.leftSceneStart : record.leftStart || 0) : Number(record.rightSceneStart !== undefined ? record.rightSceneStart : record.rightStart || 0)) : 0
     property real previewEnd: record ? (side === "left" ? Number(record.leftSceneEnd !== undefined ? record.leftSceneEnd : record.leftEnd || 0) : Number(record.rightSceneEnd !== undefined ? record.rightSceneEnd : record.rightEnd || 0)) : 0
     property real matchEnd: record ? Number(side === "left" ? record.leftEnd || 0 : record.rightEnd || 0) : 0
-    property real playbackEnd: !record ? 0 : record.matchType === "motion" && matchEnd > timestamp
-        ? matchEnd : (previewEnd > timestamp ? Math.min(previewEnd, timestamp + 4) : timestamp + 4)
+    property real playbackEnd: {
+        if (!record) return 0
+        const requestedEnd = record.matchType === "motion" && matchEnd > timestamp
+            ? matchEnd : timestamp + 4
+        return previewEnd > timestamp ? Math.min(requestedEnd, previewEnd) : requestedEnd
+    }
     readonly property bool previewPlayable: !!record && sourcePath.length > 0 && playbackEnd > timestamp
     property real zoom: 1.0
     property real panX: 0
@@ -117,7 +121,10 @@ Item {
     Timer {
         interval: 25; repeat: true; running: root.playing
         onTriggered: {
-            if (player && player.position >= root.playbackEnd * 1000) root.playbackFinished()
+            if (player && player.position >= root.playbackEnd * 1000) {
+                root.pausePlayback()
+                root.playbackFinished()
+            }
         }
     }
 

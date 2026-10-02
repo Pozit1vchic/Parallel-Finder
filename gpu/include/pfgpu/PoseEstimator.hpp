@@ -5,10 +5,12 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <mutex>
 
 #include "pfgpu/Inference.hpp"
 
 namespace pfgpu {
+namespace detail { struct PoseInputWorkspace; }
 
 struct PoseImage {
     int width = 0;
@@ -47,6 +49,7 @@ struct PoseEstimatorParams {
 class PoseEstimator {
 public:
     PoseEstimator(std::string modelPath, PoseEstimatorParams params = {});
+    ~PoseEstimator();
 
     // Creates/validates the ORT session without running a frame. Useful for
     // showing a truthful "initializing accelerator" stage before video decode.
@@ -63,6 +66,8 @@ private:
     PoseEstimatorParams params_;
     SessionHandle acquireSession();
     std::optional<SessionSpec> sessionSpec_;
+    std::unique_ptr<detail::PoseInputWorkspace> inputWorkspace_;
+    std::mutex mutex_;
 };
 
 } // namespace pfgpu

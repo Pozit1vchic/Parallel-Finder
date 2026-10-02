@@ -124,4 +124,91 @@ TEST(DominantPerson, VerifiedLeadIsNotReplacedByLongerForegroundInterlocutor)
               (std::vector<bool>{false, true}));
 }
 
+TEST(DominantPerson, SimilarCoVisiblePeopleDoNotBecomeOneLeadIdentity)
+{
+    std::vector<pfcore::PersonTrack> tracks(3);
+    for (std::size_t track = 0; track < tracks.size(); ++track) {
+        for (int i = 0; i < (track == 1 ? 3 : 4); ++i) {
+            auto observation = person(i * 0.1 + (track == 2 ? 1 : 0), track * 40, .9);
+            observation.faceEmbedding = {1,0};
+            tracks[track].observations.push_back(observation);
+        }
+    }
+    // Track 2 continues track 0 later; track 1 is a different simultaneously
+    // visible actor. A non-overlapping bridge must not absorb that actor.
+    EXPECT_EQ(pfcore::selectDominantSceneTracks(tracks, 0, 2),
+              (std::vector<bool>{true,false,true}));
+}
+
+TEST(DominantPerson, SceneCutSeparatesIdenticalGeometryWithoutAnotherInference)
+{
+    pfcore::PersonTracker tracker;
+    for (int i = 0; i < 8; ++i)
+        tracker.update(i * .1, .1, {person(i * .1, 0, .9)});
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    tracker.retrackScenes({.4});
+    ASSERT_EQ(tracker.tracks().size(), 2U);
+    EXPECT_EQ(tracker.tracks()[0].observations.size(), 4U);
+    EXPECT_EQ(tracker.tracks()[1].observations.size(), 4U);
+    EXPECT_LT(tracker.tracks()[0].observations.back().timestampSeconds, .4);
+    EXPECT_DOUBLE_EQ(tracker.tracks()[1].observations.front().timestampSeconds, .4);
+}
+
+TEST(DominantPerson, SceneRetrackingPreservesSamePersonIdentityAcrossShots)
+{
+    pfcore::PersonTracker tracker;
+    for (int i = 0; i < 8; ++i) {
+        auto detection = person(i * .1, 0, .9);
+        detection.faceEmbedding = {1, 0};
+        tracker.update(i * .1, .1, {detection});
+    }
+    tracker.retrackScenes({.4});
+    ASSERT_EQ(tracker.tracks().size(), 2U);
+    EXPECT_EQ(pfcore::selectDominantSceneTracks(tracker.tracks(), 0, 1),
+              (std::vector<bool>{true, true}));
+    EXPECT_DOUBLE_EQ(tracker.tracks()[0].totalTimeSeconds(), .4);
+    EXPECT_DOUBLE_EQ(tracker.tracks()[1].totalTimeSeconds(), .4);
+}
+
+TEST(DominantPerson, InvalidSceneBoundariesDoNotDestroyTracks)
+{
+    pfcore::PersonTracker tracker;
+    tracker.update(0, .1, {person(0, 0, .9)});
+    EXPECT_THROW(tracker.retrackScenes({2, 1}), std::invalid_argument);
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_EQ(tracker.tracks()[0].observations.size(), 1U);
+    tracker.retrackScenes({});
+    EXPECT_EQ(tracker.tracks().size(), 1U);
+}
+
+TEST(DominantPerson, BriefRecognisableExtraDoesNotOverrideLongerLead)
+{
+    std::vector<pfcore::IdentitySummary> people(2);
+    people[0].duration = 10;
+    people[0].area = 1;
+    people[1].duration = 1;
+    people[1].area = 5;
+    people[1].face = {1, 0};
+    people[1].faceEvidence = 1;
+    EXPECT_EQ(pfcore::selectDominantIdentities(people), (std::vector<bool>{true, false}));
+}
+
+TEST(DominantPerson, FragmentationDoesNotInflateLeadProminence)
+{
+    std::vector<pfcore::IdentitySummary> people(3);
+    people[0].duration = 2;
+    people[0].area = 3;
+    people[0].face = {1, 0};
+    people[0].faceEvidence = 1;
+    for (int i = 1; i < 3; ++i) {
+        people[i].duration = 1;
+        people[i].area = 2;
+        people[i].face = {0, 1};
+        people[i].faceEvidence = 1;
+    }
+    // Two fragments have the same total duration, but summing their average
+    // areas used to wrongly make this smaller secondary person the lead.
+    EXPECT_EQ(pfcore::selectDominantIdentities(people), (std::vector<bool>{true, false, false}));
+}
+
 } // namespace

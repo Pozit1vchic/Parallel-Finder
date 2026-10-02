@@ -135,6 +135,44 @@ void DominantPersonTracker::reset()
 {
     tracks_.clear();
     nextId_ = 1;
+    sceneTrackStart_ = 0;
+}
+
+void DominantPersonTracker::retrackScenes(const std::vector<double>& boundaries)
+{
+    // Validate before moving observations: a malformed boundary list must not
+    // partially destroy the existing tracking result.
+    if (!std::is_sorted(boundaries.begin(), boundaries.end())
+        || !std::all_of(boundaries.begin(), boundaries.end(),
+                        [](double time) { return std::isfinite(time); }))
+        throw std::invalid_argument("PersonTracker: scene boundaries must be finite and ordered");
+    if (boundaries.empty() || tracks_.empty()) return;
+    std::size_t count = 0;
+    for (const auto& track : tracks_) count += track.observations.size();
+    std::vector<PersonDetection> observations;
+    observations.reserve(count);
+    for (auto& track : tracks_)
+        for (auto& observation : track.observations)
+            observations.push_back(std::move(observation));
+    std::stable_sort(observations.begin(), observations.end(), [](const auto& a, const auto& b) {
+        return a.timestampSeconds < b.timestampSeconds;
+    });
+    reset();
+    std::size_t boundary = 0;
+    for (std::size_t first = 0; first < observations.size();) {
+        const double timestamp = observations[first].timestampSeconds;
+        while (boundary < boundaries.size() && boundaries[boundary] <= timestamp) {
+            sceneTrackStart_ = tracks_.size();
+            ++boundary;
+        }
+        std::size_t last = first + 1;
+        while (last < observations.size() && observations[last].timestampSeconds == timestamp) ++last;
+        std::vector<PersonDetection> frame;
+        frame.reserve(last - first);
+        for (auto i = first; i < last; ++i) frame.push_back(std::move(observations[i]));
+        update(timestamp, 0.0, frame);
+        first = last;
+    }
 }
 
 void DominantPersonTracker::update(double timestampSeconds,
@@ -150,37 +188,36 @@ void DominantPersonTracker::update(double timestampSeconds,
         std::size_t detection;
     };
     std::vector<Candidate> candidates;
-    for (std::size_t track = 0; track < tracks_.size(); ++track) {
+    const bool needsBody = std::any_of(detections.begin(), detections.end(),
+        [](const auto& detection) { return !detection.appearanceEmbedding.empty(); });
+    const bool needsFace = std::any_of(detections.begin(), detections.end(),
+        [](const auto& detection) { return !detection.faceEmbedding.empty(); });
+    for (std::size_t track = sceneTrackStart_; track < tracks_.size(); ++track) {
         if (tracks_[track].observations.empty()) continue;
+        const auto& last = tracks_[track].observations.back();
+        if (timestampSeconds < last.timestampSeconds
+            || timestampSeconds - last.timestampSeconds > maxGapSeconds_) continue;
+        const PersonDetection* appearanceReference = nullptr;
+        const PersonDetection* faceReference = nullptr;
+        for (auto observation = tracks_[track].observations.rbegin();
+             observation != tracks_[track].observations.rend()
+                && ((needsBody && !appearanceReference) || (needsFace && !faceReference)); ++observation) {
+            if (needsBody && !appearanceReference && !observation->appearanceEmbedding.empty())
+                appearanceReference = &*observation;
+            if (needsFace && !faceReference && !observation->faceEmbedding.empty()) faceReference = &*observation;
+        }
         for (std::size_t detection = 0; detection < detections.size(); ++detection) {
-            const auto& last = tracks_[track].observations.back();
-            if (timestampSeconds < last.timestampSeconds
-                || timestampSeconds - last.timestampSeconds > maxGapSeconds_) continue;
             const double iou = last.box.iou(detections[detection].box);
             const double center = centerDistanceScore(last.box, detections[detection].box);
             const double keypoints = keypointScore(last, detections[detection]);
             // ReID is sampled every few frames for throughput. Use the latest
             // available embedding in the track instead of treating an
             // unsampled frame as an identity-free observation.
-            const PersonDetection* appearanceReference = &last;
-            for (auto observation = tracks_[track].observations.rbegin();
-                 observation != tracks_[track].observations.rend(); ++observation) {
-                if (!observation->appearanceEmbedding.empty()) {
-                    appearanceReference = &*observation;
-                    break;
-                }
-            }
-            const double appearance = embeddingScore(appearanceReference->appearanceEmbedding,
-                                                       detections[detection].appearanceEmbedding);
-            double face = -1.0;
-            if (!detections[detection].faceEmbedding.empty()) {
-                for (auto observation = tracks_[track].observations.rbegin();
-                     observation != tracks_[track].observations.rend(); ++observation) {
-                    if (observation->faceEmbedding.empty()) continue;
-                    face = embeddingScore(observation->faceEmbedding, detections[detection].faceEmbedding);
-                    break;
-                }
-            }
+            const double appearance = appearanceReference
+                ? embeddingScore(appearanceReference->appearanceEmbedding,
+                                 detections[detection].appearanceEmbedding) : -1.0;
+            const double face = faceReference
+                ? embeddingScore(faceReference->faceEmbedding, detections[detection].faceEmbedding) : -1.0;
             // IoU is still the strongest signal, but center/keypoint continuity
             // keeps an ID stable when a person turns or the detector jitters.
             // The gate prevents a stale track from stealing a new person merely
@@ -259,8 +296,21 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
             && embeddingScore(identities[i].body, identities[i].body) > 0.99;
     };
     struct Edge { std::size_t a, b; double score; bool face; };
+    const auto coVisible = [&](std::size_t a, std::size_t b) {
+        const auto& left = identities[a].observationTimes;
+        const auto& right = identities[b].observationTimes;
+        if (left.empty() || right.empty() || left.back() < right.front()
+            || right.back() < left.front()) return false;
+        std::size_t i = 0, j = 0;
+        while (i < left.size() && j < right.size()) {
+            if (std::abs(left[i] - right[j]) <= 1e-6) return true;
+            if (left[i] < right[j]) ++i; else ++j;
+        }
+        return false;
+    };
     std::vector<Edge> edges;
     for (std::size_t a = 0; a < count; ++a) for (std::size_t b = a + 1; b < count; ++b) {
+        if (coVisible(a,b)) continue;
         const bool face = faceReady(a) && faceReady(b);
         if (!face && !(bodyReady(a) && bodyReady(b))) continue;
         const double score = face ? embeddingScore(identities[a].face, identities[b].face)
@@ -282,10 +332,9 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
         if (a == b) continue;
         bool conflict = false;
         for (const auto left : members[a]) {
-            if (!faceReady(left)) continue;
             for (const auto right : members[b]) {
-                if (faceReady(right)
-                    && embeddingScore(identities[left].face, identities[right].face) < 0.363) {
+                if (coVisible(left,right) || (faceReady(left) && faceReady(right)
+                    && embeddingScore(identities[left].face, identities[right].face) < 0.363)) {
                     conflict = true; break;
                 }
             }
@@ -304,12 +353,17 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
         bool evidence = false;
         for (const auto i : members[group]) {
             duration += std::max(0.0, identities[i].duration);
-            area += std::max(0.0, identities[i].area);
+            area += std::max(0.0, identities[i].area) * std::max(0.0, identities[i].duration);
             evidence = evidence || faceReady(i) || bodyReady(i);
         }
-        if ((evidence && !bestEvidence)
-            || (evidence == bestEvidence && (duration > bestDuration + 1e-9
-                || (std::abs(duration - bestDuration) <= 1e-9 && area > bestArea)))) {
+        // Embedding availability verifies identity links, not narrative
+        // importance. A brief front-facing extra must not defeat a lead seen
+        // for much longer in profile. Area is duration-weighted so splitting
+        // a track into fragments cannot inflate its tie-breaking prominence.
+        if (duration > bestDuration + 1e-9
+            || (std::abs(duration - bestDuration) <= 1e-9
+                && (area > bestArea + 1e-9
+                    || (std::abs(area - bestArea) <= 1e-9 && evidence && !bestEvidence)))) {
             best = group; bestDuration = duration; bestArea = area; bestEvidence = evidence;
         }
     }
@@ -346,6 +400,7 @@ std::vector<bool> selectDominantSceneTracks(const std::vector<PersonTrack>& trac
         const auto count = std::distance(first, last);
         if (count < 2) continue;
         IdentitySummary summary;
+        summary.observationTimes.reserve(static_cast<std::size_t>(count));
         std::size_t bodySamples = 0, faceSamples = 0;
         const auto add = [](std::vector<float>& sum, std::size_t& samples,
                             const std::vector<float>& embedding) {
@@ -358,6 +413,7 @@ std::vector<bool> selectDominantSceneTracks(const std::vector<PersonTrack>& trac
             ++samples;
         };
         for (auto observation = first; observation != last; ++observation) {
+            summary.observationTimes.push_back(observation->timestampSeconds);
             summary.duration += std::max(0.0, observation->frameDurationSeconds);
             summary.area += observation->box.area();
             add(summary.body, bodySamples, observation->appearanceEmbedding);

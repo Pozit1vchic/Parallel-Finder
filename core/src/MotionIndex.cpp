@@ -1,6 +1,7 @@
 #include "pfcore/MotionIndex.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -16,6 +17,15 @@ namespace {
 // entire equal-distance clusters (common with repeated poses), so bounded
 // exact retrieval is preferable here to silently sacrificing recall.
 constexpr std::size_t kExactSearchLimit = 512;
+
+std::uint64_t nextRevision()
+{
+    // A revision identifies graph contents, including after default copy/move
+    // assignment. Instance-local counters can collide on assignment and let
+    // a caller-owned workspace reuse distances from different contents.
+    static std::atomic<std::uint64_t> revision{0};
+    return revision.fetch_add(1, std::memory_order_relaxed) + 1;
+}
 
 double distance(const std::vector<double>& left, const std::vector<double>& right)
 {
@@ -56,8 +66,9 @@ std::size_t levelFor(std::size_t index)
 
 using Candidate = std::pair<double, std::size_t>;
 
+template<class DistanceTo>
 std::vector<std::size_t> searchLayer(const std::vector<MotionIndex::Node>& nodes,
-                                     const std::vector<double>& query,
+                                     const DistanceTo& distanceTo,
                                      std::size_t entry,
                                      std::size_t level,
                                      std::size_t width)
@@ -67,7 +78,7 @@ std::vector<std::size_t> searchLayer(const std::vector<MotionIndex::Node>& nodes
     std::priority_queue<Candidate, std::vector<Candidate>, std::greater<>> candidates;
     std::priority_queue<Candidate> best;
     std::vector<bool> visited(nodes.size(), false);
-    const double entryDistance = distance(query, nodes[entry].embedding);
+    const double entryDistance = distanceTo(entry);
     candidates.emplace(entryDistance, entry);
     best.emplace(entryDistance, entry);
     visited[entry] = true;
@@ -80,7 +91,7 @@ std::vector<std::size_t> searchLayer(const std::vector<MotionIndex::Node>& nodes
         for (const std::size_t neighbour : nodes[candidate].neighbors[level]) {
             if (neighbour >= nodes.size() || visited[neighbour]) continue;
             visited[neighbour] = true;
-            const double neighbourDistance = distance(query, nodes[neighbour].embedding);
+            const double neighbourDistance = distanceTo(neighbour);
             if (best.size() < width || neighbourDistance < best.top().first) {
                 candidates.emplace(neighbourDistance, neighbour);
                 best.emplace(neighbourDistance, neighbour);
@@ -125,6 +136,7 @@ MotionIndex::MotionIndex(std::size_t maximumConnections, std::size_t constructio
 
 void MotionIndex::clear()
 {
+    revision_ = nextRevision();
     nodes_.clear();
     entryPoint_ = 0;
     maxLevel_ = 0;
@@ -134,12 +146,14 @@ void MotionIndex::clear()
 void MotionIndex::add(std::size_t id, std::vector<double> embedding)
 {
     if (embedding.empty()) return;
+    revision_ = nextRevision();
     nodes_.push_back(Node{id, std::move(embedding), {}});
     built_ = false;
 }
 
 void MotionIndex::build()
 {
+    revision_ = nextRevision();
     for (Node& node : nodes_) node.neighbors.clear();
     if (nodes_.size() <= kExactSearchLimit) {
         built_ = true;
@@ -155,15 +169,18 @@ void MotionIndex::build()
         const std::size_t nodeLevel = levelFor(index);
         nodes_[index].neighbors.resize(nodeLevel + 1);
         std::size_t current = entryPoint_;
+        const auto distanceTo = [&](std::size_t candidate) {
+            return distance(nodes_[index].embedding, nodes_[candidate].embedding);
+        };
 
         for (std::size_t level = maxLevel_; level > nodeLevel; --level) {
-            const auto candidates = searchLayer(nodes_, nodes_[index].embedding, current, level, 1);
+            const auto candidates = searchLayer(nodes_, distanceTo, current, level, 1);
             if (!candidates.empty()) current = candidates.front();
         }
 
         const std::size_t lowestLevel = std::min(nodeLevel, maxLevel_);
         for (std::size_t level = lowestLevel + 1; level-- > 0;) {
-            const auto candidates = searchLayer(nodes_, nodes_[index].embedding, current, level,
+            const auto candidates = searchLayer(nodes_, distanceTo, current, level,
                                                 constructionSearch_);
             const std::size_t links = std::min(maximumConnections_, candidates.size());
             for (std::size_t rank = 0; rank < links; ++rank) {
@@ -186,12 +203,33 @@ std::vector<MotionIndex::Neighbor> MotionIndex::query(const std::vector<double>&
                                                       std::size_t count,
                                                       std::size_t searchWidth) const
 {
+    QueryWorkspace workspace;
+    return query(embedding, count, searchWidth, workspace);
+}
+
+std::vector<MotionIndex::Neighbor> MotionIndex::query(const std::vector<double>& embedding,
+                                                      std::size_t count,
+                                                      std::size_t searchWidth,
+                                                      QueryWorkspace& workspace) const
+{
     if (!built_ || nodes_.empty() || embedding.empty() || count == 0) return {};
+    if (workspace.owner_ != this || workspace.revision_ != revision_
+        || workspace.embedding_ != embedding) {
+        workspace.owner_ = this;
+        workspace.revision_ = revision_;
+        workspace.embedding_ = embedding;
+        workspace.distances_.assign(nodes_.size(), -1.0);
+    }
+    const auto distanceTo = [&](std::size_t candidate) {
+        auto& value = workspace.distances_[candidate];
+        if (value < 0.0) value = distance(embedding, nodes_[candidate].embedding);
+        return value;
+    };
     const auto exactQuery = [&] {
         std::vector<Candidate> candidates;
         candidates.reserve(nodes_.size());
         for (std::size_t i = 0; i < nodes_.size(); ++i)
-            candidates.emplace_back(distance(embedding, nodes_[i].embedding), i);
+            candidates.emplace_back(distanceTo(i), i);
         const auto keep = std::min(count, candidates.size());
         std::partial_sort(candidates.begin(), candidates.begin() + keep, candidates.end());
         std::vector<Neighbor> result;
@@ -205,23 +243,23 @@ std::vector<MotionIndex::Neighbor> MotionIndex::query(const std::vector<double>&
     searchWidth = std::max(searchWidth, count);
     std::size_t current = entryPoint_;
     for (std::size_t level = maxLevel_; level > 0; --level) {
-        const auto candidates = searchLayer(nodes_, embedding, current, level, 1);
+        const auto candidates = searchLayer(nodes_, distanceTo, current, level, 1);
         if (!candidates.empty()) current = candidates.front();
     }
-    const auto candidates = searchLayer(nodes_, embedding, current, 0,
+    const auto candidates = searchLayer(nodes_, distanceTo, current, 0,
                                         std::min(searchWidth, nodes_.size()));
     // A flat, incomplete ANN neighborhood has no useful distance gradient.
     // Equal-distance pruning can isolate the actual nearest cluster even in
     // a large graph; use exact retrieval for this degenerate query only.
     if (candidates.size() < std::min(count, nodes_.size())
         || (!candidates.empty()
-            && std::abs(distance(embedding, nodes_[candidates.front()].embedding)
-                - distance(embedding, nodes_[candidates.back()].embedding)) <= 1e-12))
+            && std::abs(distanceTo(candidates.front())
+                - distanceTo(candidates.back())) <= 1e-12))
         return exactQuery();
     std::vector<Neighbor> result;
     result.reserve(std::min(count, candidates.size()));
     for (const std::size_t candidate : candidates) {
-        const double candidateDistance = distance(embedding, nodes_[candidate].embedding);
+        const double candidateDistance = distanceTo(candidate);
         result.push_back({nodes_[candidate].id, std::clamp(std::exp(-candidateDistance), 0.0, 1.0)});
         if (result.size() >= count) break;
     }

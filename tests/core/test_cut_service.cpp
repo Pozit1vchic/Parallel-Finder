@@ -97,6 +97,26 @@ TEST(SceneBoundaryExport, RefinesLateSparseBoundaryAndExcludesTheNextShot)
     EXPECT_EQ(count, 23);
 }
 
+TEST(SceneBoundaryExport, ChoosesNearestCutInsteadOfStrongerEarlierCut)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    ASSERT_FALSE(ffmpeg.isEmpty());
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    const auto source = directory.filePath("three-shots.mp4");
+    QProcess generate;
+    generate.start(ffmpeg, {"-v", "error", "-f", "lavfi", "-i", "color=c=black:s=128x72:r=24:d=2",
+        "-f", "lavfi", "-i", "color=c=white:s=128x72:r=24:d=2",
+        "-f", "lavfi", "-i", "color=c=gray:s=128x72:r=24:d=2", "-filter_complex",
+        "[0:v]trim=end_frame=18,setpts=PTS-STARTPTS[a];[1:v]trim=end_frame=5,setpts=PTS-STARTPTS[b];[2:v]trim=end_frame=24,setpts=PTS-STARTPTS[c];[a][b][c]concat=n=3:v=1:a=0[v]",
+        "-map", "[v]", "-c:v", "libx264", "-threads", "2", "-pix_fmt", "yuv420p", source});
+    ASSERT_TRUE(generate.waitForFinished(30000));
+    ASSERT_EQ(generate.exitCode(),0) << generate.readAllStandardError().toStdString();
+    pfcore::VideoDecoder decoder; decoder.open(source.toStdString());
+    const auto boundary = pfcore::SceneDetector().refineHardCut(decoder,1.0);
+    ASSERT_TRUE(boundary);
+    EXPECT_NEAR(*boundary,23.0/24.0,1e-6);
+}
+
 TEST(PreviewMemo, RendersEachSourceTimestampOnlyOnce)
 {
     int calls = 0;

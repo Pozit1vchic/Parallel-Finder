@@ -1,6 +1,10 @@
 #include "pfgpu/Inference.hpp"
 
 #include <limits>
+#include <chrono>
+#include <cstdlib>
+#include <cstdio>
+#include <unordered_map>
 
 #include "pfgpu/OrtRuntime.hpp"
 
@@ -9,6 +13,11 @@ namespace pfgpu {
 namespace {
 
 constexpr std::size_t kMaxTensorElements = 64ULL * 1024ULL * 1024ULL;
+
+struct RunProfile {
+    std::size_t calls = 0;
+    double setup = 0, run = 0, output = 0;
+};
 
 bool readTensorSpec(const OrtApi& api, const OrtTypeInfo* typeInfo,
                     TensorSpec& destination, std::string& error)
@@ -57,6 +66,12 @@ SessionSpec describeSession(const SessionHandle& session)
 
 InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
 {
+    const auto* profileFlag = std::getenv("PF_DEBUG_INFERENCE");
+    const bool profile = profileFlag && *profileFlag;
+    const auto begin = profile ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    const auto elapsed = [&] {
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+    };
     InferenceResult result;
     const OrtApi* api = ortApi();
     if (!api || !session.session) { result.error = "ONNX Runtime session is not available"; return result; }
@@ -110,8 +125,10 @@ InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
     }
     std::vector<OrtValue*> outputs(outputCount);
     const OrtValue* inputValues[] = {inputValue};
+    const double setupMs = profile ? elapsed() : 0;
     const OrtStatus* runStatus = api->Run(session.session, nullptr, inputNames, inputValues, 1,
                                            outputNames.data(), outputNames.size(), outputs.data());
+    const double runMs = profile ? elapsed() - setupMs : 0;
     const bool ran = checkStatus(*api, const_cast<OrtStatus*>(runStatus), result.error);
     for (const char* name : outputNames) result.outputNames.emplace_back(name);
     for (char* name : ownedNames) freeAllocated(name);
@@ -170,6 +187,17 @@ InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
         api->ReleaseTensorTypeAndShapeInfo(shapeInfo); api->ReleaseValue(value);
     }
     result.ok = result.error.empty() && !result.outputs.empty();
+    if (session.profiling) SessionCache::recordProfilingRun(session);
+    if (profile) {
+        static thread_local std::unordered_map<std::string, RunProfile> profiles;
+        auto& totals = profiles[session.cacheKey];
+        ++totals.calls;
+        totals.setup += setupMs; totals.run += runMs;
+        totals.output += elapsed() - setupMs - runMs;
+        if (totals.calls == 1 || totals.calls % 128 == 0)
+            std::fprintf(stderr, "PF_DEBUG_INFERENCE key=%s calls=%zu setup_ms=%.3f run_ms=%.3f output_ms=%.3f\n",
+                session.cacheKey.c_str(), totals.calls, totals.setup, totals.run, totals.output);
+    }
     return result;
 }
 

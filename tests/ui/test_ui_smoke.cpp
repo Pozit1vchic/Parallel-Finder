@@ -698,6 +698,9 @@ void UiSmokeTests::previewIsEmbeddedAndStopsOnRecordChange()
     QVERIFY(view->findChild<QObject*>("inlineMediaPlayer"));
     QVERIFY(view->findChild<QObject*>("inlineVideoOutput"));
     QVERIFY(!view->property("videoMode").toBool());
+    view->setProperty("record", QVariantMap{{"matchType", "motion"}, {"leftStart", 1},
+        {"leftEnd", 3}, {"leftSceneEnd", 2}});
+    QCOMPARE(view->property("playbackEnd").toDouble(), 2.0);
     view->setProperty("record", QVariant());
     QTRY_VERIFY(!view->findChild<QObject*>("inlineMediaPlayer"));
 }

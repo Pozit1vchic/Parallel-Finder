@@ -10,6 +10,8 @@ add_library(pfservices STATIC
     src/FfmpegCapabilities.cpp
     src/ProviderManager.cpp
     src/PfCache.cpp
+    src/CachedPreview.cpp
+    src/PreviewWriter.cpp
 )
 add_library(pf::services ALIAS pfservices)
 set_target_properties(pfservices PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)

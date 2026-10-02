@@ -1,6 +1,7 @@
 add_library(pfcore STATIC
     src/SceneDetector.cpp
     src/VideoDecoder.cpp
+    src/VideoSampleReader.cpp
     src/MotionMatcher.cpp
     src/MotionIndex.cpp
     src/DominantPerson.cpp
@@ -20,6 +21,8 @@ set(PF_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/VideoDecoder.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/SceneDetector.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/VideoDecoder.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/VideoSampleReader.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/VideoSampleReader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/MotionMatcher.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MotionMatcher.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/MotionIndex.hpp

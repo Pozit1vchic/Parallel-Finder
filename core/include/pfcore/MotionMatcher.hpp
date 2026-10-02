@@ -64,6 +64,10 @@ struct MotionMatcherParams {
     // A shot may support a few independent pairs, not an unlimited hub.
     // Zero disables this diversity quota for diagnostic comparisons.
     std::size_t maxResultsPerShot = 3;
+    // Zero: up to four workers on large exact-comparison sets. One forces
+    // serial execution for reproducible A/B checks. Retrieval and selection
+    // stay serial; no candidate or sample is dropped by this setting.
+    std::size_t maxComparisonThreads = 0;
     // Wider deterministic retrieval; the desktop also derives short supported
     // pose alternatives from existing observations. Acceptance stays intact.
     bool expandedSearch = false;
@@ -142,6 +146,10 @@ struct MotionMatcherParams {
     // A single lucky/blurred crop must not establish an identity.
     double minAppearanceEvidence = 0.45;
     double minFaceSimilarity = 0.363;
+    // Facial geometry alone supplies much less independent pose evidence
+    // than an observed body gesture. Require stronger identity confirmation
+    // for a head-only result; never apply this to a visible limb comparison.
+    double minHeadFaceSimilarity = 0.70;
     double sameSceneContextThreshold = 0.90;
     double sameSceneContextGapSec = 30.0;
 };

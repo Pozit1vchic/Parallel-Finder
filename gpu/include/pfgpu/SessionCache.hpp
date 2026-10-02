@@ -42,6 +42,7 @@ struct SessionHandle {
     Provider provider = Provider::Cpu; // effective provider (Auto resolved)
     std::string cacheKey;             // diagnostics for logs and tests
     bool createdNow = false;
+    bool profiling = false;           // opt-in, bounded diagnostic capture
 
     explicit operator bool() const noexcept { return session != nullptr; }
 };
@@ -81,6 +82,7 @@ public:
 
     Stats stats();
     void clear();
+    static void recordProfilingRun(const SessionHandle& handle);
 
     std::size_t maxEntries() const;
     void setMaxEntries(std::size_t maxEntries); // throws std::invalid_argument on 0

@@ -7,6 +7,7 @@ add_library(pfgpu STATIC
     src/SessionCache.cpp
     src/Inference.cpp
     src/PoseEstimator.cpp
+    src/PoseInput.cpp
     src/ReIdEstimator.cpp
     src/FaceEstimator.cpp
 )

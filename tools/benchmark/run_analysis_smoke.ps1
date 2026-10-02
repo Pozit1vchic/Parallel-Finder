@@ -25,21 +25,23 @@ if (-not (Test-Path -LiteralPath $Model)) { throw "Pose model not found: $Model"
 if (-not (Test-Path -LiteralPath $OrtDll)) { throw "ONNX Runtime DLL not found: $OrtDll" }
 if ($ReIdModel -and -not (Test-Path -LiteralPath $ReIdModel)) { throw "ReID model not found: $ReIdModel" }
 
-$env:PF_MODEL_PATH = (Resolve-Path -LiteralPath $Model).Path
-$env:PF_ORT_DLL = (Resolve-Path -LiteralPath $OrtDll).Path
-if ($ReIdModel) { $env:PF_REID_MODEL_PATH = (Resolve-Path -LiteralPath $ReIdModel).Path }
+# Explicit choices belong to the child only. Leaving a TensorRT DLL in the
+# caller's environment can contaminate a subsequent CPU/QML test process
+# without the matching provider-root DLL search path.
+$smokeModelPath = (Resolve-Path -LiteralPath $Model).Path
+$smokeOrtPath = (Resolve-Path -LiteralPath $OrtDll).Path
+$smokeReIdPath = if ($ReIdModel) { (Resolve-Path -LiteralPath $ReIdModel).Path } else { $env:PF_REID_MODEL_PATH }
 
 Write-Host "Parallel Finder analysis benchmark (pipeline smoke, not accuracy ground truth)"
 Write-Host "video: $Video"
-Write-Host "model: $env:PF_MODEL_PATH"
-Write-Host "runtime: $env:PF_ORT_DLL"
-if ($env:PF_REID_MODEL_PATH) { Write-Host "ReID: $env:PF_REID_MODEL_PATH" }
+Write-Host "model: $smokeModelPath"
+Write-Host "runtime: $smokeOrtPath"
+if ($smokeReIdPath) { Write-Host "ReID: $smokeReIdPath" }
 
 foreach ($mode in $Modes) {
     if ($mode -notin @("motion", "static", "combined")) {
         throw "Unsupported mode '$mode'"
     }
-    $env:PF_ANALYSIS_MODE = $mode
     Write-Host "`n--- mode: $mode ---"
     # Start the GUI-subsystem executable directly and capture its stdout. A
     # plain PowerShell call can detach GUI applications on Windows, leaving
@@ -57,11 +59,12 @@ foreach ($mode in $Modes) {
     # plugin. Analysis smoke creates no window; -QpaPlatform windows permits
     # testing that actual package without injecting developer Qt plugins.
     $psi.EnvironmentVariables['QT_QPA_PLATFORM'] = $QpaPlatform
-    $psi.EnvironmentVariables['PF_ORT_DLL'] = $env:PF_ORT_DLL
+    $psi.EnvironmentVariables['PF_ORT_DLL'] = $smokeOrtPath
     # cuDNN/TensorRT load additional DLLs lazily. Mirror application startup
     # when explicitly selecting an external runtime for the benchmark.
-    $psi.EnvironmentVariables['PF_PROVIDER_ROOT'] = Split-Path -Parent $env:PF_ORT_DLL
-    $psi.EnvironmentVariables['PF_MODEL_PATH'] = $env:PF_MODEL_PATH
+    $psi.EnvironmentVariables['PF_PROVIDER_ROOT'] = Split-Path -Parent $smokeOrtPath
+    $psi.EnvironmentVariables['PF_MODEL_PATH'] = $smokeModelPath
+    $psi.EnvironmentVariables['PF_ANALYSIS_MODE'] = $mode
     $psi.EnvironmentVariables['PF_PROVIDER'] = $Provider
     $psi.EnvironmentVariables['PF_ANALYSIS_TIMEOUT_SEC'] = [string]$TimeoutSec
     $psi.EnvironmentVariables['PF_ANALYSIS_MIN_PAIRS'] = [string]$MinimumPairs
@@ -69,9 +72,10 @@ foreach ($mode in $Modes) {
     if ($env:PF_DEBUG_ANALYSIS) { $psi.EnvironmentVariables['PF_DEBUG_ANALYSIS'] = $env:PF_DEBUG_ANALYSIS }
     if ($env:PF_DEBUG_POSE) { $psi.EnvironmentVariables['PF_DEBUG_POSE'] = $env:PF_DEBUG_POSE }
     if ($env:PF_DEBUG_MATCHER) { $psi.EnvironmentVariables['PF_DEBUG_MATCHER'] = $env:PF_DEBUG_MATCHER }
-    if ($env:PF_REID_MODEL_PATH) { $psi.EnvironmentVariables['PF_REID_MODEL_PATH'] = $env:PF_REID_MODEL_PATH }
+    if ($smokeReIdPath) { $psi.EnvironmentVariables['PF_REID_MODEL_PATH'] = $smokeReIdPath }
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $psi
+    $processClock = [System.Diagnostics.Stopwatch]::StartNew()
     [void]$process.Start()
     # Read both redirected streams concurrently. Reading stdout to completion
     # before stderr can deadlock a verbose PF_DEBUG_MATCHER run when stderr's
@@ -79,6 +83,7 @@ foreach ($mode in $Modes) {
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
     $stderrTask = $process.StandardError.ReadToEndAsync()
     $process.WaitForExit()
+    $processClock.Stop()
     $stdout = $stdoutTask.GetAwaiter().GetResult()
     $stderr = $stderrTask.GetAwaiter().GetResult()
     Write-Host $stdout
@@ -93,11 +98,17 @@ foreach ($mode in $Modes) {
         if ($ReportPath) {
             $elapsedMatch = [regex]::Match($stdout, '(?m)^\s*elapsed_ms\s*:\s*(\d+)')
             $framesMatch = [regex]::Match($stdout, '(?m)^\s*frames\s*:\s*(\d+)')
+            $cpuTimeMs = $null
+            try { $cpuTimeMs = [math]::Round($process.TotalProcessorTime.TotalMilliseconds, 1) } catch {}
             $report = @{ video=$Video; inputVideos=@($Video) + $AdditionalVideos; mode=$mode; results=$pairs;
+                processWallMs=$processClock.ElapsedMilliseconds;
+                cpuTimeMs=$cpuTimeMs;
                 elapsedMs=$(if ($elapsedMatch.Success) { [long]$elapsedMatch.Groups[1].Value } else { $null });
                 frameCount=$(if ($framesMatch.Success) { [long]$framesMatch.Groups[1].Value } else { $null });
                 decodeDiagnostics=@([regex]::Matches($stderr, 'PF_DECODE [^\r\n]+') | ForEach-Object { $_.Value });
-                timingDiagnostics=@([regex]::Matches($stderr, 'PF_DEBUG_TIMING [^\r\n]+') | ForEach-Object { $_.Value }) }
+                timingDiagnostics=@([regex]::Matches($stderr, 'PF_DEBUG_TIMING [^\r\n]+') | ForEach-Object { $_.Value });
+                inferenceDiagnostics=@([regex]::Matches($stderr, 'PF_DEBUG_INFERENCE [^\r\n]+') | ForEach-Object { $_.Value });
+                previewDiagnostics=@([regex]::Matches($stderr, 'PF_DEBUG_PREVIEW [^\r\n]+') | ForEach-Object { $_.Value }) }
             $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $ReportPath -Encoding UTF8
         }
     }
@@ -110,5 +121,4 @@ foreach ($mode in $Modes) {
     $process.Dispose()
 }
 
-Remove-Item Env:PF_ANALYSIS_MODE -ErrorAction SilentlyContinue
 Write-Host "`nCompleted. Compare files/frames/pairs and elapsed time manually; no precision claim is made without labelled ground truth."

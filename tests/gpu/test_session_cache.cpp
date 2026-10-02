@@ -10,6 +10,10 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <QTemporaryDir>
+#include <QDir>
+#include <QFile>
+#include <QJsonDocument>
 
 namespace {
 
@@ -135,6 +139,38 @@ TEST_F(SessionCacheTest, FloatInferenceCopiesOrtOutputIntoOwnedTensor)
     EXPECT_FLOAT_EQ(output.outputs.front().values[1], -2.5F);
 }
 
+TEST_F(SessionCacheTest, DiagnosticProfilingIsBoundedAndPreservesInference)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const auto previous = qgetenv("PF_ORT_PROFILE_ROOT");
+    const bool wasSet = qEnvironmentVariableIsSet("PF_ORT_PROFILE_ROOT");
+    struct Restore {
+        QByteArray value; bool existed;
+        ~Restore() { if (existed) qputenv("PF_ORT_PROFILE_ROOT", value); else qunsetenv("PF_ORT_PROFILE_ROOT"); }
+    } restore{previous, wasSet};
+    qputenv("PF_ORT_PROFILE_ROOT", directory.path().toUtf8());
+    pfgpu::SessionCache cache;
+    const auto session = cache.getOrCreate(probeModel(), {pfgpu::Provider::Cpu, 0, "bounded-profile", 1});
+    ASSERT_TRUE(session.ok) << session.error;
+    ASSERT_TRUE(session.handle.profiling);
+    for (int i = 0; i < 20; ++i) {
+        const auto output = pfgpu::runFloat(session.handle, {{1,2}, {4.25F,-2.5F}});
+        ASSERT_TRUE(output.ok) << output.error;
+        EXPECT_EQ(output.outputs[0].values, (std::vector<float>{4.25F,-2.5F}));
+    }
+    const auto reused = cache.getOrCreate(probeModel(), {pfgpu::Provider::Cpu, 0, "bounded-profile", 1});
+    ASSERT_TRUE(reused.ok);
+    EXPECT_FALSE(reused.handle.profiling);
+    const auto files = QDir(directory.path()).entryList({QStringLiteral("*.json")}, QDir::Files);
+    ASSERT_EQ(files.size(), 1);
+    QFile file(directory.filePath(files[0]));
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const auto profile = QJsonDocument::fromJson(file.readAll());
+    EXPECT_TRUE(profile.isArray());
+    EXPECT_FALSE(profile.isEmpty());
+}
+
 TEST_F(SessionCacheTest, SecondRequestIsAHit)
 {
     pfgpu::SessionCache cache;
@@ -164,6 +200,30 @@ TEST_F(SessionCacheTest, DifferentProfilesGetDifferentSessions)
     EXPECT_NE(small.handle.session, large.handle.session);
     EXPECT_NE(small.handle.cacheKey, large.handle.cacheKey);
     EXPECT_EQ(cache.stats().live, 2u);
+}
+
+TEST_F(SessionCacheTest, AutomaticAndExplicitThreadsKeepSameInferenceContract)
+{
+    // Auto GPU uses the bounded submission policy; CPU auto and explicit
+    // counts still work. Different requests must retain separate cache keys.
+    for (const auto provider : {pfgpu::Provider::Cpu, pfgpu::Provider::Cuda, pfgpu::Provider::Dml}) {
+        if (!pfgpu::isProviderAvailable(provider)) continue;
+        pfgpu::SessionCache cache;
+        const auto automatic = cache.getOrCreate(probeModel(), {provider, 0, "test", 0});
+        const auto explicitThreads = cache.getOrCreate(probeModel(), {provider, 0, "test", 2});
+        ASSERT_TRUE(automatic.ok) << automatic.error;
+        ASSERT_TRUE(explicitThreads.ok) << explicitThreads.error;
+        EXPECT_NE(automatic.handle.cacheKey, explicitThreads.handle.cacheKey);
+        const pfgpu::FloatTensor input{{1, 2}, {4.25F, -2.5F}};
+        const auto a = pfgpu::runFloat(automatic.handle, input);
+        const auto b = pfgpu::runFloat(explicitThreads.handle, input);
+        ASSERT_TRUE(a.ok) << a.error;
+        ASSERT_TRUE(b.ok) << b.error;
+        ASSERT_EQ(a.outputs.size(), 1u);
+        ASSERT_EQ(b.outputs.size(), 1u);
+        EXPECT_EQ(a.outputs[0].values, input.values);
+        EXPECT_EQ(a.outputs[0].values, b.outputs[0].values);
+    }
 }
 
 TEST_F(SessionCacheTest, EvictsLeastRecentlyUsedBeyondCapacity)

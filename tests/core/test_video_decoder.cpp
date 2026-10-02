@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <pfcore/VideoDecoder.hpp>
+#include <pfcore/VideoSampleReader.hpp>
 
 #include <filesystem>
 #include <QProcess>
@@ -9,6 +10,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <atomic>
+#include <chrono>
+#include <thread>
 
 namespace {
 
@@ -53,6 +57,154 @@ TEST(VideoDecoder, RejectsMissingFile)
 {
     pfcore::VideoDecoder decoder;
     EXPECT_THROW(decoder.open("this-file-does-not-exist.mp4"), std::runtime_error);
+}
+
+TEST(VideoSampleReader, PrefetchPreservesSerialSamplesPixelsAndTailProgress)
+{
+    QTemporaryDir directory;
+    const auto path = h264Fixture(directory,
+        {"-vf", "setpts=(N+floor(N/3))/24/TB", "-fps_mode", "vfr"});
+    if (path.isEmpty()) GTEST_SKIP() << "FFmpeg fixture generator unavailable";
+    for (const auto fps : {6.0, 10.0, 15.0}) {
+        pfcore::VideoDecoder serial, async;
+        serial.open(path.toStdString());
+        async.open(path.toStdString());
+        serial.setRgbaMaxDimensions(128, 72);
+        async.setRgbaMaxDimensions(128, 72);
+        pfcore::VideoSampleReader a(serial, fps, 4.0, {}, false);
+        pfcore::VideoSampleReader b(async, fps, 4.0, {}, true, 1);
+        pfcore::VideoSample left, right;
+        std::uint64_t frames = 0;
+        std::size_t poseSamples = 0, sceneSamples = 0;
+        while (a.readNext(left)) {
+            ASSERT_TRUE(b.readNext(right));
+            EXPECT_EQ(left.frame.timestampSeconds, right.frame.timestampSeconds);
+            EXPECT_EQ(left.frame.width, right.frame.width);
+            EXPECT_EQ(left.frame.height, right.frame.height);
+            EXPECT_EQ(left.frame.rgba, right.frame.rgba);
+            EXPECT_EQ(left.pose, right.pose);
+            EXPECT_EQ(left.scene, right.scene);
+            EXPECT_EQ(left.decodedFrames, right.decodedFrames);
+            EXPECT_GT(left.decodedFrames, frames);
+            frames = left.decodedFrames;
+            poseSamples += left.pose;
+            sceneSamples += left.scene;
+        }
+        EXPECT_FALSE(b.readNext(right));
+        EXPECT_FALSE(b.readNext(right)); // repeated EOF is safe
+        EXPECT_EQ(frames, 48u);
+        EXPECT_GT(poseSamples, 8u);
+        EXPECT_GT(sceneSamples, 5u);
+        EXPECT_LE(b.peakBufferedSamples(), 1u);
+        EXPECT_EQ(async.diagnostics().decodedFrames, serial.diagnostics().decodedFrames);
+        EXPECT_EQ(async.diagnostics().convertedFrames, serial.diagnostics().convertedFrames);
+    }
+}
+
+TEST(VideoSampleReader, TimestampGridMatchesIndependentReference)
+{
+    const auto path = (std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4").string();
+    pfcore::VideoDecoder reference, async;
+    reference.open(path);
+    async.open(path);
+    pfcore::VideoSampleReader reader(async, 6.0, 4.0);
+    double nextPose = -1, nextScene = -1;
+    pfcore::DecodedFrame frame;
+    pfcore::VideoSample sample;
+    while (reference.readNext(frame)) {
+        const bool pose = frame.timestampSeconds + 1e-9 >= nextPose;
+        const bool scene = frame.timestampSeconds + 1e-9 >= nextScene;
+        if (pose) {
+            if (nextPose < 0) nextPose = frame.timestampSeconds + 1.0 / 6.0;
+            else do { nextPose += 1.0 / 6.0; } while (nextPose <= frame.timestampSeconds + 1e-9);
+        }
+        if (scene) {
+            if (nextScene < 0) nextScene = frame.timestampSeconds + 0.25;
+            else do { nextScene += 0.25; } while (nextScene <= frame.timestampSeconds + 1e-9);
+        }
+        if (!pose && !scene) continue;
+        ASSERT_TRUE(reader.readNext(sample));
+        EXPECT_EQ(sample.pose, pose);
+        EXPECT_EQ(sample.scene, scene);
+        EXPECT_EQ(sample.frame.timestampSeconds, frame.timestampSeconds);
+        EXPECT_EQ(sample.frame.rgba, frame.rgba);
+    }
+    while (reader.readNext(sample)) {
+        EXPECT_FALSE(sample.pose);
+        EXPECT_FALSE(sample.scene);
+        EXPECT_TRUE(sample.frame.rgba.empty());
+    }
+}
+
+TEST(VideoSampleReader, CancelsFullQueueWithoutDeadlockAndBoundsMemory)
+{
+    const auto path = (std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4").string();
+    pfcore::VideoDecoder decoder;
+    decoder.open(path);
+    std::atomic_bool cancelled{false};
+    pfcore::VideoSampleReader reader(decoder, 1000.0, 4.0, [&] { return cancelled.load(); }, true, 1);
+    const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (reader.peakBufferedSamples() == 0 && std::chrono::steady_clock::now() < timeout)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    EXPECT_EQ(reader.peakBufferedSamples(), 1u);
+    const auto start = std::chrono::steady_clock::now();
+    cancelled = true;
+    reader.finish();
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(1));
+    EXPECT_LE(decoder.diagnostics().convertedFrames, 2u); // one queued + one producer frame
+}
+
+TEST(VideoSampleReader, RejectsInvalidOptionsBeforeStartingWorker)
+{
+    pfcore::VideoDecoder decoder;
+    EXPECT_THROW(pfcore::VideoSampleReader(decoder, 6, 4), std::invalid_argument);
+    decoder.open((std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4").string());
+    EXPECT_THROW(pfcore::VideoSampleReader(decoder, -1, 4), std::invalid_argument);
+    EXPECT_THROW(pfcore::VideoSampleReader(decoder, 1e300, 4), std::invalid_argument);
+    EXPECT_THROW(pfcore::VideoSampleReader(decoder, 6, 4, {}, true, 0), std::invalid_argument);
+    EXPECT_THROW(pfcore::VideoSampleReader(decoder, 6, 4, {}, true, 9), std::invalid_argument);
+}
+
+TEST(VideoSampleReader, PropagatesProducerFailureAndJoinsWorker)
+{
+    pfcore::VideoDecoder decoder;
+    decoder.open((std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4").string());
+    pfcore::VideoSampleReader reader(decoder, 6, 4,
+        []() -> bool { throw std::runtime_error("producer failure"); });
+    pfcore::VideoSample sample;
+    EXPECT_THROW(reader.readNext(sample), std::runtime_error);
+    reader.finish();
+    EXPECT_EQ(decoder.diagnostics().decodedFrames, 0u);
+}
+
+TEST(VideoSampleReader, WaitProfilingIsOptInAndDoesNotChangePixels)
+{
+    const auto path = (std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4").string();
+    pfcore::VideoDecoder reference; reference.open(path);
+    pfcore::VideoSampleReader serial(reference, 6, 4, {}, false);
+    std::vector<pfcore::VideoSample> expected;
+    pfcore::VideoSample item;
+    while (serial.readNext(item)) expected.push_back(std::move(item));
+    for (bool profile : {false, true}) {
+        pfcore::VideoDecoder decoder; decoder.open(path);
+        pfcore::VideoSampleReader reader(decoder, 6, 4, {}, true, 1, profile);
+        std::size_t index = 0;
+        while (reader.readNext(item)) {
+            ASSERT_LT(index, expected.size());
+            EXPECT_EQ(item.frame.timestampSeconds, expected[index].frame.timestampSeconds);
+            EXPECT_EQ(item.frame.rgba, expected[index].frame.rgba);
+            EXPECT_EQ(item.pose, expected[index].pose); EXPECT_EQ(item.scene, expected[index].scene);
+            ++index;
+        }
+        EXPECT_EQ(index, expected.size());
+        const auto waits = reader.waitDiagnostics();
+        EXPECT_TRUE(std::isfinite(waits.consumerMilliseconds)); EXPECT_GE(waits.consumerMilliseconds, 0);
+        EXPECT_TRUE(std::isfinite(waits.producerMilliseconds)); EXPECT_GE(waits.producerMilliseconds, 0);
+        if (!profile) {
+            EXPECT_EQ(waits.consumerMilliseconds, 0); EXPECT_EQ(waits.producerMilliseconds, 0);
+            EXPECT_EQ(waits.consumerWaits, 0u); EXPECT_EQ(waits.producerWaits, 0u);
+        }
+    }
 }
 
 TEST(VideoDecoder, RepeatedPreviewSeeksMatchFreshDecoder)

@@ -174,4 +174,34 @@ TEST(SceneDetector, AccumulatedLocalMotionDoesNotInventFadeCuts)
     EXPECT_TRUE(pfcore::SceneDetector(27, 1, 3).detect(samples).empty());
 }
 
+TEST(SceneDetector, StrongCutBetweenSteadilyMovingShotsUsesRobustSpread)
+{
+    std::vector<std::vector<std::uint8_t>> pixels;
+    std::vector<pfcore::SceneSample> samples;
+    // Grayscale HSV distances: 30,30,30,30,60,30,30,30.
+    // A real discontinuity of 60 exceeds both stable motion distributions,
+    // although a past/future multiplier of three would demand 90.
+    for (const int value : {10,100,10,100,10,190,100,190,100}) {
+        pixels.emplace_back(64 * 36 * 4, static_cast<std::uint8_t>(value));
+        samples.push_back({(pixels.size()-1) * .25, 64, 36, pixels.back()});
+    }
+    const auto boundaries = pfcore::SceneDetector(27, 1, 3).detect(samples);
+    EXPECT_TRUE(std::any_of(boundaries.begin(), boundaries.end(), [](const auto& b) {
+        return b.timestampSeconds == 1.25;
+    }));
+}
+
+TEST(SceneDetector, VariableMotionAndSlowdownDoNotPassStableMotionCut)
+{
+    std::vector<std::vector<std::uint8_t>> pixels;
+    std::vector<pfcore::SceneSample> samples;
+    for (const int value : {10,100,10,190,10,190,100,190,100,190}) {
+        pixels.emplace_back(64 * 36 * 4, static_cast<std::uint8_t>(value));
+        samples.push_back({(pixels.size()-1) * .25, 64, 36, pixels.back()});
+    }
+    const auto boundaries = pfcore::SceneDetector(27, 1, 3).detect(samples);
+    ASSERT_EQ(boundaries.size(), 1U); // initial sample lacks a motion baseline
+    EXPECT_DOUBLE_EQ(boundaries.front().timestampSeconds, .25);
+}
+
 } // namespace

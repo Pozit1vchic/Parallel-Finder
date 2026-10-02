@@ -130,6 +130,65 @@ TEST(MotionMatcher, FaceAndShouldersDoNotHideDifferentHeadGeometry)
     EXPECT_GT(pfcore::MotionMatcher(params).compare(head, repeat).similarity, .90);
 }
 
+TEST(MotionMatcher, HeadOnlyGeometryNeedsStrongerIndependentFaceIdentity)
+{
+    auto head = soldierHeadPoseFixture()[0], repeat = head;
+    head.faceEmbedding = {1,0};
+    repeat.sourceId = "uncertain-head-identity";
+    repeat.faceEmbedding = {.65F, static_cast<float>(std::sqrt(1-.65*.65))};
+    head.faceConfidence = repeat.faceConfidence = 1;
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = params.requireAppearance = true;
+    auto permissive = params;
+    permissive.minHeadFaceSimilarity = permissive.minFaceSimilarity;
+    ASSERT_GT(pfcore::MotionMatcher(permissive).compare(head, repeat).similarity, .90);
+    const auto rejected = pfcore::MotionMatcher(params).compare(head, repeat);
+    EXPECT_TRUE(rejected.appearanceVerified); // ordinary face gate is not redefined
+    EXPECT_TRUE(rejected.headOnlyComparison);
+    EXPECT_DOUBLE_EQ(rejected.similarity, 0);
+    repeat.faceEmbedding = {.85F, static_cast<float>(std::sqrt(1-.85*.85))};
+    EXPECT_GT(pfcore::MotionMatcher(params).compare(head, repeat).similarity, .90);
+}
+
+TEST(MotionMatcher, KnownShotEndIsExclusiveForPoseWindows)
+{
+    auto pose = deanAimingPoseFixture()[0], repeat = pose;
+    repeat.sourceId = "independent-repeat";
+    pose.faceEmbedding = repeat.faceEmbedding = {1,0};
+    pose.faceConfidence = repeat.faceConfidence = 1;
+    pose.hasSceneIndex = true;
+    pose.sceneStartSeconds = pose.frames.front().timestampSeconds;
+    pose.sceneEndSeconds = pose.frames.back().timestampSeconds + .01;
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = params.requireAppearance = true;
+    ASSERT_GT(pfcore::MotionMatcher(params).compare(pose,repeat).similarity,.90);
+    pose.sceneEndSeconds = pose.frames.back().timestampSeconds;
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(pose,repeat).similarity,0);
+}
+
+TEST(MotionMatcher, StrongerHeadIdentityGateDoesNotRejectVisibleBodyGesture)
+{
+    auto pose = deanAimingPoseFixture()[0], repeat = pose;
+    pose.faceEmbedding = {1,0};
+    repeat.sourceId = "observed-body-repeat";
+    repeat.faceEmbedding = {.50F, static_cast<float>(std::sqrt(.75))};
+    pose.faceConfidence = repeat.faceConfidence = 1;
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = params.requireAppearance = true;
+    const auto match = pfcore::MotionMatcher(params).compare(pose, repeat);
+    EXPECT_FALSE(match.headOnlyComparison);
+    EXPECT_GT(match.similarity, .90);
+}
+
+TEST(MotionMatcher, HeadIdentityThresholdMustBeFiniteAndBounded)
+{
+    for (double threshold : {-0.1,1.1,std::numeric_limits<double>::quiet_NaN()}) {
+        pfcore::MotionMatcherParams params;
+        params.minHeadFaceSimilarity = threshold;
+        EXPECT_THROW(pfcore::MotionMatcher{params}, std::invalid_argument);
+    }
+}
+
 TEST(MotionMatcher, StaticBudgetDoesNotStarveVerifiedCloseups)
 {
     auto windows = soldierHeadPoseFixture();
@@ -754,6 +813,50 @@ TEST(MotionMatcher, RequiredAppearanceRejectsWeakOrMissingEvidence)
     EXPECT_FALSE(pfcore::MotionMatcher(params).findAllPairs({left, right}).empty());
 }
 
+TEST(MotionMatcher, SharedIdentityPrototypeMemoPreservesEvidenceAndProvenance)
+{
+    pfcore::MotionMatcherParams params;
+    params.candidateThreshold = 0.0;
+    params.similarityThreshold = 0.1;
+    params.maxUniqueResults = 1000;
+    params.maxResultsPerShot = 0;
+    params.requireAppearance = true;
+    params.mirrorInvariant = true;
+    std::vector<pfcore::MotionWindow> windows;
+    for (std::size_t i = 0; i < 16; ++i) {
+        const auto source = "prototype-shot-" + std::to_string(i);
+        auto item = window(source.c_str(), i * 8.0);
+        item.appearanceEmbedding = {1.0F, 0.0F, 0.0F};
+        item.appearanceConfidence = i % 5 == 0 ? 0.25 : 0.8 + (i % 2) * 0.1;
+        item.faceEmbedding = i % 3 == 0 ? std::vector<float>{1.0F, 0.0F}
+                                      : std::vector<float>{0.0F, 1.0F};
+        item.faceConfidence = i % 4 == 0 ? 0.25 : 0.9;
+        // Invalid descriptors must not inherit verification from a memo hit.
+        if (i == 14) item.faceEmbedding = {std::numeric_limits<float>::quiet_NaN(), 0.0F};
+        if (i == 15) { item.appearanceEmbedding.clear(); item.faceEmbedding.clear(); }
+        windows.push_back(std::move(item));
+    }
+    const pfcore::MotionMatcher matcher(params);
+    std::set<std::pair<std::size_t, std::size_t>> expected;
+    for (std::size_t i = 0; i < windows.size(); ++i)
+        for (std::size_t j = i + 1; j < windows.size(); ++j)
+            if (matcher.compare(windows[i], windows[j]).similarity >= params.similarityThreshold)
+                expected.emplace(i, j);
+    ASSERT_GT(expected.size(), 3U);
+    const auto matches = matcher.findAllPairs(windows);
+    std::set<std::pair<std::size_t, std::size_t>> actual;
+    for (const auto& match : matches) {
+        actual.emplace(match.leftIndex, match.rightIndex);
+        const auto direct = matcher.compare(windows[match.leftIndex], windows[match.rightIndex]);
+        EXPECT_DOUBLE_EQ(match.appearanceSimilarity, direct.appearanceSimilarity);
+        EXPECT_DOUBLE_EQ(match.similarity, direct.similarity);
+        EXPECT_EQ(match.faceVerified, direct.faceVerified);
+        EXPECT_EQ(match.leftSourceId, windows[match.leftIndex].sourceId);
+        EXPECT_EQ(match.rightSourceId, windows[match.rightIndex].sourceId);
+    }
+    EXPECT_EQ(actual, expected);
+}
+
 TEST(MotionMatcher, SyntheticAcceptanceF1RemainsAboveThreshold)
 {
     pfcore::MotionMatcherParams params;
@@ -784,6 +887,51 @@ TEST(MotionMatcher, SyntheticAcceptanceF1RemainsAboveThreshold)
     const double f1 = precision + recall == 0.0 ? 0.0
         : 2.0 * precision * recall / (precision + recall);
     EXPECT_GE(f1, 0.90);
+}
+
+TEST(MotionMatcher, ParallelExactComparisonPreservesAllFieldsAndSelectionOrder)
+{
+    pfcore::MotionMatcherParams params;
+    params.candidateThreshold = 0;
+    params.similarityThreshold = .1;
+    params.maxUniqueResults = 10000;
+    params.maxResultsPerShot = 0;
+    params.requireAppearance = params.mirrorInvariant = true;
+    std::vector<pfcore::MotionWindow> windows;
+    for (std::size_t i = 0; i < 96; ++i) {
+        const auto source = "independent-shot-" + std::to_string(i);
+        auto item = window(source.c_str(), i * 8.0);
+        item.faceEmbedding = {1,0}; item.faceConfidence = 1;
+        // Unequal input support exercises different exact comparison costs.
+        if (i % 7 == 0) item.frames.front().keypoints.front().confidence = 0;
+        windows.push_back(std::move(item));
+    }
+    params.maxComparisonThreads = 1;
+    const auto serial = pfcore::MotionMatcher(params).findAllPairs(windows);
+    ASSERT_GT(serial.size(), 4096U); // ensure the worker path actually runs
+    params.maxComparisonThreads = 4;
+    const auto parallel = pfcore::MotionMatcher(params).findAllPairs(windows);
+    ASSERT_EQ(parallel.size(), serial.size());
+    for (std::size_t i = 0; i < serial.size(); ++i) {
+        const auto& a = serial[i]; const auto& b = parallel[i];
+        EXPECT_EQ(a.leftIndex,b.leftIndex); EXPECT_EQ(a.rightIndex,b.rightIndex);
+        EXPECT_EQ(a.leftSourceId,b.leftSourceId); EXPECT_EQ(a.rightSourceId,b.rightSourceId);
+        EXPECT_DOUBLE_EQ(a.similarity,b.similarity); EXPECT_DOUBLE_EQ(a.dtwDistance,b.dtwDistance);
+        EXPECT_DOUBLE_EQ(a.appearanceSimilarity,b.appearanceSimilarity);
+        EXPECT_DOUBLE_EQ(a.sceneSimilarity,b.sceneSimilarity);
+        EXPECT_DOUBLE_EQ(a.leftStartSeconds,b.leftStartSeconds); EXPECT_DOUBLE_EQ(a.leftEndSeconds,b.leftEndSeconds);
+        EXPECT_DOUBLE_EQ(a.rightStartSeconds,b.rightStartSeconds); EXPECT_DOUBLE_EQ(a.rightEndSeconds,b.rightEndSeconds);
+        EXPECT_DOUBLE_EQ(a.unmirroredSimilarity,b.unmirroredSimilarity);
+        EXPECT_EQ(a.appearanceVerified,b.appearanceVerified); EXPECT_EQ(a.faceVerified,b.faceVerified);
+        EXPECT_EQ(a.headOnlyComparison,b.headOnlyComparison);
+    }
+}
+
+TEST(MotionMatcher, RejectsUnboundedComparisonWorkers)
+{
+    pfcore::MotionMatcherParams params;
+    params.maxComparisonThreads = 17;
+    EXPECT_THROW(pfcore::MotionMatcher{params}, std::invalid_argument);
 }
 
 TEST(MotionMatcher, StaticModeFindsHeldPoseWithoutInventingMotion)

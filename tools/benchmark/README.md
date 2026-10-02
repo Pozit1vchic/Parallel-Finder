@@ -69,3 +69,92 @@ Probe использует реальный код сравнения с пар�
 сравнения времени отмечайте холодный/полный cache hit и число заново
 отрендеренных превью. Устойчивые воспроизводимые выводы RC.14 и оставшиеся
 пропуски описаны в [отчёте](../../docs/rc14-matcher-cache-audit.md).
+
+## Полный performance-аудит cold/warm
+
+`run_pipeline_audit.ps1` требует явные `-Video`, `-Exe`, `-Model`, `-OrtDll`,
+`-ReIdModel`; фиксирует SHA-256 assets, создаёт **новый** observation/PNG cache
+для каждого cold и запускает paired warm только на этом кеше. Проверяет cache
+hit и совпадение всех полей результатов, кроме session-local PNG paths.
+`-TraceInference`, `-TraceOrtNodes` и `-SampleGpu` нужны для диагностики, не для
+заявленного ускорения. `-EngineCache` задаёт существующий каталог движков TRT.
+
+`run_pipeline_ab.ps1` принимает два EXE (`-BeforeExe`, `-AfterExe`), те же
+фиксированные assets и `-Provider`. Запускает A/B последовательно с чередованием
+порядка, сохраняет `summary.json` и проверяет все поля **и SHA-256 каждого `.pfc`**.
+`compare_pipeline_audit.ps1 -BeforeRoot ... -AfterRoot ... -CompareCacheBytes`
+повторяет эту строгую проверку; пустые/неполные каталоги не считаются успехом.
+
+`profile_gpu_pipeline.ps1` использует установленный Nsight Systems, пишет
+диагностический trace под `build`; его timings не используются как обычное
+время анализа. Отдельные поля `elapsedMs` и `processWallMs` позволяют не скрывать
+создание процесса и проверку runtime за быстрым cache-hit analysis.
+Для nested Windows paths используйте короткий `-OutputDirectory`: нативный
+cache stream не гарантирует extended-length paths, и слишком длинный путь
+теперь отклоняется до измерения. `summarize_gpu_activity.sql` объединяет
+перекрывающиеся CUDA intervals в Nsight SQLite; coverage не означает SM occupancy.
+Методика, реальные результаты и границы утверждений — во
+[втором отчёте](../../docs/second-performance-audit.md).
+
+## Независимая проверка качества и ошибок личности
+
+Текущий [промежуточный аудит](../../docs/matcher-independent-audit.md) отделяет
+frozen recall от проверки всей выдачи; успешный smoke не означает precision.
+`evaluate_visual_reference.ps1 -SamePersonOnly` исключает явно размеченных
+разных исполнителей по выбранной пользователем области, не изменяя frozen JSON.
+
+`pf_matcher_probe --all [params.json]` воспроизводит retrieval, exact comparison,
+selection и ranker; `--batch pairs.json [params.json]` — отдельные сравнения.
+В config `maxComparisonThreads=1` принудительно задаёт serial, `0` — bounded
+auto. Сравнивайте все поля результатов, не только число карточек.
+
+Для наблюдений до усреднения identity prototype включите на **cold** запуске:
+
+```powershell
+$env:PF_DEBUG_APPEARANCE_JSON = 'D:\Parallel-Finder\build\appearance-samples.json'
+$env:PF_DEBUG_POSES_JSON = 'D:\Parallel-Finder\build\appearance-windows.json'
+# Выполните run_analysis_smoke.ps1 с явными моделями и новым коротким cache path.
+./tools/benchmark/inspect_appearance_observations.ps1 `
+    -ObservationsPath build/appearance-samples.json `
+    -WindowsPath build/appearance-windows.json -WindowIndex 10,22 `
+    -OutputPath build/appearance-consistency.json
+Remove-Item Env:PF_DEBUG_APPEARANCE_JSON,Env:PF_DEBUG_POSES_JSON
+```
+
+Appearance audit сохраняет track, реальные timestamps, person crop box,
+keypoints и face/body vectors. Cache hit не содержит исходных per-crop samples
+и не создаёт такой файл. Несколько входов получают суффикс номера файла.
+Существующий audit не перезаписывается. Это биометрическая локальная диагностика,
+её нельзя коммитить или публиковать; cosine внутри prototype не доказывает,
+что модель выбрала лицо нужного человека.
+
+`render_pose_windows.ps1` накладывает реальные detector points на исходные
+кадры; `render_returned_pairs.ps1` создаёт representative contact sheets.
+Ни один из этих инструментов не создаёт независимую ground truth.
+`PF_DEBUG_SCENE_SCORES=1` показывает score соседних scene samples, их медианы
+и robust spread; он выключен в обычном запуске.
+
+Для проверки конкретного face crop используйте `extract_appearance_samples.ps1`
+с выбранными track/time, затем `pf_face_probe samples.json yunet.onnx sface.onnx`.
+Probe возвращает detector landmarks, канонический transform и features той же
+реализации. `compare_face_alignment.py` сравнивает тот же detector output с
+эталонным alignCrop OpenCV и сохраняет две версии 112×112 рядом.
+Python/OpenCV нужны **только для локального аудита**, не для приложения:
+при необходимости установите их в отдельное окружение под `build`, не в runtime
+пользователя. Reference cosine не является новой разметкой identity.
+
+Config `minHeadFaceSimilarity` позволяет изолированно проверить более строгую
+identity для head-only comparisons, не меняя общий face/body/pose threshold.
+Перед claim об улучшении сравните новые/пропавшие пары и top-N, а не только count.
+
+`run_matcher_ab.ps1` делает изолированные replay двух config на одинаковых
+window dumps, чередует A/B порядок, сохраняет SHA-256 входов и проверяет
+детерминированность всех полей каждой версии. Для сравнения разных binaries
+передайте `-ProbeB`; иначе обе версии используют `-Probe`. Отчёт измеряет
+end-to-end `findAllPairs`, не parsing, inference, previews или ranking.
+Разница configs/EXE может менять quality: `allResultFieldsIdentical=false`
+не является улучшением и требует отдельной визуальной оценки.
+
+При извлечении последовательности по предсказанной паре передавайте
+`extract_visual_sequence.ps1 -PredictedPairReview`: provenance тогда явно
+указывает `matcherIndependent=false`. Эти материалы не заменяют frozen truth.

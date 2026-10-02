@@ -1,4 +1,5 @@
 #include "pfgpu/PoseEstimator.hpp"
+#include "pfgpu/detail/PoseInput.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -9,33 +10,12 @@
 #include <stdexcept>
 #include <string_view>
 #include <utility>
+#include <chrono>
 
 namespace pfgpu {
 namespace {
 
-struct LetterboxTransform {
-    float scale = 1.0F;
-    float padX = 0.0F;
-    float padY = 0.0F;
-    int sourceWidth = 0;
-    int sourceHeight = 0;
-};
-
-LetterboxTransform makeTransform(const PoseImage& image, const PoseEstimatorParams& params)
-{
-    if (!image.rgba || image.width <= 0 || image.height <= 0)
-        throw std::invalid_argument("PoseEstimator: invalid image");
-    LetterboxTransform transform;
-    transform.sourceWidth = image.width;
-    transform.sourceHeight = image.height;
-    transform.scale = std::min(static_cast<float>(params.inputWidth) / image.width,
-                               static_cast<float>(params.inputHeight) / image.height);
-    const int resizedWidth = std::max(1, static_cast<int>(std::lround(image.width * transform.scale)));
-    const int resizedHeight = std::max(1, static_cast<int>(std::lround(image.height * transform.scale)));
-    transform.padX = (params.inputWidth - resizedWidth) * 0.5F;
-    transform.padY = (params.inputHeight - resizedHeight) * 0.5F;
-    return transform;
-}
+using detail::LetterboxTransform;
 
 std::size_t profileBatchSize(const std::string& profile)
 {
@@ -47,58 +27,6 @@ std::size_t profileBatchSize(const std::string& profile)
         }
     }
     return 1;
-}
-
-FloatTensor makeInputBatch(const std::vector<PoseImage>& images,
-                           std::size_t batchSize,
-                           const PoseEstimatorParams& params,
-                           std::vector<LetterboxTransform>& transforms)
-{
-    if (images.empty() || batchSize == 0) throw std::invalid_argument("PoseEstimator: empty batch");
-    const std::size_t plane = static_cast<std::size_t>(params.inputWidth) * params.inputHeight;
-    FloatTensor tensor;
-    tensor.shape = {static_cast<std::int64_t>(batchSize), 3, params.inputHeight, params.inputWidth};
-    tensor.values.assign(batchSize * 3U * plane, 114.0F / 255.0F);
-    transforms.clear();
-    transforms.reserve(batchSize);
-    for (std::size_t batch = 0; batch < batchSize; ++batch) {
-        const PoseImage& image = images[std::min(batch, images.size() - 1)];
-        const LetterboxTransform transform = makeTransform(image, params);
-        transforms.push_back(transform);
-        const std::size_t batchBase = batch * 3U * plane;
-        // The old loop recomputed two floating-point divisions for every
-        // output pixel.  Precompute the source lookup tables once per image;
-        // this is a measurable win on the CPU provider and does not change
-        // the exact letterbox mapping.
-        std::vector<int> sourceX(static_cast<std::size_t>(params.inputWidth), -1);
-        std::vector<int> sourceY(static_cast<std::size_t>(params.inputHeight), -1);
-        for (int x = 0; x < params.inputWidth; ++x) {
-            const float value = (static_cast<float>(x) - transform.padX) / transform.scale;
-            if (value >= 0.0F && value < image.width)
-                sourceX[static_cast<std::size_t>(x)] = std::clamp(
-                    static_cast<int>(value), 0, image.width - 1);
-        }
-        for (int y = 0; y < params.inputHeight; ++y) {
-            const float value = (static_cast<float>(y) - transform.padY) / transform.scale;
-            if (value >= 0.0F && value < image.height)
-                sourceY[static_cast<std::size_t>(y)] = std::clamp(
-                    static_cast<int>(value), 0, image.height - 1);
-        }
-        for (int y = 0; y < params.inputHeight; ++y) {
-            const int sy = sourceY[static_cast<std::size_t>(y)];
-            if (sy < 0) continue;
-            for (int x = 0; x < params.inputWidth; ++x) {
-                const int sx = sourceX[static_cast<std::size_t>(x)];
-                if (sx < 0) continue;
-                const auto* pixel = image.rgba + (static_cast<std::size_t>(sy) * image.width + sx) * 4U;
-                const std::size_t offset = static_cast<std::size_t>(y) * params.inputWidth + x;
-                tensor.values[batchBase + offset] = pixel[0] / 255.0F;
-                tensor.values[batchBase + plane + offset] = pixel[1] / 255.0F;
-                tensor.values[batchBase + 2U * plane + offset] = pixel[2] / 255.0F;
-            }
-        }
-    }
-    return tensor;
 }
 
 float intersectionOverUnion(const PoseDetection& left, const PoseDetection& right)
@@ -243,7 +171,8 @@ std::vector<std::vector<PoseDetection>> decodeOutput(
 } // namespace
 
 PoseEstimator::PoseEstimator(std::string modelPath, PoseEstimatorParams params)
-    : modelPath_(std::move(modelPath)), params_(std::move(params))
+    : modelPath_(std::move(modelPath)), params_(std::move(params)),
+      inputWorkspace_(std::make_unique<detail::PoseInputWorkspace>())
 {
     if (modelPath_.empty() || params_.inputWidth <= 0 || params_.inputHeight <= 0
         || params_.inputWidth > 4096 || params_.inputHeight > 4096
@@ -256,6 +185,8 @@ PoseEstimator::PoseEstimator(std::string modelPath, PoseEstimatorParams params)
         throw std::invalid_argument("PoseEstimator: invalid parameters");
     if (params_.batchSize == 0) params_.batchSize = profileBatchSize(params_.profile);
 }
+
+PoseEstimator::~PoseEstimator() = default;
 
 SessionHandle PoseEstimator::acquireSession()
 {
@@ -284,6 +215,7 @@ SessionHandle PoseEstimator::acquireSession()
 
 void PoseEstimator::prepare()
 {
+    const std::lock_guard lock(mutex_);
     (void)acquireSession();
 }
 
@@ -296,21 +228,36 @@ std::vector<PoseDetection> PoseEstimator::infer(const PoseImage& image)
 std::vector<std::vector<PoseDetection>> PoseEstimator::inferBatch(const std::vector<PoseImage>& images)
 {
     if (images.empty()) return {};
+    const std::lock_guard lock(mutex_);
     const SessionHandle session = acquireSession();
+    const auto* profileFlag = std::getenv("PF_DEBUG_INFERENCE");
+    const bool profile = profileFlag && *profileFlag;
+    static thread_local std::size_t calls = 0;
+    static thread_local double preparationMs = 0, runMs = 0, decodingMs = 0;
 
     std::vector<std::vector<PoseDetection>> detections;
     detections.reserve(images.size());
     for (std::size_t offset = 0; offset < images.size(); offset += params_.batchSize) {
         const std::size_t count = std::min(params_.batchSize, images.size() - offset);
-        std::vector<PoseImage> chunk(images.begin() + static_cast<std::ptrdiff_t>(offset),
-                                     images.begin() + static_cast<std::ptrdiff_t>(offset + count));
+        const std::span<const PoseImage> chunk(images.data() + offset, count);
         std::vector<LetterboxTransform> transforms;
-        const FloatTensor input = makeInputBatch(chunk, params_.batchSize, params_, transforms);
+        const auto start = profile ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+        const auto elapsed = [&] { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(); };
+        const FloatTensor& input = inputWorkspace_->build(chunk, params_.batchSize, params_, transforms);
+        const auto prepared = profile ? elapsed() : 0;
         const auto output = runFloat(session, input);
+        const auto inferred = profile ? elapsed() : 0;
         if (!output.ok) throw std::runtime_error(output.error);
         if (output.outputs.empty()) continue;
         const auto chunkDetections = decodeOutput(output.outputs.front(), transforms, params_);
         for (std::size_t i = 0; i < count; ++i) detections.push_back(chunkDetections[i]);
+        if (profile) {
+            ++calls; preparationMs += prepared; runMs += inferred - prepared;
+            decodingMs += elapsed() - inferred;
+            if (calls == 1 || calls % 128 == 0)
+                std::fprintf(stderr, "PF_DEBUG_INFERENCE pose_calls=%zu prepare_ms=%.3f inference_ms=%.3f decode_ms=%.3f batch=%zu\n",
+                    calls, preparationMs, runMs, decodingMs, params_.batchSize);
+        }
     }
     return detections;
 }

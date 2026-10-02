@@ -27,8 +27,8 @@ inline constexpr std::uint32_t kMinSupportedApiVersion = 12;
 
 // OrtApi::GetEpDevices / EpDevice_EpName / SessionOptionsAppendExecutionProvider_V2
 // are documented as "\since Version 1.22" in onnxruntime_c_api.h. Runtimes older
-// than that are configured through the classic exported per-EP entry points
-// instead (Provider.hpp: providerLegacyExportName).
+// than that use opaque CUDA/TensorRT V2 options; the classic exported per-EP
+// entry point remains a device-id-only compatibility path for other providers.
 inline constexpr std::uint32_t kEpDeviceApiVersion = 22;
 
 // Memoized probe. Thread-safe; the library is loaded once and intentionally

@@ -50,6 +50,8 @@ models/*.part
 *.plan
 *.safetensors
 *.pfc
+TensorrtExecutionProvider*.profile
+TensorrtExecutionProvider*.timing
 # Small, intentionally versioned test fixtures may be kept here.
 !tests/fixtures/**/*.onnx
 
@@ -121,6 +123,27 @@ env/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Local investigation reports and one-off verification scripts.
+# Keep project documentation and release/build/test entry points versionable.
+audit*.md
+*-audit*.md
+*-checkpoint*.md
+*-quality-independent-notes.md
+/docs/*-performance.md
+/docs/verification-*.md
+/docs/test-results*.md
+/docs/check-results*.md
+/*.ps1
+/tools/benchmark/*.ps1
+!/AUDIT.md
+!/docs/release-audit.md
+!/tools/benchmark/audit_project.ps1
+!/tools/benchmark/check_reference_pairs.ps1
+!/tools/benchmark/install_face_models.ps1
+!/tools/benchmark/run_analysis_smoke.ps1
+!/tools/benchmark/run_matcher_regression.ps1
+!/tools/benchmark/run_startup_smoke.ps1
 
 # OS noise
 Thumbs.db

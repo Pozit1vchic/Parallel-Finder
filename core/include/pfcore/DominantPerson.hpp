@@ -51,6 +51,10 @@ public:
     void update(double timestampSeconds,
                 double frameDurationSeconds,
                 const std::vector<PersonDetection>& detections);
+    // Reassociate saved detections after shot boundaries become available.
+    // Geometry may link observations only within one shot; identity grouping
+    // across shots is performed separately using appearance evidence.
+    void retrackScenes(const std::vector<double>& boundaries);
     const std::vector<PersonTrack>& tracks() const noexcept { return tracks_; }
     std::optional<PersonTrack> dominant() const;
 
@@ -58,6 +62,7 @@ private:
     double iouThreshold_;
     double maxGapSeconds_;
     std::size_t nextId_ = 1;
+    std::size_t sceneTrackStart_ = 0;
     std::vector<PersonTrack> tracks_;
 };
 
@@ -73,6 +78,9 @@ struct IdentitySummary {
     double faceEvidence = 0;
     double duration = 0;
     double area = 0;
+    // Ordered source observation times. Concurrent detections are distinct
+    // people, even when similar face/clothing embeddings suggest otherwise.
+    std::vector<double> observationTimes;
 };
 
 // Select the longest identity, without allowing a body-only intermediate

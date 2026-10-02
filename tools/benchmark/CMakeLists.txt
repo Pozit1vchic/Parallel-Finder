@@ -14,3 +14,7 @@ target_link_libraries(pf_decode_probe PRIVATE pf::core)
 add_executable(pf_matcher_probe matcher_probe.cpp)
 set_target_properties(pf_matcher_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(pf_matcher_probe PRIVATE pf::core Qt6::Core)
+
+add_executable(pf_face_probe face_probe.cpp)
+set_target_properties(pf_face_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_link_libraries(pf_face_probe PRIVATE pf::gpu Qt6::Core Qt6::Gui)

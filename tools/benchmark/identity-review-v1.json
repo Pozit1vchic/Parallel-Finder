@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "policy": "Retrospective visual review of returned predictions, NOT independently frozen recall ground truth. Keep separate from visual-reference-v2.json. Same-person user scope. Representative source frames and diagnostic face crops inspected.",
+  "sourceId": "mosh-e01",
+  "cases": [
+    {"id":"fp-identity-01","a":73.52,"b":944.52,"toleranceSeconds":0.2,"label":"wrong-person","reason":"Clean-faced man in hallway versus bespectacled bearded man at table; same head trajectory is not identity evidence."},
+    {"id":"fp-identity-02","a":72.36,"b":801.84,"toleranceSeconds":0.2,"label":"wrong-person","reason":"Same hallway performer versus different bespectacled bearded performer in cafe."},
+    {"id":"fp-identity-03","a":249.68,"b":557.36,"toleranceSeconds":0.2,"label":"wrong-person","reason":"Clean-faced hallway performer versus bespectacled bearded cafe performer. Source crops inspected separately from prototypes."},
+    {"id":"fp-identity-04","a":1108.68,"b":1213.36,"toleranceSeconds":0.2,"label":"wrong-person","reason":"Young cafe man with fist at cheek versus visibly different man in blue shirt outdoors."},
+    {"id":"fp-identity-05","a":249.68,"b":815.52,"toleranceSeconds":0.2,"label":"wrong-person","reason":"Hallway performer versus bespectacled bearded cafe performer drinking; face similarity does not prove identity."},
+    {"id":"fp-identity-06","a":73.2,"b":1600.84,"toleranceSeconds":0.2,"label":"wrong-person","reason":"Remaining/new hallway-versus-bearded-passenger mismatch after stronger head gate; explicitly retained as unresolved, not hidden by aggregate count."}
+  ],
+  "localEvidence": [
+    "build/matcher-quality-audit-20261001/returned-baseline/mosh-e01/review-005.jpg",
+    "build/matcher-quality-audit-20261001/returned-baseline/mosh-e01/review-006.jpg",
+    "build/mq-face-observations/official-alignment/comparison.json",
+    "build/mq-head-identity/review-03/review-001.jpg"
+  ]
+}

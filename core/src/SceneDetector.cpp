@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <numeric>
 #include <stdexcept>
 #include <vector>
@@ -92,6 +94,15 @@ double boundaryScore(double rawScore, double threshold)
     return std::max(0.0, rawScore / std::max(threshold, 1e-9));
 }
 
+double medianDeviation(std::span<const double> values, double median)
+{
+    std::vector<double> deviations;
+    deviations.reserve(values.size());
+    for (double value : values) deviations.push_back(std::abs(value - median));
+    std::sort(deviations.begin(), deviations.end());
+    return deviations.empty() ? 0.0 : deviations[deviations.size() / 2];
+}
+
 } // namespace
 
 SceneDetector::SceneDetector(double threshold, std::size_t minSceneFrames,
@@ -127,7 +138,6 @@ std::optional<double> SceneDetector::refineHardCut(VideoDecoder& decoder, double
     decoder.seek(start);
     CompactFrame previous;
     DecodedFrame frame;
-    double bestScore = 0.0;
     std::optional<double> best;
     while (!stop.stop_requested() && decoder.readNext(frame, false)) {
         if (frame.timestampSeconds > approximate + 1e-4) break;
@@ -135,9 +145,11 @@ std::optional<double> SceneDetector::refineHardCut(VideoDecoder& decoder, double
         if (!decoder.convertCurrentFrameToRgba(frame)) continue;
         auto current = compact({frame.timestampSeconds, frame.width, frame.height, frame.rgba});
         const double score = hsvDistance(previous, current);
-        if (score >= threshold_ && score > bestScore
+        if (score >= threshold_
             && frame.timestampSeconds >= approximate - 0.35) {
-            bestScore = score; best = frame.timestampSeconds;
+            // Resolve the nearest preceding cut, not the strongest earlier
+            // cut: several short shots may occur inside one sparse interval.
+            best = frame.timestampSeconds;
         }
         previous = std::move(current);
     }
@@ -160,6 +172,7 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
 {
     std::vector<SceneBoundary> boundaries;
     if (samples.size() < 2) return boundaries;
+    const bool debugScores = std::getenv("PF_DEBUG_SCENE_SCORES") != nullptr;
 
     std::vector<CompactFrame> frames;
     frames.reserve(samples.size());
@@ -189,12 +202,26 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
         std::size_t followingCount = 0;
         for (std::size_t j = i + 1; j < deltas.size() && j <= i + 3; ++j)
             following[followingCount++] = deltas[j];
-        std::sort(following.begin(), following.begin() + followingCount);
+        if (followingCount == 3) std::sort(following.begin(), following.end());
+        else if (followingCount == 2 && following[0] > following[1]) std::swap(following[0], following[1]);
+        const double nextMedian = followingCount ? following[followingCount / 2] : 0.0;
         const bool forwardOutlier = followingCount >= 2
-            && deltas[i] >= following[followingCount / 2] * adaptiveMultiplier_
+            && deltas[i] >= nextMedian * adaptiveMultiplier_
             && (i <= 1 || deltas[i] >= deltas[i - 1] * 1.5);
+        // A cut between two steadily moving shots is not necessarily three
+        // times the background motion level. Confirm a strong absolute jump
+        // against BOTH local distributions, using their robust spread rather
+        // than lowering the global HSV threshold or accepting camera slowdown.
+        // The absolute floor and preceding jump also protect flat/noisy shots.
+        const double spread = std::max({threshold_ * .25,
+            medianDeviation(recent, localMean),
+            medianDeviation(std::span(following.data(), followingCount), nextMedian)});
+        const bool stableMotionCut = adaptiveMultiplier_ > 0.0 && recent.size() >= 3
+            && followingCount >= 2 && deltas[i] >= threshold_ * 2.0
+            && deltas[i] >= std::max(localMean, nextMedian) + adaptiveMultiplier_ * spread
+            && deltas[i] >= deltas[i-1] * 1.5;
         const bool adaptivePass = adaptiveMultiplier_ == 0.0 || (recent.empty() && boundaries.empty())
-            || deltas[i] >= localMean * adaptiveMultiplier_ || forwardOutlier;
+            || deltas[i] >= localMean * adaptiveMultiplier_ || forwardOutlier || stableMotionCut;
         const bool validTimestamp = samples[i].timestampSeconds >= samples[i - 1].timestampSeconds;
         // Same-colour reverse angles/zoom cuts can be below the absolute HSV
         // threshold. Admit only an isolated discontinuity confirmed on BOTH
@@ -202,6 +229,11 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
         const bool lowContrastCut = !recent.empty() && forwardOutlier
             && deltas[i] >= localMean * adaptiveMultiplier_
             && deltas[i] >= threshold_ * .5;
+        if (debugScores)
+            std::fprintf(stderr, "PF_DEBUG_SCENE_SCORE t=%.6f delta=%.3f past=%.3f next=%.3f adaptive=%d low=%d stable=%d spacing=%zu\n",
+                samples[i].timestampSeconds, deltas[i], localMean,
+                followingCount ? following[followingCount / 2] : 0.0,
+                adaptivePass ? 1 : 0, lowContrastCut ? 1 : 0, stableMotionCut ? 1 : 0, framesSinceBoundary);
         if (validTimestamp && !frames[i].pixels.empty()
             && (deltas[i] >= threshold_ || lowContrastCut)
             && adaptivePass && framesSinceBoundary >= minSceneFrames_) {
