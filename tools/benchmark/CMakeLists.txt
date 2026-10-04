@@ -11,6 +11,10 @@ add_executable(pf_decode_probe decode_probe.cpp)
 set_target_properties(pf_decode_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(pf_decode_probe PRIVATE pf::core)
 
+add_executable(pf_scene_probe scene_probe.cpp)
+set_target_properties(pf_scene_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_link_libraries(pf_scene_probe PRIVATE pf::core Qt6::Core)
+
 add_executable(pf_matcher_probe matcher_probe.cpp)
 set_target_properties(pf_matcher_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(pf_matcher_probe PRIVATE pf::core Qt6::Core)

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <compare>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -97,6 +98,20 @@ std::string fileUri(const std::string& path)
     return "file:///" + escaped;
 }
 
+// Pairwise epsilon ties are not transitive and cannot be used by std::sort.
+// Exact ties retain the caller's stable order; malformed NaNs sort last.
+std::weak_ordering numericOrder(double left, double right, bool descending = false) noexcept
+{
+    const bool nanLeft = std::isnan(left), nanRight = std::isnan(right);
+    if (nanLeft || nanRight) {
+        if (nanLeft == nanRight) return std::weak_ordering::equivalent;
+        return nanLeft ? std::weak_ordering::greater : std::weak_ordering::less;
+    }
+    if (left == right) return std::weak_ordering::equivalent;
+    return (descending ? left > right : left < right)
+        ? std::weak_ordering::less : std::weak_ordering::greater;
+}
+
 std::vector<pfcore::MotionMatch> orderedMatches(const std::vector<pfcore::MotionMatch>& matches,
                                                 NumberingMode mode)
 {
@@ -104,18 +119,18 @@ std::vector<pfcore::MotionMatch> orderedMatches(const std::vector<pfcore::Motion
     if (mode == NumberingMode::AsInVideo) {
         std::stable_sort(ordered.begin(), ordered.end(), [](const auto& left, const auto& right) {
             if (left.leftSourceId != right.leftSourceId) return left.leftSourceId < right.leftSourceId;
-            if (std::abs(left.leftStartSeconds - right.leftStartSeconds) > 1e-9)
-                return left.leftStartSeconds < right.leftStartSeconds;
+            if (const auto order = numericOrder(left.leftStartSeconds, right.leftStartSeconds); order != 0)
+                return order < 0;
             if (left.rightSourceId != right.rightSourceId) return left.rightSourceId < right.rightSourceId;
-            return left.rightStartSeconds < right.rightStartSeconds;
+            return numericOrder(left.rightStartSeconds, right.rightStartSeconds) < 0;
         });
     } else {
         std::stable_sort(ordered.begin(), ordered.end(), [](const auto& left, const auto& right) {
-            if (std::abs(left.rankScore - right.rankScore) > 1e-9)
-                return left.rankScore > right.rankScore;
-            if (std::abs(left.similarity - right.similarity) > 1e-9)
-                return left.similarity > right.similarity;
-            return left.leftStartSeconds < right.leftStartSeconds;
+            if (const auto order = numericOrder(left.rankScore, right.rankScore, true); order != 0)
+                return order < 0;
+            if (const auto order = numericOrder(left.similarity, right.similarity, true); order != 0)
+                return order < 0;
+            return numericOrder(left.leftStartSeconds, right.leftStartSeconds) < 0;
         });
     }
     return ordered;

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include <onnxruntime_c_api.h>
@@ -43,6 +44,9 @@ struct SessionHandle {
     std::string cacheKey;             // diagnostics for logs and tests
     bool createdNow = false;
     bool profiling = false;           // opt-in, bounded diagnostic capture
+    // DirectML permits only one Run per session. Aliasing ownership keeps this
+    // per-entry gate alive after eviction, without serializing other sessions.
+    std::shared_ptr<std::mutex> runMutex;
 
     explicit operator bool() const noexcept { return session != nullptr; }
 };

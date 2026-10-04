@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string>
 #include <vector>
+#include <stop_token>
 
 namespace pfcore {
 
@@ -29,7 +30,7 @@ struct MotionWindow {
     // multi-frame/temporal coverage guard.
     bool staticFrameSet = false;
     // Full shot bounds retained separately from the shorter motion chunk.
-    // Matching still uses the chunk; export can cut the complete scene.
+    // They constrain the short context used for playback and export.
     double sceneStartSeconds = -1.0;
     double sceneEndSeconds = -1.0;
     std::vector<PoseFrame> frames;
@@ -61,9 +62,9 @@ struct MotionMatcherParams {
     std::size_t maxUniqueResults = 100;
     // Independent result types have separate budgets/duplicate metrics, but
     // the per-shot reuse quota below is shared across both types.
-    // A shot may support a few independent pairs, not an unlimited hub.
+    // Default: one result per shot. Callers can explicitly opt into reuse.
     // Zero disables this diversity quota for diagnostic comparisons.
-    std::size_t maxResultsPerShot = 3;
+    std::size_t maxResultsPerShot = 1;
     // Zero: up to four workers on large exact-comparison sets. One forces
     // serial execution for reproducible A/B checks. Retrieval and selection
     // stay serial; no candidate or sample is dropped by this setting.
@@ -123,10 +124,8 @@ struct MotionMatcherParams {
     // whose repeated action only lasts one beat.
     std::size_t minTemporalFrames = 10;
     double minTemporalDurationSec = 0.50;
-    // Same-source windows without independently verified identity and disjoint
-    // shot provenance cannot match inside this floor. Proven different shots
-    // in a rapidly edited scenepack may be closer; overlapping observations
-    // and same-shot comparisons are still rejected separately.
+      // Same-source windows cannot match inside this floor, including verified
+      // identities in disjoint shots. Callers may explicitly opt out with zero.
     double sameSourceGapFloorSec = 5.0;
     double nmsOverlapThreshold = 0.35;
     // Track IDs are local to a source file.  A different ID must not silently
@@ -198,9 +197,11 @@ public:
     MotionMatch compare(const MotionWindow& left, const MotionWindow& right,
                         std::size_t leftIndex = 0, std::size_t rightIndex = 0) const;
 
-    // All-pairs search. Windows are never consumed: one window may participate
-    // in several independent results, as required by the product semantics.
-    std::vector<MotionMatch> findAllPairs(const std::vector<MotionWindow>& windows) const;
+    // Candidate search followed by shared per-shot selection. The default
+    // returns each shot once; maxResultsPerShot explicitly controls reuse.
+    // A requested stop throws std::runtime_error; no partial result is returned.
+    std::vector<MotionMatch> findAllPairs(const std::vector<MotionWindow>& windows,
+                                        std::stop_token stop = {}) const;
 
 private:
     MotionMatcherParams params_;

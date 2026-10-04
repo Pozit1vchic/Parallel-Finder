@@ -47,7 +47,10 @@ struct JobManager::Impl {
             {
                 std::unique_lock lock(mutex);
                 ready.wait(lock, [this] {
-                    if (stopping) return true;
+                    // During shutdown queued work still drains. A blocked
+                    // same-source job must wait for its active predecessor,
+                    // rather than spin while contending for this mutex.
+                    if (stopping && queue.empty()) return true;
                     return std::any_of(queue.begin(), queue.end(), [&](const auto& candidate) {
                         return !activePaths.contains(candidate->path);
                     });

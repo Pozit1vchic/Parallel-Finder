@@ -7,6 +7,7 @@
 #include <QProcess>
 #include <QStandardPaths>
 #include <QStringList>
+#include <QTemporaryDir>
 
 #include <algorithm>
 #include <cmath>
@@ -109,6 +110,12 @@ CutResult CutService::cut(const CutRequest& request) const
         return result;
     }
     const bool montage = request.canvasWidth > 0 || request.canvasHeight > 0 || request.ensureStereoAudio;
+    if (request.mode == CutMode::Lossless
+        && (montage || request.maxWidth > 0 || request.maxHeight > 0
+            || request.outputPath.extension() != ".mkv")) {
+        result.error = "lossless export requires MKV without resizing or frame-rate conversion";
+        return result;
+    }
     if (montage && (request.mode != CutMode::Exact || request.canvasWidth < 2 || request.canvasHeight < 2
         || request.canvasWidth % 2 || request.canvasHeight % 2
         || !std::isfinite(request.outputFrameRate) || request.outputFrameRate <= 0.0)) {
@@ -136,17 +143,23 @@ CutResult CutService::cut(const CutRequest& request) const
     const double duration = request.endSeconds - request.startSeconds;
     const QString ffmpegProgram = resolveFfmpegExecutable(ffmpegExecutable_);
     result.executable = ffmpegProgram.toStdString();
-    // Keep the real media extension on the temporary file.  FFmpeg selects
-    // its muxer from the output suffix; `clip.mp4.part` has no known format
-    // and produces "Unable to choose an output format" on Windows.
-    const std::string extension = request.outputPath.extension().string();
-    const std::string temporaryName = request.outputPath.stem().string()
-        + ".part" + (extension.empty() ? std::string(".mp4") : extension);
-    const auto temporaryPath = request.outputPath.parent_path() / temporaryName;
-    std::filesystem::remove(temporaryPath, filesystemError);
+    // Reserve a unique, owned staging directory beside the destination for atomic install.
+    // A fixed `clip.part.mp4` can be another export's file or even the input.
+    // Keep the media suffix so FFmpeg can select the muxer, and retain the
+    // directory across encoder retries. RAII cleans every failure path.
+    const QString extension = QString::fromStdWString(request.outputPath.extension().wstring());
+    QTemporaryDir staging(QFileInfo(QString::fromStdWString(request.outputPath.wstring())).absolutePath()
+        + QStringLiteral("/.parallelfinder-cut-XXXXXX"));
+    if (!staging.isValid()) {
+        result.error = "create temporary cut: " + staging.errorString().toStdString();
+        return result;
+    }
+    const auto temporaryPath = std::filesystem::path(staging.filePath(QStringLiteral("cut")
+        + (extension.isEmpty() ? QStringLiteral(".mp4") : extension)).toStdWString());
 
     std::vector<std::string> encoders;
     if (request.mode == CutMode::Fast) encoders.emplace_back("copy");
+    else if (request.mode == CutMode::Lossless) encoders.emplace_back("ffv1");
     else {
         std::lock_guard lock(capabilitiesMutex_);
         if (!capabilities_) {
@@ -192,6 +205,13 @@ CutResult CutService::cut(const CutRequest& request) const
                   << QString::fromStdWString(request.inputPath.wstring());
         if (request.ensureStereoAudio && !request.sourceHasAudio)
             arguments << "-f" << "lavfi" << "-i" << "anullsrc=r=48000:cl=stereo";
+        if (request.mode == CutMode::Lossless) {
+            // Accurate input seek trims transcoded video, but copied audio can
+            // retain packets from the preceding keyframe. An explicit output
+            // seek at the new origin drops that preroll before MKV shifts all
+            // streams to accommodate negative timestamps (seconds of blank video).
+            arguments << QStringLiteral("-ss") << QStringLiteral("0");
+        }
         // This is a video-clip export, not a container clone. Mapping every
         // stream also selects subtitles/data/attachments whose codecs may not
         // be supported by MP4 (including the "codec none" encoder failure).
@@ -203,6 +223,19 @@ CutResult CutService::cut(const CutRequest& request) const
                     : QStringLiteral("0:a?"));
         if (request.mode == CutMode::Fast) {
             arguments << QStringLiteral("-c") << QStringLiteral("copy");
+        } else if (request.mode == CutMode::Lossless) {
+            // FFV1 preserves 8/10/12-bit decoded samples without choosing a
+            // lower chroma format. Original audio is remuxed, never AAC encoded.
+            arguments << "-c:v" << "ffv1" << "-level" << "3"
+                      << "-coder" << "1" << "-context" << "1"
+                      << "-g" << "1" << "-c:a" << "copy"
+                      << "-fps_mode" << "passthrough"
+                      // Keep sub-frame cut offsets/VFR timestamps until the
+                      // muxer rescales them; a nominal-FPS encoder timebase
+                      // can round the last retained frame beyond -t.
+                      << "-enc_time_base:v" << "demux"
+                      << "-threads:v" << QString::number(threads)
+                      << "-map_metadata" << "0";
         } else {
             arguments << QStringLiteral("-c:v") << QString::fromStdString(encoder)
                       << QStringLiteral("-c:a") << QStringLiteral("aac")
@@ -293,12 +326,12 @@ CutResult CutService::cut(const CutRequest& request) const
             result.error = result.cancelled ? "export cancelled"
                 : std::string(stalled ? "ffmpeg stopped advancing: " : "ffmpeg timed out: ")
                     + diagnostic.toStdString() + processError(process);
-            std::filesystem::remove(temporaryPath, filesystemError);
             return result;
         }
         result.exitCode = process.exitCode();
         if (process.exitStatus() == QProcess::NormalExit && result.exitCode == 0
-            && std::filesystem::is_regular_file(temporaryPath, filesystemError)) {
+            && std::filesystem::is_regular_file(temporaryPath, filesystemError)
+            && std::filesystem::file_size(temporaryPath, filesystemError) > 0 && !filesystemError) {
             filesystemError.clear();
             installCut(temporaryPath, request.outputPath, filesystemError);
             if (!filesystemError) {
@@ -318,10 +351,8 @@ CutResult CutService::cut(const CutRequest& request) const
         result.error += result.executable + " [" + encoder + ", exit "
             + std::to_string(result.exitCode) + "]: " + diagnostic.toStdString()
             + processError(process) + "\n";
-        std::filesystem::remove(temporaryPath, filesystemError);
         if (request.mode == CutMode::Fast) break;
     }
-    std::filesystem::remove(temporaryPath, filesystemError);
     if (result.error.empty()) result.error = "ffmpeg failed to create the cut";
     return result;
 }

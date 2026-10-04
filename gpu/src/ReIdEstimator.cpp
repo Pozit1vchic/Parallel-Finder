@@ -124,16 +124,19 @@ std::vector<std::vector<float>> ReIdEstimator::inferBatch(const std::vector<ReId
                                                {params_.provider, 0, params_.profile,
                                                 params_.intraOpThreads});
     if (!session.ok) throw std::runtime_error(session.error);
-    if (!sessionSpec_.has_value()) {
+    if (!sessionSpec_.has_value() || sessionSpecKey_ != session.handle.cacheKey) {
         SessionSpec description = describeSession(session.handle);
         if (!description.ok) throw std::runtime_error(description.error);
         if (description.outputs.empty()) throw std::runtime_error("ReIdEstimator: model has no outputs");
-        InputShape shape = inspectInput(description, params_, channelsFirst_);
+        bool channelsFirst = true;
+        InputShape shape = inspectInput(description, params_, channelsFirst);
         // The current implementation intentionally uses one crop per ORT run.
         // It accepts one image at a time, avoiding a static-batch/profile mismatch
         // across the different OSNet exports users commonly have.
         if (shape.batch != 1) throw std::runtime_error("ReIdEstimator: model batch must be 1");
         sessionSpec_ = std::move(description);
+        sessionSpecKey_ = session.handle.cacheKey;
+        channelsFirst_ = channelsFirst;
     }
     const InputShape shape = inspectInput(*sessionSpec_, params_, channelsFirst_);
     std::vector<std::vector<float>> result;

@@ -127,7 +127,8 @@ TEST(MotionMatcher, IdenticalNormalizedMotionScoresHighly)
 
 TEST(MotionMatcher, AllPairsAllowsOneWindowInSeveralResults)
 {
-    pfcore::MotionMatcherParams params; params.similarityThreshold = 0.7; params.maxUniqueResults = 10;
+    pfcore::MotionMatcherParams params;
+    params.maxResultsPerShot = 0; // This test measures pair acceptance, with reuse explicitly enabled. params.similarityThreshold = 0.7; params.maxUniqueResults = 10;
     pfcore::MotionMatcher matcher(params);
     const auto matches = matcher.findAllPairs({window("a", 0), window("b", 4), window("c", 8)});
     EXPECT_EQ(matches.size(), 3U);
@@ -395,6 +396,7 @@ TEST(MotionMatcher, AppearanceGateRejectsInsufficientEvidence)
 TEST(MotionMatcher, SyntheticAcceptanceF1RemainsAboveThreshold)
 {
     pfcore::MotionMatcherParams params;
+    params.maxResultsPerShot = 0; // This test measures pair acceptance, with reuse explicitly enabled.
     params.similarityThreshold = 0.70;
     params.candidateThreshold = 0.40;
     params.maxUniqueResults = 20;

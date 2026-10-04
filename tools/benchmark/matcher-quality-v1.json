@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "status": "initial sparse visual evaluation; coverage of all six sources is incomplete",
+  "datasetRoot": "D:/for_tests_pf",
+  "evidenceRoot": "build/matcher-quality-20261004/visual/dense-review",
+  "sources": {
+    "dean": "Dean Winchester Season 10 Parallel SCP by @breathefilms.mp4",
+    "soldier-short": "Soldier Boy (The Boys) _ Scenepack 4K.mp4",
+    "soldier-long": "Soldier Boy - The Boys S03 [Native 4K h265] - noahae.mp4",
+    "tobey": "Tobey Maguire’s Spider-Man Parallel Scenepack.mov",
+    "jack": "Jack Sparrow - POTC TCOTBP 2003 [Remux 4k h265] - thomas.mp4",
+    "steve": "Steve Rogers - Captain America The First Avenger [2011] - [REMUX 4K HEVC-H265] - chaszq.mp4"
+  },
+  "splits": {
+    "work": ["dean", "soldier-short", "soldier-long", "tobey"],
+    "holdout": ["jack", "steve"],
+    "rationale": "Both Soldier sources share footage and belong to the same split. Jack/Steve sparse overviews are inspected for inventory; their examples are reserved for evaluation rather than tuning. Holdout labelling and dense review remain pending."
+  },
+  "policy": {
+    "unlabelledIsNotNegative": true,
+    "currentPredictionsAreNotGroundTruth": true,
+    "evidence": "Six independently sought original frames per side; chronological contact sheets reviewed. Original PTS and extraction logs retained. Sparse examples do not estimate exhaustive recall or overall precision.",
+    "toleranceSeconds": 0.2,
+    "nearby": "Useful similarities excluded by the existing 12-second same-source setting are counted as policy exclusions, not silently included in the default acceptance recall denominator.",
+    "shortAction": "A true action parallel can fail the current support policy. Do not reinterpret a held endpoint as a repeated movement or count footage beyond a shot boundary as temporal support.",
+    "hit": "Swapped A/B allowed. Representative timestamps must fall in the corresponding verified ranges; overlapping export context alone is insufficient.",
+    "crossSource": "Evaluate only when both relevant sources are loaded; identity-independent structural evidence is a distinct evaluation scope from same-person search."
+  },
+  "cases": [
+    {"id":"dean-directed-aim-crop", "split":"work", "label":"positive", "type":"static-action", "strength":"difficult", "a":["dean",2.627625,3.169833], "b":["dean",53.011292,53.5535], "policyExcluded":false, "tags":["crop","grip-change","appearance-change","partial-body"], "reason":"Sustained directed firearm aim; wide two-handed versus tight one-handed shot. Limb geometry differs, action/composition remains useful.", "evidence":"aim-wide-close"},
+    {"id":"dean-drinking-mirror", "split":"work", "label":"positive", "type":"motion", "strength":"obvious", "a":["dean",28.820458,29.821458], "b":["dean",30.03,31.114417], "policyExcluded":true, "tags":["mirror","crop","background","identity-fragment"], "reason":"Bottle lifted/tilted at mouth through successive frames, opposing profile directions. Both sides show actual action, not a random portrait.", "evidence":"drink-nearby"},
+    {"id":"dean-crossed-arms", "split":"work", "label":"positive", "type":"static", "strength":"obvious", "a":["dean",31.406375,32.615917], "b":["dean",33.033,35.118417], "policyExcluded":true, "tags":["appearance-change","background","sustained-limbs"], "reason":"Crossed forearms held across chest through both sequences, different clothing and lighting.", "evidence":"crossed-arms-nearby"},
+    {"id":"dean-walking-versus-aim", "split":"work", "label":"negative", "type":"action-conflict", "a":["dean",13.138125,14.5145], "b":["dean",53.011292,53.5535], "policyExcluded":false, "tags":["same-person","similar-clothing","different-action"], "reason":"Walking with arms down/swinging versus sustained forward aim. Same actor and clothing do not establish a body/action parallel.", "evidence":"negative-walking-aim"},
+    {"id":"optical-device-cross-person", "split":"work", "label":"positive", "type":"static-structure", "strength":"difficult", "a":["soldier-short",133.4,135.8], "b":["tobey",311.711667,313.003333], "policyExcluded":false, "scope":"identity-independent", "tags":["cross-source","different-characters","crop","multi-person","objects"], "reason":"Both hands hold an optical device at eyes across sustained frames; binoculars versus camera. Subject is foreground right on Soldier side. Ordinary standing companions are not the matched gesture.", "evidence":"optical-device-cross-person"},
+    {"id":"dean-short-final-directed-weapon", "split":"work", "label":"positive", "type":"short-action-endpoint", "strength":"difficult", "a":["dean",6.548208,6.673333], "b":["dean",54.80475,55.055], "policyExcluded":false, "supportLimited":true, "tags":["partial-body","short-action","different-temporal-phase"], "reason":"Directed firearm endpoint after raising in A versus already-held aim in B. It is an action/endpoint parallel, not a verified repeated raising motion. A frame at 6.840167 belongs to another shot and is excluded from support. Review of longer final-shot interval remains pending.", "evidence":"aim-store-final-v2"}
+  ]
+}

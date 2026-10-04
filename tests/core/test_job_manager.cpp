@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <thread>
+#include <memory>
 
 
 TEST(JobManager, RejectsInvalidConstructionBeforeStartingWorkers)
@@ -53,4 +54,35 @@ TEST(JobManager, SerializesJobsWithTheSameSourceButAllowsDifferentSources)
     EXPECT_EQ(maxActiveA.load(), 1);
     gate.set_value();
     first.get(); second.get(); different.get();
+}
+
+TEST(JobManager, ShutdownDrainsQueuedSameSourceJobsAfterActiveJobFinishes)
+{
+    auto manager = std::make_unique<pfcore::JobManager>(8, 3);
+    std::promise<void> started, gate, destroyed;
+    const auto hold = gate.get_future().share();
+    auto ready = started.get_future();
+    auto finished = destroyed.get_future();
+    std::atomic<int> completed = 0;
+    auto first = manager->submit("same", [&] {
+        started.set_value();
+        hold.wait();
+        ++completed;
+    });
+    ready.wait();
+    auto second = manager->submit("same", [&] {
+        EXPECT_EQ(completed.fetch_add(1), 1);
+    });
+    auto third = manager->submit("same", [&] {
+        EXPECT_EQ(completed.fetch_add(1), 2);
+    });
+    std::jthread shutdown([owner = std::move(manager), &destroyed]() mutable {
+        owner.reset();
+        destroyed.set_value();
+    });
+    EXPECT_EQ(finished.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
+    gate.set_value();
+    first.get(); second.get(); third.get();
+    EXPECT_EQ(finished.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_EQ(completed.load(), 3);
 }

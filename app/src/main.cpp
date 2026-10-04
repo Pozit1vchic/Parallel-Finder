@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QQmlApplicationEngine>
 #include <QTimer>
+#include <QScopeGuard>
 #include <QString>
 #include <QUrl>
 #include <QQuickWindow>
@@ -241,6 +242,12 @@ int main(int argc, char* argv[])
         info->prepareBackendInitialization();
     }
     pfui::AppInfo::registerQmlTypes();
+    // Diagnostic paths can return without app.exec()/aboutToQuit. Join analysis
+    // before destroying Qt or returning through an error/timeout path as well.
+    const auto workerShutdown = qScopeGuard([] {
+        pfui::AnalysisController::instance()->shutdown();
+        pfui::AppInfo::instance()->shutdown();
+    });
     if (qEnvironmentVariableIsSet("PF_DEBUG_STARTUP"))
         std::fprintf(stderr, "PF_STARTUP bridge_ms=%lld\n", static_cast<long long>(startupTimer.elapsed()));
 

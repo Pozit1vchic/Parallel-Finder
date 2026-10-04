@@ -1,4 +1,7 @@
 #include <pfservices/ProviderStore.hpp>
+#include "NetworkOperation.hpp"
+#include <QElapsedTimer>
+#include <QScopeGuard>
 
 #include <QEventLoop>
 #include <QDir>
@@ -82,10 +85,55 @@ bool trustedHost(const QUrl& url)
             || host.endsWith(QStringLiteral(".githubusercontent.com")));
 }
 
+bool waitForArchiveProcess(QProcess& process, int timeoutMs, qsizetype outputLimit,
+                           QByteArray& output, std::string& error, std::stop_token stop)
+{
+    QByteArray diagnostics;
+    bool excessiveOutput = false;
+    const auto drain = [&] {
+        process.setReadChannel(QProcess::StandardOutput);
+        output += process.read(std::max<qint64>(0, outputLimit + 1 - output.size()));
+        process.setReadChannel(QProcess::StandardError);
+        diagnostics += process.read(std::max<qint64>(0, 1024 * 1024 + 1 - diagnostics.size()));
+        if (output.size() > outputLimit || diagnostics.size() > 1024 * 1024) {
+            excessiveOutput = true;
+            process.kill();
+        }
+    };
+    const auto stdoutReady = QObject::connect(&process, &QProcess::readyReadStandardOutput, &process, drain);
+    const auto stderrReady = QObject::connect(&process, &QProcess::readyReadStandardError, &process, drain);
+    const auto disconnectReaders = qScopeGuard([&] {
+        QObject::disconnect(stdoutReady);
+        QObject::disconnect(stderrReady);
+    });
+    QElapsedTimer elapsed;
+    elapsed.start();
+    do {
+        if (process.state() != QProcess::NotRunning) process.waitForFinished(100);
+        drain();
+        if (stop.stop_requested() || elapsed.elapsed() >= timeoutMs
+            || excessiveOutput) {
+            error = stop.stop_requested() ? "operation cancelled"
+                : elapsed.elapsed() >= timeoutMs ? "provider archive process timed out"
+                : "provider archive process output is too large";
+            process.kill();
+            process.waitForFinished(5000);
+            return false;
+        }
+    } while (process.state() != QProcess::NotRunning);
+    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+        error = "provider archive process failed: " + (diagnostics.isEmpty()
+            ? process.errorString().toStdString() : diagnostics.toStdString());
+        return false;
+    }
+    return true;
+}
+
 bool runTarListing(const QStringList& arguments,
                    QByteArray& output,
-                   std::string& error)
+                   std::string& error, std::stop_token stop)
 {
+    if (stop.stop_requested()) { error = "operation cancelled"; return false; }
     QProcess process;
     process.setProgram(tarProgram());
     process.setArguments(arguments);
@@ -96,30 +144,19 @@ bool runTarListing(const QStringList& arguments,
 #endif
     process.setProcessChannelMode(QProcess::SeparateChannels);
     process.start();
-    if (!process.waitForStarted(5000) || !process.waitForFinished(30000)) {
+    if (!process.waitForStarted(5000)) {
         error = "inspect provider archive: " + process.errorString().toStdString();
         process.kill();
         return false;
     }
-    output = process.readAllStandardOutput();
-    if (output.size() > 32 * 1024 * 1024) {
-        error = "provider archive listing is too large";
-        return false;
-    }
-    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
-        const QByteArray stderrData = process.readAllStandardError();
-        error = "inspect provider archive failed: "
-            + (stderrData.isEmpty() ? process.errorString().toStdString() : stderrData.toStdString());
-        return false;
-    }
-    return true;
+    return waitForArchiveProcess(process, 30000, 32 * 1024 * 1024, output, error, stop);
 }
 
-bool validateArchive(const std::filesystem::path& archive, std::string& error)
+bool validateArchive(const std::filesystem::path& archive, std::string& error, std::stop_token stop)
 {
     const QString archiveArgument = QString::fromStdWString(archive.wstring());
     QByteArray names;
-    if (!runTarListing({QStringLiteral("-tf"), archiveArgument}, names, error)) return false;
+    if (!runTarListing({QStringLiteral("-tf"), archiveArgument}, names, error, stop)) return false;
     for (const QByteArray& rawLine : names.split('\n')) {
         const QString line = QString::fromLocal8Bit(rawLine).trimmed();
         if (line.isEmpty()) continue;
@@ -133,7 +170,7 @@ bool validateArchive(const std::filesystem::path& archive, std::string& error)
     // directory even when its displayed name is harmless.  Reject links and
     // special files before tar gets a chance to materialize them.
     QByteArray details;
-    if (!runTarListing({QStringLiteral("-tvf"), archiveArgument}, details, error)) return false;
+    if (!runTarListing({QStringLiteral("-tvf"), archiveArgument}, details, error, stop)) return false;
     for (const QByteArray& rawLine : details.split('\n')) {
         const QByteArray line = rawLine.trimmed();
         if (line.isEmpty()) continue;
@@ -249,9 +286,9 @@ std::optional<ProviderAsset> parseManifest(const QByteArray& bytes,
 
 bool extractArchive(const std::filesystem::path& archive,
                     const std::filesystem::path& destination,
-                    std::string& error)
+                    std::string& error, std::stop_token stop)
 {
-    if (!validateArchive(archive, error)) return false;
+    if (!validateArchive(archive, error, stop)) return false;
     std::error_code filesystemError;
     std::filesystem::create_directories(destination, filesystemError);
     if (filesystemError) {
@@ -271,25 +308,21 @@ bool extractArchive(const std::filesystem::path& archive,
 #endif
     process.setProcessChannelMode(QProcess::SeparateChannels);
     process.start();
-    if (!process.waitForStarted(5000) || !process.waitForFinished(120000)) {
+    if (!process.waitForStarted(5000)) {
         error = "extract provider archive: " + process.errorString().toStdString();
         process.kill();
         return false;
     }
-    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
-        const QByteArray stderrData = process.readAllStandardError();
-        error = "extract provider archive failed: "
-            + (stderrData.isEmpty() ? process.errorString().toStdString() : stderrData.toStdString());
-        return false;
-    }
-    return true;
+    QByteArray output;
+    return waitForArchiveProcess(process, 120000, 1024 * 1024, output, error, stop);
 }
 
 } // namespace
 
 bool ProviderStore::downloadDirectMl(const std::filesystem::path& destination,
-                                    ProviderDownloadProgress progress, std::string& error)
+                                    ProviderDownloadProgress progress, std::string& error, std::stop_token stop)
 {
+    if (stop.stop_requested()) { error = "operation cancelled"; return false; }
     if (destination.filename() != "dml") { error = "unsafe DirectML destination"; return false; }
     const auto parent = QString::fromStdWString(destination.parent_path().wstring());
     if (!QDir().mkpath(parent)) { error = "cannot create provider storage"; return false; }
@@ -307,8 +340,8 @@ bool ProviderStore::downloadDirectMl(const std::filesystem::path& destination,
         const auto archive = root / package.filename;
         if (!ModelStore::download(package, archive, [&](std::uint64_t bytes, std::uint64_t) {
                 if (progress) progress(completed + bytes, 214751266);
-            }, error)) return false;
-        if (!extractArchive(archive, root / (package.filename + ".contents"), error)) return false;
+            }, error, stop)) return false;
+        if (!extractArchive(archive, root / (package.filename + ".contents"), error, stop)) return false;
         completed += package.sizeBytes;
     }
     // Only the Windows x64 release DLLs are installed, never ARM/x86/debug/Xbox.
@@ -331,6 +364,7 @@ bool ProviderStore::downloadDirectMl(const std::filesystem::path& destination,
         error = "DirectML directory already exists; restart the application before retrying";
         return false;
     }
+    if (stop.stop_requested()) { error = "operation cancelled"; return false; }
     std::filesystem::rename(ready, destination, ec);
     if (ec) { error = "install DirectML: " + ec.message(); return false; }
     return true;
@@ -338,8 +372,9 @@ bool ProviderStore::downloadDirectMl(const std::filesystem::path& destination,
 
 std::optional<ProviderAsset> ProviderStore::fetchManifest(const std::string& url,
                                                           const std::string& provider,
-                                                          std::string& error)
+                                                          std::string& error, std::stop_token stop)
 {
+    if (stop.stop_requested()) { error = "operation cancelled"; return std::nullopt; }
     if (!safeProvider(provider)) {
         error = "unsupported provider";
         return std::nullopt;
@@ -359,6 +394,9 @@ std::optional<ProviderAsset> ProviderStore::fetchManifest(const std::string& url
     request.setTransferTimeout(30000);
     QNetworkReply* reply = manager.get(request);
     QEventLoop loop;
+    detail::boundManifestReply(*reply, kMaxManifestBytes, error);
+    QTimer cancellation;
+    detail::watchNetworkCancellation(cancellation, *reply, stop, error);
     QObject::connect(reply, &QNetworkReply::redirected, [&](const QUrl& target) {
         if (target.scheme() == QStringLiteral("https") && trustedHost(target))
             reply->redirectAllowed();
@@ -376,6 +414,7 @@ std::optional<ProviderAsset> ProviderStore::fetchManifest(const std::string& url
     });
     timeout.start(90000);
     loop.exec();
+    if (stop.stop_requested()) { error = "operation cancelled"; return std::nullopt; }
     const auto networkError = reply->error();
     const std::string networkMessage = reply->errorString().toStdString();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -416,8 +455,9 @@ std::optional<ProviderAsset> ProviderStore::readManifest(const std::filesystem::
 
 bool ProviderStore::assembleParts(const ProviderAsset& asset,
     const std::vector<std::filesystem::path>& paths,
-    const std::filesystem::path& destination, std::string& error)
+    const std::filesystem::path& destination, std::string& error, std::stop_token stop)
 {
+    if (stop.stop_requested()) { error = "operation cancelled"; return false; }
     if (asset.parts.empty() || paths.size() != asset.parts.size()) { error = "missing provider parts"; return false; }
     QSaveFile output(QString::fromStdWString(destination.wstring()));
     if (!output.open(QIODevice::WriteOnly)) { error = output.errorString().toStdString(); return false; }
@@ -426,10 +466,11 @@ bool ProviderStore::assembleParts(const ProviderAsset& asset,
     for (std::size_t i = 0; i < paths.size(); ++i) {
         QFile input(QString::fromStdWString(paths[i].wstring()));
         if (!input.open(QIODevice::ReadOnly) || static_cast<std::uint64_t>(input.size()) != asset.parts[i].sizeBytes
-            || !ModelStore::verifySha256(paths[i], asset.parts[i].sha256, error)) {
+            || !ModelStore::verifySha256(paths[i], asset.parts[i].sha256, error, stop)) {
             error = "provider part verification failed: " + error; return false;
         }
         while (!input.atEnd()) {
+            if (stop.stop_requested()) { error = "operation cancelled"; return false; }
             const auto bytes = input.read(1024*1024);
             if (bytes.isEmpty() || output.write(bytes) != bytes.size()) { error = "provider part read/write failed"; return false; }
             hash.addData(bytes);
@@ -438,6 +479,7 @@ bool ProviderStore::assembleParts(const ProviderAsset& asset,
     }
     if (written != asset.sizeBytes) { error = "assembled provider size mismatch"; return false; }
     if (hash.result().toHex().toStdString() != asset.sha256) { error = "assembled provider SHA-256 mismatch"; return false; }
+    if (stop.stop_requested()) { error = "operation cancelled"; return false; }
     if (!output.commit()) { error = output.errorString().toStdString(); return false; }
     return true;
 }
@@ -445,8 +487,9 @@ bool ProviderStore::assembleParts(const ProviderAsset& asset,
 bool ProviderStore::downloadAndInstall(const ProviderAsset& asset,
                                        const std::filesystem::path& destination,
                                        ProviderDownloadProgress progress,
-                                       std::string& error)
+                                       std::string& error, std::stop_token stop)
 {
+    if (stop.stop_requested()) { error = "operation cancelled"; return false; }
     if (!safeProvider(asset.provider) || !safeArchive(asset.archive)) {
         error = "provider asset contains unsafe paths";
         return false;
@@ -462,7 +505,7 @@ bool ProviderStore::downloadAndInstall(const ProviderAsset& asset,
     archive.downloadUrl = asset.downloadUrl;
     const auto temporary = destination / (asset.archive + ".part");
     if (asset.parts.empty()) {
-        if (!ModelStore::download(archive, temporary, std::move(progress), error)) return false;
+        if (!ModelStore::download(archive, temporary, std::move(progress), error, stop)) return false;
     } else {
         if (!QDir().mkpath(QString::fromStdWString(destination.wstring()))) { error = "cannot create provider directory"; return false; }
         QTemporaryDir downloads(QString::fromStdWString(destination.parent_path().wstring()) + "/provider-parts-XXXXXX");
@@ -474,11 +517,11 @@ bool ProviderStore::downloadAndInstall(const ProviderAsset& asset,
             ModelAsset chunk{part.archive, part.sha256, part.sizeBytes, part.downloadUrl};
             if (!ModelStore::download(chunk, path, [&](std::uint64_t received, std::uint64_t) {
                 if (progress) progress(completed + received, asset.sizeBytes);
-            }, error)) return false;
+            }, error, stop)) return false;
             completed += part.sizeBytes;
             paths.push_back(path);
         }
-        if (!assembleParts(asset, paths, temporary, error)) return false;
+        if (!assembleParts(asset, paths, temporary, error, stop)) return false;
     }
     // ModelStore installs the downloaded file at `temporary`; keep it out of
     // the runtime directory until extraction has completed successfully.
@@ -491,7 +534,7 @@ bool ProviderStore::downloadAndInstall(const ProviderAsset& asset,
         std::filesystem::remove(temporary, stagingError);
         return false;
     }
-    if (!extractArchive(temporary, staging, error)) {
+    if (!extractArchive(temporary, staging, error, stop)) {
         std::error_code ignored;
         std::filesystem::remove(temporary, ignored);
         std::filesystem::remove_all(staging, ignored);
@@ -507,6 +550,13 @@ bool ProviderStore::downloadAndInstall(const ProviderAsset& asset,
     // extracted.  Keep a short-lived backup so a failed rename can restore it.
     const auto backup = destination.parent_path()
         / (destination.filename().string() + ".previous");
+    if (stop.stop_requested()) {
+        error = "operation cancelled";
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        std::filesystem::remove_all(staging, ignored);
+        return false;
+    }
     std::error_code installError;
     std::filesystem::remove_all(backup, installError);
     if (installError) {

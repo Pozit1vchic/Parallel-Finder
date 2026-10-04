@@ -5,7 +5,14 @@ import PfUiBridge
 
 Rectangle {
     id: root
+    objectName: "statsStrip"
     property var analysis: Analysis
+    property string selectedSource: ""
+    readonly property var summary: {
+        // Read the notifying property before resolving normalized file paths.
+        const summaries = analysis.sourceSummaries
+        return selectedSource.length > 0 ? analysis.summaryForSource(selectedSource) : analysis
+    }
     implicitHeight: 68; height: 68; color: Theme.rail; radius: Theme.radiusCard; border.color: Theme.border
     function timecode(seconds) {
         const total = Math.max(0, Math.round(Number(seconds) || 0))
@@ -18,11 +25,11 @@ Rectangle {
         anchors.fill: parent; anchors.margins: 1; spacing: 0
         Repeater {
             model: [
-                { label: L10n.t("stats.files"), value: root.analysis.fileCount },
-                { label: L10n.t("stats.frames"), value: root.analysis.frameCount },
-                { label: L10n.t("stats.scenes"), value: root.analysis.sceneCount },
-                { label: L10n.t("stats.pairs"), value: root.analysis.matchCount },
-                { label: L10n.t("stats.duration"), value: root.timecode(root.analysis.durationSeconds) },
+                { label: L10n.t("stats.files"), value: root.summary.fileCount || 0 },
+                { label: L10n.t("stats.frames"), value: root.summary.frameCount || 0 },
+                { label: L10n.t("stats.scenes"), value: root.summary.sceneCount || 0 },
+                { label: L10n.t("stats.pairs"), value: root.summary.matchCount || 0 },
+                { label: L10n.t("stats.duration"), value: root.timecode(root.summary.durationSeconds) },
                 { label: L10n.t("stats.progress"), value: root.analysis.busy || root.analysis.analysisCompleted ? Math.round(root.analysis.progress * 100) + "%" : L10n.t("common.empty") }
             ]
             delegate: Item {

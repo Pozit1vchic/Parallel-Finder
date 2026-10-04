@@ -16,7 +16,7 @@
 namespace pfservices {
 namespace {
 
-constexpr std::size_t kMaxCacheLimitBytes = 64ULL * 1024ULL * 1024ULL * 1024ULL;
+constexpr std::size_t kMaxCacheLimitBytes = 128ULL * 1024ULL * 1024ULL * 1024ULL;
 constexpr qsizetype kMaxSettingsBytes = 1 * 1024 * 1024;
 
 QJsonObject toJson(const Settings& settings)

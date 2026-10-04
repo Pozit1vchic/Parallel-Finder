@@ -48,6 +48,7 @@ private:
     std::string modelPath_;
     ReIdEstimatorParams params_;
     std::optional<SessionSpec> sessionSpec_;
+    std::string sessionSpecKey_;
     bool channelsFirst_ = true;
 };
 

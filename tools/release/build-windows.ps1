@@ -2,7 +2,8 @@ param(
     [string]$Toolchain = 'D:\msys2\ucrt64',
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-    [string]$ReleaseTag = '0.1.0-rc.14'
+    [string]$ReleaseTag = '0.1.0-rc.18',
+    [string]$BuildDirectory = ''
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
@@ -10,12 +11,42 @@ $bin = Join-Path $Toolchain 'bin'
 $releaseOriginalPath = $env:PATH
 $env:PATH = "$bin;$env:PATH"
 $tag = $ReleaseTag
+$buildRoot = if ($BuildDirectory) { [IO.Path]::GetFullPath((Join-Path $root $BuildDirectory)) }
+             else { Join-Path $root 'build/ucrt64-release' }
+function Copy-NativeRuntimeDependencies([string]$Directory) {
+    # Follow PE imports so both a fresh test checkout and the final package
+    # work without the development toolchain on PATH.
+    $queue = [Collections.Generic.Queue[string]]::new()
+    Get-ChildItem -LiteralPath $Directory -Recurse -File | Where-Object Extension -in '.dll','.exe' | ForEach-Object { $queue.Enqueue($_.FullName) }
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    while ($queue.Count) {
+        $file = $queue.Dequeue()
+        if (!$seen.Add($file)) { continue }
+        $imports = & "$bin/objdump.exe" -p $file 2>$null | Select-String 'DLL Name:\s*(.+)$'
+        foreach ($line in $imports) {
+            $name = $line.Matches[0].Groups[1].Value.Trim()
+            $dependency = Join-Path $bin $name
+            $target = Join-Path $Directory $name
+            if ((Test-Path -LiteralPath $dependency) -and !(Test-Path -LiteralPath $target)) {
+                Copy-Item -LiteralPath $dependency -Destination $target
+                $queue.Enqueue($target)
+            }
+        }
+    }
+}
 Push-Location $root
 try {
-    & cmake --preset ucrt64-release "-DPF_RELEASE_LABEL=$tag"
+    & cmake --preset ucrt64-release -B $buildRoot "-DPF_RELEASE_LABEL=$tag"
     if ($LASTEXITCODE) { throw 'Configure failed' }
-    & cmake --build --preset ucrt64-release -j 4
+    & cmake --build $buildRoot -j 4
     if ($LASTEXITCODE) { throw 'Build failed' }
+    # startup_isolation intentionally removes the toolchain from PATH.
+    # Deploy its real runtime before CTest even on the first clean build.
+    & "$bin/windeployqt.exe" --release --no-translations --qmldir "$root/ui/qml" --dir $buildRoot "$buildRoot/ParallelFinder.exe"
+    if ($LASTEXITCODE) { throw 'Test runtime deployment failed' }
+    Copy-Item -LiteralPath "$PSScriptRoot/qt.conf" -Destination $buildRoot
+    Copy-Item -LiteralPath "$bin/onnxruntime.dll","$bin/onnxruntime_providers_shared.dll" -Destination $buildRoot
+    Copy-NativeRuntimeDependencies $buildRoot
     $releaseTestQpa = $env:QT_QPA_PLATFORM
     $releaseTestPlugins = $env:QT_PLUGIN_PATH
     try {
@@ -23,7 +54,7 @@ try {
         # The deployed qt.conf deliberately only exposes app-local plugins;
         # development tests also need the toolchain's offscreen plugin.
         $env:QT_PLUGIN_PATH = Join-Path $Toolchain 'share/qt6/plugins'
-        & ctest --preset ucrt64-release --output-on-failure
+        & ctest --test-dir $buildRoot --output-on-failure
         if ($LASTEXITCODE) { throw 'Tests failed: refusing to package' }
     } finally {
         $env:QT_QPA_PLATFORM = $releaseTestQpa
@@ -33,31 +64,21 @@ try {
     $stage = Join-Path $root "build/package-$run/ParallelFinder"
     $out = Join-Path $root "release/$tag-$run"
     New-Item -ItemType Directory -Path $stage,$out | Out-Null
-    Copy-Item -LiteralPath 'build/ucrt64-release/ParallelFinder.exe' -Destination $stage
+    Copy-Item -LiteralPath (Join-Path $buildRoot 'ParallelFinder.exe') -Destination $stage
     Copy-Item -LiteralPath LICENSE,README.md,AUDIT.md -Destination $stage
-    Copy-Item -LiteralPath "$root/docs" -Destination (Join-Path $stage "docs") -Recurse
+    # Ship repository documentation, never local ignored investigation reports.
+    $documentFiles = & git ls-files --cached -- docs
+    if ($LASTEXITCODE) { throw 'Documentation inventory failed' }
+    foreach ($relative in $documentFiles) {
+        $target = Join-Path $stage $relative
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $root $relative) -Destination $target
+    }
     & "$bin/windeployqt.exe" --release --no-translations --qmldir "$root/ui/qml" --dir $stage "$stage/ParallelFinder.exe"
     if ($LASTEXITCODE) { throw 'Qt deployment failed' }
     Copy-Item -LiteralPath "$PSScriptRoot/qt.conf" -Destination $stage
     Copy-Item -LiteralPath "$bin/ffmpeg.exe","$bin/onnxruntime.dll","$bin/onnxruntime_providers_shared.dll" -Destination $stage
-    # Follow native PE imports rather than copying an entire developer toolchain.
-    $queue = [Collections.Generic.Queue[string]]::new()
-    Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object Extension -in '.dll','.exe' | ForEach-Object { $queue.Enqueue($_.FullName) }
-    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    while ($queue.Count) {
-        $file = $queue.Dequeue()
-        if (!$seen.Add($file)) { continue }
-        $imports = & "$bin/objdump.exe" -p $file 2>$null | Select-String 'DLL Name:\s*(.+)$'
-        foreach ($line in $imports) {
-            $name = $line.Matches[0].Groups[1].Value.Trim()
-            $dependency = Join-Path $bin $name
-            $target = Join-Path $stage $name
-            if ((Test-Path -LiteralPath $dependency) -and !(Test-Path -LiteralPath $target)) {
-                Copy-Item -LiteralPath $dependency -Destination $target
-                $queue.Enqueue($target)
-            }
-        }
-    }
+    Copy-NativeRuntimeDependencies $stage
     $modelStage = Join-Path $stage 'models'
     New-Item -ItemType Directory -Path $modelStage | Out-Null
     foreach ($name in @('person-reid-osnet.onnx','face_detection_yunet_2023mar.onnx','face_recognition_sface_2021dec.onnx','face_detection_yunet.LICENSE','face_recognition_sface.LICENSE')) {
@@ -67,7 +88,6 @@ try {
     # Include all locally available notices; provenance/source obligations remain a release gate.
     Copy-Item -LiteralPath "$Toolchain/share/licenses" -Destination (Join-Path $stage 'third-party-licenses') -Recurse
     Copy-Item -LiteralPath "$root/ui/qml/fonts/OFL.txt" -Destination (Join-Path $stage 'third-party-licenses/JetBrainsMono-OFL.txt')
-    Copy-Item -LiteralPath "$root/docs/release-audit.md" -Destination (Join-Path $stage 'RELEASE-NOTES.md')
     # Test real QML loading/rendering without developer import paths or DLL paths.
     $savedEnv = @{}
     $envNames = @('PATH','QML_IMPORT_PATH','QML2_IMPORT_PATH','QT_PLUGIN_PATH','QT_QPA_PLATFORM','PF_ORT_DLL','PF_PROVIDER_ROOT','PF_DEBUG_STARTUP','PF_UI_SMOKE_WAIT_BACKEND')
@@ -122,6 +142,32 @@ try {
     New-Item -ItemType Directory -Path $sourceStage | Out-Null
     $trackedFiles = & git ls-files --cached
     if ($LASTEXITCODE) { throw 'git ls-files failed' }
+    # Required additions may still be untracked during a local RC build.
+    # Include only this reviewed allowlist, not arbitrary untracked data.
+    $trackedFiles += @('core/include/pfcore/ParallelClip.hpp',
+        'core/include/pfcore/detail/MatchOrdering.hpp',
+        'core/src/SampleClock.hpp',
+        'gpu/src/InferenceInternal.hpp',
+        'gpu/src/FacePixels.hpp',
+        'ui/src/EstimatorCache.hpp',
+        'tests/core/test_estimator_cache.cpp',
+        'services/include/pfservices/MatchCache.hpp',
+        'services/src/MatchCache.cpp',
+        'services/src/NetworkOperation.hpp',
+        'services/src/ModelPublication.hpp',
+        'services/src/MontageGeometry.hpp',
+        'tests/core/test_match_cache.cpp',
+        'tests/gpu/test_inference_failures.cpp',
+        'tests/gpu/test_face_pixels.cpp',
+        'tests/gpu/test_reid_estimator.cpp',
+        'tests/helpers/onnx_identity.hpp')
+    $trackedFiles += @('tools/benchmark/scene_probe.cpp',
+        'tools/benchmark/dominant-quality-v1.json',
+        'tools/benchmark/dominant-quality-v2.json',
+        'tools/benchmark/matcher-quality-v1.json',
+        'tools/benchmark/evaluate_dominant_quality.py',
+        'tools/benchmark/evaluate_matcher_quality.py')
+    $trackedFiles = $trackedFiles | Sort-Object -Unique
     foreach ($relative in $trackedFiles) {
         if ([string]::IsNullOrWhiteSpace($relative)) { continue }
         $source = Join-Path $root $relative

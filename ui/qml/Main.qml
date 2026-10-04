@@ -111,7 +111,9 @@ ApplicationWindow {
                     Layout.minimumWidth: 420
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    sourceFiles: root.sourceFiles; selectedRecord: root.selectedRecord; onAddRequested: fileDialog.open(); onAnalyzeRequested: Analysis.analyzeFiles(root.sourceFiles)
+                    sourceFiles: root.sourceFiles; selectedRecord: root.selectedRecord
+                    selectedSource: sourcesRail.selectedSourceIndex >= 0 ? String(root.sourceFiles[sourcesRail.selectedSourceIndex] || "") : ""
+                    onAddRequested: fileDialog.open(); onAnalyzeRequested: Analysis.analyzeFiles(root.sourceFiles)
                 }
                 ResultsRail {
                     id: resultsRail

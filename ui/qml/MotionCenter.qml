@@ -13,6 +13,7 @@ ColumnLayout {
     focus: true
     activeFocusOnTab: true
     property var sourceFiles: []
+    property string selectedSource: ""
     property var selectedRecord: null
     property bool analysisCompleted: Analysis.analysisCompleted && !Analysis.busy
     property bool pendingPlayback: false
@@ -66,7 +67,7 @@ ColumnLayout {
     signal analyzeRequested()
     spacing: 12
 
-    StatsStrip { Layout.fillWidth: true; Layout.preferredHeight: 68; analysis: Analysis }
+    StatsStrip { Layout.fillWidth: true; Layout.preferredHeight: 68; analysis: Analysis; selectedSource: root.selectedSource }
 
     Rectangle {
         id: comparisonPanel
@@ -97,6 +98,7 @@ ColumnLayout {
                 }
                 Text { font.family: Theme.fontFamily;
                     id: stateText
+                    visible: !Analysis.busy
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.min(parent.width * 0.58, implicitWidth)
@@ -252,7 +254,7 @@ ColumnLayout {
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: Analysis.busy
-                                ? L10n.t("center.analyzingTitle")
+                                ? L10n.status(Analysis.progressStage)
                                 : root.sourceFiles.length === 0
                                     ? L10n.t("center.emptyTitle")
                                     : root.analysisCompleted
@@ -293,7 +295,7 @@ ColumnLayout {
                         Text { font.family: Theme.fontFamily;
                             anchors.horizontalCenter: parent.horizontalCenter
                             visible: Analysis.busy
-                            text: L10n.status(Analysis.progressStage) + " · " + Math.round(Analysis.progress * 100) + "%"
+                            text: Math.round(Analysis.progress * 100) + "%"
                             color: Theme.accent
                             font.pixelSize: 11
                         }

@@ -1,5 +1,6 @@
 #include <pfcore/MotionMatcher.hpp>
 #include <pfcore/MotionRanker.hpp>
+#include <pfcore/DominantPerson.hpp>
 #include <QCoreApplication>
 #include <QFile>
 #include <QJsonDocument>
@@ -8,6 +9,7 @@
 #include <iostream>
 #include <chrono>
 #include <set>
+#include <limits>
 
 // Replay diagnostic windows without decoding/inference, so a suspected miss
 // can be inspected against the exact production matcher, not a second model.
@@ -20,7 +22,62 @@ int main(int argc, char** argv)
     if (!file.open(QIODevice::ReadOnly)) return 2;
     QJsonParseError error;
     const auto json = QJsonDocument::fromJson(file.readAll(), &error);
-    if (error.error != QJsonParseError::NoError || !json.isArray()) return 2;
+    if (error.error != QJsonParseError::NoError) return 2;
+    if (args[2] == "--identity") {
+        if (!json.isObject() || (json.object()["schema"].toInt() != 1 && json.object()["schema"].toInt() != 2)
+            || !json.object()["tracks"].isArray()) return 2;
+        std::vector<pfcore::PersonTrack> tracks;
+        for (const auto& value : json.object()["tracks"].toArray()) {
+            const auto object = value.toObject();
+            pfcore::PersonTrack track;
+            track.id = static_cast<std::size_t>(object["id"].toInteger());
+            for (const auto& v : object["observations"].toArray()) {
+                const auto o = v.toObject();
+                const auto box = o["box"].toArray();
+                if (box.size() != 4) return 2;
+                pfcore::PersonDetection observation;
+                observation.timestampSeconds = o["time"].toDouble();
+                observation.frameDurationSeconds = o["duration"].toDouble();
+                observation.box = {box[0].toDouble(), box[1].toDouble(),
+                                   box[2].toDouble(), box[3].toDouble()};
+                observation.confidence = o["confidence"].toDouble();
+                observation.keypointConfidence = o["keypointConfidence"].toDouble();
+                observation.appearanceConfidence = o["appearanceConfidence"].toDouble();
+                for (const auto& f : o["face"].toArray()) observation.faceEmbedding.push_back(f.toDouble());
+                for (const auto& b : o["body"].toArray()) observation.appearanceEmbedding.push_back(b.toDouble());
+                for (const auto& p : o["points"].toArray()) {
+                    const auto point = p.toArray();
+                    if (point.size() != 3) return 2;
+                    observation.keypoints.push_back({point[0].toDouble(), point[1].toDouble(), point[2].toDouble()});
+                }
+                if (!track.observations.empty()
+                    && observation.timestampSeconds < track.observations.back().timestampSeconds) return 2;
+                track.observations.push_back(std::move(observation));
+            }
+            tracks.push_back(std::move(track));
+        }
+        const bool recover = args.contains("--recover");
+        const auto selection = recover ? pfcore::selectDominantSourceTracks(tracks)
+            : pfcore::DominantSourceSelection{};
+        const auto selected = recover ? selection.tracks : pfcore::selectDominantSceneTracks(tracks,
+            -std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity());
+        QJsonArray results;
+        for (std::size_t i = 0; i < tracks.size(); ++i) {
+            QJsonArray runs;
+            if (recover) for (const auto range : selection.observationRuns[i])
+                runs.append(QJsonObject{{"begin", static_cast<qint64>(range.begin)},
+                    {"end", static_cast<qint64>(range.end)},
+                    {"start", tracks[i].observations[range.begin].timestampSeconds},
+                    {"stop", tracks[i].observations[range.end - 1].timestampSeconds}});
+            results.append(QJsonObject{{"id", static_cast<qint64>(tracks[i].id)},
+                {"selected", selected[i]}, {"duration", tracks[i].totalTimeSeconds()},
+                {"recovered", recover && selection.recovered[i]}, {"runs", runs},
+                {"observations", static_cast<qint64>(tracks[i].observations.size())}});
+        }
+        std::cout << QJsonDocument(results).toJson(QJsonDocument::Compact).constData() << "\n";
+        return 0;
+    }
+    if (!json.isArray()) return 2;
     std::vector<pfcore::MotionWindow> windows;
     for (const auto& value : json.array()) {
         const auto o = value.toObject();
@@ -59,6 +116,7 @@ int main(int argc, char** argv)
     params.candidateThreshold = .48;
     params.minRepeatGapSec = 8;
     params.sameFileGapSec = 3;
+    params.sameSourceGapFloorSec = 12;
     params.duplicateWindowSec = 2;
     params.noiseFactor = 1.25;
     params.maxUniqueResults = 50;

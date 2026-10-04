@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <iterator>
 #include <numeric>
 #include <stdexcept>
+#include <span>
 
 namespace pfcore {
 
@@ -83,6 +86,34 @@ double embeddingScore(const std::vector<float>& left, const std::vector<float>& 
     }
     if (leftNorm <= 1e-12 || rightNorm <= 1e-12) return -1.0;
     return std::clamp(dot / std::sqrt(leftNorm * rightNorm), -1.0, 1.0);
+}
+
+IdentitySummary summarizeObservations(std::span<const PersonDetection> observations)
+{
+    IdentitySummary summary;
+    if (observations.empty()) return summary;
+    summary.observationTimes.reserve(observations.size());
+    std::size_t bodySamples = 0, faceSamples = 0;
+    const auto add = [](std::vector<float>& sum, std::size_t& samples,
+                        const std::vector<float>& embedding) {
+        if (embedding.empty() || !std::all_of(embedding.begin(), embedding.end(),
+            [](float value) { return std::isfinite(value); })) return;
+        if (sum.empty()) sum.assign(embedding.size(), 0.0F);
+        if (sum.size() != embedding.size()) return;
+        for (std::size_t i = 0; i < sum.size(); ++i) sum[i] += embedding[i];
+        ++samples;
+    };
+    for (const auto& observation : observations) {
+        summary.observationTimes.push_back(observation.timestampSeconds);
+        summary.duration += std::max(0.0, observation.frameDurationSeconds);
+        summary.area += observation.box.area();
+        add(summary.body, bodySamples, observation.appearanceEmbedding);
+        add(summary.face, faceSamples, observation.faceEmbedding);
+    }
+    summary.area /= static_cast<double>(observations.size());
+    summary.bodyEvidence = std::min(1.0, static_cast<double>(bodySamples) / 3.0);
+    summary.faceEvidence = std::min(1.0, static_cast<double>(faceSamples) / 3.0);
+    return summary;
 }
 
 } // namespace
@@ -284,12 +315,16 @@ std::optional<PersonTrack> DominantPersonTracker::dominant() const
 
 std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities)
 {
+    const bool trace = std::getenv("PF_DEBUG_DOMINANT") != nullptr;
     const auto count = identities.size();
     std::vector<bool> selected(count, false);
     if (!count) return selected;
-    const auto faceReady = [&](std::size_t i) {
-        return identities[i].faceEvidence >= 0.45
+    const auto faceObserved = [&](std::size_t i) {
+        return identities[i].faceEvidence > 0.0
             && embeddingScore(identities[i].face, identities[i].face) > 0.99;
+    };
+    const auto faceReady = [&](std::size_t i) {
+        return identities[i].faceEvidence >= 0.45 && faceObserved(i);
     };
     const auto bodyReady = [&](std::size_t i) {
         return identities[i].bodyEvidence >= 0.45
@@ -318,8 +353,11 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
         if (score >= (face ? 0.363 : 0.76)) edges.push_back({a, b, score, face});
     }
     // Build reliable face groups before allowing weaker clothing links.
-    std::stable_sort(edges.begin(), edges.end(), [](const Edge& a, const Edge& b) {
+    std::stable_sort(edges.begin(), edges.end(), [&](const Edge& a, const Edge& b) {
         if (a.face != b.face) return a.face > b.face;
+        const bool anchoredA = faceReady(a.a) || faceReady(a.b);
+        const bool anchoredB = faceReady(b.a) || faceReady(b.b);
+        if (anchoredA != anchoredB) return anchoredA;
         if (a.score != b.score) return a.score > b.score;
         if (a.a != b.a) return a.a < b.a;
         return a.b < b.b;
@@ -333,14 +371,51 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
         bool conflict = false;
         for (const auto left : members[a]) {
             for (const auto right : members[b]) {
-                if (coVisible(left,right) || (faceReady(left) && faceReady(right)
-                    && embeddingScore(identities[left].face, identities[right].face) < 0.363)) {
+                // A single sampled face cannot establish a positive identity
+                // link, but contradictory facial evidence must still veto a
+                // clothing bridge. Otherwise a short extra joins the lead
+                // simply because its face has not reached two samples yet.
+                const bool concurrent = coVisible(left, right);
+                const double faceSimilarity = faceObserved(left) && faceObserved(right)
+                    ? embeddingScore(identities[left].face, identities[right].face) : -1.0;
+                if (concurrent || (faceObserved(left) && faceObserved(right)
+                    && faceSimilarity < 0.363)) {
+                    if (trace) std::fprintf(stderr,
+                        "PF_DOMINANT edge=%zu/%zu edge_face=%d edge_score=%.9f decision=%s conflict=%zu/%zu face=%.9f\n",
+                        edge.a, edge.b, edge.face ? 1 : 0, edge.score,
+                        concurrent ? "co-visible" : "face-conflict", left, right, faceSimilarity);
                     conflict = true; break;
                 }
             }
             if (conflict) break;
         }
         if (conflict) continue;
+        // Clothing similarity is not transitive identity evidence. A -> B
+        // and B -> C must not admit C when only A has a recognisable face.
+        // Every face-free member needs a direct body link to a face anchor.
+        if (!edge.face) {
+            std::vector<std::size_t> anchors;
+            for (const auto i : members[a]) if (faceReady(i)) anchors.push_back(i);
+            for (const auto i : members[b]) if (faceReady(i)) anchors.push_back(i);
+            if (!anchors.empty()) {
+                const auto anchored = [&](std::size_t i) {
+                    if (faceObserved(i)) return true;
+                    return bodyReady(i) && std::any_of(anchors.begin(), anchors.end(), [&](std::size_t anchor) {
+                        return bodyReady(anchor)
+                            && embeddingScore(identities[i].body, identities[anchor].body) >= 0.76;
+                    });
+                };
+                if (!std::all_of(members[a].begin(), members[a].end(), anchored)
+                    || !std::all_of(members[b].begin(), members[b].end(), anchored)) {
+                    if (trace) std::fprintf(stderr,
+                        "PF_DOMINANT edge=%zu/%zu decision=unanchored-clothing-chain\n", edge.a, edge.b);
+                    continue;
+                }
+            }
+        }
+        if (trace) std::fprintf(stderr,
+            "PF_DOMINANT edge=%zu/%zu edge_face=%d edge_score=%.9f decision=merged\n",
+            edge.a, edge.b, edge.face ? 1 : 0, edge.score);
         for (const auto i : members[b]) { owner[i] = a; members[a].push_back(i); }
         members[b].clear();
     }
@@ -368,6 +443,13 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
         }
     }
     for (const auto i : members[best]) selected[i] = true;
+    if (trace) {
+        std::fprintf(stderr, "PF_DOMINANT selected_group=%zu duration=%.9f\n", best, bestDuration);
+        for (std::size_t i = 0; i < count; ++i)
+            std::fprintf(stderr, "PF_DOMINANT summary=%zu selected=%d duration=%.9f face_evidence=%.6f body_evidence=%.6f\n",
+                i, selected[i] ? 1 : 0, identities[i].duration,
+                identities[i].faceEvidence, identities[i].bodyEvidence);
+    }
     return selected;
 }
 
@@ -388,7 +470,11 @@ std::vector<bool> selectDominantSceneTracks(const std::vector<PersonTrack>& trac
         selected[index] = first != observations.end() && std::next(first) != observations.end()
             && std::next(first)->timestampSeconds < endSeconds;
     }
-    if (std::any_of(selected.begin(), selected.end(), [](bool value) { return value; })) return selected;
+    // A supplied file-wide identity is a restriction, not a preference that
+    // can be replaced when the lead is absent (or has too few observations).
+    // Two shots of an extra can pass pairwise same-person verification; that
+    // does not make the extra the selected lead of this source.
+    if (!preferredTracks.empty()) return selected;
     std::vector<IdentitySummary> summaries;
     std::vector<std::size_t> indices;
     for (std::size_t index = 0; index < tracks.size(); ++index) {
@@ -399,35 +485,129 @@ std::vector<bool> selectDominantSceneTracks(const std::vector<PersonTrack>& trac
             [](const auto& observation, double time) { return observation.timestampSeconds < time; });
         const auto count = std::distance(first, last);
         if (count < 2) continue;
-        IdentitySummary summary;
-        summary.observationTimes.reserve(static_cast<std::size_t>(count));
-        std::size_t bodySamples = 0, faceSamples = 0;
-        const auto add = [](std::vector<float>& sum, std::size_t& samples,
-                            const std::vector<float>& embedding) {
-            if (embedding.empty()
-                || !std::all_of(embedding.begin(), embedding.end(),
-                    [](float value) { return std::isfinite(value); })) return;
-            if (sum.empty()) sum.assign(embedding.size(), 0.0F);
-            if (sum.size() != embedding.size()) return;
-            for (std::size_t i = 0; i < sum.size(); ++i) sum[i] += embedding[i];
-            ++samples;
-        };
-        for (auto observation = first; observation != last; ++observation) {
-            summary.observationTimes.push_back(observation->timestampSeconds);
-            summary.duration += std::max(0.0, observation->frameDurationSeconds);
-            summary.area += observation->box.area();
-            add(summary.body, bodySamples, observation->appearanceEmbedding);
-            add(summary.face, faceSamples, observation->faceEmbedding);
-        }
-        summary.area /= static_cast<double>(count);
-        summary.bodyEvidence = std::min(1.0, static_cast<double>(bodySamples) / 3.0);
-        summary.faceEvidence = std::min(1.0, static_cast<double>(faceSamples) / 3.0);
-        summaries.push_back(std::move(summary));
+        summaries.push_back(summarizeObservations(std::span(first, last)));
         indices.push_back(index);
     }
     const auto local = selectDominantIdentities(summaries);
     for (std::size_t i = 0; i < local.size(); ++i) selected[indices[i]] = local[i];
     return selected;
+}
+
+DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack>& tracks)
+{
+    DominantSourceSelection result;
+    result.tracks.assign(tracks.size(), false);
+    result.recovered.assign(tracks.size(), false);
+    result.observationRuns.resize(tracks.size());
+    std::vector<IdentitySummary> summaries;
+    std::vector<std::size_t> indices;
+    for (std::size_t i = 0; i < tracks.size(); ++i) {
+        if (tracks[i].observations.size() < 2) continue;
+        summaries.push_back(summarizeObservations(tracks[i].observations));
+        indices.push_back(i);
+    }
+    const auto original = selectDominantIdentities(summaries);
+    const auto faceObserved = [&](std::size_t i) {
+        return summaries[i].faceEvidence > 0
+            && embeddingScore(summaries[i].face, summaries[i].face) > .99;
+    };
+    const auto faceReady = [&](std::size_t i) { return faceObserved(i) && summaries[i].faceEvidence >= .45; };
+    const auto bodyReady = [&](std::size_t i) {
+        return summaries[i].bodyEvidence >= .45
+            && embeddingScore(summaries[i].body, summaries[i].body) > .99;
+    };
+    const auto coVisible = [&](std::size_t a, std::size_t b) {
+        const auto& left = summaries[a].observationTimes;
+        const auto& right = summaries[b].observationTimes;
+        std::size_t i = 0, j = 0;
+        while (i < left.size() && j < right.size()) {
+            if (std::abs(left[i] - right[j]) <= 1e-6) return true;
+            if (left[i] < right[j]) ++i; else ++j;
+        }
+        return false;
+    };
+    std::vector<std::size_t> lead, anchors;
+    for (std::size_t i = 0; i < original.size(); ++i) if (original[i]) {
+        lead.push_back(i);
+        if (faceReady(i)) anchors.push_back(i);
+        result.tracks[indices[i]] = true;
+        result.observationRuns[indices[i]].push_back({0, tracks[indices[i]].observations.size()});
+    }
+    if (anchors.size() < 2) return result;
+    std::vector<bool> candidate(summaries.size(), false), ambiguous(summaries.size(), false);
+    for (std::size_t i = 0; i < summaries.size(); ++i) {
+        if (original[i] || !faceReady(i) || !bodyReady(i)) continue;
+        if (std::any_of(lead.begin(), lead.end(), [&](std::size_t anchor) {
+            return coVisible(i, anchor) || (faceObserved(anchor) && !faceReady(anchor)
+                && embeddingScore(summaries[i].face, summaries[anchor].face) < .363);
+        })) continue;
+        std::size_t votes = 0;
+        bool body = false;
+        for (const auto anchor : anchors) {
+            if (embeddingScore(summaries[i].face, summaries[anchor].face) < .363) continue;
+            ++votes;
+            body = body || (bodyReady(anchor)
+                && embeddingScore(summaries[i].body, summaries[anchor].body) >= .76);
+        }
+        candidate[i] = votes >= 2 && votes > anchors.size() / 2 && body;
+    }
+    for (std::size_t i = 0; i < candidate.size(); ++i) if (candidate[i])
+        for (std::size_t j = i + 1; j < candidate.size(); ++j) if (candidate[j] && coVisible(i, j))
+            ambiguous[i] = ambiguous[j] = true;
+    const bool trace = std::getenv("PF_DEBUG_DOMINANT") != nullptr;
+    for (std::size_t i = 0; i < candidate.size(); ++i) {
+        if (!candidate[i] || ambiguous[i]) continue;
+        const auto trackIndex = indices[i];
+        const auto& observations = tracks[trackIndex].observations;
+        auto& ranges = result.observationRuns[trackIndex];
+        std::size_t first = 0, last = 0, independentFaces = 0;
+        const auto finish = [&] {
+            if (independentFaces >= 2) {
+                // The .76 body gate is calibrated for a multi-crop prototype,
+                // not a single image. Recompute it INSIDE this supported run;
+                // a different person's unverified tail must not contribute.
+                const auto run = summarizeObservations(std::span(observations).subspan(first, last - first + 1));
+                std::size_t votes = 0;
+                bool body = false;
+                if (run.bodyEvidence >= .45 && embeddingScore(run.body, run.body) > .99) {
+                    for (const auto anchor : anchors) {
+                        if (embeddingScore(run.face, summaries[anchor].face) < .363) continue;
+                        ++votes;
+                        body = body || (bodyReady(anchor)
+                            && embeddingScore(run.body, summaries[anchor].body) >= .76);
+                    }
+                }
+                if (votes >= 2 && votes > anchors.size() / 2 && body) ranges.push_back({first, last + 1});
+            }
+            independentFaces = 0;
+        };
+        // Same maximum gap as default geometric tracking. Bound interpolation
+        // between identity observations; never extrapolate before/after them.
+        constexpr double maximumIdentityGapSeconds = 1.0;
+        for (std::size_t j = 0; j < observations.size(); ++j) {
+            const auto& observation = observations[j];
+            if (independentFaces && observation.timestampSeconds - observations[last].timestampSeconds
+                    > maximumIdentityGapSeconds) finish();
+            if (observation.faceEmbedding.empty()) continue;
+            std::size_t votes = 0;
+            for (const auto anchor : anchors) {
+                if (embeddingScore(observation.faceEmbedding, summaries[anchor].face) < .363) continue;
+                ++votes;
+            }
+            if (votes < 2 || votes <= anchors.size() / 2) { finish(); continue; }
+            if (!independentFaces) first = j;
+            else if (observation.timestampSeconds <= observations[last].timestampSeconds + 1e-6) continue;
+            last = j;
+            ++independentFaces;
+        }
+        finish();
+        result.tracks[trackIndex] = result.recovered[trackIndex] = !ranges.empty();
+        if (trace) for (const auto range : ranges)
+            std::fprintf(stderr, "PF_DOMINANT track=%zu decision=verified-run begin=%zu end=%zu time=%.9f/%.9f\n",
+                tracks[trackIndex].id, range.begin, range.end,
+                observations[range.begin].timestampSeconds, observations[range.end - 1].timestampSeconds);
+    }
+    return result;
 }
 
 } // namespace pfcore

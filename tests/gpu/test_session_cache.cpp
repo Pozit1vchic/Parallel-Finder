@@ -10,6 +10,10 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <array>
+#include <atomic>
+#include <barrier>
+#include <thread>
 #include <QTemporaryDir>
 #include <QDir>
 #include <QFile>
@@ -309,6 +313,72 @@ TEST_F(SessionCacheTest, ShrinkingCapacityEvictsImmediately)
     ASSERT_TRUE(cache.getOrCreate(probeModel(), {pfgpu::Provider::Auto, 0, "three"}).ok);
     cache.setMaxEntries(1);
     EXPECT_EQ(cache.stats().live, 1U);
+}
+
+TEST_F(SessionCacheTest, ConcurrentInferenceHandlesSurviveShrinkingAndClearing)
+{
+    pfgpu::SessionCache cache(3);
+    const auto first = cache.getOrCreate(probeModel(), {pfgpu::Provider::Cpu, 0, "held", 1});
+    ASSERT_TRUE(first.ok) << first.error;
+    std::barrier start(5);
+    std::atomic_bool valid{true};
+    std::array<std::jthread, 4> workers;
+    for (auto& worker : workers) {
+        worker = std::jthread([&, handle = first.handle] {
+            start.arrive_and_wait();
+            try {
+                const pfgpu::FloatTensor input{{1, 2}, {7.25F, -8.5F}};
+                for (int repetition = 0; repetition < 256; ++repetition) {
+                    const auto result = pfgpu::runFloat(handle, input);
+                    if (!result.ok || result.outputs.size() != 1
+                        || result.outputs[0].values != input.values) valid = false;
+                }
+            } catch (...) {
+                valid = false;
+            }
+        });
+    }
+    start.arrive_and_wait();
+    for (int i = 0; i < 8; ++i) {
+        const auto session = cache.getOrCreate(probeModel(), {pfgpu::Provider::Cpu, 0, std::to_string(i), 1});
+        EXPECT_TRUE(session.ok) << session.error;
+        cache.setMaxEntries(1);
+        EXPECT_LE(cache.stats().live, 1);
+        cache.clear();
+    }
+    for (auto& worker : workers) worker.join();
+    EXPECT_TRUE(valid);
+    EXPECT_EQ(cache.stats().live, 0);
+    EXPECT_TRUE(pfgpu::runFloat(first.handle, {{1, 2}, {1, 2}}).ok);
+}
+
+TEST_F(SessionCacheTest, DirectMlHandlesShareRunGateAcrossCacheEviction)
+{
+    if (!pfgpu::isProviderAvailable(pfgpu::Provider::Dml)) GTEST_SKIP() << "DirectML not available";
+    pfgpu::SessionCache cache(1);
+    const auto first = cache.getOrCreate(probeModel(), {pfgpu::Provider::Dml, 0, "held", 1});
+    const auto second = cache.getOrCreate(probeModel(), {pfgpu::Provider::Dml, 0, "held", 1});
+    ASSERT_TRUE(first.ok) << first.error;
+    ASSERT_TRUE(second.ok) << second.error;
+    ASSERT_TRUE(first.handle.runMutex);
+    EXPECT_EQ(first.handle.runMutex, second.handle.runMutex);
+    cache.clear();
+    std::barrier start(4);
+    std::atomic_bool valid{true};
+    std::array<std::jthread, 4> workers;
+    for (auto& worker : workers) {
+        worker = std::jthread([&, handle = first.handle] {
+            start.arrive_and_wait();
+            for (int i = 0; i < 32; ++i) {
+                const auto result = pfgpu::runFloat(handle, {{1,2},{7.25F,-8.5F}});
+                if (!result.ok || result.outputs.size() != 1
+                    || result.outputs[0].values != std::vector<float>{7.25F,-8.5F}) valid = false;
+            }
+        });
+    }
+    for (auto& worker : workers) worker.join();
+    EXPECT_TRUE(valid);
+    EXPECT_EQ(cache.stats().live, 0);
 }
 
 } // namespace

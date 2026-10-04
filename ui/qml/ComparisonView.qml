@@ -17,13 +17,16 @@ Item {
     property real previewStart: record ? (side === "left" ? Number(record.leftSceneStart !== undefined ? record.leftSceneStart : record.leftStart || 0) : Number(record.rightSceneStart !== undefined ? record.rightSceneStart : record.rightStart || 0)) : 0
     property real previewEnd: record ? (side === "left" ? Number(record.leftSceneEnd !== undefined ? record.leftSceneEnd : record.leftEnd || 0) : Number(record.rightSceneEnd !== undefined ? record.rightSceneEnd : record.rightEnd || 0)) : 0
     property real matchEnd: record ? Number(side === "left" ? record.leftEnd || 0 : record.rightEnd || 0) : 0
+    property real playbackStart: record && record[side + "ClipStart"] !== undefined
+        ? Number(record[side + "ClipStart"]) : timestamp
     property real playbackEnd: {
         if (!record) return 0
+        if (record[side + "ClipEnd"] !== undefined) return Number(record[side + "ClipEnd"])
         const requestedEnd = record.matchType === "motion" && matchEnd > timestamp
             ? matchEnd : timestamp + 4
         return previewEnd > timestamp ? Math.min(requestedEnd, previewEnd) : requestedEnd
     }
-    readonly property bool previewPlayable: !!record && sourcePath.length > 0 && playbackEnd > timestamp
+    readonly property bool previewPlayable: !!record && sourcePath.length > 0 && playbackEnd > playbackStart
     property real zoom: 1.0
     property real panX: 0
     property real panY: 0
@@ -109,7 +112,7 @@ Item {
                 audioOutput: AudioOutput { muted: true }
                 onMediaStatusChanged: {
                     if (mediaStatus === MediaPlayer.LoadedMedia) {
-                        position = Math.round(root.timestamp * 1000)
+                        position = Math.round(root.playbackStart * 1000)
                         root.playbackReady = true
                     }
                     if (mediaStatus === MediaPlayer.EndOfMedia) root.playbackFinished()
