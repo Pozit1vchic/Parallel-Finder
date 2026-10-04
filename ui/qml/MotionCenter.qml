@@ -98,7 +98,6 @@ ColumnLayout {
                 }
                 Text { font.family: Theme.fontFamily;
                     id: stateText
-                    visible: !Analysis.busy
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.min(parent.width * 0.58, implicitWidth)
@@ -254,7 +253,7 @@ ColumnLayout {
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: Analysis.busy
-                                ? L10n.status(Analysis.progressStage)
+                                ? L10n.t("center.analyzingTitle")
                                 : root.sourceFiles.length === 0
                                     ? L10n.t("center.emptyTitle")
                                     : root.analysisCompleted
@@ -295,7 +294,7 @@ ColumnLayout {
                         Text { font.family: Theme.fontFamily;
                             anchors.horizontalCenter: parent.horizontalCenter
                             visible: Analysis.busy
-                            text: Math.round(Analysis.progress * 100) + "%"
+                            text: L10n.status(Analysis.progressStage) + " · " + Math.round(Analysis.progress * 100) + "%"
                             color: Theme.accent
                             font.pixelSize: 11
                         }

@@ -5,7 +5,6 @@
 #include <functional>
 #include <optional>
 #include <string>
-#include <stop_token>
 #include <vector>
 
 namespace pfservices {
@@ -32,7 +31,7 @@ public:
 
     static bool verifySha256(const std::filesystem::path& path,
                              const std::string& expected,
-                             std::string& error, std::stop_token stop = {});
+                             std::string& error);
 
     static std::optional<ModelAsset> readManifest(const std::filesystem::path& path,
                                                    const std::string& filename,
@@ -43,14 +42,14 @@ public:
     // only accepts a JSON manifest from the requested HTTPS URL.
     static std::optional<ModelAsset> fetchManifest(const std::string& url,
                                                    const std::string& filename,
-                                                   std::string& error, std::stop_token stop = {});
+                                                   std::string& error);
 
     // Downloads HTTPS assets with resumable .part files and verifies both
     // declared size and SHA-256 before replacing the destination.
     static bool download(const ModelAsset& asset,
                          const std::filesystem::path& destination,
                          DownloadProgress progress,
-                         std::string& error, std::stop_token stop = {});
+                         std::string& error);
 };
 
 } // namespace pfservices

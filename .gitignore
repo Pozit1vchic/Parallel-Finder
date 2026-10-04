@@ -134,9 +134,6 @@ audit*.md
 /docs/verification-*.md
 /docs/test-results*.md
 /docs/check-results*.md
-# Local dated investigations and RC work reports; keep the main README tracked.
-/docs/*-20??-??-??.md
-/docs/rc[0-9]*-*.md
 /*.ps1
 /tools/benchmark/*.ps1
 !/AUDIT.md

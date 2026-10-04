@@ -15,8 +15,6 @@ add_executable(pf_tests
     core/test_job_manager.cpp
     core/test_movement_classifier.cpp
     core/test_pf_cache.cpp
-    core/test_match_cache.cpp
-    core/test_estimator_cache.cpp
     core/test_thumbnail_cache.cpp
     core/test_exporters.cpp
     core/test_settings_store.cpp
@@ -28,10 +26,7 @@ add_executable(pf_tests
     gpu/test_provider.cpp
     gpu/test_provider_factory.cpp
     gpu/test_session_cache.cpp
-    gpu/test_inference_failures.cpp
-    gpu/test_face_pixels.cpp
     gpu/test_pose_estimator.cpp
-    gpu/test_reid_estimator.cpp
     gpu/test_pose_input.cpp
 )
 set_target_properties(pf_tests PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)

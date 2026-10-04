@@ -29,7 +29,7 @@ Rectangle {
     }
 
     function movementSimilarity(item) {
-        return Number(item.similarity !== undefined ? item.similarity : 0)
+        return Number(item.similarity || 0)
     }
 
     function selectAll() {
@@ -45,22 +45,19 @@ Rectangle {
     }
 
     function timeValue(item) {
-        return Number(item.leftStart !== undefined ? item.leftStart : 0)
+        return Number(item.leftStart || 0)
     }
 
     function compareValues(a, b) {
-        const left = sortCriterion === "scene" ? sceneSimilarity(a)
-            : sortCriterion === "time" ? timeValue(a) : movementSimilarity(a)
-        const right = sortCriterion === "scene" ? sceneSimilarity(b)
-            : sortCriterion === "time" ? timeValue(b) : movementSimilarity(b)
-        // Epsilon ties can form a comparison cycle. Compare exact values,
-        // keep invalid NaNs last in both directions, then use the result id.
-        const nanLeft = Number.isNaN(left)
-        const nanRight = Number.isNaN(right)
-        if (nanLeft !== nanRight)
-            return nanLeft ? 1 : -1
-        if (!nanLeft && left !== right)
-            return (left < right ? -1 : 1) * (sortDescending ? -1 : 1)
+        let delta = 0
+        if (sortCriterion === "scene")
+            delta = sceneSimilarity(a) - sceneSimilarity(b)
+        else if (sortCriterion === "time")
+            delta = timeValue(a) - timeValue(b)
+        else
+            delta = movementSimilarity(a) - movementSimilarity(b)
+        if (Math.abs(delta) > 1e-9)
+            return delta * (sortDescending ? -1 : 1)
         return (Number(a.id) - Number(b.id))
     }
 

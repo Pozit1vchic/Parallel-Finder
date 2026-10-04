@@ -13,8 +13,6 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
-#include <limits>
-#include "../../core/src/SampleClock.hpp"
 
 namespace {
 
@@ -61,28 +59,6 @@ TEST(VideoDecoder, RejectsMissingFile)
     EXPECT_THROW(decoder.open("this-file-does-not-exist.mp4"), std::runtime_error);
 }
 
-TEST(VideoDecoder, RejectsUnrepresentableSeekBeforeDiscardingCurrentFrame)
-{
-    pfcore::VideoDecoder decoder;
-    decoder.open((std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4").string());
-    pfcore::DecodedFrame frame;
-    ASSERT_TRUE(decoder.readNext(frame, false));
-    const auto timestamp = frame.timestampSeconds;
-    for (const double target : {std::numeric_limits<double>::quiet_NaN(),
-                               std::numeric_limits<double>::infinity(),
-                               -std::numeric_limits<double>::infinity(),
-                               std::numeric_limits<double>::max()}) {
-        EXPECT_THROW(decoder.seek(target), std::invalid_argument);
-        ASSERT_TRUE(decoder.convertCurrentFrameToRgba(frame));
-        EXPECT_EQ(frame.timestampSeconds, timestamp);
-        EXPECT_EQ(frame.rgba.size(), 16U * 12U * 4U);
-    }
-    // Preserve the existing policy that ordinary negative times clamp to zero.
-    EXPECT_NO_THROW(decoder.seek(-0.5));
-    ASSERT_TRUE(decoder.readNext(frame));
-    EXPECT_GE(frame.timestampSeconds, 0.0);
-}
-
 TEST(VideoSampleReader, PrefetchPreservesSerialSamplesPixelsAndTailProgress)
 {
     QTemporaryDir directory;
@@ -122,39 +98,6 @@ TEST(VideoSampleReader, PrefetchPreservesSerialSamplesPixelsAndTailProgress)
         EXPECT_LE(b.peakBufferedSamples(), 1u);
         EXPECT_EQ(async.diagnostics().decodedFrames, serial.diagnostics().decodedFrames);
         EXPECT_EQ(async.diagnostics().convertedFrames, serial.diagnostics().convertedFrames);
-    }
-}
-
-TEST(VideoSampleClock, AdvancesAtTimestampsWhosePrecisionExceedsTheInterval)
-{
-    double next = -std::numeric_limits<double>::infinity();
-    const double timestamp = 1e20;
-    ASSERT_EQ(timestamp + 0.1, timestamp); // the original catch-up cannot advance
-    EXPECT_TRUE(pfcore::detail::selectSampleTimestamp(timestamp, 0.1, next));
-    ASSERT_TRUE(std::isfinite(next));
-    EXPECT_GT(next, timestamp);
-    EXPECT_FALSE(pfcore::detail::selectSampleTimestamp(timestamp, 0.1, next));
-    const auto following = next;
-    EXPECT_TRUE(pfcore::detail::selectSampleTimestamp(following, 0.1, next));
-    EXPECT_GT(next, following);
-}
-
-TEST(VideoSampleClock, LargeDiscontinuityReturnsAFutureDeadline)
-{
-    double next = 0.0;
-    EXPECT_TRUE(pfcore::detail::selectSampleTimestamp(1e8, 0.1, next));
-    EXPECT_GT(next, 1e8 + 1e-9);
-    EXPECT_FALSE(pfcore::detail::selectSampleTimestamp(1e8, 0.1, next));
-}
-
-TEST(VideoSampleClock, RejectsNonFiniteFramesWithoutChangingTheDeadline)
-{
-    double next = 1.0;
-    for (const auto timestamp : {std::numeric_limits<double>::quiet_NaN(),
-                                 std::numeric_limits<double>::infinity(),
-                                 -std::numeric_limits<double>::infinity()}) {
-        EXPECT_THROW(pfcore::detail::selectSampleTimestamp(timestamp, 0.1, next), std::invalid_argument);
-        EXPECT_EQ(next, 1.0);
     }
 }
 

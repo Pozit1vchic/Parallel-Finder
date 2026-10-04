@@ -194,7 +194,7 @@ SessionHandle PoseEstimator::acquireSession()
         ModelRef::fromPath(modelPath_),
         {params_.provider, 0, params_.profile, params_.intraOpThreads});
     if (!session.ok) throw std::runtime_error(session.error);
-    if (!sessionSpec_.has_value() || sessionSpecKey_ != session.handle.cacheKey) {
+    if (!sessionSpec_.has_value()) {
         SessionSpec description = describeSession(session.handle);
         if (!description.ok) throw std::runtime_error(description.error);
         const auto& inputShape = description.input.shape;
@@ -209,7 +209,6 @@ SessionHandle PoseEstimator::acquireSession()
             throw std::runtime_error("PoseEstimator: profile batch does not match model input batch");
         if (description.outputs.empty()) throw std::runtime_error("PoseEstimator: model has no outputs");
         sessionSpec_ = std::move(description);
-        sessionSpecKey_ = session.handle.cacheKey;
     }
     return session.handle;
 }

@@ -25,39 +25,6 @@
 #include <atomic>
 #include <QElapsedTimer>
 #include <QTimer>
-#include <QEventLoop>
-#include <QThread>
-#include <cstring>
-#include <algorithm>
-#include <array>
-#include <limits>
-#include "../../services/src/NetworkOperation.hpp"
-
-namespace {
-class PendingNetworkReply final : public QNetworkReply {
-public:
-    PendingNetworkReply() { open(QIODevice::ReadOnly); }
-    void abort() override {
-        abortedOnOwnerThread = QThread::currentThread() == thread();
-        setError(QNetworkReply::OperationCanceledError, "cancelled");
-        setFinished(true);
-        emit finished();
-    }
-    qint64 bytesAvailable() const override { return data_.size() + QNetworkReply::bytesAvailable(); }
-    void feed(QByteArray bytes) { data_ += bytes; emit readyRead(); }
-    bool abortedOnOwnerThread = false;
-protected:
-    qint64 readData(char* destination, qint64 maximum) override {
-        const auto count = std::min<qint64>(maximum, data_.size());
-        if (count == 0) return -1;
-        std::memcpy(destination, data_.constData(), static_cast<std::size_t>(count));
-        data_.remove(0, count);
-        return count;
-    }
-private:
-    QByteArray data_;
-};
-}
 
 class UiSmokeTests : public QObject {
     Q_OBJECT
@@ -78,8 +45,6 @@ private slots:
     void idleWorkspaceStopsRequestingFrames();
     void resultArrowKeysWorkAfterSourceButtonFocus();
     void selectsAllResultsWithoutDisplayLimit();
-    void nearEqualResultSortIsIndependentOfInputOrder();
-    void resultSortKeepsNanLastInBothDirections();
     void exportModesAreSelectable();
     void advancedOpensOnFirstClickAndStatusTranslates();
     void directMlDownloadIntegration();
@@ -89,8 +54,6 @@ private slots:
     void inlinePairActuallyDecodesAndStopsAtClipEnd();
     void resultLabelsFollowMatchTypeAndLanguage();
     void sourceStatisticsFollowSelectionAndInspectionScope();
-    void networkCancellationRunsOnOwnerThreadAndBoundsManifest();
-    void shutdownJoinsInspectionAndRejectsRestart();
 };
 
 void UiSmokeTests::mainQmlLoadsFromResources()
@@ -578,7 +541,7 @@ void UiSmokeTests::exportModesAreSelectable()
             button->mapToScene(QPointF(button->width()/2, button->height()/2)).toPoint());
         return button->property("selected").toBool();
     };
-    QCOMPARE(popup->property("selectedCutMode").toInt(), 2);
+    QCOMPARE(popup->property("selectedCutMode").toInt(), 0);
     QVERIFY(click("fastCutButton"));
     QCOMPARE(popup->property("selectedCutMode").toInt(), 1);
     QVERIFY(click("exactCutButton"));
@@ -593,72 +556,9 @@ void UiSmokeTests::exportModesAreSelectable()
     QVERIFY(popup->property("mergeChronological").toBool());
     QCOMPARE(popup->property("selectedCutMode").toInt(), 0);
     QVERIFY(!popup->findChild<QQuickItem*>("fastCutButton")->isEnabled());
-    QVERIFY(click("losslessCutButton"));
-    QCOMPARE(popup->property("selectedCutMode").toInt(), 2);
     const auto capture = qEnvironmentVariable("PF_UI_CAPTURE_DIR");
     if (!capture.isEmpty()) { QDir().mkpath(capture); QTest::qWait(150); QVERIFY(window->grabWindow().save(capture + "/montage-export.png")); }
     merge->setProperty("checked", false);
-}
-
-void UiSmokeTests::nearEqualResultSortIsIndependentOfInputOrder()
-{
-    pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
-    engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
-    QQmlComponent component(&engine);
-    component.setData("import QtQuick\nimport PfUi\nResultsRail { width: 280; height: 500 }", QUrl());
-    std::unique_ptr<QObject> rail(component.create());
-    QVERIFY2(rail != nullptr, qPrintable(component.errorString()));
-    for (const auto* criterion : {"movement", "scene", "time"}) {
-        rail->setProperty("sortCriterion", QString::fromLatin1(criterion));
-        for (const bool descending : {false, true}) {
-            rail->setProperty("sortDescending", descending);
-            std::array<int, 3> order{0,1,2};
-            do {
-                QVariantList rows;
-                for (const auto index : order) {
-                    const double value = 0.9 + index * 0.75e-9;
-                    rows.push_back(QVariantMap{{"id", index}, {"similarity", value},
-                        {"sceneSimilarity", value}, {"leftStart", value}});
-                }
-                rail->setProperty("results", rows);
-                const auto sorted = rail->property("visibleResults").value<QJSValue>().toVariant().toList();
-                QCOMPARE(sorted.size(), 3);
-                for (int i = 0; i < 3; ++i)
-                    QCOMPARE(sorted[i].toMap().value("id").toInt(), descending ? 2-i : i);
-            } while (std::next_permutation(order.begin(), order.end()));
-        }
-    }
-}
-
-void UiSmokeTests::resultSortKeepsNanLastInBothDirections()
-{
-    pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
-    engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
-    QQmlComponent component(&engine);
-    component.setData("import QtQuick\nimport PfUi\nResultsRail { width: 280; height: 500 }", QUrl());
-    std::unique_ptr<QObject> rail(component.create());
-    QVERIFY2(rail != nullptr, qPrintable(component.errorString()));
-    const std::array<double, 4> values{std::numeric_limits<double>::quiet_NaN(),
-        -std::numeric_limits<double>::infinity(), 0.9, std::numeric_limits<double>::infinity()};
-    const std::array<int, 4> ascending{1,2,3,0}, descending{3,2,1,0};
-    QVariantList rows;
-    for (int index = 0; index < 4; ++index)
-        rows.push_back(QVariantMap{{"id", index}, {"similarity", values[index]},
-            {"sceneSimilarity", values[index]}, {"leftStart", values[index]}});
-    for (const auto* criterion : {"movement", "scene", "time"}) {
-        rail->setProperty("sortCriterion", QString::fromLatin1(criterion));
-        for (const bool reverse : {false, true}) {
-            rail->setProperty("sortDescending", reverse);
-            rail->setProperty("results", rows);
-            const auto sorted = rail->property("visibleResults").value<QJSValue>().toVariant().toList();
-            QCOMPARE(sorted.size(), 4);
-            const auto& expected = reverse ? descending : ascending;
-            for (int index = 0; index < 4; ++index)
-                QCOMPARE(sorted[index].toMap().value("id").toInt(), expected[index]);
-        }
-    }
 }
 
 void UiSmokeTests::advancedOpensOnFirstClickAndStatusTranslates()
@@ -963,59 +863,6 @@ void UiSmokeTests::sourceStatisticsFollowSelectionAndInspectionScope()
     QCOMPARE(analysis->fileCount(), 1);
     QCOMPARE(analysis->frameCount(), 20);
     analysis->inspectFiles({});
-}
-
-void UiSmokeTests::networkCancellationRunsOnOwnerThreadAndBoundsManifest()
-{
-    PendingNetworkReply reply;
-    std::stop_source stop;
-    std::string error;
-    QTimer cancellation;
-    QEventLoop loop;
-    connect(&reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    pfservices::detail::watchNetworkCancellation(cancellation, reply, stop.get_token(), error);
-    QTimer::singleShot(10, &loop, [&] { stop.request_stop(); });
-    QTimer::singleShot(2000, &loop, &QEventLoop::quit);
-    loop.exec();
-    QVERIFY(reply.isFinished());
-    QVERIFY(reply.abortedOnOwnerThread);
-    QCOMPARE(error, std::string("operation cancelled"));
-
-    PendingNetworkReply manifest;
-    pfservices::detail::boundManifestReply(manifest, 16, error);
-    QCOMPARE(manifest.readBufferSize(), qint64(17));
-    manifest.feed(QByteArray(16, 'a'));
-    QVERIFY(!manifest.isFinished());
-    manifest.feed("b");
-    QVERIFY(manifest.isFinished());
-    QCOMPARE(error, std::string("manifest is too large"));
-}
-
-void UiSmokeTests::shutdownJoinsInspectionAndRejectsRestart()
-{
-    QTemporaryDir directory;
-    QVERIFY(directory.isValid());
-    const auto path = directory.filePath("corrupt.mp4");
-    QFile file(path);
-    QVERIFY(file.open(QIODevice::WriteOnly));
-    QCOMPARE(file.write("invalid-video"), qint64(13));
-    file.close();
-    auto* analysis = pfui::AnalysisController::instance();
-    analysis->inspectFiles({path});
-    QVERIFY(analysis->busy());
-    analysis->shutdown();
-    QVERIFY(!analysis->busy());
-    // Deliver any completion posted before joining. A terminal controller
-    // must neither publish stale metadata nor start deferred work.
-    QCoreApplication::processEvents();
-    analysis->inspectFiles({path});
-    analysis->analyzeFiles({path});
-    QVERIFY(!analysis->busy());
-    QSignalSpy exportFinished(analysis, &pfui::AnalysisController::exportFinished);
-    QVERIFY(!analysis->exportResults("JSON", 0, 0, directory.path(), "shutdown", {0}, false));
-    QCOMPARE(exportFinished.count(), 0);
-    QVERIFY(!analysis->exportBusy());
-    analysis->shutdown();
 }
 
 void UiSmokeTests::directMlDownloadIntegration()

@@ -12,8 +12,6 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstdio>
-#include <memory>
-#include <vector>
 
 #include "pfgpu/DeviceInfo.hpp"
 #include "pfgpu/OrtRuntime.hpp"
@@ -87,13 +85,11 @@ ModelRef ModelRef::fromBytes(std::string bytes, std::string tag)
 }
 
 struct SessionCache::Entry {
-    using OwnedSession = std::unique_ptr<OrtSession, decltype(OrtApi::ReleaseSession)>;
-    Entry(OwnedSession value, Provider ep, const std::string& key)
-        : session(std::move(value)), provider(ep), cacheKey(key) {}
-    OwnedSession session;
+    Entry(OrtSession* value, Provider ep, const std::string& key)
+        : session(value), provider(ep), cacheKey(key) {}
+    OrtSession* session = nullptr;
     Provider provider = Provider::Cpu;
     std::string cacheKey;
-    mutable std::mutex runMutex;
     mutable std::mutex profileMutex;
     mutable std::size_t profileRuns = 0;
     mutable std::atomic_bool profiling{false};
@@ -161,14 +157,12 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
             impl.stats.hits += 1;
 
             result.ok = true;
-            result.handle.session = it->second.entry->session.get();
+            result.handle.session = it->second.entry->session;
             result.handle.owner = it->second.entry;
             result.handle.provider = it->second.entry->provider;
             result.handle.cacheKey = cacheKey;
             result.handle.createdNow = false;
             result.handle.profiling = it->second.entry->profiling;
-            if (resolved == Provider::Dml)
-                result.handle.runMutex = {it->second.entry, &it->second.entry->runMutex};
             return result;
         }
         impl.stats.misses += 1;
@@ -188,27 +182,35 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
         return result;
     }
 
-    std::unique_ptr<OrtSessionOptions, decltype(api->ReleaseSessionOptions)> options(nullptr, api->ReleaseSessionOptions);
-    if (!checkStatus(*api, api->CreateSessionOptions(std::out_ptr(options)), error)) {
+    OrtSessionOptions* options = nullptr;
+    if (!checkStatus(*api, api->CreateSessionOptions(&options), error)) {
         result.error = "OrtSessionOptions: " + error;
         return result;
     }
 
-    if (!checkStatus(*api, api->SetIntraOpNumThreads(options.get(),
+    struct Cleanup {
+        const OrtApi* api;
+        OrtSessionOptions* options;
+        ~Cleanup()
+        {
+            if (options) {
+                api->ReleaseSessionOptions(options);
+            }
+        }
+    } cleanup { api, options };
+
+    if (!checkStatus(*api, api->SetIntraOpNumThreads(options,
                                                      static_cast<int>(effectiveThreadCount(key, resolved))), error)
-        || !checkStatus(*api, api->SetSessionGraphOptimizationLevel(options.get(), ORT_ENABLE_ALL),
+        || !checkStatus(*api, api->SetSessionGraphOptimizationLevel(options, ORT_ENABLE_ALL),
                         error)
         || !factory->configure(*api, *options, factory->defaultOptions(), error)) {
         result.error = "session options: " + error;
         return result;
     }
 
-    // These models run in sequence: idle pose/ReID pools must not busy-wait
-    // while another model, face preprocessing or decoding needs the CPU.
-    // Preserve the requested parallel thread count; only idle waiting changes.
-    if ((resolved == Provider::Cpu || resolved == Provider::Cuda || resolved == Provider::TensorRt)
-        && (!checkStatus(*api, api->AddSessionConfigEntry(options.get(), "session.intra_op.allow_spinning", "0"), error)
-            || !checkStatus(*api, api->AddSessionConfigEntry(options.get(), "session.inter_op.allow_spinning", "0"), error))) {
+    if ((resolved == Provider::Cuda || resolved == Provider::TensorRt)
+        && (!checkStatus(*api, api->AddSessionConfigEntry(options, "session.intra_op.allow_spinning", "0"), error)
+            || !checkStatus(*api, api->AddSessionConfigEntry(options, "session.inter_op.allow_spinning", "0"), error))) {
         result.error = "session thread policy: " + error;
         return result;
     }
@@ -236,12 +238,12 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
         std::filesystem::create_directories(directory, ioError);
         if (ioError) { result.error = "profiling directory: " + ioError.message(); return result; }
         const auto prefix = directory / (std::string(providerName(resolved)) + "-" + std::to_string(sequence.fetch_add(1)));
-        if (!checkStatus(*api, api->EnableProfiling(options.get(), prefix.c_str()), error)) {
+        if (!checkStatus(*api, api->EnableProfiling(options, prefix.c_str()), error)) {
             result.error = "EnableProfiling: " + error; return result;
         }
     }
 
-    Entry::OwnedSession session(nullptr, api->ReleaseSession);
+    OrtSession* session = nullptr;
     if (model.isPath()) {
 #if defined(_WIN32)
         const std::wstring widePath = std::filesystem::path(model.path).wstring();
@@ -249,38 +251,35 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
 #else
         const ORTCHAR_T* modelPath = model.path.c_str();
 #endif
-        if (!checkStatus(*api, api->CreateSession(env, modelPath, options.get(), std::out_ptr(session)), error)) {
+        if (!checkStatus(*api, api->CreateSession(env, modelPath, options, &session), error)) {
             result.error = "CreateSession(" + model.path + "): " + error;
             return result;
         }
     } else {
         if (!checkStatus(*api,
                          api->CreateSessionFromArray(env, model.bytes.data(),
-                                                     model.bytes.size(), options.get(), std::out_ptr(session)),
+                                                     model.bytes.size(), options, &session),
                          error)) {
             result.error = "CreateSessionFromArray: " + error;
             return result;
         }
     }
 
-    // Own the ORT handle before allocating/copying Entry or its control block.
-    // An allocation exception must not retain a live GPU session.
-    auto entry = std::make_shared<Entry>(std::move(session), resolved, cacheKey);
+    auto entry = std::shared_ptr<Entry>(new Entry { session, resolved, cacheKey },
+                                        [api](Entry* raw) {
+                                            if (raw->session) {
+                                                api->ReleaseSession(raw->session);
+                                            }
+                                            delete raw;
+                                        });
     entry->profiling = profiling;
 
-    std::vector<std::shared_ptr<Entry>> dropped;
     {
         Impl& impl = *impl_;
         const std::lock_guard<std::mutex> lock(impl.mutex);
-        dropped.reserve(impl.sessions.size() > impl.maxEntries
-            ? impl.sessions.size() - impl.maxEntries + 1 : 1);
         impl.clock += 1;
         impl.stats.created += 1;
-        auto& slot = impl.sessions[cacheKey];
-        // Concurrent misses can finish at the same key. Drop the previous
-        // cache reference outside the lock, just like LRU eviction below.
-        if (slot.entry) dropped.push_back(std::move(slot.entry));
-        slot = Impl::Slot { entry, impl.clock };
+        impl.sessions[cacheKey] = Impl::Slot { entry, impl.clock };
 
         // LRU eviction by insertion/use stamp. Evicting only drops the map's
         // reference: a session still held by an in-flight handle stays alive
@@ -298,20 +297,18 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
             if (victim == impl.sessions.end()) {
                 break;
             }
-            dropped.push_back(std::move(victim->second.entry));
             impl.sessions.erase(victim);
             impl.stats.evictions += 1;
         }
     }
 
     result.ok = true;
-    result.handle.session = entry->session.get();
+    result.handle.session = session;
     result.handle.owner = entry;
     result.handle.provider = resolved;
     result.handle.cacheKey = cacheKey;
     result.handle.createdNow = true;
     result.handle.profiling = profiling;
-    if (resolved == Provider::Dml) result.handle.runMutex = {entry, &entry->runMutex};
     return result;
 }
 
@@ -327,7 +324,7 @@ void SessionCache::recordProfilingRun(const SessionHandle& handle)
     std::string error;
     if (!checkStatus(*api, api->GetAllocatorWithDefaultOptions(&allocator), error)) return;
     char* path = nullptr;
-    if (checkStatus(*api, api->SessionEndProfiling(entry->session.get(), allocator, &path), error)) {
+    if (checkStatus(*api, api->SessionEndProfiling(entry->session, allocator, &path), error)) {
         std::fprintf(stderr, "PF_DEBUG_ORT_PROFILE runs=%zu key=%s path=%s\n", entry->profileRuns, entry->cacheKey.c_str(), path ? path : "");
     } else std::fprintf(stderr, "PF_DEBUG_ORT_PROFILE error=%s\n", error.c_str());
     if (path) {
@@ -361,10 +358,7 @@ SessionCache& processSessionCache()
     // Pose + ReID + two face sessions across a couple of provider/model
     // combinations fit comfortably here. LRU eviction still bounds resources
     // when the user switches models/providers repeatedly.
-    // One analysis configuration uses pose, ReID, face detector and face
-    // recognizer. Do not retain 16 large sessions after settings changes.
-    // Borrowed handles keep in-flight sessions alive across LRU eviction.
-    static SessionCache cache;
+    static SessionCache cache(16);
     return cache;
 }
 
@@ -381,24 +375,19 @@ void SessionCache::setMaxEntries(std::size_t maxEntries)
         throw std::invalid_argument("SessionCache: maxEntries must be >= 1");
     }
     Impl& impl = *impl_;
-    std::vector<std::shared_ptr<Entry>> dropped;
-    {
-        const std::lock_guard<std::mutex> lock(impl.mutex);
-        if (impl.sessions.size() > maxEntries) dropped.reserve(impl.sessions.size() - maxEntries);
-        impl.maxEntries = maxEntries;
-        while (impl.sessions.size() > impl.maxEntries) {
-            auto victim = impl.sessions.end();
-            for (auto it = impl.sessions.begin(); it != impl.sessions.end(); ++it) {
-                if (victim == impl.sessions.end() || it->second.stamp < victim->second.stamp) {
-                    victim = it;
-                }
+    const std::lock_guard<std::mutex> lock(impl.mutex);
+    impl.maxEntries = maxEntries;
+    while (impl.sessions.size() > impl.maxEntries) {
+        auto victim = impl.sessions.end();
+        for (auto it = impl.sessions.begin(); it != impl.sessions.end(); ++it) {
+            if (victim == impl.sessions.end() || it->second.stamp < victim->second.stamp) {
+                victim = it;
             }
-            if (victim == impl.sessions.end()) break;
-            dropped.push_back(std::move(victim->second.entry));
-            impl.sessions.erase(victim);
-            impl.stats.evictions += 1;
         }
-    } // release potentially blocking provider resources without the cache lock
+        if (victim == impl.sessions.end()) break;
+        impl.sessions.erase(victim);
+        impl.stats.evictions += 1;
+    }
 }
 
 } // namespace pfgpu

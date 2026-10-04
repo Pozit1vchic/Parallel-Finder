@@ -64,12 +64,8 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(int maxUniqueResults READ maxUniqueResults WRITE setMaxUniqueResults NOTIFY matcherParamsChanged)
     Q_PROPERTY(double timeWeight READ timeWeight WRITE setTimeWeight NOTIFY matcherParamsChanged)
 public:
-    ~AnalysisController() override;
     static AnalysisController* instance();
     static void registerQmlTypes();
-    // Terminal application shutdown: stop and join work while QObject state
-    // and the Qt application are still alive. Safe to call repeatedly.
-    void shutdown();
     int fileCount() const noexcept { return fileCount_; }
     qlonglong frameCount() const noexcept { return frameCount_; }
     double durationSeconds() const noexcept { return durationSeconds_; }
@@ -237,11 +233,6 @@ private:
     // Shared with the worker thread so Stop can request a cooperative
     // cancellation without touching QObject state from the worker.
     std::shared_ptr<std::atomic_bool> analysisCancel_;
-    bool shuttingDown_ = false;
-    // Joins before every state member above is destroyed, including paths
-    // where the application returns without entering its main event loop.
-    std::jthread analysisWorker_;
-    std::jthread modelWorker_;
 };
 
 } // namespace pfui

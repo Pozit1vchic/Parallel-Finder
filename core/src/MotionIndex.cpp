@@ -145,11 +145,7 @@ void MotionIndex::clear()
 
 void MotionIndex::add(std::size_t id, std::vector<double> embedding)
 {
-    // NaN breaks the strict ordering required by the graph's heaps/sorts.
-    // Reject the whole descriptor; replacing one component would fabricate
-    // similarity evidence. Ignored input must not invalidate a built graph.
-    if (embedding.empty() || !std::all_of(embedding.begin(), embedding.end(),
-                                        [](double value) { return std::isfinite(value); })) return;
+    if (embedding.empty()) return;
     revision_ = nextRevision();
     nodes_.push_back(Node{id, std::move(embedding), {}});
     built_ = false;
@@ -216,9 +212,7 @@ std::vector<MotionIndex::Neighbor> MotionIndex::query(const std::vector<double>&
                                                       std::size_t searchWidth,
                                                       QueryWorkspace& workspace) const
 {
-    if (!built_ || nodes_.empty() || embedding.empty() || count == 0
-        || !std::all_of(embedding.begin(), embedding.end(),
-                        [](double value) { return std::isfinite(value); })) return {};
+    if (!built_ || nodes_.empty() || embedding.empty() || count == 0) return {};
     if (workspace.owner_ != this || workspace.revision_ != revision_
         || workspace.embedding_ != embedding) {
         workspace.owner_ = this;

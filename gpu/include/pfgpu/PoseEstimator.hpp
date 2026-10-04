@@ -66,7 +66,6 @@ private:
     PoseEstimatorParams params_;
     SessionHandle acquireSession();
     std::optional<SessionSpec> sessionSpec_;
-    std::string sessionSpecKey_;
     std::unique_ptr<detail::PoseInputWorkspace> inputWorkspace_;
     std::mutex mutex_;
 };

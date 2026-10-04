@@ -34,7 +34,7 @@ Item {
     }
     RowLayout {
         anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 14
-        Text { visible: !root.busy; font.family: Theme.fontFamily; Layout.alignment: Qt.AlignVCenter; text: AppInfo.backendInitializing ? L10n.t("settings.providerChecking") : L10n.t("top.ready"); color: Theme.textSecondary; font.pixelSize: 11 }
+        Text { font.family: Theme.fontFamily; Layout.alignment: Qt.AlignVCenter; text: root.busy ? L10n.t("top.analyzing") : AppInfo.backendInitializing ? L10n.t("settings.providerChecking") : L10n.t("top.ready"); color: root.busy ? Theme.accent : Theme.textSecondary; font.pixelSize: 11 }
         Rectangle {
             Layout.alignment: Qt.AlignVCenter
             Layout.preferredWidth: 226

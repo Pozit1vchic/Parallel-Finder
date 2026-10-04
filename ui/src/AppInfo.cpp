@@ -55,27 +55,15 @@ AppInfo::AppInfo(QObject* parent)
     : QObject(parent)
 {
     connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, [this] {
-        shutdown();
+        providerScan_.request_stop();
+        if (providerScan_.joinable()) providerScan_.join();
+        backendProbe_.request_stop();
+        if (backendProbe_.joinable()) backendProbe_.join();
     });
-}
-
-AppInfo::~AppInfo() { shutdown(); }
-
-void AppInfo::shutdown()
-{
-    if (shuttingDown_) return;
-    shuttingDown_ = true;
-    providerScan_.request_stop();
-    backendProbe_.request_stop();
-    providerDownload_.request_stop();
-    if (providerScan_.joinable()) providerScan_.join();
-    if (backendProbe_.joinable()) backendProbe_.join();
-    if (providerDownload_.joinable()) providerDownload_.join();
 }
 
 void AppInfo::prepareBackendInitialization()
 {
-    if (shuttingDown_) return;
     if (backendInitializing_ || backendSnapshotReady_) return;
     backendInitializing_ = true;
     emit backendInitializationChanged();
@@ -83,7 +71,6 @@ void AppInfo::prepareBackendInitialization()
 
 void AppInfo::initializeBackendsAsync(std::function<pfgpu::BackendProbe()> probe)
 {
-    if (shuttingDown_) return;
     if (backendProbe_.joinable() || backendSnapshotReady_) return;
     prepareBackendInitialization();
     backendProbe_ = std::jthread([this, probe = std::move(probe)](std::stop_token stop) {
@@ -92,7 +79,6 @@ void AppInfo::initializeBackendsAsync(std::function<pfgpu::BackendProbe()> probe
         catch (const std::exception& error) { result.ortError = error.what(); }
         if (stop.stop_requested()) return;
         QMetaObject::invokeMethod(this, [this, result = std::move(result)] {
-            if (shuttingDown_) return;
             publishBackendProbe(result);
         }, Qt::QueuedConnection);
     });
@@ -126,7 +112,6 @@ QVariantMap AppInfo::providerInstallation(const QString& backend) const
 
 void AppInfo::rescanProviders()
 {
-    if (shuttingDown_) return;
     if (backendInitializing_ || providersScanning_ || providerDownloading_) return;
     providersScanning_ = true;
     emit providersChanged();
@@ -147,7 +132,6 @@ void AppInfo::rescanProviders()
                     {"reason", QString::fromUtf8(error.what())}});
         }
         QMetaObject::invokeMethod(this, [this, installations] {
-            if (shuttingDown_) return;
             installations_ = installations;
             providersScanning_ = false;
             ++providersRevision_;
@@ -247,7 +231,6 @@ QString AppInfo::backendReason(const QString& backend) const
 
 void AppInfo::downloadProvider(const QString& backend)
 {
-    if (shuttingDown_) return;
     const QString provider = backend.trimmed().toLower();
     if (provider.isEmpty() || provider == QStringLiteral("auto")
         || provider == QStringLiteral("cpu")) {
@@ -262,25 +245,23 @@ void AppInfo::downloadProvider(const QString& backend)
     providerDownloadStatus_ = QStringLiteral("Проверяем интернет и release-манифест…");
     emit providerDownloadChanged();
 
-    providerDownload_ = std::jthread([this, provider](std::stop_token stop) {
+    QThread* thread = QThread::create([this, provider] {
         try {
         std::string error;
         std::string manifestUrl = qEnvironmentVariable("PF_PROVIDER_MANIFEST_URL").toStdString();
         if (manifestUrl.empty()) manifestUrl = kProviderManifestUrl;
         std::optional<pfservices::ProviderAsset> asset;
         if (provider != QStringLiteral("dml")) asset = pfservices::ProviderStore::fetchManifest(
-            manifestUrl, provider.toStdString(), error, stop);
-        if (!stop.stop_requested() && provider != QStringLiteral("dml") && !asset && manifestUrl == kProviderManifestUrl) {
+            manifestUrl, provider.toStdString(), error);
+        if (provider != QStringLiteral("dml") && !asset && manifestUrl == kProviderManifestUrl) {
             std::string fallbackError;
             asset = pfservices::ProviderStore::fetchManifest(
-                kProviderManifestFallbackUrl, provider.toStdString(), fallbackError, stop);
+                kProviderManifestFallbackUrl, provider.toStdString(), fallbackError);
             if (!asset && !fallbackError.empty()) error += "; fallback: " + fallbackError;
         }
-        if (stop.stop_requested()) return;
         if (!asset && provider != QStringLiteral("dml")) {
             const QString message = QString::fromStdString(error);
             QMetaObject::invokeMethod(this, [this, message] {
-                if (shuttingDown_) return;
                 providerDownloading_ = false;
                 providerDownloadState_ = QStringLiteral("error");
                 providerDownloadStatus_ = QStringLiteral("Не удалось скачать runtime: ") + message;
@@ -305,7 +286,6 @@ void AppInfo::downloadProvider(const QString& backend)
                 if (percent == lastPercent) return;
                 lastPercent = percent;
                 QMetaObject::invokeMethod(this, [this, progress, percent] {
-                    if (shuttingDown_) return;
                     providerDownloadProgress_ = progress;
                     providerDownloadState_ = QStringLiteral("downloading");
                     providerDownloadStatus_ = QStringLiteral("Скачивание runtime… %1%")
@@ -314,9 +294,8 @@ void AppInfo::downloadProvider(const QString& backend)
                 }, Qt::QueuedConnection);
             };
         const bool ok = provider == QStringLiteral("dml")
-            ? pfservices::ProviderStore::downloadDirectMl(destination, reportProgress, error, stop)
-            : pfservices::ProviderStore::downloadAndInstall(*asset, destination, reportProgress, error, stop);
-        if (stop.stop_requested()) return;
+            ? pfservices::ProviderStore::downloadDirectMl(destination, reportProgress, error)
+            : pfservices::ProviderStore::downloadAndInstall(*asset, destination, reportProgress, error);
         bool installed = ok;
         if (installed) {
             std::ofstream active(destination.parent_path() / "active.txt",
@@ -331,7 +310,6 @@ void AppInfo::downloadProvider(const QString& backend)
             ? QStringLiteral("Runtime установлен. Перезапустите приложение, чтобы применить провайдер.")
             : QStringLiteral("Не удалось установить runtime: ") + QString::fromStdString(error);
         QMetaObject::invokeMethod(this, [this, installed, message] {
-            if (shuttingDown_) return;
             providerDownloading_ = false;
             providerDownloadState_ = installed ? QStringLiteral("installed") : QStringLiteral("error");
             providerDownloadProgress_ = installed ? 1.0 : 0.0;
@@ -342,7 +320,6 @@ void AppInfo::downloadProvider(const QString& backend)
         } catch (const std::exception& exception) {
             const auto message = QString::fromUtf8(exception.what());
             QMetaObject::invokeMethod(this, [this, message] {
-                if (shuttingDown_) return;
                 providerDownloading_ = false;
                 providerDownloadState_ = QStringLiteral("error");
                 providerDownloadStatus_ = message;
@@ -350,6 +327,8 @@ void AppInfo::downloadProvider(const QString& backend)
             }, Qt::QueuedConnection);
         }
     });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
 }
 
 void AppInfo::setGpuInfo(const QString& backend,

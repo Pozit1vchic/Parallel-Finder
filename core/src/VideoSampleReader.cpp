@@ -1,5 +1,4 @@
 #include "pfcore/VideoSampleReader.hpp"
-#include "SampleClock.hpp"
 #include <algorithm>
 #include <cmath>
 #include <condition_variable>
@@ -47,7 +46,10 @@ struct VideoSampleReader::Impl {
     bool stopped(std::stop_token stop) const { return stop.stop_requested() || (cancelled && cancelled()); }
 
     static bool select(double timestamp, double interval, double& next) {
-        return detail::selectSampleTimestamp(timestamp, interval, next);
+        if (interval <= 0 || timestamp + 1e-9 < next) return false;
+        if (!std::isfinite(next)) next = timestamp + interval;
+        else do { next += interval; } while (next <= timestamp + 1e-9);
+        return true;
     }
 
     bool decode(VideoSample& result, std::stop_token stop = {}) {

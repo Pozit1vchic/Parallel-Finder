@@ -6,7 +6,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
-#include "FacePixels.hpp"
 
 namespace pfgpu {
 namespace {
@@ -37,6 +36,17 @@ struct Face {
     double x, y, w, h, score;
     std::array<std::pair<double, double>, 5> landmarks;
 };
+
+float pixel(const ReIdImage& image, double x, double y, int channel)
+{
+    if (!std::isfinite(x + y) || x < 0 || y < 0 || x > image.width - 1 || y > image.height - 1) return 0;
+    const int ix = static_cast<int>(x), iy = static_cast<int>(y);
+    const int nx = std::min(ix + 1, image.width - 1), ny = std::min(iy + 1, image.height - 1);
+    const auto at = [&](int px, int py) { return image.rgba[(static_cast<std::size_t>(py) * image.width + px) * 4 + channel]; };
+    const double dx = x - ix, dy = y - iy;
+    return static_cast<float>((1-dy) * ((1-dx)*at(ix,iy) + dx*at(nx,iy))
+        + dy*((1-dx)*at(ix,ny) + dx*at(nx,ny)));
+}
 
 double overlap(const Face& a, const Face& b)
 {
@@ -75,11 +85,9 @@ std::vector<float> FaceEstimator::infer(const ReIdImage& image, FaceRecognitionD
     input.values.assign(3*size*size, 0);
     // YuNet consumes unnormalised BGR; SFace below consumes RGB, also 0..255.
     for (int y=0; y<size && y<height*scale; ++y)
-        for (int x=0; x<size && x<width*scale; ++x) {
-            const auto rgb=detail::sampleFaceRgb(image,left+(x+0.5)/scale-0.5,top+(y+0.5)/scale-0.5);
+        for (int x=0; x<size && x<width*scale; ++x)
             for (int c=0; c<3; ++c)
-                input.values[c*size*size+y*size+x] = rgb[2-c];
-        }
+                input.values[c*size*size+y*size+x] = pixel(image,left+(x+0.5)/scale-0.5,top+(y+0.5)/scale-0.5,2-c);
     timings.add(stageStarted, timings.prepare);
     stageStarted = timings.mark();
     // These small models use one CPU thread to avoid idle ORT pools competing
@@ -148,10 +156,8 @@ std::vector<float> FaceEstimator::infer(const ReIdImage& image, FaceRecognitionD
     aa/=den; bb/=den;
     FloatTensor aligned;
     aligned.shape={1,3,112,112}; aligned.values.resize(3*112*112);
-    for (int y=0;y<112;++y) for (int x=0;x<112;++x) {
-        const auto rgb=detail::sampleFaceRgb(image,aa*(x-tx)-bb*(y-ty)+sx,bb*(x-tx)+aa*(y-ty)+sy);
-        for (int c=0;c<3;++c) aligned.values[c*112*112+y*112+x]=rgb[c];
-    }
+    for (int y=0;y<112;++y) for (int x=0;x<112;++x) for (int c=0;c<3;++c)
+        aligned.values[c*112*112+y*112+x]=pixel(image,aa*(x-tx)-bb*(y-ty)+sx,bb*(x-tx)+aa*(y-ty)+sy,c);
     timings.add(stageStarted, timings.align);
     stageStarted = timings.mark();
     const auto recognizer=processSessionCache().getOrCreate(ModelRef::fromPath(recognizer_),{provider_,0,"face-recognizer",1});

@@ -1,5 +1,4 @@
 #include "pfgpu/OrtRuntime.hpp"
-#include <memory>
 
 #include <algorithm>
 #include <cstdlib>
@@ -316,9 +315,9 @@ bool checkStatus(const OrtApi& api, OrtStatus* status, std::string& error)
     if (!status) {
         return true;
     }
-    const std::unique_ptr<OrtStatus, decltype(api.ReleaseStatus)> ownedStatus(status, api.ReleaseStatus);
     const char* message = api.GetErrorMessage(status);
     error = message ? message : "unknown ONNX Runtime error";
+    api.ReleaseStatus(status);
     return false;
 }
 

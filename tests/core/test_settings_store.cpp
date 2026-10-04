@@ -73,20 +73,6 @@ TEST(SettingsStore, RemembersModelChoiceIndependentlyOfDownloadedFile)
     EXPECT_EQ(restored.modelChoice, "yolo26s-pose.onnx");
 }
 
-TEST(SettingsStore, PreservesTheFullCacheLimitOfferedByTheInterface)
-{
-    QTemporaryDir directory;
-    ASSERT_TRUE(directory.isValid());
-    pfservices::SettingsStore store((directory.path() + "/settings.json").toStdString());
-    std::string error;
-    for (const auto gibibytes : {64ULL, 96ULL, 128ULL}) {
-        pfservices::Settings settings;
-        settings.cacheLimitBytes = gibibytes * 1024ULL * 1024ULL * 1024ULL;
-        ASSERT_TRUE(store.save(settings, error)) << error;
-        EXPECT_EQ(store.load(error).cacheLimitBytes, settings.cacheLimitBytes);
-    }
-}
-
 TEST(SettingsStore, SavesAndLoadsAtomically)
 {
     const auto path = std::filesystem::temp_directory_path() / "parallel-finder-settings-test" / "settings.json";

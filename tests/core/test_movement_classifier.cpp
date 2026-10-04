@@ -2,9 +2,6 @@
 
 #include <pfcore/MovementClassifier.hpp>
 #include <pfcore/MotionRanker.hpp>
-#include <algorithm>
-#include <array>
-#include <limits>
 
 namespace {
 
@@ -88,54 +85,6 @@ TEST(MotionRanker, RetainsClosedHandGestureButRejectsJitter)
     matches = {match};
     pfcore::MotionRanker::rank(matches, {left, left});
     EXPECT_TRUE(matches.empty()) << "A single detection outlier is not a closed gesture";
-}
-
-TEST(MotionRanker, NearEqualScoresAreOrderedConsistentlyAcrossAllPermutations)
-{
-    std::vector<pfcore::MotionWindow> windows(4);
-    for (auto& window : windows) window.staticFrameSet = true;
-    std::array<std::size_t, 3> order{0, 1, 2};
-    const std::array<double, 3> scores{.9, .9 + .75e-12, .9 + 1.5e-12};
-    do {
-        std::vector<pfcore::MotionMatch> matches;
-        for (const auto index : order) {
-            pfcore::MotionMatch match;
-            match.leftIndex = index;
-            match.rightIndex = 3;
-            match.similarity = scores[index];
-            matches.push_back(match);
-        }
-        pfcore::MotionRanker::rank(matches, windows);
-        ASSERT_EQ(matches.size(), 3);
-        EXPECT_EQ(matches[0].leftIndex, 2);
-        EXPECT_EQ(matches[1].leftIndex, 1);
-        EXPECT_EQ(matches[2].leftIndex, 0);
-    } while (std::next_permutation(order.begin(), order.end()));
-}
-
-TEST(MotionRanker, NaNScoresHaveAConsistentPositionAfterNumericScores)
-{
-    std::vector<pfcore::MotionWindow> windows(5);
-    for (auto& window : windows) window.staticFrameSet = true;
-    std::array<std::size_t, 4> order{0, 1, 2, 3};
-    const std::array<double, 4> scores{std::numeric_limits<double>::quiet_NaN(), .8, .9,
-        std::numeric_limits<double>::quiet_NaN()};
-    do {
-        std::vector<pfcore::MotionMatch> matches;
-        for (const auto index : order) {
-            pfcore::MotionMatch match;
-            match.leftIndex = index;
-            match.rightIndex = 4;
-            match.similarity = scores[index];
-            matches.push_back(match);
-        }
-        pfcore::MotionRanker::rank(matches, windows);
-        ASSERT_EQ(matches.size(), 4);
-        EXPECT_EQ(matches[0].leftIndex, 2);
-        EXPECT_EQ(matches[1].leftIndex, 1);
-        EXPECT_EQ(matches[2].leftIndex, 0);
-        EXPECT_EQ(matches[3].leftIndex, 3);
-    } while (std::next_permutation(order.begin(), order.end()));
 }
 
 } // namespace

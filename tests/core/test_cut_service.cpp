@@ -16,70 +16,12 @@
 #include <QJsonArray>
 
 #include <filesystem>
-#include <limits>
-#include "../../services/src/MontageGeometry.hpp"
 
 TEST(ParallelClip, CentersFiveSecondsOnSupportedMatch)
 {
     const auto clip = pfcore::parallelClipRange(10, 12, 0, 60);
     EXPECT_DOUBLE_EQ(clip.start, 8.5);
     EXPECT_DOUBLE_EQ(clip.end, 13.5);
-}
-
-TEST(MontageExport, RejectsInvalidRangesBeforeSortingOrTouchingOutput)
-{
-    QTemporaryDir temporary;
-    ASSERT_TRUE(temporary.isValid());
-    const auto output = std::filesystem::path(temporary.filePath("not-created/montage.mp4").toStdWString());
-    pfservices::CutRequest clip;
-    clip.inputPath = "unopened-video.mp4";
-    clip.startSeconds = 1.0;
-    clip.endSeconds = 2.0;
-    for (const auto invalid : {std::numeric_limits<double>::quiet_NaN(),
-                               std::numeric_limits<double>::infinity(),
-                               -std::numeric_limits<double>::infinity(), -1.0, 2.0}) {
-        auto malformed = clip;
-        malformed.startSeconds = invalid;
-        const auto result = pfservices::exportChronologicalMontage({clip, malformed, clip}, output,
-                                                                  {}, {}, "unused-ffmpeg");
-        EXPECT_FALSE(result.success);
-        EXPECT_EQ(result.error, "invalid montage clip time range or input");
-        EXPECT_FALSE(std::filesystem::exists(output.parent_path()));
-    }
-    clip.startSeconds = 1.0;
-    clip.endSeconds = std::numeric_limits<double>::quiet_NaN();
-    EXPECT_EQ(pfservices::exportChronologicalMontage({clip}, output).error,
-              "invalid montage clip time range or input");
-    clip.endSeconds = 2.0;
-    clip.inputPath.clear();
-    EXPECT_EQ(pfservices::exportChronologicalMontage({clip}, output).error,
-              "invalid montage clip time range or input");
-    EXPECT_FALSE(std::filesystem::exists(output.parent_path()));
-}
-
-TEST(MontageExport, CanvasPreservesNormalDisplayGeometryAndRejectsUnsafeMetadata)
-{
-    pfcore::VideoInfo info;
-    info.width = 3840; info.height = 1600;
-    ASSERT_TRUE(pfservices::detail::montageCanvas(info));
-    EXPECT_EQ(*pfservices::detail::montageCanvas(info), (std::pair{3840, 1600}));
-    info.sampleAspectRatio = 2.0;
-    EXPECT_EQ(*pfservices::detail::montageCanvas(info), (std::pair{7680, 1600}));
-    info.rotationDegrees = 90;
-    EXPECT_EQ(*pfservices::detail::montageCanvas(info), (std::pair{1600, 7680}));
-    for (const auto ratio : {0.0, -1.0, 100.0, 1e9, std::numeric_limits<double>::infinity(),
-                            std::numeric_limits<double>::quiet_NaN()}) {
-        info.sampleAspectRatio = ratio;
-        EXPECT_FALSE(pfservices::detail::montageCanvas(info));
-    }
-    info.sampleAspectRatio = 1.0;
-    info.rotationDegrees = std::numeric_limits<double>::quiet_NaN();
-    EXPECT_FALSE(pfservices::detail::montageCanvas(info));
-    info.rotationDegrees = 0;
-    info.width = 0;
-    EXPECT_FALSE(pfservices::detail::montageCanvas(info));
-    info.width = 3840; info.height = -1;
-    EXPECT_FALSE(pfservices::detail::montageCanvas(info));
 }
 
 TEST(ParallelClip, ShiftsAtShotEdgesBeforeShortening)
@@ -117,7 +59,6 @@ TEST(ParallelClip, StaticMatchAndUnknownSceneStillHaveBoundedContext)
 #include <atomic>
 #include <chrono>
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <QFileInfo>
 #include <QFile>
@@ -487,73 +428,6 @@ TEST(CutService, StalledEncoderStopsAutomaticallyAndKeepsExistingDestination)
     EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(5));
     EXPECT_EQ(std::filesystem::file_size(request.outputPath), 4u);
     EXPECT_FALSE(QFileInfo::exists(directory.filePath("cut.part.mp4")));
-    EXPECT_TRUE(QDir(directory.path()).entryList({".parallelfinder-cut-*"}, QDir::Dirs | QDir::Hidden).isEmpty());
-}
-
-TEST(CutService, FailedStartupPreservesInputAndUnrelatedLegacyTemporaryName)
-{
-    QTemporaryDir directory;
-    ASSERT_TRUE(directory.isValid());
-    const auto legacy = directory.filePath("clip.part.mp4");
-    { QFile file(legacy); ASSERT_TRUE(file.open(QIODevice::WriteOnly)); file.write("keep input bytes"); }
-    const auto contents = [&] {
-        QFile file(legacy);
-        return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
-    };
-    pfservices::CutRequest request;
-    request.inputPath = legacy.toStdWString();
-    request.outputPath = directory.filePath("clip.mp4").toStdWString();
-    request.mode = pfservices::CutMode::Fast;
-    request.endSeconds = 1;
-    const pfservices::CutService cutter("nonexistent-pf-test-encoder");
-    EXPECT_FALSE(cutter.cut(request).success);
-    EXPECT_EQ(contents(), "keep input bytes");
-    // The same legacy name is also protected when it is an unrelated file.
-    request.inputPath = std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4";
-    EXPECT_FALSE(cutter.cut(request).success);
-    EXPECT_EQ(contents(), "keep input bytes");
-    EXPECT_FALSE(std::filesystem::exists(request.outputPath));
-    EXPECT_TRUE(QDir(directory.path()).entryList({".parallelfinder-cut-*"}, QDir::Dirs | QDir::Hidden).isEmpty());
-}
-
-TEST(CutService, ConcurrentCutsUseIndependentStagingAndCleanItOnCancellation)
-{
-    QTemporaryDir directory;
-    ASSERT_TRUE(directory.isValid());
-    const auto destination = directory.filePath("cut.mp4");
-    { QFile file(destination); ASSERT_TRUE(file.open(QIODevice::WriteOnly)); file.write("previous export"); }
-    std::stop_source stop;
-    std::atomic_int started{0};
-    std::array<pfservices::CutResult, 2> results;
-    const pfservices::CutService cutter(PF_TEST_FFMPEG_STUB);
-    const auto run = [&](std::size_t index) {
-        pfservices::CutRequest request;
-        request.inputPath = std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4";
-        request.outputPath = destination.toStdWString();
-        request.mode = pfservices::CutMode::Fast;
-        request.endSeconds = 1;
-        request.timeoutMs = 5000;
-        request.stallTimeoutMs = 2000;
-        request.stopToken = stop.get_token();
-        request.progress = [&, notified = false](double) mutable {
-            if (!notified) {
-                notified = true;
-                if (started.fetch_add(1) == 1) stop.request_stop();
-            }
-        };
-        results[index] = cutter.cut(request);
-    };
-    { std::jthread first(run, 0); std::jthread second(run, 1); }
-    ASSERT_EQ(started.load(), 2);
-    for (const auto& result : results) {
-        EXPECT_TRUE(result.cancelled) << result.error;
-        ASSERT_FALSE(result.arguments.empty());
-    }
-    EXPECT_NE(results[0].arguments.back(), results[1].arguments.back());
-    QFile previous(destination);
-    ASSERT_TRUE(previous.open(QIODevice::ReadOnly));
-    EXPECT_EQ(previous.readAll(), "previous export");
-    EXPECT_TRUE(QDir(directory.path()).entryList({".parallelfinder-cut-*"}, QDir::Dirs | QDir::Hidden).isEmpty());
 }
 
 TEST(ProviderManager, KeepsIndependentInstallationsAndRejectsUnvalidatedRuntime)
@@ -685,10 +559,7 @@ TEST(CutService, CancellationStopsAnActiveEncoderAndCleansTemporaryOutput)
     std::jthread cancel([&] {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
         while (std::chrono::steady_clock::now() < deadline) {
-            const auto stages = QDir(directory.path()).entryList({".parallelfinder-cut-*"}, QDir::Dirs | QDir::Hidden);
-            if (std::any_of(stages.begin(), stages.end(), [&](const auto& stage) {
-                    return QFileInfo(directory.filePath(stage + "/cut.mp4")).size() > 0;
-                })) {
+            if (QFileInfo::exists(directory.filePath("cancelled.part.mp4"))) {
                 encoderStarted.store(true);
                 break;
             }
@@ -703,7 +574,6 @@ TEST(CutService, CancellationStopsAnActiveEncoderAndCleansTemporaryOutput)
     EXPECT_TRUE(result.cancelled);
     EXPECT_FALSE(std::filesystem::exists(request.outputPath));
     EXPECT_FALSE(QFileInfo::exists(directory.filePath("cancelled.part.mp4")));
-    EXPECT_TRUE(QDir(directory.path()).entryList({".parallelfinder-cut-*"}, QDir::Dirs | QDir::Hidden).isEmpty());
 }
 
 TEST(CutService, ExportsVideoWithSubtitlesToMp4)
@@ -811,168 +681,4 @@ TEST(CutService, FastModeCannotResize)
     const auto result = service.cut(request);
     EXPECT_FALSE(result.success);
     EXPECT_EQ(result.error, "resolution cap requires exact cut mode");
-}
-
-TEST(CutService, LosslessRetainsTenBitPixelsAudioAndExactFrameRange)
-{
-    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
-    ASSERT_FALSE(ffmpeg.isEmpty());
-    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
-    const auto source = directory.filePath("ten-bit.mkv");
-    QProcess generate;
-    generate.start(ffmpeg, {"-v", "error", "-y", "-f", "lavfi", "-i",
-        "testsrc2=size=160x90:rate=10:duration=2,format=yuv420p10le",
-        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=2",
-        "-c:v", "ffv1", "-level", "3", "-c:a", "pcm_s16le", source});
-    ASSERT_TRUE(generate.waitForFinished(30000));
-    ASSERT_EQ(generate.exitCode(), 0) << generate.readAllStandardError().toStdString();
-    pfservices::CutRequest request;
-    request.inputPath = source.toStdWString();
-    request.outputPath = directory.filePath("cut.mkv").toStdWString();
-    request.startSeconds = .3; request.endSeconds = 1.3;
-    request.mode = pfservices::CutMode::Lossless;
-    const auto result = pfservices::CutService(ffmpeg.toStdString()).cut(request);
-    ASSERT_TRUE(result.success) << result.error;
-    EXPECT_EQ(result.encoder, "ffv1");
-    const auto decode = [&](const QString& path, bool trim, bool audio) {
-        QProcess process;
-        QStringList args{"-v", "error", "-i", path};
-        if (audio) args << "-map" << "0:a:0";
-        else args << "-map" << "0:v:0";
-        if (trim) args << (audio ? "-af" : "-vf")
-            << (audio ? "atrim=start_sample=13230:end_sample=57330,asetpts=PTS-STARTPTS"
-                      : "trim=start_frame=3:end_frame=13,setpts=PTS-STARTPTS");
-        if (audio) args << "-f" << "s16le" << "-c:a" << "pcm_s16le";
-        else args << "-f" << "rawvideo" << "-pix_fmt" << "yuv420p10le" << "-fps_mode" << "passthrough";
-        args << "pipe:1";
-        process.start(ffmpeg, args);
-        if (!process.waitForFinished(30000) || process.exitCode() != 0) return QByteArray();
-        return process.readAllStandardOutput();
-    };
-    const auto expected = decode(source, true, false);
-    ASSERT_FALSE(expected.isEmpty());
-    EXPECT_EQ(decode(QString::fromStdWString(request.outputPath.wstring()), false, false), expected);
-    const auto probe = QStandardPaths::findExecutable("ffprobe");
-    ASSERT_FALSE(probe.isEmpty());
-    QProcess metadata;
-    metadata.start(probe, {"-v", "error", "-show_streams", "-of", "json", QString::fromStdWString(request.outputPath.wstring())});
-    ASSERT_TRUE(metadata.waitForFinished(10000));
-    const auto streams = QJsonDocument::fromJson(metadata.readAllStandardOutput()).object()["streams"].toArray();
-    ASSERT_EQ(streams.size(), 2);
-    EXPECT_EQ(streams[0].toObject()["pix_fmt"].toString(), "yuv420p10le");
-    EXPECT_EQ(streams[0].toObject()["width"].toInt(), 160);
-    EXPECT_EQ(streams[1].toObject()["codec_name"].toString(), "pcm_s16le");
-    EXPECT_EQ(streams[1].toObject()["sample_rate"].toString(), "44100");
-}
-
-TEST(CutService, LosslessRealSourceHasIdenticalDecodedFrameHashes)
-{
-    const auto source = qEnvironmentVariable("PF_TEST_EXPORT_SOURCE");
-    if (source.isEmpty()) GTEST_SKIP() << "Opt-in source pixel verification";
-    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
-    ASSERT_FALSE(ffmpeg.isEmpty());
-    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
-    pfservices::CutRequest request;
-    request.inputPath = source.toStdWString();
-    request.outputPath = directory.filePath("native-cut.mkv").toStdWString();
-    request.startSeconds = 60; request.endSeconds = 61;
-    request.mode = pfservices::CutMode::Lossless;
-    ASSERT_TRUE(pfservices::CutService(ffmpeg.toStdString()).cut(request).success);
-    const auto hashes = [&](const QString& path, bool original) {
-        QProcess decoder;
-        QStringList args{"-v", "error"};
-        if (original) args << "-ss" << "60";
-        args << "-i" << path;
-        if (original) args << "-t" << "1";
-        args << "-map" << "0:v:0" << "-fps_mode" << "passthrough" << "-f" << "framemd5" << "pipe:1";
-        decoder.start(ffmpeg, args);
-        if (!decoder.waitForFinished(60000) || decoder.exitCode() != 0) return QList<QByteArray>();
-        QList<QByteArray> result;
-        for (const auto& line : decoder.readAllStandardOutput().split('\n'))
-            if (!line.startsWith('#') && line.contains(',')) result.push_back(line.split(',').last().trimmed());
-        return result;
-    };
-    const auto original = hashes(source, true);
-    ASSERT_FALSE(original.empty());
-    EXPECT_EQ(hashes(QString::fromStdWString(request.outputPath.wstring()), false), original);
-}
-
-TEST(CutService, LosslessDropsCopiedAudioPrerollWithoutDelayingVideo)
-{
-    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
-    const auto ffprobe = QStandardPaths::findExecutable("ffprobe");
-    ASSERT_FALSE(ffmpeg.isEmpty());
-    ASSERT_FALSE(ffprobe.isEmpty());
-    QTemporaryDir directory;
-    ASSERT_TRUE(directory.isValid());
-    const auto source = directory.filePath("long-gop.mp4");
-    QProcess generate;
-    generate.start(ffmpeg, {"-v", "error", "-y", "-f", "lavfi", "-i",
-        "color=size=96x64:rate=10:duration=10", "-f", "lavfi", "-i",
-        "sine=frequency=440:sample_rate=48000:duration=10", "-c:v", "mpeg4",
-        "-g", "1000", "-bf", "0", "-c:a", "aac", source});
-    ASSERT_TRUE(generate.waitForFinished(30000));
-    ASSERT_EQ(generate.exitCode(), 0) << generate.readAllStandardError().toStdString();
-    pfservices::CutRequest request;
-    request.inputPath = source.toStdWString();
-    request.outputPath = directory.filePath("cut.mkv").toStdWString();
-    request.startSeconds = 8.03;
-    request.endSeconds = 8.53;
-    request.mode = pfservices::CutMode::Lossless;
-    const auto result = pfservices::CutService(ffmpeg.toStdString()).cut(request);
-    ASSERT_TRUE(result.success) << result.error;
-    QProcess probe;
-    probe.start(ffprobe, {"-v", "error", "-show_format", "-show_packets", "-of", "json",
-        QString::fromStdWString(request.outputPath.wstring())});
-    ASSERT_TRUE(probe.waitForFinished(10000));
-    ASSERT_EQ(probe.exitCode(), 0);
-    const auto metadata = QJsonDocument::fromJson(probe.readAllStandardOutput()).object();
-    EXPECT_LT(metadata["format"].toObject()["duration"].toString().toDouble(), .61);
-    int videoFrames = 0, audioPackets = 0;
-    double firstVideo = -1;
-    for (const auto& value : metadata["packets"].toArray()) {
-        const auto packet = value.toObject();
-        const double pts = packet["pts_time"].toString().toDouble();
-        EXPECT_GE(pts, 0);
-        EXPECT_LT(pts, .61);
-        if (packet["codec_type"].toString() == "video") {
-            if (videoFrames++ == 0) firstVideo = pts;
-        } else if (packet["codec_type"].toString() == "audio") {
-            ++audioPackets;
-        }
-    }
-    EXPECT_EQ(videoFrames, 5);
-    EXPECT_GT(audioPackets, 0);
-    EXPECT_GE(firstVideo, 0);
-    EXPECT_LT(firstVideo, .11);
-}
-
-TEST(MontageExport, LosslessJoinsOneSourceWithoutNormalizationAndRejectsMixedSources)
-{
-    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
-    ASSERT_FALSE(ffmpeg.isEmpty());
-    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
-    const auto source = directory.filePath("source.mkv");
-    QProcess generate;
-    generate.start(ffmpeg, {"-v", "error", "-y", "-f", "lavfi", "-i",
-        "testsrc2=size=160x90:rate=10:duration=2,format=yuv420p10le", "-c:v", "ffv1", source});
-    ASSERT_TRUE(generate.waitForFinished(30000)); ASSERT_EQ(generate.exitCode(), 0);
-    pfservices::CutRequest first;
-    first.inputPath = source.toStdWString(); first.startSeconds = 0; first.endSeconds = .5;
-    first.mode = pfservices::CutMode::Lossless;
-    auto second = first; second.startSeconds = 1; second.endSeconds = 1.5;
-    const auto destination = std::filesystem::path(directory.filePath("joined.mkv").toStdWString());
-    const auto result = pfservices::exportChronologicalMontage({second, first, first}, destination, {}, {}, ffmpeg.toStdString());
-    ASSERT_TRUE(result.success) << result.error;
-    pfcore::VideoDecoder decoder; decoder.open(destination.string());
-    EXPECT_EQ(decoder.info().width, 160); EXPECT_EQ(decoder.info().height, 90);
-    EXPECT_NEAR(decoder.info().frameRate, 10, .01);
-    pfcore::DecodedFrame frame; int count = 0;
-    while (decoder.readNext(frame, false)) ++count;
-    EXPECT_EQ(count, 10);
-    second.inputPath = directory.filePath("other-source.mkv").toStdWString();
-    const auto rejected = pfservices::exportChronologicalMontage({first, second}, destination, {}, {}, ffmpeg.toStdString());
-    EXPECT_FALSE(rejected.success);
-    EXPECT_NE(rejected.error.find("one source"), std::string::npos);
-    EXPECT_TRUE(std::filesystem::exists(destination));
 }

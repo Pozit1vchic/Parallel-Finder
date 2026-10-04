@@ -31,8 +31,6 @@ public:
                          std::size_t constructionSearch = 32);
 
     void clear();
-    // Empty/non-finite descriptors are ignored without invalidating the graph;
-    // queries with empty/non-finite descriptors return no neighbors.
     void add(std::size_t id, std::vector<double> embedding);
     void build();
 

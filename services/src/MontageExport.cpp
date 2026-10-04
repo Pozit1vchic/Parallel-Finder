@@ -1,6 +1,5 @@
 #include <pfservices/MontageExport.hpp>
 #include <pfcore/VideoDecoder.hpp>
-#include "MontageGeometry.hpp"
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
@@ -33,23 +32,6 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
     };
     if (cancelled()) return result;
     if (clips.empty() || output.empty()) { result.error = "no montage clips or output"; return result; }
-    if (!std::all_of(clips.begin(), clips.end(), [](const auto& clip) {
-        return !clip.inputPath.empty() && std::isfinite(clip.startSeconds)
-            && std::isfinite(clip.endSeconds) && clip.startSeconds >= 0.0
-            && clip.endSeconds > clip.startSeconds;
-    })) {
-        result.error = "invalid montage clip time range or input";
-        return result;
-    }
-    const bool lossless = clips.front().mode == CutMode::Lossless;
-    if (lossless && (output.extension() != ".mkv"
-        || !std::all_of(clips.begin(), clips.end(), [&](const auto& clip) {
-            return clip.mode == CutMode::Lossless && clip.inputPath == clips.front().inputPath;
-        }))) {
-        result.error = "Lossless joining requires clips from one source. Export separate lossless clips for multiple sources.";
-        return result;
-    }
-    const QString mediaExtension = lossless ? ".mkv" : ".mp4";
     std::stable_sort(clips.begin(), clips.end(), [](const auto& a, const auto& b) {
         return std::tie(a.startSeconds, a.inputPath, a.endSeconds)
             < std::tie(b.startSeconds, b.inputPath, b.endSeconds);
@@ -82,26 +64,24 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             return it->second;
         };
         const auto first = info(clips.front().inputPath);
-        int width = 0, height = 0;
-        if (!lossless) {
-            const auto canvas = detail::montageCanvas(first);
-            if (!canvas) { result.error = "invalid or oversized montage display dimensions"; return result; }
-            std::tie(width, height) = *canvas;
-        }
+        int width = std::max(2, static_cast<int>(std::round(first.width * first.sampleAspectRatio)) / 2 * 2);
+        int height = std::max(2, first.height / 2 * 2);
+        if (std::abs(first.rotationDegrees) > 45.0 && std::abs(first.rotationDegrees) < 135.0)
+            std::swap(width, height);
         const double fps = first.frameRate > 0.0 && std::isfinite(first.frameRate) ? first.frameRate : 25.0;
         const CutService cutter(executable);
         QByteArray manifest("ffconcat version 1.0\n");
         for (std::size_t i = 0; i < clips.size(); ++i) {
             if (cancelled()) return result;
             auto request = clips[i];
-            const QString name = staging.filePath(QString::number(i) + mediaExtension);
+            const QString name = staging.filePath(QString::number(i) + ".mp4");
             request.outputPath = std::filesystem::path(name.toStdWString());
-            request.mode = lossless ? CutMode::Lossless : CutMode::Exact;
+            request.mode = CutMode::Exact;
             request.maxWidth = request.maxHeight = 0;
-            request.canvasWidth = lossless ? 0 : width;
-            request.canvasHeight = lossless ? 0 : height;
-            request.outputFrameRate = lossless ? 0 : fps;
-            request.ensureStereoAudio = !lossless;
+            request.canvasWidth = width;
+            request.canvasHeight = height;
+            request.outputFrameRate = fps;
+            request.ensureStereoAudio = true;
             request.sourceHasAudio = info(request.inputPath).hasAudio;
             request.stopToken = stop;
             if (progress) progress(i, clips.size() + 1, 0);
@@ -114,7 +94,7 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             if (!result.success) return result;
             // Relative, generated filenames avoid quoting user paths and
             // keep concat's safe-path check enabled.
-            manifest += "file '" + QByteArray::number(static_cast<qulonglong>(i)) + mediaExtension.toUtf8() + "'\n";
+            manifest += "file '" + QByteArray::number(static_cast<qulonglong>(i)) + ".mp4'\n";
             if (progress) progress(i + 1, clips.size() + 1, 0);
         }
         result.success = false;
@@ -133,11 +113,9 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         }
         QProcess process;
         process.setProgram(program);
-        QStringList muxArguments{"-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-            "-f", "concat", "-safe", "1", "-i", list, "-map", "0", "-c", "copy"};
-        if (!lossless) muxArguments << "-movflags" << "+faststart";
-        muxArguments << staging.filePath("combined" + mediaExtension);
-        process.setArguments(muxArguments);
+        process.setArguments({"-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+            "-f", "concat", "-safe", "1", "-i", list, "-c", "copy", "-movflags", "+faststart",
+            staging.filePath("combined.mp4")});
 #ifdef Q_OS_WIN
         process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args) { args->flags |= CREATE_NO_WINDOW; });
 #endif
@@ -160,7 +138,7 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
             result.error = "montage mux: " + errors.right(65536).toStdString(); return result;
         }
-        QFile combined(staging.filePath("combined" + mediaExtension));
+        QFile combined(staging.filePath("combined.mp4"));
         QSaveFile finalFile(destination);
         if (!combined.open(QIODevice::ReadOnly) || combined.size() == 0 || !finalFile.open(QIODevice::WriteOnly)) {
             result.error = "cannot install completed montage"; return result;

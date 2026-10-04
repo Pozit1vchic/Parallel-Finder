@@ -50,17 +50,9 @@ void MotionRanker::rank(std::vector<MotionMatch>& matches,
         // The user-facing order is the calibrated similarity percentage. The
         // classifier confidence remains a tie-breaker, never a way to move a
         // weaker match above a stronger one.
-        // Epsilon-based ties are not transitive and invalidate sort's strict
-        // weak ordering. Numeric values precede NaNs; exact ties use metadata.
-        const bool leftSimilarityNaN = std::isnan(left.similarity);
-        const bool rightSimilarityNaN = std::isnan(right.similarity);
-        if (leftSimilarityNaN != rightSimilarityNaN) return !leftSimilarityNaN;
-        if (!leftSimilarityNaN && left.similarity != right.similarity)
+        if (std::abs(left.similarity - right.similarity) > 1e-12)
             return left.similarity > right.similarity;
-        const bool leftRankNaN = std::isnan(left.rankScore);
-        const bool rightRankNaN = std::isnan(right.rankScore);
-        if (leftRankNaN != rightRankNaN) return !leftRankNaN;
-        if (!leftRankNaN && left.rankScore != right.rankScore)
+        if (std::abs(left.rankScore - right.rankScore) > 1e-12)
             return left.rankScore > right.rankScore;
         if (left.leftIndex != right.leftIndex) return left.leftIndex < right.leftIndex;
         return left.rightIndex < right.rightIndex;

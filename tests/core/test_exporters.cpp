@@ -5,8 +5,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <algorithm>
-#include <array>
 #include <QTemporaryDir>
 
 namespace {
@@ -153,47 +151,6 @@ TEST(Exporters, FcpXmlReferencesEverySourceForMultiSourceProjects)
         }
         EXPECT_EQ(xml.find("<asset id=\"a" + std::to_string(sourceCount + 1) + "\""), std::string::npos);
     }
-}
-
-TEST(Exporters, NearEqualScoresHavePermutationIndependentSortedNumbering)
-{
-    std::array<pfcore::MotionMatch, 3> matches{sample(), sample(), sample()};
-    for (std::size_t i = 0; i < matches.size(); ++i) {
-        matches[i].rankScore = 0.9 + static_cast<double>(i) * 0.75e-9;
-        matches[i].leftStartSeconds = static_cast<double>(i);
-        matches[i].leftSourceId = "score_" + std::to_string(i);
-    }
-    pfexporters::ExportOptions options;
-    options.format = pfexporters::ExportFormat::Json;
-    options.numbering = pfexporters::NumberingMode::RenumberSorted;
-    std::array<int, 3> order{0,1,2};
-    do {
-        std::vector<pfcore::MotionMatch> input;
-        for (const auto index : order) input.push_back(matches[index]);
-        const auto output = pfexporters::formatResults(input, options);
-        EXPECT_LT(output.find("score_2"), output.find("score_1"));
-        EXPECT_LT(output.find("score_1"), output.find("score_0"));
-    } while (std::next_permutation(order.begin(), order.end()));
-}
-
-TEST(Exporters, NearEqualTimesHavePermutationIndependentChronologicalNumbering)
-{
-    std::array<pfcore::MotionMatch, 3> matches{sample(), sample(), sample()};
-    for (std::size_t i = 0; i < matches.size(); ++i) {
-        matches[i].leftStartSeconds = 1.0 + static_cast<double>(i) * 0.75e-9;
-        matches[i].rightSourceId = "time_" + std::to_string(2-i);
-    }
-    pfexporters::ExportOptions options;
-    options.format = pfexporters::ExportFormat::Json;
-    options.numbering = pfexporters::NumberingMode::AsInVideo;
-    std::array<int, 3> order{0,1,2};
-    do {
-        std::vector<pfcore::MotionMatch> input;
-        for (const auto index : order) input.push_back(matches[index]);
-        const auto output = pfexporters::formatResults(input, options);
-        EXPECT_LT(output.find("time_2"), output.find("time_1"));
-        EXPECT_LT(output.find("time_1"), output.find("time_0"));
-    } while (std::next_permutation(order.begin(), order.end()));
 }
 
 } // namespace

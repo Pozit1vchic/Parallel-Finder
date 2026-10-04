@@ -13,8 +13,6 @@ namespace pfservices {
 enum class CutMode {
     Exact,
     Fast,
-    // Frame-exact FFV1 in Matroska, retaining decoded pixels and source audio.
-    Lossless,
 };
 
 struct CutRequest {
@@ -57,10 +55,9 @@ class CutService {
 public:
     explicit CutService(std::string ffmpegExecutable = "ffmpeg");
 
-    // Runs ffmpeg without a shell. Output is written inside a unique owned
-    // staging directory beside the destination, retaining the media suffix.
-    // Installation replaces the destination only after a successful encode;
-    // staging is cleaned on success, failure, cancellation and exceptions.
+    // Runs ffmpeg without a shell. Output is written to a sibling temporary
+    // file that keeps the media extension (for example clip.part.mp4) and is
+    // moved into place only after a successful process exit.
     [[nodiscard]] CutResult cut(const CutRequest& request) const;
 
 private:

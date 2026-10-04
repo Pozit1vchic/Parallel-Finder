@@ -36,22 +36,6 @@ double rationalOr(const AVRational value, double fallback)
     return value.den ? av_q2d(value) : fallback;
 }
 
-std::int64_t seekTimestamp(double seconds, AVRational timeBase)
-{
-    if (!std::isfinite(seconds))
-        throw std::invalid_argument("seek timestamp must be finite");
-    if (timeBase.num <= 0 || timeBase.den <= 0)
-        throw std::runtime_error("video has an invalid seek time base");
-    // Retain the existing division/rounding for valid requests. Use the exact
-    // exclusive bound 2^63: double(INT64_MAX) rounds up to that invalid value.
-    const double ticks = std::max(0.0, seconds) / av_q2d(timeBase);
-    const double upperBound = std::ldexp(1.0, std::numeric_limits<std::int64_t>::digits);
-    if (!std::isfinite(ticks)
-        || ticks >= upperBound)
-        throw std::invalid_argument("seek timestamp exceeds the supported range");
-    return static_cast<std::int64_t>(ticks);
-}
-
 struct ElapsedMeasurement {
     double& total;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
@@ -171,8 +155,6 @@ struct VideoDecoder::Impl {
     {
         diagnostics.fallbackReason = reason;
         const auto* stream = format->streams[streamIndex];
-        const double seekSeconds = std::isfinite(target) ? std::max(0.0, target) : 0.0;
-        const auto timestamp = seekTimestamp(seekSeconds, stream->time_base);
         const auto* software = avcodec_find_decoder(stream->codecpar->codec_id);
         if (!software) throw std::runtime_error("no software decoder for hardware fallback");
         av_frame_unref(decoded);
@@ -181,6 +163,8 @@ struct VideoDecoder::Impl {
         av_packet_unref(packet);
         const int result = openCodec(software, false);
         if (result < 0) throw std::runtime_error("open fallback decoder: " + ffError(result));
+        const double seekSeconds = std::isfinite(target) ? std::max(0.0, target) : 0.0;
+        const auto timestamp = static_cast<int64_t>(seekSeconds / av_q2d(stream->time_base));
         const int seekResult = av_seek_frame(format, streamIndex, timestamp, AVSEEK_FLAG_BACKWARD);
         if (seekResult < 0) throw std::runtime_error("seek fallback decoder: " + ffError(seekResult));
         draining = false;
@@ -556,12 +540,12 @@ bool VideoDecoder::convertCurrentFrameToRgba(DecodedFrame& output)
 void VideoDecoder::seek(double timestampSeconds)
 {
     if (!isOpen()) throw std::logic_error("decoder is not open");
-    const AVStream* stream = impl_->format->streams[impl_->streamIndex];
-    const auto timestamp = seekTimestamp(timestampSeconds, stream->time_base);
     if (impl_->frameAvailable) {
         av_frame_unref(impl_->decoded);
         impl_->frameAvailable = false;
     }
+    const AVStream* stream = impl_->format->streams[impl_->streamIndex];
+    const int64_t timestamp = static_cast<int64_t>(std::max(0.0, timestampSeconds) / av_q2d(stream->time_base));
     const int result = av_seek_frame(impl_->format, impl_->streamIndex, timestamp, AVSEEK_FLAG_BACKWARD);
     if (result < 0) throw std::runtime_error("seek: " + ffError(result));
     avcodec_flush_buffers(impl_->codec); impl_->draining = false;

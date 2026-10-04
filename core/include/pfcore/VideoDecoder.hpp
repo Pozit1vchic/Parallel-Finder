@@ -85,8 +85,6 @@ public:
     // the way to one requested preview. Returns false when no retained frame
     // is available (for example after a regular readNext(..., true)).
     bool convertCurrentFrameToRgba(DecodedFrame& frame);
-    // Finite negative times clamp to zero. Non-finite/unrepresentable times
-    // throw std::invalid_argument before discarding a retained current frame.
     void seek(double timestampSeconds);
     void rewind();
 

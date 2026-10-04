@@ -86,27 +86,7 @@ struct IdentitySummary {
 // Select the longest identity, without allowing a body-only intermediate
 // track to join two groups whose observed faces disagree. A single face
 // sample can veto a clothing link without establishing a positive face link.
-// Face-free members need direct body evidence to a recognisable face anchor;
-// clothing-only transitive chains do not establish the lead's identity.
 std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities);
-
-struct TrackObservationRange {
-    std::size_t begin = 0;
-    std::size_t end = 0; // exclusive, indexes into the original track
-};
-
-struct DominantSourceSelection {
-    std::vector<bool> tracks;
-    std::vector<bool> recovered;
-    // Original lead tracks retain their full range. A recovered track admits
-    // only separately face-supported runs, never an unverified trailing cut.
-    std::vector<std::vector<TrackObservationRange>> observationRuns;
-};
-
-// Recover profile fragments with a strict majority of ORIGINAL face anchors
-// and a body link to a face-confirmed anchor. No transitive recovery. Consumers
-// must respect observationRuns and bound playback/export to recovered runs.
-DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack>& tracks);
 
 // Select the main identity within [startSeconds, endSeconds), using only
 // evidence observed in that shot. A poor profile/outfit match elsewhere in

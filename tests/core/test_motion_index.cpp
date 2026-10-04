@@ -3,7 +3,6 @@
 #include <pfcore/MotionIndex.hpp>
 #include <cmath>
 #include <future>
-#include <limits>
 
 namespace {
 void expectSameNeighbors(const std::vector<pfcore::MotionIndex::Neighbor>& left,
@@ -148,52 +147,4 @@ TEST(MotionIndex, EmptyAndSingleNodeQueriesAreSafe)
     const auto result = index.query({1.0}, 4);
     ASSERT_EQ(result.size(), 1U);
     EXPECT_EQ(result.front().id, 7U);
-}
-
-TEST(MotionIndex, NonFiniteEmbeddingsDoNotEnterOrInvalidateBuiltIndex)
-{
-    pfcore::MotionIndex index;
-    index.add(7, {1.0});
-    index.build();
-    for (const auto value : {std::numeric_limits<double>::quiet_NaN(),
-                             std::numeric_limits<double>::infinity(),
-                             -std::numeric_limits<double>::infinity()}) {
-        index.add(8, {0.0, value});
-        EXPECT_EQ(index.size(), 1U);
-        const auto result = index.query({1.0}, 1);
-        ASSERT_EQ(result.size(), 1U);
-        EXPECT_EQ(result.front().id, 7U);
-        EXPECT_DOUBLE_EQ(result.front().similarity, 1.0);
-    }
-}
-
-TEST(MotionIndex, NonFiniteQueriesDoNotContaminateReusableWorkspace)
-{
-    pfcore::MotionIndex index;
-    index.add(7, {1.0});
-    index.build();
-    pfcore::MotionIndex::QueryWorkspace workspace;
-    const auto expected = index.query({1.0}, 1, 2, workspace);
-    for (const auto value : {std::numeric_limits<double>::quiet_NaN(),
-                             std::numeric_limits<double>::infinity(),
-                             -std::numeric_limits<double>::infinity()}) {
-        EXPECT_TRUE(index.query({value}, 1).empty());
-        EXPECT_TRUE(index.query({value}, 1, 2, workspace).empty());
-        expectSameNeighbors(expected, index.query({1.0}, 1, 2, workspace));
-    }
-}
-
-TEST(MotionIndex, ExtremeFiniteDistancesRemainOrderedAndFinite)
-{
-    pfcore::MotionIndex index;
-    const auto maximum = std::numeric_limits<double>::max();
-    index.add(7, {maximum});
-    index.add(8, {-maximum});
-    index.build();
-    const auto result = index.query({maximum}, 2);
-    ASSERT_EQ(result.size(), 2U);
-    EXPECT_EQ(result[0].id, 7U);
-    EXPECT_DOUBLE_EQ(result[0].similarity, 1.0);
-    EXPECT_EQ(result[1].id, 8U);
-    EXPECT_DOUBLE_EQ(result[1].similarity, 0.0);
 }

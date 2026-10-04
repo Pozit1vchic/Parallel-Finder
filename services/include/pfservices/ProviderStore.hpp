@@ -5,7 +5,6 @@
 #include <functional>
 #include <optional>
 #include <string>
-#include <stop_token>
 #include <vector>
 
 namespace pfservices {
@@ -37,17 +36,15 @@ public:
     // every chunk and the complete archive before exposing it to extraction.
     static bool assembleParts(const ProviderAsset& asset,
                               const std::vector<std::filesystem::path>& paths,
-                              const std::filesystem::path& destination, std::string& error,
-                              std::stop_token stop = {});
+                              const std::filesystem::path& destination, std::string& error);
     static bool downloadDirectMl(const std::filesystem::path& destination,
-                                 ProviderDownloadProgress progress, std::string& error,
-                                 std::stop_token stop = {});
+                                 ProviderDownloadProgress progress, std::string& error);
     // Manifest format: { "providers": [{ "provider":"cuda",
     // "archive":"runtime-cuda.zip", "sha256":"...", "sizeBytes":123,
     // "downloadUrl":"https://..." }] }
     static std::optional<ProviderAsset> fetchManifest(const std::string& url,
                                                       const std::string& provider,
-                                                      std::string& error, std::stop_token stop = {});
+                                                      std::string& error);
 
     // Downloads and verifies the archive, then extracts it into destination.
     // The archive must contain a complete side-by-side ONNX Runtime bundle
@@ -55,7 +52,7 @@ public:
     static bool downloadAndInstall(const ProviderAsset& asset,
                                    const std::filesystem::path& destination,
                                    ProviderDownloadProgress progress,
-                                   std::string& error, std::stop_token stop = {});
+                                   std::string& error);
 };
 
 } // namespace pfservices

@@ -42,8 +42,6 @@ public:
     static void registerQmlTypes();
 
     explicit AppInfo(QObject* parent = nullptr);
-    ~AppInfo() override;
-    void shutdown();
 
     QString version() const;
 
@@ -101,8 +99,6 @@ private:
     bool backendSnapshotReady_ = false;
     QVariantMap backendStatuses_;
     std::jthread backendProbe_;
-    bool shuttingDown_ = false;
-    std::jthread providerDownload_;
 };
 
 } // namespace pfui

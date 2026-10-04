@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <string>
 #include <vector>
-#include <stop_token>
 
 namespace pfcore {
 
@@ -30,7 +29,7 @@ struct MotionWindow {
     // multi-frame/temporal coverage guard.
     bool staticFrameSet = false;
     // Full shot bounds retained separately from the shorter motion chunk.
-    // They constrain the short context used for playback and export.
+    // Matching still uses the chunk; export can cut the complete scene.
     double sceneStartSeconds = -1.0;
     double sceneEndSeconds = -1.0;
     std::vector<PoseFrame> frames;
@@ -62,9 +61,9 @@ struct MotionMatcherParams {
     std::size_t maxUniqueResults = 100;
     // Independent result types have separate budgets/duplicate metrics, but
     // the per-shot reuse quota below is shared across both types.
-    // Default: one result per shot. Callers can explicitly opt into reuse.
+    // A shot may support a few independent pairs, not an unlimited hub.
     // Zero disables this diversity quota for diagnostic comparisons.
-    std::size_t maxResultsPerShot = 1;
+    std::size_t maxResultsPerShot = 3;
     // Zero: up to four workers on large exact-comparison sets. One forces
     // serial execution for reproducible A/B checks. Retrieval and selection
     // stay serial; no candidate or sample is dropped by this setting.
@@ -197,11 +196,9 @@ public:
     MotionMatch compare(const MotionWindow& left, const MotionWindow& right,
                         std::size_t leftIndex = 0, std::size_t rightIndex = 0) const;
 
-    // Candidate search followed by shared per-shot selection. The default
-    // returns each shot once; maxResultsPerShot explicitly controls reuse.
-    // A requested stop throws std::runtime_error; no partial result is returned.
-    std::vector<MotionMatch> findAllPairs(const std::vector<MotionWindow>& windows,
-                                        std::stop_token stop = {}) const;
+    // All-pairs search. Windows are never consumed: one window may participate
+    // in several independent results, as required by the product semantics.
+    std::vector<MotionMatch> findAllPairs(const std::vector<MotionWindow>& windows) const;
 
 private:
     MotionMatcherParams params_;

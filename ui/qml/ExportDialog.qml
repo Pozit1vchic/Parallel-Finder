@@ -9,7 +9,7 @@ Popup {
     id: root
     objectName: "exportDialog"
     readonly property int selectedNumbering: exportNumbering.currentIndex
-    readonly property int selectedCutMode: mergeChronological && cutMode.currentIndex === 1 ? 0 : cutMode.currentIndex
+    readonly property int selectedCutMode: mergeChronological ? 0 : cutMode.currentIndex
     readonly property bool mergeChronological: selectedFormat === "FFMPEG" && mergeCheck.checked
     readonly property string selectedFormat: ["FFMPEG", "JSON", "CSV", "TXT"][exportFormat.currentIndex] || "FFMPEG"
     readonly property string fileBaseName: prefixField.text
@@ -110,12 +110,11 @@ Popup {
             }
         ComboBox { id: exportNumbering; visible: false; model: [0, 1]; currentIndex: 0 }
         Text { font.family: Theme.fontFamily; text: L10n.t("export.cutMode"); color: Theme.textSecondary; font.pixelSize: 11 }
-        PfButton { width: parent.width; objectName: "losslessCutButton"; text: L10n.t("export.lossless"); selected: cutMode.currentIndex === 2; onClicked: cutMode.currentIndex = 2 }
-        Row { width: parent.width; spacing: 8
+        Row { width: parent.width; spacing: 8; enabled: !root.mergeChronological
             PfButton { width: (parent.width - 8) / 2; objectName: "exactCutButton"; text: L10n.t("export.exact"); selected: cutMode.currentIndex === 0; onClicked: cutMode.currentIndex = 0 }
-            PfButton { width: (parent.width - 8) / 2; objectName: "fastCutButton"; enabled: !root.mergeChronological; text: L10n.t("export.fast"); selected: cutMode.currentIndex === 1; onClicked: cutMode.currentIndex = 1 }
+            PfButton { width: (parent.width - 8) / 2; objectName: "fastCutButton"; text: L10n.t("export.fast"); selected: cutMode.currentIndex === 1; onClicked: cutMode.currentIndex = 1 }
         }
-        ComboBox { id: cutMode; visible: false; model: [0, 1, 2]; currentIndex: 2 }
+        ComboBox { id: cutMode; visible: false; model: [0, 1]; currentIndex: 0 }
         Row { width: parent.width; spacing: 8
             PfTextField { id: folderField; width: parent.width - 110; text: root.outputFolder; placeholderText: L10n.t("export.folder"); Accessible.name: L10n.t("export.folder"); onEditingFinished: root.outputFolder = text }
             PfButton { width: 102; text: L10n.t("export.chooseFolder"); quiet: true; onClicked: root.chooseFolder() }

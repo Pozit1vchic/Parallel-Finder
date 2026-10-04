@@ -1,6 +1,4 @@
 #include <pfservices/ModelStore.hpp>
-#include "NetworkOperation.hpp"
-#include "ModelPublication.hpp"
 
 #include <QCryptographicHash>
 #include <QEventLoop>
@@ -23,33 +21,9 @@
 #include <utility>
 #include <vector>
 
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#endif
-
 #include <pfservices/SettingsStore.hpp>
 
 namespace pfservices {
-
-void detail::installDownloadedModel(const std::filesystem::path& partial,
-                                   const std::filesystem::path& destination,
-                                   std::error_code& error)
-{
-#ifdef _WIN32
-    error.clear();
-    if (!MoveFileExW(partial.c_str(), destination.c_str(),
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-        error = std::error_code(static_cast<int>(GetLastError()), std::system_category());
-#else
-    // Same-volume POSIX rename replaces a file atomically and rejects a
-    // directory destination. Never remove the previous model first.
-    std::filesystem::rename(partial, destination, error);
-#endif
-}
-
 namespace {
 
 // Keep streamed model/provider assets bounded even when a manifest omits its
@@ -173,9 +147,8 @@ std::optional<ModelAsset> assetFromManifestBytes(const QByteArray& bytes,
 
 bool ModelStore::verifySha256(const std::filesystem::path& path,
                               const std::string& expected,
-                              std::string& error, std::stop_token stop)
+                              std::string& error)
 {
-    if (stop.stop_requested()) { error = "operation cancelled"; return false; }
     if (expected.empty()) return true;
     if (!validSha256(expected)) {
         error = "model SHA-256 metadata is malformed";
@@ -188,7 +161,6 @@ bool ModelStore::verifySha256(const std::filesystem::path& path,
     }
     QCryptographicHash hash(QCryptographicHash::Sha256);
     while (!file.atEnd()) {
-        if (stop.stop_requested()) { error = "operation cancelled"; return false; }
         const QByteArray chunk = file.read(1024 * 1024);
         if (chunk.isEmpty() && !file.atEnd()) {
             error = "read model while hashing: " + file.errorString().toStdString();
@@ -263,9 +235,8 @@ std::optional<ModelAsset> ModelStore::readManifest(const std::filesystem::path& 
 
 std::optional<ModelAsset> ModelStore::fetchManifest(const std::string& url,
                                                     const std::string& filename,
-                                                    std::string& error, std::stop_token stop)
+                                                    std::string& error)
 {
-    if (stop.stop_requested()) { error = "operation cancelled"; return std::nullopt; }
     const QUrl requestUrl(QString::fromStdString(url));
     if (!requestUrl.isValid()
         || requestUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0
@@ -281,9 +252,6 @@ std::optional<ModelAsset> ModelStore::fetchManifest(const std::string& url,
     request.setTransferTimeout(30000);
     QNetworkReply* reply = manager.get(request);
     QEventLoop loop;
-    detail::boundManifestReply(*reply, kMaxManifestBytes, error);
-    QTimer cancellation;
-    detail::watchNetworkCancellation(cancellation, *reply, stop, error);
     QObject::connect(reply, &QNetworkReply::redirected, [&](const QUrl& target) {
         if (target.scheme() == QStringLiteral("https") && trustedHost(target))
             reply->redirectAllowed();
@@ -301,10 +269,6 @@ std::optional<ModelAsset> ModelStore::fetchManifest(const std::string& url,
     });
     timeout.start(90000);
     loop.exec();
-    if (stop.stop_requested()) {
-        error = "operation cancelled";
-        return std::nullopt;
-    }
     const auto networkError = reply->error();
     const std::string networkMessage = reply->errorString().toStdString();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -336,9 +300,8 @@ std::optional<ModelAsset> ModelStore::fetchManifest(const std::string& url,
 bool ModelStore::download(const ModelAsset& asset,
                           const std::filesystem::path& destination,
                           DownloadProgress progress,
-                          std::string& error, std::stop_token stop)
+                          std::string& error)
 {
-    if (stop.stop_requested()) { error = "operation cancelled"; return false; }
     if (!safeAssetFilename(asset.filename)) {
         error = "model filename is unsafe";
         return false;
@@ -384,9 +347,8 @@ bool ModelStore::download(const ModelAsset& asset,
             return false;
         }
         if ((asset.sizeBytes == 0 || std::filesystem::file_size(destination, filesystemError) == asset.sizeBytes)
-            && verifySha256(destination, asset.sha256, error, stop)) return true;
+            && verifySha256(destination, asset.sha256, error)) return true;
     }
-    if (stop.stop_requested()) { error = "operation cancelled"; return false; }
     error.clear();
 
     auto partPath = destination;
@@ -400,28 +362,10 @@ bool ModelStore::download(const ModelAsset& asset,
             part.close();
             return false;
         }
-        const bool complete = asset.sizeBytes != 0
-            && static_cast<std::uint64_t>(offset) >= asset.sizeBytes;
-        if (complete && static_cast<std::uint64_t>(offset) == asset.sizeBytes
-            && verifySha256(partPath, asset.sha256, error, stop)) {
-            if (stop.stop_requested()) { error = "operation cancelled"; return false; }
-            detail::installDownloadedModel(partPath, destination, filesystemError);
-            if (filesystemError) {
-                error = "install downloaded model: " + filesystemError.message();
-                return false;
-            }
-            return true;
-        }
-        if (stop.stop_requested()) { error = "operation cancelled"; return false; }
-        // A full invalid/oversized partial cannot be repaired by requesting
-        // bytes beyond EOF (HTTP 416). Restart it, retaining incomplete data
-        // for the usual ranged resume instead.
-        error.clear();
-        if (!part.open(QIODevice::ReadWrite | (complete ? QIODevice::Truncate : QIODevice::Append))) {
+        if (!part.open(QIODevice::ReadWrite | QIODevice::Append)) {
             error = "open partial model: " + part.errorString().toStdString();
             return false;
         }
-        if (complete) offset = 0;
     } else if (!part.open(QIODevice::ReadWrite | QIODevice::Truncate)) {
         error = "create partial model: " + part.errorString().toStdString();
         return false;
@@ -440,8 +384,6 @@ bool ModelStore::download(const ModelAsset& asset,
     QNetworkAccessManager manager;
     QNetworkReply* reply = manager.get(request);
     QEventLoop loop;
-    QTimer cancellation;
-    detail::watchNetworkCancellation(cancellation, *reply, stop, error);
     bool metadataSeen = false;
     qint64 expectedTotal = asset.sizeBytes == 0 ? -1 : static_cast<qint64>(asset.sizeBytes);
     QObject::connect(reply, &QNetworkReply::redirected, [&](const QUrl& target) {
@@ -473,20 +415,10 @@ bool ModelStore::download(const ModelAsset& asset,
             return;
         }
         if (offset > 0 && status == 200) {
-            if (!part.resize(0) || !part.seek(0)) {
-                error = "restart partial model: " + part.errorString().toStdString();
-                reply->abort();
-                return;
-            }
+            part.resize(0);
             offset = 0;
         }
         const qint64 total = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
-        if (total > static_cast<qint64>(kMaxDownloadBytes)
-            || (status == 206 && total > static_cast<qint64>(kMaxDownloadBytes) - offset)) {
-            error = "model download exceeds the maximum supported size";
-            reply->abort();
-            return;
-        }
         if (total > 0 && status == 206) expectedTotal = offset + total;
         else if (total > 0) expectedTotal = total;
         if (expectedTotal > static_cast<qint64>(kMaxDownloadBytes)
@@ -537,7 +469,6 @@ bool ModelStore::download(const ModelAsset& asset,
     });
     timeout.start(2 * 60 * 60 * 1000);
     loop.exec();
-    if (stop.stop_requested()) { error = "operation cancelled"; return false; }
     const auto networkError = reply->error();
     const std::string networkMessage = reply->errorString().toStdString();
     if (!metadataSeen && networkError == QNetworkReply::NoError) {
@@ -568,11 +499,7 @@ bool ModelStore::download(const ModelAsset& asset,
         return false;
     }
     reply->deleteLater();
-    if (!part.flush()) {
-        error = "flush partial model: " + part.errorString().toStdString();
-        part.close();
-        return false;
-    }
+    part.flush();
     part.close();
 
     const auto actualSize = std::filesystem::file_size(partPath, filesystemError);
@@ -580,9 +507,10 @@ bool ModelStore::download(const ModelAsset& asset,
         error = "downloaded model size mismatch";
         return false;
     }
-    if (!verifySha256(partPath, asset.sha256, error, stop)) return false;
-    if (stop.stop_requested()) { error = "operation cancelled"; return false; }
-    detail::installDownloadedModel(partPath, destination, filesystemError);
+    if (!verifySha256(partPath, asset.sha256, error)) return false;
+    std::filesystem::remove(destination, filesystemError);
+    filesystemError.clear();
+    std::filesystem::rename(partPath, destination, filesystemError);
     if (filesystemError) {
         error = "install downloaded model: " + filesystemError.message();
         return false;

@@ -6,7 +6,7 @@
 #endif
 #define AppName "Parallel Finder"
 #ifndef AppVersion
-  #define AppVersion "0.1.0-rc.18"
+  #define AppVersion "0.1.0-rc.13"
 #endif
 [Setup]
 AppId={{C8F36BC9-6469-42F4-97D1-0421C92638E5}

@@ -338,7 +338,6 @@ Rectangle {
                 }
             }
             Text { font.family: Theme.fontFamily;
-                visible: !Analysis.busy
                 width: parent.width; text: Analysis.busy
                     ? L10n.status(Analysis.progressStage) + " · " + Math.round(Analysis.progress * 100) + "%"
                     : L10n.status(Analysis.status)

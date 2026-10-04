@@ -1,17 +1,12 @@
 #include <gtest/gtest.h>
 #include <pfcore/MotionMatcher.hpp>
 #include <pfcore/PoseSupport.hpp>
-#include <pfcore/detail/MatchOrdering.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <set>
-#include <chrono>
-#include <future>
-#include <thread>
 #include <QFile>
-#include <QByteArray>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -21,100 +16,6 @@
 #include "soldier_head_pose_fixture.hpp"
 
 namespace {
-
-TEST(MotionMatcher, DecisionTraceDistinguishesShotBoundaryOverlapAndSameShot)
-{
-    struct RestoreEnvironment {
-        bool present = qEnvironmentVariableIsSet("PF_DEBUG_COMPARE_REASONS");
-        QByteArray value = qgetenv("PF_DEBUG_COMPARE_REASONS");
-        ~RestoreEnvironment() {
-            if (present) qputenv("PF_DEBUG_COMPARE_REASONS", value);
-            else qunsetenv("PF_DEBUG_COMPARE_REASONS");
-        }
-    } restore;
-    pfcore::MotionWindow left, right;
-    left.sourceId = right.sourceId = "isolated-trace-source";
-    left.hasSceneIndex = right.hasSceneIndex = true;
-    left.sceneIndex = right.sceneIndex = 7;
-    left.sceneStartSeconds = right.sceneStartSeconds = 0;
-    left.sceneEndSeconds = right.sceneEndSeconds = 1;
-    left.frames = {{.1, {}}, {.2, {}}};
-    right.frames = {{.5, {}}, {.6, {}}};
-    const pfcore::MotionMatcher matcher;
-    const auto verify = [&](const char* reason) {
-        qunsetenv("PF_DEBUG_COMPARE_REASONS");
-        const auto original = matcher.compare(left, right, 12, 34);
-        qputenv("PF_DEBUG_COMPARE_REASONS", "1");
-        testing::internal::CaptureStderr();
-        const auto traced = matcher.compare(left, right, 12, 34);
-        const auto output = testing::internal::GetCapturedStderr();
-        EXPECT_NE(output.find(std::string("reason=") + reason), std::string::npos);
-        EXPECT_NE(output.find("a=12 b=34 mirrored=0"), std::string::npos);
-        EXPECT_EQ(original.similarity, traced.similarity);
-        EXPECT_EQ(original.dtwDistance, traced.dtwDistance);
-        EXPECT_EQ(original.leftStartSeconds, traced.leftStartSeconds);
-        EXPECT_EQ(original.rightStartSeconds, traced.rightStartSeconds);
-        EXPECT_EQ(original.leftSourceId, traced.leftSourceId);
-        EXPECT_EQ(original.rightSourceId, traced.rightSourceId);
-    };
-    verify("same-shot");
-    left.frames.back().timestampSeconds = 1.2;
-    verify("crosses-shot-boundary");
-    left.hasSceneIndex = right.hasSceneIndex = false;
-    verify("overlapping-source-intervals");
-}
-
-TEST(MotionMatcher, CandidateOrderingIsTransitiveForNearEqualScores)
-{
-    std::vector<pfcore::MotionMatch> matches(3);
-    for (std::size_t i = 0; i < matches.size(); ++i) {
-        matches[i].leftIndex = i;
-        matches[i].similarity = .9 + static_cast<double>(i) * .75e-12;
-        matches[i].unmirroredSimilarity = matches[i].similarity;
-    }
-    for (const auto& a : matches) for (const auto& b : matches) for (const auto& c : matches) {
-        if (pfcore::detail::strongestMatchFirst(a, b) && pfcore::detail::strongestMatchFirst(b, c))
-            EXPECT_TRUE(pfcore::detail::strongestMatchFirst(a, c));
-        if (pfcore::detail::directHeadMatchFirst(a, b, .7) && pfcore::detail::directHeadMatchFirst(b, c, .7))
-            EXPECT_TRUE(pfcore::detail::directHeadMatchFirst(a, c, .7));
-    }
-}
-
-TEST(MotionMatcher, CandidateOrderingHandlesNumericAndNaNScoresAcrossPermutations)
-{
-    const double nan = std::numeric_limits<double>::quiet_NaN();
-    const double inf = std::numeric_limits<double>::infinity();
-    const double scores[] = {nan, .9, -inf, inf, .9 + .75e-12, .9 + 1.5e-12};
-    std::vector<pfcore::MotionMatch> matches(6);
-    for (std::size_t i = 0; i < matches.size(); ++i) {
-        matches[i].leftIndex = i;
-        matches[i].similarity = scores[i];
-        matches[i].unmirroredSimilarity = scores[i];
-    }
-    const auto verify = [&](const auto& comparator, const std::vector<std::size_t>& expected) {
-        for (const auto& a : matches) {
-            EXPECT_FALSE(comparator(a, a));
-            for (const auto& b : matches) for (const auto& c : matches) {
-                if (comparator(a, b)) EXPECT_FALSE(comparator(b, a));
-                if (comparator(a, b) && comparator(b, c)) EXPECT_TRUE(comparator(a, c));
-            }
-        }
-        std::vector<std::size_t> permutation{0, 1, 2, 3, 4, 5};
-        do {
-            std::vector<pfcore::MotionMatch> sorted;
-            for (const auto i : permutation) sorted.push_back(matches[i]);
-            std::sort(sorted.begin(), sorted.end(), comparator);
-            for (std::size_t i = 0; i < sorted.size(); ++i) EXPECT_EQ(sorted[i].leftIndex, expected[i]);
-        } while (std::next_permutation(permutation.begin(), permutation.end()));
-    };
-    verify(pfcore::detail::strongestMatchFirst, {3, 5, 4, 1, 2, 0});
-    verify([](const auto& a, const auto& b) { return pfcore::detail::directHeadMatchFirst(a, b, .7); },
-           {3, 5, 4, 1, 2, 0});
-    auto mirror = matches[3];
-    mirror.unmirroredSimilarity = .6;
-    EXPECT_TRUE(pfcore::detail::directHeadMatchFirst(matches[1], mirror, .7));
-    EXPECT_FALSE(pfcore::detail::directHeadMatchFirst(mirror, matches[1], .7));
-}
 
 std::vector<pfcore::MotionWindow> recordedPoseFixture(const char* filename, bool staticFrameSet)
 {
@@ -141,25 +42,6 @@ std::vector<pfcore::MotionWindow> recordedPoseFixture(const char* filename, bool
         windows.push_back(std::move(window));
     }
     return windows;
-}
-
-TEST(MotionMatcher, InvalidIdentityDescriptorsDoNotBuildAnEmptyRetrievalGroup)
-{
-    auto windows = recordedPoseFixture("dean-partial-aiming-pose.json", true);
-    ASSERT_EQ(windows.size(), 4U);
-    pfcore::MotionMatcherParams params;
-    params.allowStaticFrames = true;
-    params.requireAppearance = true;
-    for (const auto value : {std::numeric_limits<float>::quiet_NaN(),
-                             std::numeric_limits<float>::infinity(),
-                             -std::numeric_limits<float>::infinity()}) {
-        for (auto& window : windows) {
-            window.appearanceEmbedding = {1.0F, value};
-            window.faceEmbedding = {value, 1.0F};
-            window.faceConfidence = 1.0;
-        }
-        EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs(windows).empty());
-    }
 }
 
 TEST(MotionMatcher, ReliableShortAimingPoseIsNotLostToOccludedEndpoints)
@@ -595,7 +477,6 @@ TEST(MotionMatcher, StaticPoseScoreDoesNotDependOnBackgroundColors)
 {
     auto poses = deanAimingPoseFixture();
     pfcore::MotionMatcherParams params;
-    params.maxResultsPerShot = 0; // This test measures pair acceptance, with reuse explicitly enabled.
     params.allowStaticFrames = true;
     params.mirrorInvariant = true;
     const pfcore::MotionMatcher matcher(params);
@@ -658,8 +539,7 @@ TEST(MotionMatcher, MirrorInvariantComparisonRecoversReflectedMotion)
 
 TEST(MotionMatcher, AllPairsAllowsOneWindowInSeveralResults)
 {
-    pfcore::MotionMatcherParams params;
-    params.maxResultsPerShot = 0; // This test measures pair acceptance, with reuse explicitly enabled. params.similarityThreshold = 0.7; params.maxUniqueResults = 10;
+    pfcore::MotionMatcherParams params; params.similarityThreshold = 0.7; params.maxUniqueResults = 10;
     pfcore::MotionMatcher matcher(params);
     const auto matches = matcher.findAllPairs({window("a", 0), window("b", 4), window("c", 8)});
     EXPECT_EQ(matches.size(), 3U);
@@ -980,7 +860,6 @@ TEST(MotionMatcher, SharedIdentityPrototypeMemoPreservesEvidenceAndProvenance)
 TEST(MotionMatcher, SyntheticAcceptanceF1RemainsAboveThreshold)
 {
     pfcore::MotionMatcherParams params;
-    params.maxResultsPerShot = 0; // This test measures pair acceptance, with reuse explicitly enabled.
     params.similarityThreshold = 0.70;
     params.candidateThreshold = 0.40;
     params.maxUniqueResults = 20;
@@ -1108,7 +987,6 @@ TEST(MotionMatcher, ContextualDuplicateSuppressionIsOrientationIndependent)
     auto nextB = gestureWindow("b", 10, false);
     for (auto* item : {&a, &b, &nextA, &nextB}) item->sceneContext = {1.0F};
     pfcore::MotionMatcherParams params;
-    params.maxResultsPerShot = 0; // This test measures pair acceptance, with reuse explicitly enabled.
     params.maxUniqueResults = 100;
     const pfcore::MotionMatcher matcher(params);
     const auto direct = matcher.findAllPairs({a, b, nextA, nextB});
@@ -1133,7 +1011,6 @@ TEST(MotionMatcher, SameScenePairKeepsDifferentVerifiedPeople)
         }
     }
     pfcore::MotionMatcherParams params;
-    params.maxResultsPerShot = 0; // This test measures pair acceptance, with reuse explicitly enabled.
     params.requireAppearance = true;
     const auto matches = pfcore::MotionMatcher(params).findAllPairs(windows);
     ASSERT_EQ(matches.size(), 2u);
@@ -1264,7 +1141,6 @@ TEST(MotionMatcher, ThreeAdjacentShotsRetainThreeDifferentScenePairs)
     pfcore::MotionMatcherParams params;
     params.requireAppearance = true;
     params.sameSourceGapFloorSec = 0;
-    params.maxResultsPerShot = 3; // Explicit opt-in to scene reuse.
     const auto pairs = pfcore::MotionMatcher(params).findAllPairs(shots);
     EXPECT_EQ(pairs.size(), 3U); // A/B, A/C, B/C, not three sliding copies.
 }
@@ -1288,7 +1164,7 @@ TEST(MotionMatcher, OneShotCannotBecomeAnUnlimitedResultHub)
     ASSERT_FALSE(pairs.empty());
     std::vector<std::size_t> degree(shots.size());
     for (const auto& pair : pairs) { ++degree[pair.leftIndex]; ++degree[pair.rightIndex]; }
-    EXPECT_LE(*std::max_element(degree.begin(), degree.end()), 1U);
+    EXPECT_LE(*std::max_element(degree.begin(), degree.end()), 3U);
     EXPECT_GE(std::count_if(degree.begin(), degree.end(), [](auto n) { return n > 0; }), 8);
     params.maxResultsPerShot = 0;
     EXPECT_GT(pfcore::MotionMatcher(params).findAllPairs(shots).size(), pairs.size());
@@ -1601,49 +1477,6 @@ TEST(MotionMatcher, HeadLabelDoesNotSkipMirrorForShoulderSupportedPortrait)
     ASSERT_EQ(selected.size(), 1U);
     EXPECT_EQ(selected[0].leftIndex, 0U);
     EXPECT_EQ(selected[0].rightIndex, 2U);
-}
-
-TEST(MotionMatcher, PreCancelledSearchNeverReturnsPartialResults)
-{
-    std::stop_source stop;
-    stop.request_stop();
-    EXPECT_THROW(pfcore::MotionMatcher().findAllPairs({}, stop.get_token()), std::runtime_error);
-    EXPECT_THROW(pfcore::MotionMatcher().findAllPairs({window("a", 0), window("b", 4)}, stop.get_token()),
-                 std::runtime_error);
-}
-
-TEST(MotionMatcher, ActiveLargeSearchRespondsToStopAndNormalTokenPreservesOutput)
-{
-    const std::vector<pfcore::MotionWindow> small{window("a", 0), window("b", 4)};
-    std::stop_source normal;
-    const auto expected = pfcore::MotionMatcher().findAllPairs(small);
-    const auto actual = pfcore::MotionMatcher().findAllPairs(small, normal.get_token());
-    ASSERT_EQ(actual.size(), expected.size());
-    for (std::size_t i = 0; i < actual.size(); ++i) {
-        EXPECT_EQ(actual[i].leftIndex, expected[i].leftIndex);
-        EXPECT_EQ(actual[i].rightIndex, expected[i].rightIndex);
-        EXPECT_DOUBLE_EQ(actual[i].similarity, expected[i].similarity);
-    }
-    std::vector<pfcore::MotionWindow> large;
-    large.reserve(4000);
-    for (int i = 0; i < 4000; ++i) {
-        auto item = window("component", i * 4.0);
-        item.sourceId += std::to_string(i);
-        large.push_back(std::move(item));
-    }
-    std::stop_source stop;
-    auto result = std::async(std::launch::async, [&] {
-        try {
-            (void)pfcore::MotionMatcher().findAllPairs(large, stop.get_token());
-            return false;
-        } catch (const std::runtime_error& error) {
-            return std::string(error.what()) == "Motion matching cancelled";
-        }
-    });
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    stop.request_stop();
-    ASSERT_EQ(result.wait_for(std::chrono::seconds(5)), std::future_status::ready);
-    EXPECT_TRUE(result.get());
 }
 
 } // namespace

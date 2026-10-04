@@ -2,9 +2,6 @@
 
 #include <pfgpu/PoseEstimator.hpp>
 #include <pfgpu/Inference.hpp>
-#include <pfgpu/ProbeModel.hpp>
-#include <QTemporaryDir>
-#include <QFile>
 
 #include <filesystem>
 #include <cstdlib>
@@ -57,33 +54,6 @@ TEST(PoseEstimator, RunsPinnedBatchOneAssetWhenAvailable)
             EXPECT_EQ(detection.keypoints.size(), params.keypointCount * 3U);
         }
     });
-}
-
-TEST(PoseEstimator, RevalidatesMetadataWhenModelAtSamePathIsReplaced)
-{
-    const std::filesystem::path model = R"(D:\PF_CUDA\models\yolo26m-pose-640-b1.onnx)";
-    if (!std::filesystem::is_regular_file(model))
-        GTEST_SKIP() << "external model bundle is not installed";
-    QTemporaryDir directory;
-    ASSERT_TRUE(directory.isValid());
-    const auto replacement = directory.filePath("model.onnx");
-    ASSERT_TRUE(QFile::copy(QString::fromStdWString(model.wstring()), replacement));
-    pfgpu::PoseEstimatorParams params;
-    params.provider = pfgpu::Provider::Cpu;
-    params.intraOpThreads = 1;
-    params.profile = "b1";
-    pfgpu::PoseEstimator estimator(replacement.toStdString(), params);
-    ASSERT_NO_THROW(estimator.prepare());
-    {
-        QFile file(replacement);
-        ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
-        const auto bytes = pfgpu::probeModelBytes();
-        ASSERT_EQ(file.write(bytes.data(), static_cast<qint64>(bytes.size())), bytes.size());
-    }
-    // The replacement is valid ONNX, but its rank-2 Identity input cannot be
-    // a pose model. Previously the new session reused the old shape metadata.
-    EXPECT_THROW(estimator.prepare(), std::runtime_error);
-    EXPECT_THROW(estimator.prepare(), std::runtime_error);
 }
 
 TEST(PoseEstimator, DescribesPinnedStaticShapes)
