@@ -62,11 +62,12 @@ ApplicationWindow {
         rootWindow: root
     }
     ExportDialog { id: exportDialog; rootWindow: root; selectedRows: root.selectedExportRows }
+    UpdateDialog { id: updateDialog; rootWindow: root }
 
     Connections { target: Analysis; function onResultsChanged() { root.syncResultsSelection() } }
 
     function resultKeysEnabled() {
-        if (settingsDialog.visible || exportDialog.visible || fileDialog.visible
+        if (settingsDialog.visible || exportDialog.visible || updateDialog.visible || fileDialog.visible
                 || folderDialog.visible || root.selectedRecord === null) return false
         for (let item = root.activeFocusItem; item; item = item.parent) {
             // Analyze/add buttons retain focus after a run. Do not disable
@@ -79,7 +80,7 @@ ApplicationWindow {
     Shortcut { sequence: "Down"; enabled: root.resultKeysEnabled(); onActivated: resultsRail.selectNext() }
 
     Rectangle { id: workspaceSurface; anchors.fill: parent; color: Theme.canvas
-        layer.enabled: (settingsDialog.visible || exportDialog.visible) && GraphicsInfo.api !== GraphicsInfo.Software
+        layer.enabled: (settingsDialog.visible || exportDialog.visible || updateDialog.visible) && GraphicsInfo.api !== GraphicsInfo.Software
         layer.effect: MultiEffect { blurEnabled: true; blurMax: 12; blur: 1.0; colorization: 0.6; colorizationColor: "black" }
         ColumnLayout { anchors.fill: parent; spacing: 0
             TopBar { Layout.fillWidth: true; Layout.preferredHeight: Theme.topBarHeight; Layout.minimumHeight: Theme.topBarHeight; busy: Analysis.busy; onSettingsRequested: settingsDialog.open() }

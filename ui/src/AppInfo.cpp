@@ -1,5 +1,6 @@
 #include "AppInfo.h"
 #include "AnalysisController.h"
+#include <pfupdate/UpdateService.hpp>
 #include <pfgpu/DeviceInfo.hpp>
 #include <pfgpu/Provider.hpp>
 #include <pfservices/ProviderStore.hpp>
@@ -49,6 +50,10 @@ void AppInfo::registerQmlTypes()
     // qmlRegisterSingletonInstance on module URIs backed by a plugin.
     qmlRegisterSingletonInstance("PfUiBridge", 1, 0, "AppInfo", instance());
     AnalysisController::registerQmlTypes();
+    static pfupdate::UpdateService updates({QCoreApplication::applicationVersion().isEmpty()?QStringLiteral(PF_VERSION):QCoreApplication::applicationVersion(),
+        QString::fromStdString(pfservices::SettingsStore::defaultDirectory())+"/updates",QCoreApplication::applicationDirPath()});
+    updates.setCanInstall([]{const auto* analysis=AnalysisController::instance();return !analysis->busy() && !analysis->exportBusy();});
+    qmlRegisterSingletonInstance("PfUiBridge",1,0,"Updates",&updates);
 }
 
 AppInfo::AppInfo(QObject* parent)

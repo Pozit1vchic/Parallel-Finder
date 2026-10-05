@@ -21,12 +21,15 @@ endif()
 include(CTest)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 QuickDialogs2 Qml Gui Network Multimedia)
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+find_package(LibArchive REQUIRED)
 qt_standard_project_setup()
 qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0004 NEW)
 
 # Ядро и экспортёры не зависят от Qt; UI-модуль статический (QML-модуль PfUi).
 add_subdirectory(core)       # pfcore      — VideoDecoder, SceneDetector, DominantPerson, MotionMatcher, JobManager
+add_subdirectory(updates)
 add_subdirectory(gpu)        # pfgpu       — ORT-сессии, провайдеры auto/cuda/dml/cpu
 add_subdirectory(services)   # pfservices  — ThumbnailCache, CutService, ThemeStore, settings
 add_subdirectory(exporters)  # pfexporters — JSON/CSV/TXT/EDL/FCPXML/AEP

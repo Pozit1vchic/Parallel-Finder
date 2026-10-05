@@ -2,7 +2,8 @@ param(
     [string]$Toolchain = 'D:\msys2\ucrt64',
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-    [string]$ReleaseTag = '0.1.0-rc.16.4',
+    [string]$ReleaseTag = '0.1.0-rc.17',
+    [string]$SigningKey = (Join-Path $env:LOCALAPPDATA 'ParallelFinder/release-signing/update-ed25519-private.pem'),
     [switch]$SkipChecks
 )
 $ErrorActionPreference = 'Stop'
@@ -37,6 +38,7 @@ try {
     $out = Join-Path $root "release/$tag-$run"
     New-Item -ItemType Directory -Path $stage,$out | Out-Null
     Copy-Item -LiteralPath 'build/ucrt64-release/ParallelFinder.exe' -Destination $stage
+    Copy-Item -LiteralPath 'build/ucrt64-release/ParallelFinderUpdater.exe' -Destination $stage
     Copy-Item -LiteralPath LICENSE,README.md,AUDIT.md -Destination $stage
     Copy-Item -LiteralPath "$root/docs" -Destination (Join-Path $stage "docs") -Recurse
     & "$bin/windeployqt.exe" --release --no-translations --qmldir "$root/ui/qml" --dir $stage "$stage/ParallelFinder.exe"
@@ -70,7 +72,7 @@ try {
     # Include all locally available notices; provenance/source obligations remain a release gate.
     Copy-Item -LiteralPath "$Toolchain/share/licenses" -Destination (Join-Path $stage 'third-party-licenses') -Recurse
     Copy-Item -LiteralPath "$root/ui/qml/fonts/OFL.txt" -Destination (Join-Path $stage 'third-party-licenses/JetBrainsMono-OFL.txt')
-    Copy-Item -LiteralPath "$root/docs/rc16-multisource-2026-10-05.md" -Destination (Join-Path $stage 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath "$root/docs/updates.md" -Destination (Join-Path $stage 'RELEASE-NOTES.md')
     # Test real QML loading/rendering without developer import paths or DLL paths.
     if (!$SkipChecks) {
     $savedEnv = @{}
@@ -122,6 +124,11 @@ try {
     $zip = Join-Path $out "ParallelFinder-$tag-Portable-x64.zip"
     & tar.exe -a -cf $zip -C (Split-Path $stage) ParallelFinder
     if ($LASTEXITCODE) { throw 'ZIP creation failed' }
+    if (Test-Path -LiteralPath $SigningKey) {
+        & "$PSScriptRoot/sign-update.ps1" -Stage $stage -Package $zip -Version $tag -SigningKey $SigningKey -OpenSSL "$bin/openssl.exe" -ChangelogPath "$stage/RELEASE-NOTES.md"
+    } else {
+        throw 'Release signing key missing. Refusing to create an update-capable release without a trusted signature.'
+    }
     & $InnoSetup "/DStageDir=$stage" "/DOutputDir=$out" "/DAppVersion=$tag" "$PSScriptRoot/installer.iss"
     if ($LASTEXITCODE) { throw 'Installer compilation failed' }
     # Archive tracked working-tree sources only. Read their current contents

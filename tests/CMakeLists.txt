@@ -2,6 +2,22 @@ enable_testing()
 
 find_package(GTest CONFIG REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Test)
+add_executable(pf_update_tests updates/test_updates.cpp)
+target_link_libraries(pf_update_tests PRIVATE pfui pfui_module_import Qt6::Test)
+add_test(NAME pf_update_tests COMMAND pf_update_tests)
+set_tests_properties(pf_update_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+if(WIN32)
+    add_executable(pf_update_worker_test ../updates/src/updater_main.cpp)
+    target_compile_definitions(pf_update_worker_test PRIVATE PF_UPDATER_TESTS=1)
+    target_link_libraries(pf_update_worker_test PRIVATE pfupdate advapi32)
+    add_executable(pf_update_application_stub updates/application_stub.cpp)
+    target_link_libraries(pf_update_application_stub PRIVATE Qt6::Core)
+    target_compile_definitions(pf_update_tests PRIVATE
+        PF_UPDATE_TEST_WORKER="$<TARGET_FILE:pf_update_worker_test>"
+        PF_UPDATE_PRODUCTION_WORKER="$<TARGET_FILE:ParallelFinderUpdater>"
+        PF_UPDATE_APP_STUB="$<TARGET_FILE:pf_update_application_stub>")
+    add_dependencies(pf_update_tests pf_update_worker_test pf_update_application_stub)
+endif()
 
 add_executable(pf_ffmpeg_stall_stub helpers/ffmpeg_stall_stub.cpp)
 set_target_properties(pf_ffmpeg_stall_stub PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)

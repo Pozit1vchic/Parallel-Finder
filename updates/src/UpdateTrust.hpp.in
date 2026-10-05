@@ -1,0 +1,2 @@
+#pragma once
+inline constexpr const char* pfUpdatePublicKey = R"PEM(@PF_UPDATE_PUBLIC_KEY@)PEM";

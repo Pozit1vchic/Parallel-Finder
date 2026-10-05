@@ -300,6 +300,13 @@ Popup {
                         Text { text: L10n.t("settings.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.subtitle"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 13; wrapMode: Text.WordWrap }
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hairline }
+                        Text { text: L10n.t("updates.title"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        PfComboBox { objectName: "updateChannel"; Layout.fillWidth: true; model: ["Stable", "Beta"]; currentIndex: Updates.channel === "beta" ? 1 : 0; enabled: !Updates.busy; Accessible.name: L10n.t("updates.channel"); onActivated: Updates.channel = currentIndex === 1 ? "beta" : "stable" }
+                        PfCheckBox { objectName: "automaticUpdateCheck"; Layout.fillWidth: true; text: L10n.t("updates.autoCheck"); checked: Updates.automaticCheck; onToggled: Updates.automaticCheck = checked }
+                        PfCheckBox { objectName: "automaticUpdateDownload"; Layout.fillWidth: true; text: L10n.t("updates.autoDownload"); checked: Updates.automaticDownload; onToggled: Updates.automaticDownload = checked }
+                        PfButton { Layout.fillWidth: true; text: L10n.t("updates.check"); enabled: !Updates.busy; quiet: true; onClicked: { root.close(); Updates.check() } }
+                        Text { Layout.fillWidth: true; text: L10n.t("updates.consent"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
+                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hairline }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.environment"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.gpuSetupSteps"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
                         RowLayout { Layout.fillWidth: true; spacing: 12

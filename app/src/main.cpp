@@ -17,6 +17,9 @@
 #include <QFileInfo>
 #include <QFile>
 #include <QDir>
+#include <QSaveFile>
+#include <QQmlContext>
+#include <pfupdate/UpdateService.hpp>
 
 #include <AppInfo.h>
 #include <AnalysisController.h>
@@ -118,6 +121,7 @@ int main(int argc, char* argv[])
         diagnostic |= std::strcmp(argv[i], "--pf-smoke") == 0
             || std::strcmp(argv[i], "--pf-analysis-smoke") == 0
             || std::strcmp(argv[i], "--pf-ui-smoke") == 0;
+        diagnostic |= std::strcmp(argv[i], "--pf-update-healthcheck") == 0;
     }
 #if defined(Q_OS_WIN)
     if (providerProbe)
@@ -226,7 +230,8 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    const bool windowDiagnostic = app.arguments().contains(QStringLiteral("--pf-ui-smoke"));
+    const bool windowDiagnostic = app.arguments().contains(QStringLiteral("--pf-ui-smoke"))
+        || app.arguments().contains(QStringLiteral("--pf-update-healthcheck"));
     if (diagnostic && !windowDiagnostic) publishGpuInfo();
     else {
         auto* info = pfui::AppInfo::instance();
@@ -327,7 +332,7 @@ int main(int argc, char* argv[])
         }, Qt::SingleShotConnection);
     }
     // Unlike --pf-smoke, exercise the shipped QML imports and actual renderer.
-    if (args.contains(QStringLiteral("--pf-ui-smoke"))) {
+    if (args.contains(QStringLiteral("--pf-ui-smoke")) || args.contains(QStringLiteral("--pf-update-healthcheck"))) {
         auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
         if (!window) return 2;
         QObject::connect(window, &QQuickWindow::frameSwapped, &app, [&app] {
@@ -351,6 +356,20 @@ int main(int argc, char* argv[])
             window->show();
             window->requestUpdate();
         });
+    }
+    if (!diagnostic) {
+        const auto type=qmlTypeId("PfUiBridge",1,0,"Updates");
+        auto* updates=engine.singletonInstance<pfupdate::UpdateService*>(type);
+        QObject::connect(updates,&pfupdate::UpdateService::quitRequested,&app,&QCoreApplication::quit);
+        const auto ackIndex=args.indexOf("--pf-update-ack");
+        if(ackIndex>=0 && ackIndex+1<args.size()) {
+            const auto ack=args[ackIndex+1];
+            if(auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().first()))
+                QObject::connect(window,&QQuickWindow::frameSwapped,&app,[ack]{
+                    QSaveFile file(ack);if(file.open(QIODevice::WriteOnly)){file.write(QCoreApplication::applicationVersion().toUtf8());file.commit();}
+                },Qt::SingleShotConnection);
+        }
+        updates->startup();
     }
     return app.exec();
 }

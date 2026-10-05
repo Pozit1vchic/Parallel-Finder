@@ -23,6 +23,7 @@ set(PFUI_QML_FILES
     qml/ResultsRail.qml
     qml/SettingsDialog.qml
     qml/ExportDialog.qml
+    qml/UpdateDialog.qml
 )
 set_source_files_properties(qml/Theme.qml qml/L10n.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE
@@ -58,7 +59,7 @@ target_sources(pfui PRIVATE
     src/AppInfo.cpp
     src/AnalysisController.cpp
 )
-target_link_libraries(pfui PUBLIC pf::core pf::gpu pf::services pf::exporters)
+target_link_libraries(pfui PUBLIC pf::core pf::gpu pf::services pf::exporters pfupdate)
 
 # Static import of the module plugin: qt_add_qml_module writes "optional
 # plugin pfuiplugin" into qmldir, but shared-Qt builds do not link static
