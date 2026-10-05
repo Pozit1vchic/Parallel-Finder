@@ -634,6 +634,7 @@ void ensureSceneSequences(std::vector<pfcore::MotionWindow>& windows,
 {
     const auto key=std::string("scene-sequence-v5|")+QCryptographicHash::hash(
         QByteArray::fromStdString(cacheKey),QCryptographicHash::Sha256).toHex().toStdString();
+    if(cache) {std::string ownerError;cache->rememberSourceKey(source,key,ownerError);}
     QJsonObject saved;
     if (cache) if (const auto bytes=cache->get(key)) {
         const auto doc=QJsonDocument::fromJson(QByteArray(reinterpret_cast<const char*>(bytes->data()),bytes->size()));
@@ -721,10 +722,34 @@ void ensureSceneSequences(std::vector<pfcore::MotionWindow>& windows,
     // it before retrieval; sliding windows do not duplicate the thumbnails.
     if (cache && changed && !cancelled()) {
         const auto bytes=QJsonDocument(saved).toJson(QJsonDocument::Compact);std::string error;
-        cache->put(key,std::vector<std::uint8_t>(bytes.begin(),bytes.end()),error);
+        cache->putForSource(source,key,std::vector<std::uint8_t>(bytes.begin(),bytes.end()),error);
     }
     if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
         std::fprintf(stderr,"PF_DEBUG_SEQUENCE source=%s shots=%zu sampled_frames=%zu reused_scene_samples=%zu\n",source.c_str(),shots.size(),decoded,reused);
+}
+
+std::vector<float> sourceFaceCentroid(const std::vector<pfcore::MotionWindow>& windows,const std::string& source)
+{
+    std::map<std::size_t,const pfcore::MotionWindow*> anchors;
+    for(const auto& w:windows) {
+        double norm=0;for(const float f:w.faceEmbedding)norm+=f*f;
+        if(w.sourceId!=source || w.faceConfidence<.45 || !std::isfinite(norm) || norm<=1e-12)continue;
+        auto& slot=anchors[w.sceneIndex];if(!slot || w.faceConfidence>slot->faceConfidence)slot=&w;
+    }
+    std::vector<float> face;
+    for(const auto& [_,w]:anchors) {
+        double norm=0;for(const float f:w->faceEmbedding)norm+=f*f;
+        if(face.empty())face.assign(w->faceEmbedding.size(),0);
+        if(face.size()!=w->faceEmbedding.size())continue;
+        for(std::size_t i=0;i<face.size();++i)face[i]+=w->faceEmbedding[i]/std::sqrt(norm);
+    }
+    return face;
+}
+
+std::string matchedFaceCacheKey(const std::string& key,const std::vector<float>& face)
+{
+    const auto bytes=QByteArray(reinterpret_cast<const char*>(face.data()),face.size()*sizeof(float));
+    return "matched-face-v7|"+QCryptographicHash::hash(QByteArray::fromStdString(key)+bytes,QCryptographicHash::Sha256).toHex().toStdString();
 }
 
 class MatchedFaceVerifier {
@@ -770,14 +795,9 @@ public:
         }
         for (const auto& [source,shots]:anchors) {
             auto& s=sources_[source];
-            for (const auto& [_,w]:shots) {
-                double norm=0;for (const float f:w->faceEmbedding)norm+=f*f;
-                if (s.face.empty())s.face.assign(w->faceEmbedding.size(),0);
-                if (s.face.size()!=w->faceEmbedding.size())continue;
-                for (std::size_t i=0;i<s.face.size();++i)s.face[i]+=w->faceEmbedding[i]/std::sqrt(norm);
-            }
-            const auto bytes=QByteArray(reinterpret_cast<const char*>(s.face.data()),s.face.size()*sizeof(float));
-            s.key="matched-face-v7|"+QCryptographicHash::hash(QByteArray::fromStdString(keys.at(source))+bytes,QCryptographicHash::Sha256).toHex().toStdString();
+            s.face=sourceFaceCentroid(windows,source);
+            s.key=matchedFaceCacheKey(keys.at(source),s.face);
+            if(cache_) {std::string ownerError;cache_->rememberSourceKey(source,s.key,ownerError);}
             if (cache_)if(const auto data=cache_->get(s.key)) {
                 const auto doc=QJsonDocument::fromJson(QByteArray(reinterpret_cast<const char*>(data->data()),data->size()));
                 if(doc.isObject())s.notes=doc.object();
@@ -903,7 +923,7 @@ public:
                 for(const auto& [key,_]:requests)added+=add(w,s.notes.value(key).toObject());
             if(cache_ && s.dirty && !cancelled_()) {
                 const auto data=QJsonDocument(s.notes).toJson(QJsonDocument::Compact);std::string error;
-                cache_->put(s.key,std::vector<std::uint8_t>(data.begin(),data.end()),error);s.dirty=false;
+                cache_->putForSource(source,s.key,std::vector<std::uint8_t>(data.begin(),data.end()),error);s.dirty=false;
             }
         }
         if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))std::fprintf(stderr,"PF_DEBUG_MATCHED_FACES measured_frames=%zu attached_observations=%zu\n",measured,added);
@@ -2211,6 +2231,17 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 if (analysisCache) {
                     if (expandedSearch) {
                         std::string cacheError;
+                        // Migrate identifiable legacy face entries before the
+                        // primary observations that describe their owner go.
+                        for(const auto& oldKey:analysisCache->keysForSource(path.toStdString())) {
+                            if(!oldKey.starts_with("motion-"))continue;
+                            const auto bytes=analysisCache->get(oldKey);if(!bytes)continue;
+                            std::vector<pfcore::MotionWindow> oldWindows;int oldScenes=-1;
+                            if(!deserializeMotionWindows(*bytes,oldWindows,oldScenes))continue;
+                            const auto faceKey=matchedFaceCacheKey(oldKey,sourceFaceCentroid(oldWindows,path.toStdString()));
+                            if(analysisCache->get(faceKey) && !analysisCache->rememberSourceKey(path.toStdString(),faceKey,cacheError))
+                                throw std::runtime_error("Cannot identify selected video cache: "+cacheError);
+                        }
                         if (!analysisCache->resetSource(path.toStdString(), cacheError))
                             throw std::runtime_error("Cannot reset selected video cache: " + cacheError);
                     }
@@ -2312,7 +2343,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     if (isCancelled()) { markCancelled(); break; }
                     if (analysisCache && missingViews) {
                         std::string cacheError;
-                        analysisCache->put(cacheKey, serializeMotionWindows(cachedWindows, cachedSceneCount), cacheError);
+                        analysisCache->putForSource(path.toStdString(),cacheKey, serializeMotionWindows(cachedWindows, cachedSceneCount), cacheError);
                     }
                     scenes += cachedSceneCount;
                     auto summary = summaries.value(path).toMap();
@@ -2895,7 +2926,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 const auto windowsReadyNs = stageNow();
                 if (analysisCache && !isCancelled() && faceFailure.isEmpty() && reidFailure.isEmpty()) {
                     std::string cacheError;
-                    analysisCache->put(cacheKey, serializeMotionWindows(fileWindows,
+                    analysisCache->putForSource(path.toStdString(),cacheKey, serializeMotionWindows(fileWindows,
                         static_cast<int>(sceneBoundaries.size()) + 1), cacheError);
                 }
                 if (profilePipeline)
@@ -2930,16 +2961,20 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 windows=std::move(admitted);previewA=std::move(admittedA);previewB=std::move(admittedB);
                 sharedIdentityStatus = QStringLiteral(" · Один человек в %1 из %2 видео")
                     .arg(sharedIdentity.sources.size()).arg(paths.size());
-                if (sharedIdentity.sources.size()>1) {
-                    QMetaObject::invokeMethod(this,[this,cancel] {
-                        if (analysisCancel_==cancel && !cancel->load())
-                            setStatus(QStringLiteral("Проверяем повторы между видео…"));
-                    },Qt::QueuedConnection);
-                    for (const auto& source:sharedIdentity.sources) {
-                        ensureSceneSequences(windows,source,sequenceCacheKeys.at(source),analysisCache.get(),
-                            providerChoice==QStringLiteral("cuda") || providerChoice==QStringLiteral("tensorrt"),isCancelled);
-                        if (isCancelled()) {markCancelled();break;}
-                    }
+            }
+            {
+                // Cached pose windows from earlier releases also need measured
+                // footage when only one source survives identity admission.
+                QMetaObject::invokeMethod(this,[this,cancel] {
+                    if (analysisCancel_==cancel && !cancel->load())
+                        setStatus(QStringLiteral("Проверяем повторяющиеся ракурсы…"));
+                },Qt::QueuedConnection);
+                std::unordered_set<std::string> admittedSources;
+                for (const auto& window:windows) admittedSources.insert(window.sourceId);
+                for (const auto& source:admittedSources) {
+                    ensureSceneSequences(windows,source,sequenceCacheKeys.at(source),analysisCache.get(),
+                        providerChoice==QStringLiteral("cuda") || providerChoice==QStringLiteral("tensorrt"),isCancelled);
+                    if (isCancelled()) {markCancelled();break;}
                 }
             }
             if (expandedSearch) {
@@ -3118,6 +3153,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             for (std::size_t i = 0; i < requests.size() && !previewDirectory.isEmpty(); ++i) {
                 if (isCancelled()) break;
                 auto& request = requests[i];
+                if(analysisCache) {
+                    std::string ownershipError;
+                    analysisCache->rememberSourceKey(request.source,previewKeys[i],ownershipError);
+                }
                 if (!cachedUrls[i].isEmpty()) {
                     request.url = cachedUrls[i]; ++cachedPreviews; continue;
                 }

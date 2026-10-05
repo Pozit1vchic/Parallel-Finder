@@ -134,14 +134,20 @@ bool sameCameraView(const MotionWindow& left, const MotionWindow& right)
 
 bool copiedScene(const MotionWindow& a,const MotionWindow& b,bool cameraOnly=false)
 {
-    if (a.sourceId==b.sourceId || !a.hasSceneIndex || !b.hasSceneIndex
+    // A returning camera is just as redundant within one film as across files.
+    // Keep the stricter copied-footage policy separate from portrait filtering.
+    const bool sameSource=a.sourceId==b.sourceId;
+    if ((sameSource && (!cameraOnly || a.sceneIndex==b.sceneIndex)) || !a.hasSceneIndex || !b.hasSceneIndex
         || a.sceneSequence.size()<1296 || b.sceneSequence.size()<1296
         || a.sceneSequence.size()%432 || b.sceneSequence.size()%432) return false;
     // Individual portraits in an already matching visual setting need more
     // novelty than a slight change of head angle or framing. This wider gate
     // is ONLY for redundant head views, never proof that body footage is a
     // copy and never a shared-shot quota. Distinct settings keep strict bounds.
-    const bool recurringSetting=cameraOnly && sceneContextSimilarity(a,b)>=.93;
+    // Returning shots in one film can change colour histograms with framing:
+    // the measured Soldier 38:18/38:45 control has only 90% scene similarity.
+    // This gate still requires agreement of three measured frame layouts.
+    const bool recurringSetting=cameraOnly && sceneContextSimilarity(a,b)>=(sameSource?.88:.93);
     const double meanLimit=!cameraOnly?.018:recurringSetting?.095:.055;
     const double coarseLimit=!cameraOnly?.035:recurringSetting?.14:.08;
     const double localLimit=!cameraOnly?.085:recurringSetting?.45:.20;
@@ -1783,7 +1789,8 @@ MotionMatch MotionMatcher::compare(const MotionWindow& left, const MotionWindow&
         || !measuredIdentityCompatible(right,best.rightStartSeconds,best.rightEndSeconds,right.staticFrameSet && best.headOnlyComparison))
         best.similarity=best.rankScore=0;
     if (params_.individualPairs && (copiedScene(left,right)
-        || (best.headOnlyComparison && copiedScene(left,right,true)))) best.similarity=best.rankScore=0;
+        || (left.staticFrameSet && right.staticFrameSet && best.headOnlyComparison
+            && copiedScene(left,right,true)))) best.similarity=best.rankScore=0;
     if (params_.bodyMotionOnly && !left.staticFrameSet && best.headOnlyComparison) best.similarity=best.rankScore=0;
     if (params_.individualPairs && left.staticFrameSet && right.staticFrameSet
         && sameCameraView(left, right)
@@ -1924,7 +1931,13 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             const auto& w=windows[i];snapshots.push_back({w.sourceId,w.sceneIndex,w.hasSceneIndex,w.sceneContext,w.sceneSequence,w.sceneSequenceTimes});
         }
         const auto cached=std::find_if(footageMemo.begin(),footageMemo.end(),[&](const auto& m){return m.inputs==snapshots;});
-        if(cached!=footageMemo.end()) {copiedShotPairs=cached->copies;returningHeadViews=cached->heads;}
+        if(cached!=footageMemo.end()) {
+            copiedShotPairs=cached->copies;returningHeadViews=cached->heads;
+            // Refinement alternates the full input with changing unused shots.
+            // Keep the reused full snapshot instead of evicting it on the next
+            // recovery miss and measuring the same camera pairs again.
+            std::rotate(cached,std::next(cached),footageMemo.end());
+        }
         else {
         for (std::size_t a=0;a<representatives.size();++a) if (representatives[a]!=windows.size())
             for (std::size_t b=a+1;b<representatives.size();++b) if (representatives[b]!=windows.size()
@@ -2206,8 +2219,9 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             if (mirroredCandidate.similarity > candidate.similarity) candidate = mirroredCandidate;
         }
         candidate.unmirroredSimilarity = directScore;
-        if(params_.individualPairs && candidate.headOnlyComparison
-            && returningHeadViews.contains(shotPairKey(originalShotOf[i],originalShotOf[j])))continue;
+        // Defer recurring portraits until established body/motion coverage is
+        // frozen below; deleting these edges here can change augmenting paths
+        // and replace an unrelated, useful body pair.
         if (params_.bodyMotionOnly && !windows[i].staticFrameSet && candidate.headOnlyComparison) continue;
         if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
             std::fprintf(stderr, "PF_DEBUG_MATCHER compared a=%zu b=%zu t=%.3f/%.3f static=%d/%d similarity=%.3f dtw=%.3f appearance=%.3f\n",
@@ -2292,7 +2306,9 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             bool assigned = false;
             for (auto& family : families) {
                 if (!std::all_of(family.begin(), family.end(), [&](std::size_t other) {
-                    return sameCameraView(windows[representative[shot]], windows[representative[other]]);
+                    return sameCameraView(windows[representative[shot]], windows[representative[other]])
+                        || returningHeadViews.contains(shotPairKey(originalShotOf[representative[shot]],
+                            originalShotOf[representative[other]]));
                 })) continue;
                 viewFamily[shot] = family.front(); family.push_back(shot); assigned = true; break;
             }
@@ -2303,6 +2319,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         for (const auto left : {a.leftIndex, a.rightIndex}) for (const auto right : {b.leftIndex, b.rightIndex})
             if (windows[left].hasSceneIndex && windows[right].hasSceneIndex
                 && (viewFamily[shotOf[left]] == viewFamily[shotOf[right]]
+                    || returningHeadViews.contains(shotPairKey(originalShotOf[left],originalShotOf[right]))
                     || sameCameraView(windows[left], windows[right]))) return true;
         return false;
     };
@@ -2586,6 +2603,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 if (movement.direction==MovementDirection::Static && movement.gesture==GestureClass::Static) return;
             }
             if (portrait(match) && (sameCameraView(windows[match.leftIndex], windows[match.rightIndex])
+                || returningHeadViews.contains(shotPairKey(originalShotOf[match.leftIndex],originalShotOf[match.rightIndex]))
                 || viewConflict(match))) return;
             unique.push_back(match);
             ++shotUseCounts[a]; ++shotUseCounts[b]; ++count;
@@ -2657,6 +2675,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 auto& count=windows[match.leftIndex].staticFrameSet ? staticResults : motionResults;
                 if (a==b || shotUseCounts[a] || shotUseCounts[b] || count>=params_.maxUniqueResults) continue;
                 if (portrait(match) && (sameCameraView(windows[match.leftIndex],windows[match.rightIndex])
+                    || returningHeadViews.contains(shotPairKey(originalShotOf[match.leftIndex],originalShotOf[match.rightIndex]))
                     || viewConflict(match))) continue;
                 unique.push_back(std::move(match));++shotUseCounts[a];++shotUseCounts[b];++count;++recovered;
             }

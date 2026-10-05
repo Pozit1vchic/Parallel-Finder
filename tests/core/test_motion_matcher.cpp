@@ -1632,6 +1632,14 @@ TEST(MotionMatcher, PortraitCameraQuotaDoesNotRejectRecordedHeadMotion)
     const auto withView=pfcore::MotionMatcher(params).findAllPairs({a,b});
     ASSERT_EQ(withView.size(),1U);
     EXPECT_DOUBLE_EQ(withView[0].similarity,original[0].similarity);
+    for(auto* w:{&a,&b}) {
+        for(int i=0;i<3;++i)w->sceneSequence.insert(w->sceneSequence.end(),w->sceneView.begin(),w->sceneView.end());
+        w->sceneSequenceTimes={0,.25,.5};
+    }
+    const auto measured=pfcore::MotionMatcher(params).findAllPairs({a,b});
+    ASSERT_EQ(measured.size(),1U);
+    EXPECT_DOUBLE_EQ(measured[0].similarity,original[0].similarity);
+    EXPECT_GT(pfcore::MotionMatcher(params).compare(a,b).similarity,0);
 }
 
 TEST(MotionMatcher, ReturningCameraDoesNotDiscardASeparateObservedBodyParallel)
@@ -1675,6 +1683,20 @@ TEST(MotionMatcher, RecurringCameraCanAppearOnlyOnceAcrossHeadPairsIncludingAugm
     EXPECT_EQ(recurring,1U);
     for (auto& w:windows) w.sceneView.clear();
     EXPECT_EQ(pfcore::MotionMatcher(params).findAllPairs(windows).size(),3U);
+    QFile measured(QString::fromUtf8(PF_TEST_FIXTURE_DIR)+"/soldier-returning-camera-3818-3845.json");
+    ASSERT_TRUE(measured.open(QIODevice::ReadOnly));
+    const auto cameras=QJsonDocument::fromJson(measured.readAll()).array();
+    for(std::size_t i=0;i<3;++i) {
+        const auto o=cameras[static_cast<int>(i%2)].toObject();
+        for(const auto v:o["sequence"].toArray())windows[i].sceneSequence.push_back(v.toDouble());
+        for(const auto v:o["sequencePts"].toArray())windows[i].sceneSequenceTimes.push_back(v.toDouble());
+    }
+    params.recoverUnusedShots=true;
+    const auto measuredSelected=pfcore::MotionMatcher(params).findAllPairs(windows);
+    ASSERT_EQ(measuredSelected.size(),2U);
+    recurring=0;
+    for(const auto& pair:measuredSelected) {recurring+=pair.leftIndex<3;recurring+=pair.rightIndex<3;}
+    EXPECT_EQ(recurring,1U);
 }
 
 TEST(MotionMatcher, MeasuredCameraEqualityIsSymmetricAfterSmallReframing)
@@ -1810,7 +1832,49 @@ TEST(MotionMatcher, RecordedReturningPortraitsRejectButDifferentSettingsSurvive)
             EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(p).compare(a,b).similarity,0)<<i;
             EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(p).compare(b,a).similarity,0)<<i;
         }else EXPECT_GT(pfcore::MotionMatcher(p).compare(a,b).similarity,.8)<<i;
+        b.sourceId=a.sourceId;
+        for(auto& frame:b.frames) frame.timestampSeconds+=5000;
+        if(repeated) {
+            EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(p).compare(a,b).similarity,0)<<"same source "<<i;
+            EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(p).compare(b,a).similarity,0)<<"same source reversed "<<i;
+        }else EXPECT_GT(pfcore::MotionMatcher(p).compare(a,b).similarity,.8)<<"same source "<<i;
     }
+}
+
+TEST(MotionMatcher, RecordedSoldier3818And3845AreReturningCameraNotExclusivePortraits)
+{
+    QFile file(QString::fromUtf8(PF_TEST_FIXTURE_DIR)+"/soldier-returning-camera-3818-3845.json");
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const auto recorded=QJsonDocument::fromJson(file.readAll()).array();
+    auto windows=recordedPoseFixture("soldier-returning-camera-3818-3845.json",true);
+    ASSERT_EQ(windows.size(),2U);
+    for(std::size_t i=0;i<windows.size();++i) {
+        auto& w=windows[i];const auto o=recorded[static_cast<int>(i)].toObject();
+        w.sourceId="Soldier Boy - The Boys S03";
+        w.hasSceneIndex=true;w.sceneIndex=o["scene"].toInteger();w.trackId=o["track"].toInteger();
+        w.faceConfidence=o["faceConfidence"].toDouble();w.appearanceConfidence=o["bodyConfidence"].toDouble();
+        const auto read=[&](const char* key,std::vector<float>& values) {
+            values.clear();for(const auto value:o[key].toArray())values.push_back(value.toDouble());
+        };
+        read("face",w.faceEmbedding);read("body",w.appearanceEmbedding);
+        read("context",w.sceneContext);read("view",w.sceneView);
+    }
+    pfcore::MotionMatcherParams p;p.individualPairs=p.allowStaticFrames=p.requireAppearance=p.mirrorInvariant=true;
+    p.minTemporalFrames=6;p.similarityThreshold=.70;p.timeWeight=.10;p.minAppearanceSimilarity=.76;
+    p.staticArticulationSimilarityThreshold=.82;
+    const auto old=pfcore::MotionMatcher(p).compare(windows[0],windows[1]);
+    ASSERT_TRUE(old.headOnlyComparison);ASSERT_GT(old.similarity,.97);
+    for(std::size_t i=0;i<windows.size();++i) {
+        for(const auto value:recorded[static_cast<int>(i)].toObject()["sequence"].toArray())
+            windows[i].sceneSequence.push_back(value.toDouble());
+        for(const auto value:recorded[static_cast<int>(i)].toObject()["sequencePts"].toArray())
+            windows[i].sceneSequenceTimes.push_back(value.toDouble());
+    }
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(p).compare(windows[0],windows[1]).similarity,0);
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(p).compare(windows[1],windows[0]).similarity,0);
+    EXPECT_TRUE(pfcore::MotionMatcher(p).findAllPairs(windows).empty());
+    p.recoverUnusedShots=true;
+    EXPECT_TRUE(pfcore::MotionMatcher(p).findAllPairs(windows).empty());
 }
 
 TEST(MotionMatcher, UnusedShotRecoveryPreservesEstablishedMotionAndBodyPairs)

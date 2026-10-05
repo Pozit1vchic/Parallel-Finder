@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <system_error>
 #include <utility>
+#include <set>
 
 namespace pfservices {
 namespace {
@@ -198,10 +199,71 @@ bool PfCache::resetSource(const std::string& source, std::string& error)
     auto path = fileFor(key);
     path.replace_extension(".generation");
     const auto generation = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
-    // Rotate first. All cache types derive their keys from this generation,
-    // including old profiles/models and entries whose keys are hashed.
-    // Older bytes can be evicted normally, but cannot become cache hits.
-    return writeEntry(path, key, std::vector<std::uint8_t>(generation.begin(), generation.end()), error);
+    // Rotate before deletion: even a failed or interrupted purge cannot
+    // reactivate old observations. Delete only entries owned by this source.
+    if (!writeEntry(path, key, std::vector<std::uint8_t>(generation.begin(), generation.end()), error)) return false;
+    std::string scanError;
+    const auto ownedKeys=keysForSource(source,&scanError);
+    if(!scanError.empty()) {error=scanError;return false;}
+    for(const auto& entryKey:ownedKeys) {
+        if(!erase(entryKey,error))return false;
+        for(int version=1;version<=5;++version) {
+            const auto derived="scene-sequence-v"+std::to_string(version)+"|"
+                +QCryptographicHash::hash(QByteArray::fromStdString(entryKey),QCryptographicHash::Sha256).toHex().toStdString();
+            if(!erase(derived,error))return false;
+        }
+        auto owner=fileFor("source-owner-v1|"+entryKey);owner.replace_extension(".owner");
+        std::error_code removalError;std::filesystem::remove(owner,removalError);
+        if(removalError) {error="remove cache ownership: "+removalError.message();return false;}
+    }
+    return true;
+}
+
+bool PfCache::rememberSourceKey(const std::string& source,const std::string& key,std::string& error)
+{
+    auto owner=fileFor("source-owner-v1|"+key);owner.replace_extension(".owner");
+    return writeEntry(owner,"source-owner-v1|"+key,std::vector<std::uint8_t>(source.begin(),source.end()),error);
+}
+
+std::vector<std::string> PfCache::keysForSource(const std::string& source,std::string* outputError) const
+{
+    std::set<std::string> keys;std::error_code error;
+    if(!std::filesystem::exists(root_,error)) {
+        if(error && outputError)*outputError="inspect cache: "+error.message();
+        return {};
+    }
+    const auto normalize=[](std::string value) {
+        std::replace(value.begin(),value.end(),'\\','/');
+#ifdef _WIN32
+        value=QString::fromUtf8(value).toCaseFolded().toStdString();
+#endif
+        return value;
+    };
+    const auto normalized=normalize(source);
+    for(const auto& entry:std::filesystem::directory_iterator(root_,error)) {
+        if(error)break;
+        if(entry.is_symlink(error) || !entry.is_regular_file(error))continue;
+        const auto extension=entry.path().extension();
+        if(extension!=".pfc" && extension!=".owner")continue;
+        std::ifstream stream(entry.path(),std::ios::binary);
+        std::array<char,8> magic{};std::uint32_t version=0,size=0;std::uint64_t payloadSize=0;
+        if(!stream.read(magic.data(),magic.size()) || magic!=kMagic || !readScalar(stream,version)
+            || !readScalar(stream,size) || !readScalar(stream,payloadSize) || version!=kVersion || !size || size>2048)continue;
+        std::string stored(size,'\0');if(!stream.read(stored.data(),size))continue;
+        if(extension==".owner") {
+            if(!stored.starts_with("source-owner-v1|") || payloadSize>4096)continue;
+            std::string owner(payloadSize,'\0');if(stream.read(owner.data(),owner.size()) && normalize(owner)==normalized)
+                keys.insert(stored.substr(16));
+        }else {
+            const auto comparable=normalize(stored);
+            // Legacy primary observations and preview keys retain the path.
+            if(comparable.find("|source="+normalized+"|")!=std::string::npos
+                || (comparable.starts_with("preview-v1|") && comparable.find("|"+normalized+"|")!=std::string::npos))
+                keys.insert(stored);
+        }
+    }
+    if(error && outputError)*outputError="scan cache ownership: "+error.message();
+    return {keys.begin(),keys.end()};
 }
 
 bool PfCache::clear(std::string& error)
@@ -210,7 +272,8 @@ bool PfCache::clear(std::string& error)
     if (!std::filesystem::exists(root_, filesystemError)) return true;
     for (const auto& entry : std::filesystem::directory_iterator(root_, filesystemError)) {
         if (filesystemError) break;
-        if (entry.is_regular_file(filesystemError) && entry.path().extension() == ".pfc")
+        if (entry.is_regular_file(filesystemError) && (entry.path().extension() == ".pfc"
+            || entry.path().extension()==".owner"))
             std::filesystem::remove(entry.path(), filesystemError);
     }
     if (filesystemError) {

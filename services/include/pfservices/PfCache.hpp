@@ -23,6 +23,13 @@ public:
     bool put(const std::string& key, const std::vector<std::uint8_t>& payload,
              std::string& error);
     bool erase(const std::string& key, std::string& error);
+    // Ownership is kept separately from opaque hashed cache keys.
+    bool rememberSourceKey(const std::string& source, const std::string& key, std::string& error);
+    bool putForSource(const std::string& source, const std::string& key,
+                      const std::vector<std::uint8_t>& payload, std::string& error) {
+        return rememberSourceKey(source,key,error) && put(key,payload,error);
+    }
+    [[nodiscard]] std::vector<std::string> keysForSource(const std::string& source, std::string* error = nullptr) const;
     // Persistent per-source namespace, outside LRU eviction: resetting a
     // video must never make its older measurements reusable later.
     [[nodiscard]] std::string sourceGeneration(const std::string& source) const;

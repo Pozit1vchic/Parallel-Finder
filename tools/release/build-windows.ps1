@@ -3,6 +3,7 @@ param(
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
     [string]$ReleaseTag = '0.1.0-rc.17',
+    [string]$ReleaseNotes = 'docs/updates.md',
     [string]$SigningKey = (Join-Path $env:LOCALAPPDATA 'ParallelFinder/release-signing/update-ed25519-private.pem'),
     [switch]$SkipChecks
 )
@@ -72,7 +73,7 @@ try {
     # Include all locally available notices; provenance/source obligations remain a release gate.
     Copy-Item -LiteralPath "$Toolchain/share/licenses" -Destination (Join-Path $stage 'third-party-licenses') -Recurse
     Copy-Item -LiteralPath "$root/ui/qml/fonts/OFL.txt" -Destination (Join-Path $stage 'third-party-licenses/JetBrainsMono-OFL.txt')
-    Copy-Item -LiteralPath "$root/docs/updates.md" -Destination (Join-Path $stage 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $root $ReleaseNotes) -Destination (Join-Path $stage 'RELEASE-NOTES.md')
     # Test real QML loading/rendering without developer import paths or DLL paths.
     if (!$SkipChecks) {
     $savedEnv = @{}
