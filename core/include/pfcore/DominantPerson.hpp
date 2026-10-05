@@ -45,7 +45,8 @@ struct PersonTrack {
 class DominantPersonTracker {
 public:
     explicit DominantPersonTracker(double iouThreshold = 0.30,
-                                   double maxGapSeconds = 1.0);
+                                   double maxGapSeconds = 1.0,
+                                   bool identityRetirement = true);
 
     void reset();
     void update(double timestampSeconds,
@@ -61,9 +62,14 @@ public:
 private:
     double iouThreshold_;
     double maxGapSeconds_;
+    bool identityRetirement_;
     std::size_t nextId_ = 1;
     std::size_t sceneTrackStart_ = 0;
     std::vector<PersonTrack> tracks_;
+    // A geometric track contradicted by an independently observed identity
+    // cannot resume on the next unsampled frame. A reappearing lead starts
+    // a new fragment and is grouped by actual appearance evidence.
+    std::vector<bool> retiredTracks_;
 };
 
 // New code should use the neutral name: the tracker maintains every active
@@ -87,6 +93,39 @@ struct IdentitySummary {
 // track to join two groups whose observed faces disagree. A single face
 // sample can veto a clothing link without establishing a positive face link.
 std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities);
+
+struct DominantVideoSelection {
+    std::vector<bool> windows;
+    std::vector<std::string> sources;
+    std::size_t suppliedSources = 0;
+};
+
+// Input windows must already belong to the independently admitted source lead.
+// For multiple files, select ONE corroborated identity group across sources.
+// Use independent shot face prototypes, never sliding-window counts or local
+// timestamps. Complete-link agreement prevents a clothing/face bridge between
+// different people. A single source keeps its existing admission unchanged.
+DominantVideoSelection selectDominantVideoWindows(const std::vector<MotionWindow>& windows);
+
+struct TrackObservationRange {
+    std::size_t begin = 0;
+    std::size_t end = 0; // exclusive
+};
+
+struct DominantSourceSelection {
+    std::vector<bool> tracks;
+    std::vector<bool> recovered;
+    std::vector<std::vector<TrackObservationRange>> observationRuns;
+};
+
+// When rc16Tracks is supplied, it must be an independent legacy association of
+// the same raw detections and shot cuts. Intersect initial admission by actual
+// timestamp/box, so changed track components cannot promote unverified extras.
+// Retain the rc16 lead group and recover only directly corroborated fragments:
+// majority agreement with original face anchors plus body evidence. Recovered
+// ranges end at actual face samples; no extrapolation into unsampled tails.
+DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack>& tracks,
+    const std::vector<PersonTrack>* rc16Tracks = nullptr);
 
 // Select the main identity within [startSeconds, endSeconds), using only
 // evidence observed in that shot. A poor profile/outfit match elsewhere in

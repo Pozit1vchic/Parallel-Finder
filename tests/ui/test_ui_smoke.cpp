@@ -38,6 +38,7 @@ private slots:
     void backendProbeDoesNotBlockUiAndPublishesReadiness();
     void backendProbeFailureLeavesHonestUnavailableState();
     void settingsAndNumericTypography();
+    void repeatSearchTogglesFromTheActualSidebar();
     void appearancePersistsAndRejectsMissingFonts();
     void resultNavigationStopsAtEnds();
     void sourcesLiveInsideDropAreaAboveActions();
@@ -208,6 +209,34 @@ void UiSmokeTests::gpuInfoPropagatesToQml()
 
     // Leave the singleton neutral for any later test.
     pfui::AppInfo::instance()->setGpuInfo(QStringLiteral("cpu"), QString(), false, QString());
+}
+
+void UiSmokeTests::repeatSearchTogglesFromTheActualSidebar()
+{
+    pfui::AppInfo::registerQmlTypes();
+    auto* analysis=pfui::AnalysisController::instance();
+    const bool original=analysis->expandedSearch();
+    analysis->setExpandedSearch(false);
+    QQmlApplicationEngine engine;
+    auto* window=loadWindow(engine);
+    QVERIFY(window);
+    auto* sources=window->findChild<QObject*>("sourcesRail");
+    QVERIFY(sources);
+    auto* repeat=sources->findChild<QQuickItem*>("expandedSearchCheck");
+    auto* options=sources->findChild<QQuickItem*>("sourceOptionsFlick");
+    QVERIFY(repeat && options);
+    QVERIFY(repeat->isEnabled());
+    options->setProperty("contentY",std::max(0.0,
+        repeat->mapToItem(options,QPointF()).y()-options->height()+repeat->height()+18));
+    QTest::qWait(100);
+    const auto position=repeat->mapToScene(QPointF(repeat->width()/2,repeat->height()/2)).toPoint();
+    QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,position);
+    QTRY_VERIFY(analysis->expandedSearch());
+    QTRY_VERIFY(repeat->property("checked").toBool());
+    QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,position);
+    QTRY_VERIFY(!analysis->expandedSearch());
+    QTRY_VERIFY(!repeat->property("checked").toBool());
+    analysis->setExpandedSearch(original);
 }
 
 void UiSmokeTests::settingsAndNumericTypography()

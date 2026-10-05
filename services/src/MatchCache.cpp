@@ -19,7 +19,7 @@ template<class Visitor> void parameters(const pfcore::MotionMatcherParams& p, Vi
 {
     // Aggregate binding deliberately fails to compile if a new parameter
     // is added without updating this complete cache-key visitor.
-    const auto& [similarityThreshold, candidateThreshold, minRepeatGapSec, sameFileGapSec, crossFileGapSec, duplicateWindowSec, noiseFactor, maxUniqueResults, maxResultsPerShot, maxComparisonThreads, expandedSearch, timeWeight, normalizeSize, mirrorInvariant, dtwBand, sakoeChibaRatio, motionDeltaThreshold, minActiveTransitionRatio, minMotionRange, minMotionSpanSec, temporalSimilarityThreshold, staticPoseSimilarityThreshold, staticArticulationSimilarityThreshold, minTemporalFrames, minTemporalDurationSec, sameSourceGapFloorSec, nmsOverlapThreshold, requireSameTrackWithinSource, allowStaticFrames, requireAppearance, minAppearanceSimilarity, appearanceWeight, minAppearanceEvidence, minFaceSimilarity, minHeadFaceSimilarity, sameSceneContextThreshold, sameSceneContextGapSec] = p;
+    const auto& [similarityThreshold, candidateThreshold, minRepeatGapSec, sameFileGapSec, crossFileGapSec, duplicateWindowSec, noiseFactor, maxUniqueResults, maxResultsPerShot, individualPairs, recoverUnusedShots, coverageSeedLimit, bodyMotionOnly, maxComparisonThreads, expandedSearch, timeWeight, normalizeSize, mirrorInvariant, dtwBand, sakoeChibaRatio, motionDeltaThreshold, minActiveTransitionRatio, minMotionRange, minMotionSpanSec, temporalSimilarityThreshold, staticPoseSimilarityThreshold, staticArticulationSimilarityThreshold, minTemporalFrames, minTemporalDurationSec, sameSourceGapFloorSec, nmsOverlapThreshold, requireSameTrackWithinSource, allowStaticFrames, requireAppearance, minAppearanceSimilarity, appearanceWeight, minAppearanceEvidence, minFaceSimilarity, minHeadFaceSimilarity, sameSceneContextThreshold, sameSceneContextGapSec] = p;
     visit(similarityThreshold);
     visit(candidateThreshold);
     visit(minRepeatGapSec);
@@ -29,6 +29,10 @@ template<class Visitor> void parameters(const pfcore::MotionMatcherParams& p, Vi
     visit(noiseFactor);
     visit(maxUniqueResults);
     visit(maxResultsPerShot);
+    visit(individualPairs);
+    visit(recoverUnusedShots);
+    visit(coverageSeedLimit);
+    visit(bodyMotionOnly);
     visit(maxComparisonThreads);
     visit(expandedSearch);
     visit(timeWeight);
@@ -87,7 +91,7 @@ public:
         value(values.size());
         // float embeddings and the three-double keypoint layout have no
         // padding; process the existing buffers, without a second frame copy.
-        static_assert(std::is_same_v<T,float> || (std::is_same_v<T,pfcore::Keypoint> && sizeof(T)==3*sizeof(double)));
+        static_assert(std::is_same_v<T,float> || std::is_same_v<T,double> || (std::is_same_v<T,pfcore::Keypoint> && sizeof(T)==3*sizeof(double)));
         if (!values.empty()) hash_.addData(QByteArrayView(reinterpret_cast<const char*>(values.data()),
             static_cast<qsizetype>(values.size()*sizeof(T))));
     }
@@ -114,6 +118,13 @@ std::string MatchCache::key(std::span<const pfcore::MotionWindow> windows,
         hash.value(w.sceneStartSeconds); hash.value(w.sceneEndSeconds);
         hash.value(w.appearanceConfidence); hash.array(w.appearanceEmbedding);
         hash.value(w.faceConfidence); hash.array(w.faceEmbedding); hash.array(w.sceneContext);
+        hash.array(w.sceneView);hash.value(w.sceneViewSampled);
+        hash.array(w.sceneSequence);hash.array(w.sceneSequenceTimes);
+        hash.value(w.measuredFaces.size());
+        for (const auto& f:w.measuredFaces) {
+            hash.value(f.timestampSeconds);hash.value(f.observed);
+            hash.value(f.similarity);hash.value(f.relativeEyeSpan);
+        }
         hash.value(w.frames.size());
         for (const auto& frame : w.frames) { hash.value(frame.timestampSeconds); hash.array(frame.keypoints); }
     }

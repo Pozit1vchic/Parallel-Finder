@@ -25,6 +25,13 @@ struct SceneSample {
     std::span<const std::uint8_t> rgba;
 };
 
+// Compact spatial colour layout. Rejects malformed, flat or nearly black
+// images, which cannot independently establish a recurring camera view.
+std::vector<float> sceneViewDescriptor(const SceneSample& sample);
+// Normalize only observed black/pillarbox borders for copied-footage checks.
+// The normal camera descriptor keeps its historical framing policy intact.
+std::vector<float> sceneContentDescriptor(const SceneSample& sample);
+
 // Background colour context, excluding the central actor region and black
 // letterboxing. A heuristic for nearby shots of one setting, not identity.
 std::vector<float> sceneContext(std::span<const SceneSample> samples,

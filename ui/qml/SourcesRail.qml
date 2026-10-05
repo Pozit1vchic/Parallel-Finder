@@ -66,17 +66,17 @@ Rectangle {
             Analysis.similarityThreshold = 0.70; Analysis.candidateThreshold = 0.48
             Analysis.repeatGap = 8.0; Analysis.sameFileGap = 3.0; Analysis.crossFileGap = 0.0
             Analysis.duplicateWindow = 2.0; Analysis.noiseFactor = 1.25
-            Analysis.maxUniqueResults = 50; Analysis.timeWeight = 0.10
+            Analysis.maxUniqueResults = 500; Analysis.timeWeight = 0.10
         } else if (preset === "precise") {
             Analysis.similarityThreshold = 0.84; Analysis.candidateThreshold = 0.68
             Analysis.repeatGap = 4.0; Analysis.sameFileGap = 1.5; Analysis.crossFileGap = 0.0
             Analysis.duplicateWindow = 1.0; Analysis.noiseFactor = 0.70
-            Analysis.maxUniqueResults = 200; Analysis.timeWeight = 0.40
+            Analysis.maxUniqueResults = 500; Analysis.timeWeight = 0.40
         } else {
             Analysis.similarityThreshold = 0.76; Analysis.candidateThreshold = 0.55
             Analysis.repeatGap = 6.0; Analysis.sameFileGap = 2.0; Analysis.crossFileGap = 0.0
             Analysis.duplicateWindow = 1.5; Analysis.noiseFactor = 1.0
-            Analysis.maxUniqueResults = 100; Analysis.timeWeight = 0.25
+            Analysis.maxUniqueResults = 500; Analysis.timeWeight = 0.25
         }
     }
 

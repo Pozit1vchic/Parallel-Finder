@@ -55,6 +55,25 @@ TEST(SceneContextIndex, OverlappingQueriesPreserveColourEvidenceAndInclusiveEdge
     EXPECT_EQ(pfcore::sceneContext(samples, .25, .25), b);
 }
 
+TEST(SceneView, DistinguishesSpatialLayoutsWithIdenticalColourHistograms)
+{
+    std::vector<std::uint8_t> left(32 * 18 * 4), right(left.size()), flat(left.size()), black(left.size());
+    for (int y = 0; y < 18; ++y) for (int x = 0; x < 32; ++x) {
+        const auto i = (y * 32 + x) * 4;
+        left[i + (x < 16 ? 0 : 2)] = 255;
+        right[i + (x < 16 ? 2 : 0)] = 255;
+        flat[i] = 255;
+    }
+    const auto a = pfcore::sceneViewDescriptor({0,32,18,left});
+    const auto b = pfcore::sceneViewDescriptor({0,32,18,right});
+    ASSERT_EQ(a.size(),432U); ASSERT_EQ(b.size(),432U);
+    EXPECT_NE(a,b);
+    EXPECT_EQ(a,pfcore::sceneViewDescriptor({1,32,18,left}));
+    EXPECT_TRUE(pfcore::sceneViewDescriptor({0,32,18,flat}).empty());
+    EXPECT_TRUE(pfcore::sceneViewDescriptor({0,32,18,black}).empty());
+    EXPECT_TRUE(pfcore::sceneViewDescriptor({0,32,18,{}}).empty());
+}
+
 TEST(SceneDetector, DetectsStrongHistogramCut)
 {
     std::vector<std::uint8_t> dark(4 * 4 * 4, 0);
@@ -205,3 +224,29 @@ TEST(SceneDetector, VariableMotionAndSlowdownDoNotPassStableMotionCut)
 }
 
 } // namespace
+
+TEST(SceneContent, LetterboxCopiesKeepTheSameObservedPicture)
+{
+    std::vector<std::uint8_t> content(160*72*4),boxed(160*90*4,0);
+    for (int y=0;y<72;++y) for (int x=0;x<160;++x) {
+        const auto i=(y*160+x)*4;
+        content[i]=40+x;content[i+1]=30+y*2;content[i+2]=(x/10+y/9)%2 ? 180 : 70;content[i+3]=255;
+        std::copy_n(content.begin()+i,4,boxed.begin()+((y+9)*160+x)*4);
+    }
+    const auto plain=pfcore::sceneContentDescriptor({0,160,72,content});
+    const auto padded=pfcore::sceneContentDescriptor({0,160,90,boxed});
+    ASSERT_EQ(plain.size(),432U);EXPECT_EQ(plain,padded);
+    EXPECT_NE(pfcore::sceneViewDescriptor({0,160,90,boxed}),plain);
+    EXPECT_TRUE(pfcore::sceneContentDescriptor({0,160,90,std::vector<std::uint8_t>(160*90*4)}).empty());
+}
+
+TEST(SceneContent, DarkSidesAndAsymmetricNightSkyRemainPartOfThePicture)
+{
+    std::vector<std::uint8_t> pixels(160*90*4,0);
+    for(int y=18;y<90;++y)for(int x=35;x<150;++x) {
+        const auto i=(y*160+x)*4;
+        pixels[i]=70+x;pixels[i+1]=30+y;pixels[i+2]=160;pixels[i+3]=255;
+    }
+    const pfcore::SceneSample image{0,160,90,pixels};
+    EXPECT_EQ(pfcore::sceneContentDescriptor(image),pfcore::sceneViewDescriptor(image));
+}

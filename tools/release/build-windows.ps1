@@ -2,7 +2,8 @@ param(
     [string]$Toolchain = 'D:\msys2\ucrt64',
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-    [string]$ReleaseTag = '0.1.0-rc.14'
+    [string]$ReleaseTag = '0.1.0-rc.16.4',
+    [switch]$SkipChecks
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
@@ -16,6 +17,7 @@ try {
     if ($LASTEXITCODE) { throw 'Configure failed' }
     & cmake --build --preset ucrt64-release -j 4
     if ($LASTEXITCODE) { throw 'Build failed' }
+    if (!$SkipChecks) {
     $releaseTestQpa = $env:QT_QPA_PLATFORM
     $releaseTestPlugins = $env:QT_PLUGIN_PATH
     try {
@@ -28,6 +30,7 @@ try {
     } finally {
         $env:QT_QPA_PLATFORM = $releaseTestQpa
         $env:QT_PLUGIN_PATH = $releaseTestPlugins
+    }
     }
     $run = [guid]::NewGuid().ToString('N').Substring(0,8)
     $stage = Join-Path $root "build/package-$run/ParallelFinder"
@@ -67,8 +70,9 @@ try {
     # Include all locally available notices; provenance/source obligations remain a release gate.
     Copy-Item -LiteralPath "$Toolchain/share/licenses" -Destination (Join-Path $stage 'third-party-licenses') -Recurse
     Copy-Item -LiteralPath "$root/ui/qml/fonts/OFL.txt" -Destination (Join-Path $stage 'third-party-licenses/JetBrainsMono-OFL.txt')
-    Copy-Item -LiteralPath "$root/docs/release-audit.md" -Destination (Join-Path $stage 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath "$root/docs/rc16-multisource-2026-10-05.md" -Destination (Join-Path $stage 'RELEASE-NOTES.md')
     # Test real QML loading/rendering without developer import paths or DLL paths.
+    if (!$SkipChecks) {
     $savedEnv = @{}
     $envNames = @('PATH','QML_IMPORT_PATH','QML2_IMPORT_PATH','QT_PLUGIN_PATH','QT_QPA_PLATFORM','PF_ORT_DLL','PF_PROVIDER_ROOT','PF_DEBUG_STARTUP','PF_UI_SMOKE_WAIT_BACKEND')
     foreach ($name in $envNames) { $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
@@ -104,6 +108,11 @@ try {
         }
     } finally {
         foreach ($name in $envNames) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], 'Process') }
+    }
+    }
+    if ($SkipChecks) {
+        'Tests and packaged startup checks were skipped at the user request. This package is not a final quality sign-off.' |
+            Set-Content -LiteralPath (Join-Path $out 'CHECKS-SKIPPED.txt') -Encoding utf8
     }
     $files = Get-ChildItem -LiteralPath $stage -Recurse -File
     $manifest = foreach ($file in $files) {

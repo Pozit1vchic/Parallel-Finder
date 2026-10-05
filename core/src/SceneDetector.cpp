@@ -328,6 +328,70 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
     return boundaries;
 }
 
+std::vector<float> sceneViewDescriptor(const SceneSample& sample)
+{
+    constexpr int columns = 16, rows = 9;
+    if (sample.width < columns || sample.height < rows
+        || sample.rgba.size() < static_cast<std::size_t>(sample.width) * sample.height * 4) return {};
+    std::vector<float> result;
+    result.reserve(columns * rows * 3);
+    double sum[3] = {}, squared[3] = {}; std::size_t usefulCells = 0;
+    for (int row = 0; row < rows; ++row) for (int column = 0; column < columns; ++column) {
+        double rgb[3] = {}; std::size_t count = 0;
+        for (int y = row * sample.height / rows; y < (row + 1) * sample.height / rows; ++y)
+            for (int x = column * sample.width / columns; x < (column + 1) * sample.width / columns; ++x) {
+                const auto offset = (static_cast<std::size_t>(y) * sample.width + x) * 4;
+                for (int channel = 0; channel < 3; ++channel) rgb[channel] += sample.rgba[offset + channel];
+                ++count;
+            }
+        for (int channel = 0; channel < 3; ++channel) {
+            const float value = static_cast<float>(rgb[channel] / (255.0 * count));
+            result.push_back(value);
+            if (row > 0 && row + 1 < rows) { sum[channel] += value; squared[channel] += value * value; }
+        }
+        if (row > 0 && row + 1 < rows) ++usefulCells;
+    }
+    double mean = 0, variance = 0;
+    for (int channel = 0; channel < 3; ++channel) {
+        const double average = sum[channel] / usefulCells;
+        mean += average / 3; variance += (squared[channel] / usefulCells - average * average) / 3;
+    }
+    if (mean < .035 || variance < .0004) return {};
+    return result;
+}
+
+std::vector<float> sceneContentDescriptor(const SceneSample& sample)
+{
+    if (sample.width<16 || sample.height<9 || sample.rgba.size()<static_cast<std::size_t>(sample.width)*sample.height*4) return {};
+    const auto darkRow=[&](int y) {
+        std::size_t bright=0;
+        for (int x=0;x<sample.width;++x) {
+            const auto i=(static_cast<std::size_t>(y)*sample.width+x)*4;
+            if (sample.rgba[i]>12 || sample.rgba[i+1]>12 || sample.rgba[i+2]>12) ++bright;
+        }
+        return bright*100<=static_cast<std::size_t>(sample.width)*2;
+    };
+    int top=0,bottom=sample.height;
+    while (top<sample.height/4 && darkRow(top))++top;
+    while (bottom>sample.height*3/4 && darkRow(bottom-1))--bottom;
+    // A dark wall or night sky is content, not an encoded border. Only
+    // symmetric horizontal bars are removed; never crop dark side columns.
+    const int border=std::min(top,sample.height-bottom);
+    top=border;bottom=sample.height-border;
+    const int left=0,right=sample.width;
+    if (left==0 && right==sample.width && top==0 && bottom==sample.height) return sceneViewDescriptor(sample);
+    SceneSample content;content.timestampSeconds=sample.timestampSeconds;
+    content.width=right-left;content.height=bottom-top;
+    std::vector<std::uint8_t> rgba;
+    rgba.reserve(static_cast<std::size_t>(content.width)*content.height*4);
+    for (int y=top;y<bottom;++y) {
+        const auto first=sample.rgba.begin()+(static_cast<std::size_t>(y)*sample.width+left)*4;
+        rgba.insert(rgba.end(),first,first+content.width*4);
+    }
+    content.rgba=rgba;
+    return sceneViewDescriptor(content);
+}
+
 SceneContextIndex::SceneContextIndex(std::span<const SceneSample> samples)
 {
     timestamps_.reserve(samples.size()); prefix_.reserve(samples.size() + 1);

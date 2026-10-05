@@ -17,6 +17,13 @@ struct PoseFrame {
     std::vector<Keypoint> keypoints;
 };
 
+struct MeasuredFaceIdentity {
+    double timestampSeconds=0;
+    bool observed=false;
+    double similarity=0;
+    double relativeEyeSpan=0;
+};
+
 struct MotionWindow {
     std::string sourceId;
     // Stable provenance carried from the detector. Invalid values are used
@@ -41,7 +48,22 @@ struct MotionWindow {
     double faceConfidence = 0.0;
     // Recomputed from thumbnails even on a cache hit; not an identity vector.
     std::vector<float> sceneContext;
+    // Spatial RGB layout from an actually decoded source frame. Unlike the
+    // colour histogram, this distinguishes different views of one setting.
+    // Empty means missing evidence; never infer camera equality from it.
+    std::vector<float> sceneView;
+    bool sceneViewSampled = false;
+    // Ordered actual source thumbnails at 4 FPS, attached to one shot
+    // representative. Three consecutive matching observations can prove
+    // copied footage even when another SCP trims the same shot differently.
+    std::vector<float> sceneSequence;
+    std::vector<double> sceneSequenceTimes;
+    // Optional direct source-frame verification, separate from the averaged
+    // shot prototype. An explicit foreign face must never hide in its tail.
+    std::vector<MeasuredFaceIdentity> measuredFaces;
 };
+
+bool observedIdentityAllows(const MotionWindow& window,double start,double end,bool portrait);
 
 struct MotionMatcherParams {
     // A short held pose needs repeated observations, not the longer trajectory
@@ -64,11 +86,27 @@ struct MotionMatcherParams {
     // A shot may support a few independent pairs, not an unlimited hub.
     // Zero disables this diversity quota for diagnostic comparisons.
     std::size_t maxResultsPerShot = 3;
+    // Desktop individual-parallel selection: one pair per known shot, with
+    // observed body/motion evidence before less informative head portraits.
+    // Verified augmenting paths recover additional disjoint shot coverage;
+    // body evidence and direct head orientation cannot be downgraded by them.
+    // Kept opt-in for callers that explicitly need all accepted hypotheses.
+    bool individualPairs = false;
+    // One bounded second pass over unused shots only, including short poses
+    // derived from observed samples. Existing selected pairs remain fixed.
+    bool recoverUnusedShots = false;
+    // Preserve the established preset's coverage before lending a larger
+    // result budget to new unused shots. Zero uses maxUniqueResults directly.
+    std::size_t coverageSeedLimit = 0;
+    // Additional discovery may require observable body motion. Existing
+    // admitted head movements keep the ordinary policy in the primary pass.
+    bool bodyMotionOnly = false;
     // Zero: up to four workers on large exact-comparison sets. One forces
     // serial execution for reproducible A/B checks. Retrieval and selection
     // stay serial; no candidate or sample is dropped by this setting.
     std::size_t maxComparisonThreads = 0;
-    // Wider deterministic retrieval; the desktop also derives short supported
+    // Independent, wider tier even when individualPairs already broadens
+    // default retrieval. The desktop also derives short supported
     // pose alternatives from existing observations. Acceptance stays intact.
     bool expandedSearch = false;
     double timeWeight = 0.25;

@@ -1,4 +1,5 @@
 #include "AnalysisController.h"
+#include <QCryptographicHash>
 #include "AppInfo.h"
 
 #include <QMetaObject>
@@ -31,6 +32,8 @@
 #include <filesystem>
 #include <limits>
 #include <mutex>
+#include <map>
+#include <functional>
 #include <unordered_map>
 #include <vector>
 
@@ -94,10 +97,13 @@ std::filesystem::path userModelsRoot()
 std::vector<std::filesystem::path> modelRoots()
 {
     std::vector<std::filesystem::path> roots;
-    roots.emplace_back(std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) / "models");
-    roots.emplace_back(userModelsRoot());
+    // An explicit model root applies consistently to all three estimators,
+    // including face models. This also keeps controlled cache comparisons
+    // tied to the same model files when changing the executable location.
     if (const char* root = std::getenv("PF_MODEL_ROOT"); root && *root)
         roots.emplace_back(root);
+    roots.emplace_back(std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) / "models");
+    roots.emplace_back(userModelsRoot());
     roots.emplace_back(R"(D:\PF_CUDA\models)");
     // Developer/download workspace used by the model preparation script. Keep
     // the historical typo as a compatibility fallback, but prefer the real
@@ -450,7 +456,7 @@ bool readBytes(const std::vector<std::uint8_t>& input, std::size_t& offset, T& v
 std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::MotionWindow>& windows, int sceneCount)
 {
     std::vector<std::uint8_t> output;
-    const std::uint32_t version = 8;
+    const std::uint32_t version = 9;
     appendBytes(output, version);
     appendBytes(output, static_cast<std::uint32_t>(windows.size()));
     appendBytes(output, static_cast<std::uint32_t>(sceneCount));
@@ -468,6 +474,9 @@ std::vector<std::uint8_t> serializeMotionWindows(const std::vector<pfcore::Motio
         for (const float value : window.appearanceEmbedding) appendBytes(output, value);
         appendBytes(output, static_cast<std::uint32_t>(window.sceneContext.size()));
         for (const float value : window.sceneContext) appendBytes(output, value);
+        appendBytes(output, static_cast<std::uint8_t>(window.sceneViewSampled ? 1 : 0));
+        appendBytes(output, static_cast<std::uint32_t>(window.sceneView.size()));
+        for (const float value : window.sceneView) appendBytes(output, value);
         appendBytes(output, window.faceConfidence);
         appendBytes(output, static_cast<std::uint32_t>(window.faceEmbedding.size()));
         for (const float value : window.faceEmbedding) appendBytes(output, value);
@@ -491,9 +500,9 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
     cachedSceneCount = -1;
     std::size_t offset = 0;
     std::uint32_t version = 0, windowCount = 0;
-    if (!readBytes(input, offset, version) || (version != 7 && version != 8)
+    if (!readBytes(input, offset, version) || (version != 7 && version != 8 && version != 9)
         || !readBytes(input, offset, windowCount) || windowCount > 100'000U) return false;
-    if (version == 8) {
+    if (version >= 8) {
         std::uint32_t count = 0;
         if (!readBytes(input, offset, count) || count > 10'000'000U) return false;
         cachedSceneCount = static_cast<int>(count);
@@ -530,7 +539,7 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
         for (float& value : window.appearanceEmbedding) {
             if (!readBytes(input, offset, value) || !std::isfinite(value)) return false;
         }
-        if (version == 8) {
+        if (version >= 8) {
             std::uint32_t contextSize = 0;
             // A fully black/short shot legitimately has no histogram. Empty
             // context is missing evidence, not a corrupt or incomplete cache.
@@ -538,6 +547,15 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
             window.sceneContext.resize(contextSize);
             for (auto& value : window.sceneContext)
                 if (!readBytes(input, offset, value) || !std::isfinite(value) || value < 0.0F) return false;
+        }
+        if (version >= 9) {
+            std::uint8_t sampled = 0; std::uint32_t viewSize = 0;
+            if (!readBytes(input, offset, sampled) || sampled > 1
+                || !readBytes(input, offset, viewSize) || (viewSize != 0 && viewSize != 432)) return false;
+            window.sceneViewSampled = sampled != 0;
+            window.sceneView.resize(viewSize);
+            for (auto& value : window.sceneView)
+                if (!readBytes(input, offset, value) || !std::isfinite(value) || value < 0 || value > 1) return false;
         }
         if (!readBytes(input, offset, window.faceConfidence) || !std::isfinite(window.faceConfidence)
             || !readBytes(input, offset, embeddingSize) || embeddingSize > 4096U) return false;
@@ -568,6 +586,330 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
     }
     return offset == input.size();
 }
+
+std::size_t ensureSceneViews(std::vector<pfcore::MotionWindow>& windows,
+    pfcore::VideoDecoder& decoder, const std::function<bool()>& cancelled)
+{
+    std::map<std::size_t, std::size_t> representatives;
+    std::unordered_map<std::size_t, std::vector<float>> sampled;
+    for (std::size_t i = 0; i < windows.size(); ++i) {
+        const auto& window = windows[i];
+        if (!window.hasSceneIndex || window.frames.empty()) continue;
+        if (window.sceneViewSampled) sampled.try_emplace(window.sceneIndex, window.sceneView);
+        if (window.staticFrameSet) representatives.try_emplace(window.sceneIndex, i);
+    }
+    std::size_t decodedViews = 0;
+    decoder.setRgbaMaxDimensions(160, 90);
+    for (const auto& [scene, index] : representatives) {
+        if (cancelled()) break;
+        if (sampled.contains(scene)) continue;
+        const auto& window = windows[index];
+        const double target = (window.frames.front().timestampSeconds + window.frames.back().timestampSeconds) / 2;
+        decoder.seek(target);
+        pfcore::DecodedFrame frame;
+        std::vector<float> view;
+        while (!cancelled() && decoder.readNext(frame, false)) {
+            if (frame.timestampSeconds + 1e-6 < target) continue;
+            if (frame.timestampSeconds <= window.sceneEndSeconds + 1e-6
+                && decoder.convertCurrentFrameToRgba(frame)) {
+                view = pfcore::sceneViewDescriptor({frame.timestampSeconds, frame.width, frame.height, frame.rgba});
+                ++decodedViews;
+            }
+            break;
+        }
+        if (!cancelled()) sampled.emplace(scene, std::move(view));
+    }
+    decoder.setRgbaMaxDimensions(1280, 720);
+    for (auto& window : windows) if (const auto found = sampled.find(window.sceneIndex); found != sampled.end()) {
+        window.sceneView = found->second;
+        window.sceneViewSampled = true;
+    }
+    return decodedViews;
+}
+
+void ensureSceneSequences(std::vector<pfcore::MotionWindow>& windows,
+    const std::string& source,const std::string& cacheKey,pfservices::PfCache* cache,
+    bool preferNvidia,const std::function<bool()>& cancelled,
+    const std::vector<pfcore::SceneSample>* observedSamples=nullptr)
+{
+    const auto key=std::string("scene-sequence-v5|")+QCryptographicHash::hash(
+        QByteArray::fromStdString(cacheKey),QCryptographicHash::Sha256).toHex().toStdString();
+    QJsonObject saved;
+    if (cache) if (const auto bytes=cache->get(key)) {
+        const auto doc=QJsonDocument::fromJson(QByteArray(reinterpret_cast<const char*>(bytes->data()),bytes->size()));
+        if (doc.isObject()) saved=doc.object();
+    }
+    std::map<std::size_t,std::size_t> shots;
+    for (std::size_t i=0;i<windows.size();++i)
+        if (windows[i].sourceId==source && windows[i].hasSceneIndex) shots.try_emplace(windows[i].sceneIndex,i);
+    struct Request {double time;std::size_t scene;};
+    std::vector<Request> requests;
+    std::map<std::size_t,std::pair<QJsonArray,QJsonArray>> pending;
+    std::size_t decoded=0,reused=0;bool changed=false;
+    for (const auto& [scene,index]:shots) {
+        if (cancelled()) return;
+        auto& w=windows[index];const QString id=QString::number(scene);
+        w.sceneSequence.clear();w.sceneSequenceTimes.clear();
+        const auto entry=saved.value(id).toObject();
+        const auto pixels=entry.value("pixels").toArray(),pts=entry.value("pts").toArray();
+        const bool valid=(pixels.isEmpty() || (pixels.size()>=1296 && pixels.size()%432==0))
+            && pts.size()==pixels.size()/432
+            && entry.value("start").toDouble(-1)==w.sceneStartSeconds
+            && entry.value("end").toDouble(-1)==w.sceneEndSeconds
+            && std::all_of(pixels.begin(),pixels.end(),[](const auto& p){return p.isDouble()
+                && std::isfinite(p.toDouble()) && p.toDouble()>=0 && p.toDouble()<=1;})
+            && std::all_of(pts.begin(),pts.end(),[&w](const auto& p){return p.isDouble()
+                && std::isfinite(p.toDouble()) && p.toDouble()>=w.sceneStartSeconds && p.toDouble()<w.sceneEndSeconds;})
+            && (pixels.isEmpty()==pts.isEmpty());
+        if (saved.contains(id) && valid) {
+            for (const auto p:pixels)w.sceneSequence.push_back(p.toDouble());
+            for (const auto p:pts)w.sceneSequenceTimes.push_back(p.toDouble());
+            continue;
+        }
+        pending.try_emplace(scene);changed=true;
+        const double span=w.sceneEndSeconds-w.sceneStartSeconds;
+        if (span>=.50 && w.sceneStartSeconds>=0)
+            for (double t=w.sceneStartSeconds+.05;t<w.sceneEndSeconds-.05;t+=.25) requests.push_back({t,scene});
+    }
+    std::sort(requests.begin(),requests.end(),[](const Request& a,const Request& b){return a.time<b.time;});
+    const auto record=[&](const Request& request,const pfcore::SceneSample& sample) {
+        const auto& w=windows[shots.at(request.scene)];
+        if (sample.timestampSeconds<w.sceneStartSeconds || sample.timestampSeconds>=w.sceneEndSeconds
+            || std::abs(sample.timestampSeconds-request.time)>.15) return;
+        const auto view=pfcore::sceneContentDescriptor(sample);
+        if (view.size()!=432) return;
+        auto& [sequence,times]=pending.at(request.scene);
+        for (const auto v:view)sequence.append(v);
+        times.append(sample.timestampSeconds);
+    };
+    if (observedSamples) {
+        // These are actual source frames already decoded for scene detection.
+        // Use the closest observation, never resampled/interpolated pixels.
+        for (const auto& request:requests) {
+            if (cancelled()) return;
+            auto found=std::lower_bound(observedSamples->begin(),observedSamples->end(),request.time,
+                [](const auto& sample,double t){return sample.timestampSeconds<t;});
+            if (found!=observedSamples->begin() && (found==observedSamples->end()
+                || request.time-std::prev(found)->timestampSeconds<found->timestampSeconds-request.time)) --found;
+            if (found!=observedSamples->end()) {record(request,*found);++reused;}
+        }
+    } else if (!requests.empty()) {
+        // Old window caches do not contain thumbnails. Migrate with ONE
+        // forward traversal instead of reconstructing a long GOP per sample.
+        pfcore::VideoDecoder decoder;pfcore::VideoDecodeOptions options;
+        options.threads=8;options.preferNvidia=preferNvidia;options.minimumNvidiaPixels=1920ULL*1080ULL+1;
+        decoder.open(source,options);decoder.setRgbaMaxDimensions(160,90);
+        decoder.seek(requests.front().time);pfcore::DecodedFrame frame;bool available=false;
+        for (const auto& request:requests) {
+            if (cancelled()) return;
+            while ((!available || frame.timestampSeconds+1e-6<request.time) && decoder.readNext(frame,false)) available=true;
+            if (!available || frame.timestampSeconds+1e-6<request.time) break;
+            if (decoder.convertCurrentFrameToRgba(frame)) {
+                record(request,{frame.timestampSeconds,frame.width,frame.height,frame.rgba});++decoded;
+            }
+        }
+    }
+    for (auto& [scene,measurements]:pending) {
+        auto& w=windows[shots.at(scene)];auto& [sequence,times]=measurements;
+        if (sequence.size()<1296 || sequence.size()!=times.size()*432) {sequence={};times={};}
+        for (const auto p:sequence)w.sceneSequence.push_back(p.toDouble());
+        for (const auto p:times)w.sceneSequenceTimes.push_back(p.toDouble());
+        saved.insert(QString::number(scene),QJsonObject{{"start",w.sceneStartSeconds},{"end",w.sceneEndSeconds},
+            {"pixels",sequence},{"pts",times}});
+    }
+    // Keep one measured representative per shot. Aliases are derived from
+    // it before retrieval; sliding windows do not duplicate the thumbnails.
+    if (cache && changed && !cancelled()) {
+        const auto bytes=QJsonDocument(saved).toJson(QJsonDocument::Compact);std::string error;
+        cache->put(key,std::vector<std::uint8_t>(bytes.begin(),bytes.end()),error);
+    }
+    if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
+        std::fprintf(stderr,"PF_DEBUG_SEQUENCE source=%s shots=%zu sampled_frames=%zu reused_scene_samples=%zu\n",source.c_str(),shots.size(),decoded,reused);
+}
+
+class MatchedFaceVerifier {
+    struct Source {
+        std::vector<float> face;
+        QJsonObject notes;
+        std::string key;
+        bool dirty=false;
+    };
+    std::map<std::string,Source> sources_;
+    pfservices::PfCache* cache_;
+    std::shared_ptr<pfgpu::FaceEstimator> estimator_;
+    bool preferNvidia_;
+    std::function<bool()> cancelled_;
+    static double cosine(const std::vector<float>& a,const std::vector<float>& b) {
+        if (a.empty() || a.size()!=b.size())return 0;
+        double dot=0,x=0,y=0;for (std::size_t i=0;i<a.size();++i) {dot+=a[i]*b[i];x+=a[i]*a[i];y+=b[i]*b[i];}
+        return x>0 && y>0 ? dot/std::sqrt(x*y) : 0;
+    }
+    static QString noteKey(std::size_t track,double time) {
+        return QString::number(track)+"|"+QString::number(std::llround(time*1e6));
+    }
+    static bool add(pfcore::MotionWindow& w,const QJsonObject& o) {
+        const double time=o["time"].toDouble(-1);
+        if (!std::isfinite(time) || w.frames.empty() || time<w.frames.front().timestampSeconds-.01
+            || time>w.frames.back().timestampSeconds+.01
+            || o["track"].toInteger()!=static_cast<qint64>(w.trackId))return false;
+        if (std::any_of(w.measuredFaces.begin(),w.measuredFaces.end(),[&](const auto& f){return std::abs(f.timestampSeconds-time)<1e-6;}))return false;
+        const double similarity=o["similarity"].toDouble(),eye=o["eyeSpan"].toDouble();
+        if (!o["observed"].isBool() || !std::isfinite(similarity) || similarity<-1 || similarity>1
+            || !std::isfinite(eye) || eye<0 || eye>1)return false;
+        w.measuredFaces.push_back({time,o["observed"].toBool(),similarity,eye});return true;
+    }
+public:
+    MatchedFaceVerifier(std::vector<pfcore::MotionWindow>& windows,
+        const std::unordered_map<std::string,std::string>& keys,pfservices::PfCache* cache,
+        std::shared_ptr<pfgpu::FaceEstimator> estimator,bool nvidia,std::function<bool()> cancelled)
+        :cache_(cache),estimator_(std::move(estimator)),preferNvidia_(nvidia),cancelled_(std::move(cancelled)) {
+        if (!estimator_)return;
+        std::map<std::string,std::map<std::size_t,const pfcore::MotionWindow*>> anchors;
+        for (const auto& w:windows) if (w.faceConfidence>=.45 && cosine(w.faceEmbedding,w.faceEmbedding)>.99) {
+            auto& slot=anchors[w.sourceId][w.sceneIndex];if (!slot || w.faceConfidence>slot->faceConfidence)slot=&w;
+        }
+        for (const auto& [source,shots]:anchors) {
+            auto& s=sources_[source];
+            for (const auto& [_,w]:shots) {
+                double norm=0;for (const float f:w->faceEmbedding)norm+=f*f;
+                if (s.face.empty())s.face.assign(w->faceEmbedding.size(),0);
+                if (s.face.size()!=w->faceEmbedding.size())continue;
+                for (std::size_t i=0;i<s.face.size();++i)s.face[i]+=w->faceEmbedding[i]/std::sqrt(norm);
+            }
+            const auto bytes=QByteArray(reinterpret_cast<const char*>(s.face.data()),s.face.size()*sizeof(float));
+            s.key="matched-face-v7|"+QCryptographicHash::hash(QByteArray::fromStdString(keys.at(source))+bytes,QCryptographicHash::Sha256).toHex().toStdString();
+            if (cache_)if(const auto data=cache_->get(s.key)) {
+                const auto doc=QJsonDocument::fromJson(QByteArray(reinterpret_cast<const char*>(data->data()),data->size()));
+                if(doc.isObject())s.notes=doc.object();
+            }
+        }
+        for (auto& w:windows)if(const auto it=sources_.find(w.sourceId);it!=sources_.end())
+            for(const auto& note:it->second.notes)add(w,note.toObject());
+    }
+    std::size_t verify(std::vector<pfcore::MotionWindow>& windows,const std::vector<pfcore::MotionMatch>& matches) {
+        if (!estimator_)return 0;
+        struct Request {std::size_t track;pfcore::PoseFrame frame;};
+        std::map<std::string,std::map<QString,Request>> requested;
+        for (const auto& match:matches)for(const bool left:{true,false}) {
+            const auto& w=windows[left?match.leftIndex:match.rightIndex];
+            if(!sources_.contains(w.sourceId))continue;
+            const double start=left?match.leftStartSeconds:match.rightStartSeconds,end=left?match.leftEndSeconds:match.rightEndSeconds;
+            for(const double t:{start,start+(end-start)*.25,(start+end)/2,start+(end-start)*.75,end}) {
+                const pfcore::PoseFrame* closest=nullptr;
+                for(const auto& f:w.frames)if(f.timestampSeconds>=start-.001 && f.timestampSeconds<=end+.001
+                    && (!closest || std::abs(f.timestampSeconds-t)<std::abs(closest->timestampSeconds-t)))closest=&f;
+                if(closest)requested[w.sourceId].try_emplace(noteKey(w.trackId,closest->timestampSeconds),Request{w.trackId,*closest});
+            }
+        }
+        std::size_t measured=0,added=0;
+        for(auto& [source,requests]:requested) {
+            auto& s=sources_.at(source);
+            std::vector<std::pair<QString,Request>> pending;
+            for(const auto& entry:requests)if(!s.notes.contains(entry.first))pending.push_back(entry);
+            std::sort(pending.begin(),pending.end(),[](const auto& a,const auto& b){return a.second.frame.timestampSeconds<b.second.frame.timestampSeconds;});
+            if(!pending.empty()) {
+                pfcore::VideoDecoder decoder;pfcore::VideoDecodeOptions options;options.threads=8;
+                options.preferNvidia=preferNvidia_;options.minimumNvidiaPixels=1920ULL*1080ULL+1;
+                decoder.open(source,options);decoder.setRgbaMaxDimensions(1280,720);
+                pfcore::DecodedFrame image;bool available=false;
+                for(const auto& [key,request]:pending) {
+                    if(cancelled_())return added;
+                    const double target=request.frame.timestampSeconds;
+                    if(!available || image.timestampSeconds>target+.01 || target-image.timestampSeconds>1) {
+                        decoder.seek(target);available=false;
+                    }
+                    while(!available || image.timestampSeconds+.001<target) {
+                        image.rgba.clear();if(!decoder.readNext(image,false))break;available=true;
+                    }
+                    QJsonObject note{{"track",static_cast<qint64>(request.track)},{"time",target},{"observed",false},{"similarity",0.0},{"eyeSpan",0.0}};
+                    if(available && std::abs(image.timestampSeconds-target)<=.1
+                        && (!image.rgba.empty() || decoder.convertCurrentFrameToRgba(image))) {
+                        double l=image.width,r=0,t=image.height,b=0;
+                        for(const auto& p:request.frame.keypoints)if(p.confidence>=.25 && std::isfinite(p.x+p.y)) {
+                            l=std::min(l,p.x);r=std::max(r,p.x);t=std::min(t,p.y);b=std::max(b,p.y);
+                        }
+                        // The tracked face is more precise than a body crop
+                        // containing several people. Never let a bystander's
+                        // face veto this person because an arm widens the box.
+                        double hl=image.width,hr=0,ht=image.height,hb=0;std::size_t visibleHead=0;
+                        for(std::size_t i=0;i<std::min<std::size_t>(5,request.frame.keypoints.size());++i) {
+                            const auto& p=request.frame.keypoints[i];
+                            if(p.confidence<.5 || !std::isfinite(p.x+p.y))continue;
+                            hl=std::min(hl,p.x);hr=std::max(hr,p.x);ht=std::min(ht,p.y);hb=std::max(hb,p.y);++visibleHead;
+                        }
+                        const bool tightHead=visibleHead>=3 && hr-hl>=16;
+                        if(tightHead) {
+                            const double size=std::max(hr-hl,(hb-ht)*1.5),cx=(hl+hr)/2;
+                            l=cx-size*.8;r=cx+size*.8;t=ht-size*.35;b=hb+size*.65;
+                        }
+                        if(r>=l && b>=t) {
+                            const double width=std::max(64.0,r-l),height=std::max(96.0,b-t),center=(l+r)/2;
+                            const double x0=std::clamp(tightHead?l:center-width*.65,0.0,static_cast<double>(image.width));
+                            const double x1=std::clamp(tightHead?r:center+width*.65,0.0,static_cast<double>(image.width));
+                            const double y0=std::clamp(tightHead?t:t-height*.20,0.0,static_cast<double>(image.height));
+                            const double y1=std::clamp(tightHead?b:t+height*1.15,0.0,static_cast<double>(image.height));
+                            pfgpu::FaceRecognitionDiagnostics diagnostic;
+                            std::array<double,2> nose{};const std::array<double,2>* hint=nullptr;
+                            if(tightHead && !request.frame.keypoints.empty() && request.frame.keypoints[0].confidence>=.5) {
+                                nose={request.frame.keypoints[0].x,request.frame.keypoints[0].y};hint=&nose;
+                            }
+                            // A back view has no measured nose to associate a
+                            // detected face with this person. A bystander or
+                            // a billboard must not veto its body ReID proof.
+                            auto face=hint?estimator_->infer({image.width,image.height,image.rgba.data(),static_cast<float>(x0),static_cast<float>(y0),static_cast<float>(x1),static_cast<float>(y1)},&diagnostic,.85,hint):std::vector<float>{};
+                            if(face.empty() && hint) {
+                                // A single measured low-light crop gets a
+                                // bounded exposure retry. Source pixels/PTS
+                                // stay unchanged; ambiguous faces still fail.
+                                auto exposed=image.rgba;
+                                for(int y=static_cast<int>(y0);y<static_cast<int>(y1);++y)
+                                    for(int x=static_cast<int>(x0);x<static_cast<int>(x1);++x)
+                                        for(int c=0;c<3;++c) {
+                                            auto& value=exposed[(static_cast<std::size_t>(y)*image.width+x)*4+c];
+                                            value=static_cast<std::uint8_t>(std::min(255.0,std::sqrt(value/255.0)*255));
+                                        }
+                                face=estimator_->infer({image.width,image.height,exposed.data(),static_cast<float>(x0),static_cast<float>(y0),static_cast<float>(x1),static_cast<float>(y1)},&diagnostic,.65,hint);
+                                // A weak detection can confirm the known
+                                // person; it cannot veto a body as foreign.
+                                if(diagnostic.detectorScore<.85 && cosine(face,s.face)<.363)face.clear();
+                            }
+                            if(face.empty() && hint && request.frame.keypoints.size()>=3) {
+                                const auto& points=request.frame.keypoints;
+                                // A profile may evade YuNet. Use only measured
+                                // eye/nose anchors and recognize actual pixels;
+                                // this fallback can confirm, never reject,
+                                // the independently admitted source identity.
+                                if(points[0].confidence>=.75 && points[1].confidence>=.75 && points[2].confidence>=.75) {
+                                    const std::array<double,6> anchors{points[2].x,points[2].y,points[1].x,points[1].y,points[0].x,points[0].y};
+                                    face=estimator_->inferFromPose({image.width,image.height,image.rgba.data(),static_cast<float>(x0),static_cast<float>(y0),static_cast<float>(x1),static_cast<float>(y1)},anchors,&diagnostic);
+                                    if(cosine(face,s.face)<.43)face.clear();
+                                }
+                            }
+                            const auto similarity=std::clamp(cosine(face,s.face),-1.0,1.0);
+                            double eye=face.empty()?0:std::hypot(diagnostic.landmarks[0]-diagnostic.landmarks[2],diagnostic.landmarks[1]-diagnostic.landmarks[3])/image.width;
+                            if(face.empty() && request.frame.keypoints.size()>=3) {
+                                const auto& a=request.frame.keypoints[1];const auto& b=request.frame.keypoints[2];
+                                if(a.confidence>=.5 && b.confidence>=.5 && std::isfinite(a.x+a.y+b.x+b.y))
+                                    eye=std::hypot(a.x-b.x,a.y-b.y)/image.width;
+                            }
+                            note["observed"]=!face.empty();note["similarity"]=similarity;note["eyeSpan"]=eye;
+                            note["pts"]=image.timestampSeconds;note["box"]=QJsonArray{x0,y0,x1,y1};
+                        }
+                    }
+                    s.notes.insert(key,note);s.dirty=true;++measured;
+                }
+            }
+            for(auto& w:windows)if(w.sourceId==source)
+                for(const auto& [key,_]:requests)added+=add(w,s.notes.value(key).toObject());
+            if(cache_ && s.dirty && !cancelled_()) {
+                const auto data=QJsonDocument(s.notes).toJson(QJsonDocument::Compact);std::string error;
+                cache_->put(s.key,std::vector<std::uint8_t>(data.begin(),data.end()),error);s.dirty=false;
+            }
+        }
+        if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))std::fprintf(stderr,"PF_DEBUG_MATCHED_FACES measured_frames=%zu attached_observations=%zu\n",measured,added);
+        return added;
+    }
+};
 
 std::filesystem::path findPoseModel()
 {
@@ -887,19 +1229,26 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     if (near(similarityThreshold_, 0.70) && near(candidateThreshold_, 0.48)
         && near(repeatGap_, 8.0) && near(sameFileGap_, 3.0)
         && near(duplicateWindow_, 2.0) && near(noiseFactor_, 1.25)
-        && maxUniqueResults_ == 50 && near(timeWeight_, 0.10)) {
+        && (maxUniqueResults_ == 50 || maxUniqueResults_ == 500) && near(timeWeight_, 0.10)) {
         accuracyPreset_ = QStringLiteral("fast");
+        maxUniqueResults_=500;
     } else if (near(similarityThreshold_, 0.84) && near(candidateThreshold_, 0.68)
         && near(repeatGap_, 4.0) && near(sameFileGap_, 1.5)
         && near(duplicateWindow_, 1.0) && near(noiseFactor_, 0.70)
-        && maxUniqueResults_ == 200 && near(timeWeight_, 0.40)) {
+        && (maxUniqueResults_ == 200 || maxUniqueResults_ == 500) && near(timeWeight_, 0.40)) {
         accuracyPreset_ = QStringLiteral("precise");
+        maxUniqueResults_=500;
     } else if (!near(similarityThreshold_, 0.76) || !near(candidateThreshold_, 0.55)
         || !near(repeatGap_, 6.0) || !near(sameFileGap_, 2.0)
         || !near(duplicateWindow_, 1.5) || !near(noiseFactor_, 1.0)
-        || maxUniqueResults_ != 100 || !near(timeWeight_, 0.25)) {
+        || (maxUniqueResults_ != 100 && maxUniqueResults_ != 500) || !near(timeWeight_, 0.25)) {
         accuracyPreset_ = QStringLiteral("custom");
-    }
+    } else maxUniqueResults_=500;
+    // Diagnostic comparisons can retain a historical limit without changing
+    // the user's saved profile or conflating retrieval with the result cap.
+    bool resultLimitValid=false;
+    const int resultLimit=qEnvironmentVariableIntValue("PF_MAX_UNIQUE_RESULTS",&resultLimitValid);
+    if (resultLimitValid && resultLimit>=10 && resultLimit<=500) maxUniqueResults_=resultLimit;
 }
 
 void AnalysisController::saveMatcherSettings() const
@@ -1635,7 +1984,10 @@ QStringList AnalysisController::filesInFolder(const QString& folder) const
 
 void AnalysisController::analyzeFiles(const QStringList& paths)
 {
-    const QStringList normalized = normalizedPaths(paths);
+    QStringList normalized = normalizedPaths(paths);
+    // Candidate tie breaks and overlap aliases use window indices. Keep the
+    // analysis order stable when the same files are selected in another order.
+    normalized.sort(Qt::CaseSensitive);
     if (normalized.isEmpty()) {
         analysisCompleted_ = false;
         emit analysisStateChanged();
@@ -1693,8 +2045,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     emit summaryChanged();
     busy_ = true;
     emit busyChanged();
-    setProgress(0.0, QStringLiteral("Подготавливаем анализ"), 0, 0);
-    setStatus(QStringLiteral("Декодируем кадры и ищем смены сцен…"));
+    setProgress(0.0, expandedSearch_ ? QStringLiteral("Подготавливаем анализ с нуля")
+                                  : QStringLiteral("Подготавливаем анализ"), 0, 0);
+    setStatus(expandedSearch_ ? QStringLiteral("Повторный анализ: сбрасываем кэш выбранных видео…")
+                             : QStringLiteral("Декодируем кадры и ищем смены сцен…"));
     const auto cancel = std::make_shared<std::atomic_bool>(false);
     analysisCancel_ = cancel;
     const double similarityThreshold = similarityThreshold_;
@@ -1841,10 +2195,27 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 reidFailure = QString::fromUtf8(exception.what());
             }
         }
+        QString sharedIdentityStatus;
+        std::unordered_map<std::string,std::string> sequenceCacheKeys;
+        std::unordered_map<std::string,std::string> sourceGenerations;
+        QJsonObject frozenWindowKeys;
+        if (QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))) {
+            QFile file(qEnvironmentVariable("PF_AUDIT_FROZEN_WINDOW_KEYS"));
+            if (!file.fileName().isEmpty() && file.open(QIODevice::ReadOnly))
+                frozenWindowKeys=QJsonDocument::fromJson(file.readAll()).object();
+        }
         std::vector<pfcore::MotionWindow> windows;
         for (const QString& path : paths) {
             if (isCancelled()) { markCancelled(); break; }
             try {
+                if (analysisCache) {
+                    if (expandedSearch) {
+                        std::string cacheError;
+                        if (!analysisCache->resetSource(path.toStdString(), cacheError))
+                            throw std::runtime_error("Cannot reset selected video cache: " + cacheError);
+                    }
+                    sourceGenerations[path.toStdString()] = analysisCache->sourceGeneration(path.toStdString());
+                }
                 pfcore::VideoDecoder decoder;
                 pfcore::VideoDecodeOptions decodeOptions;
                 decodeOptions.threads = static_cast<int>(std::min<std::size_t>(settings.processingThreads, 8));
@@ -1881,7 +2252,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 // Bump this contract whenever association or the identity
                 // policy changes; otherwise a stricter matcher can still
                 // display candidates produced by an older pipeline.
-                std::string cacheKey = "motion-v38|shot-local-tracking|duration-first-lead|co-visible-identities|strict-source-lead|sparse-face-veto|stable-motion-cuts|bidirectional-low-contrast-cuts|spatial-fades|supported-static-runs|matcher-mirror|scene4fps|infer=1280x720|decode="
+                std::string cacheKey = "motion-v43|rc16-independent-admission|rc16-lead-recovery|duplicate-identity-veto|shot-local-tracking|duration-first-lead|co-visible-identities|strict-source-lead|sparse-face-veto|stable-motion-cuts|bidirectional-low-contrast-cuts|spatial-fades|supported-static-runs|matcher-mirror|scene4fps|infer=1280x720|decode="
                     + decoder.diagnostics().backend
                     + "|pose=" + cacheFileFingerprint(model) + "|"
                     + providerChoice.toStdString() + "|reid="
@@ -1908,7 +2279,19 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     if (resolved == pfgpu::Provider::TensorRt)
                         cacheKey += "|trt-v2-fp16-v1|ort=" + pfgpu::ortRuntimeVersion();
                 }
-                if (analysisCache) {
+                if (const auto frozen=frozenWindowKeys.value(path).toString();!expandedSearch && !frozen.isEmpty()) {
+                    const auto original=frozen.toStdString();
+                    const auto suffix=cacheFileFingerprint(path.toStdString());
+                    if (!original.starts_with("motion-v43|") || !original.ends_with(suffix))
+                        throw std::runtime_error("Frozen observations do not match the current source fingerprint");
+                    cacheKey=original;
+                    if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
+                        std::fprintf(stderr,"PF_DEBUG_FROZEN_OBSERVATIONS source=%s legacy_window_replay=1 new_model_inference=0\n",path.toStdString().c_str());
+                }
+                const auto generation = sourceGenerations[path.toStdString()];
+                if (!generation.empty()) cacheKey += "|generation=" + generation;
+                sequenceCacheKeys[path.toStdString()]=cacheKey;
+                if (analysisCache && !expandedSearch) {
                     if (const auto cached = analysisCache->get(cacheKey))
                         cacheHit = deserializeMotionWindows(*cached, cachedWindows, cachedSceneCount);
                 }
@@ -1920,6 +2303,17 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     {"frameCount", static_cast<qlonglong>(std::max(0.0, info.durationSeconds * info.frameRate))},
                     {"durationSeconds", info.durationSeconds}, {"sceneCount", 0}, {"matchCount", 0}});
                 if (cacheHit && cachedSceneCount >= 0) {
+                    // Upgrade only spatial view evidence from old pose caches.
+                    // The expensive detector/identity observations stay intact.
+                    const bool missingViews = std::any_of(cachedWindows.begin(), cachedWindows.end(), [](const auto& window) {
+                        return window.staticFrameSet && !window.sceneViewSampled;
+                    });
+                    const auto viewFrames = ensureSceneViews(cachedWindows, decoder, isCancelled);
+                    if (isCancelled()) { markCancelled(); break; }
+                    if (analysisCache && missingViews) {
+                        std::string cacheError;
+                        analysisCache->put(cacheKey, serializeMotionWindows(cachedWindows, cachedSceneCount), cacheError);
+                    }
                     scenes += cachedSceneCount;
                     auto summary = summaries.value(path).toMap();
                     summary.insert("sceneCount", cachedSceneCount);
@@ -1930,7 +2324,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         previewB.push_back(QString());
                     }
                     if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
-                        std::fprintf(stderr, "PF_DEBUG_TIMING complete_cache_hit=1 decoded=0 source=%s\n", qPrintable(path));
+                        std::fprintf(stderr, "PF_DEBUG_TIMING complete_cache_hit=%d window_cache_hit=1 decoded=%llu view_samples=%zu pose_samples=0 source=%s\n",
+                            viewFrames == 0 ? 1 : 0, static_cast<unsigned long long>(decoder.diagnostics().decodedFrames), viewFrames, qPrintable(path));
                     continue;
                 }
                 std::vector<std::vector<std::uint8_t>> sceneBuffers;
@@ -1943,6 +2338,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 sceneBuffers.reserve(static_cast<std::size_t>(std::max(1.0, info.durationSeconds * 4.0)) + 1U);
                 sceneTimestamps.reserve(sceneBuffers.capacity());
                 pfcore::PersonTracker tracker;
+                pfcore::PersonTracker rc16Tracker(.30, 1.0, false);
                 pfcore::DecodedFrame firstFrame;
                 pfcore::DecodedFrame lastFrame;
                 pfcore::DecodedFrame frame;
@@ -2073,6 +2469,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         : (info.frameRate > 0.0 ? 1.0 / info.frameRate : 0.0);
                     const auto trackerStart = stageNow();
                     tracker.update(sample.timestamp, frameDuration, frameDetections);
+                    rc16Tracker.update(sample.timestamp, frameDuration, frameDetections);
                     trackerNs += stageNow() - trackerStart;
                     previousPoseTimestamp = sample.timestamp;
                 };
@@ -2192,11 +2589,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     for (const auto& cut : sceneBoundaries) cuts.push_back(cut.timestampSeconds);
                     const auto trackingStart = stageNow();
                     tracker.retrackScenes(cuts);
+                    rc16Tracker.retrackScenes(cuts);
                     trackerNs += stageNow() - trackingStart;
                 }
-                const auto preferredTracks = cacheHit ? std::vector<bool>{}
-                    : pfcore::selectDominantSceneTracks(tracker.tracks(),
-                        -std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity());
+                const auto sourceSelection = cacheHit ? pfcore::DominantSourceSelection{}
+                    : pfcore::selectDominantSourceTracks(tracker.tracks(), &rc16Tracker.tracks());
+                const auto& preferredTracks = sourceSelection.tracks;
                 // Opt-in identity audit: preserve independently sampled crops
                 // before scene prototypes hide track switches or mixed faces.
                 // No allocations or observation traversal in normal analysis.
@@ -2242,6 +2640,52 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             } else if (!diagnosticFile.commit()) qWarning("Cannot commit identity audit.");
                         } else qWarning("Cannot open identity audit output.");
                     }
+                }
+                // Opt-in raw track evidence, before any window selection. This
+                // is diagnostic data, never identity ground truth.
+                const QString trackAuditPath = qEnvironmentVariable("PF_DEBUG_TRACKS_JSON");
+                if (!trackAuditPath.isEmpty() && !cacheHit) {
+                    QJsonArray tracks;
+                    const auto vectorJson = [](const std::vector<float>& values) {
+                        QJsonArray array;
+                        for (const auto value : values) array.append(value);
+                        return array;
+                    };
+                    for (std::size_t i = 0; i < tracker.tracks().size(); ++i) {
+                        const auto& track = tracker.tracks()[i];
+                        QJsonArray observations;
+                        for (const auto& observation : track.observations) {
+                            QJsonArray points;
+                            for (const auto& point : observation.keypoints)
+                                points.append(QJsonArray{point.x, point.y, point.confidence});
+                            observations.append(QJsonObject{
+                                {"time", observation.timestampSeconds},
+                                {"duration", observation.frameDurationSeconds},
+                                {"confidence", observation.confidence},
+                                {"keypointConfidence", observation.keypointConfidence},
+                                {"appearanceConfidence", observation.appearanceConfidence},
+                                {"box", QJsonArray{observation.box.left, observation.box.top,
+                                                    observation.box.right, observation.box.bottom}},
+                                {"points", points}, {"face", vectorJson(observation.faceEmbedding)},
+                                {"body", vectorJson(observation.appearanceEmbedding)}});
+                        }
+                        QJsonArray runs;
+                        for (const auto range : sourceSelection.observationRuns[i])
+                            runs.append(QJsonArray{static_cast<qint64>(range.begin), static_cast<qint64>(range.end)});
+                        tracks.append(QJsonObject{{"id", static_cast<qint64>(track.id)},
+                            {"sourceLead", preferredTracks[i]}, {"recovered", sourceSelection.recovered[i]},
+                            {"allowedRuns", runs}, {"observations", observations}});
+                    }
+                    const QString destination = paths.size() == 1 ? trackAuditPath
+                        : trackAuditPath + QStringLiteral(".%1.json").arg(files);
+                    if (!QFileInfo::exists(destination)) {
+                        QSaveFile diagnosticFile(destination);
+                        if (diagnosticFile.open(QIODevice::WriteOnly)) {
+                            const auto bytes = QJsonDocument(QJsonObject{{"source", path},
+                                {"schema", 2}, {"tracks", tracks}}).toJson(QJsonDocument::Compact);
+                            if (diagnosticFile.write(bytes) == bytes.size()) diagnosticFile.commit();
+                        }
+                    } else qWarning("Tracker audit refuses to overwrite existing observations.");
                 }
                 // A boundary separates two scenes; the user-facing counter is
                 // the number of actual segments, not the number of cuts.
@@ -2321,95 +2765,105 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         for (const auto* trackPtr : sceneTracks) {
                             const auto& track = *trackPtr;
                             if (isCancelled()) { markCancelled(); break; }
-                            pfcore::MotionWindow window;
-                            window.sourceId = path.toStdString();
-                            window.trackId = track.id;
-                            window.sceneIndex = sceneIndex;
-                            window.hasSceneIndex = true;
-                            window.sceneStartSeconds = sceneStart;
-                            window.sceneEndSeconds = sceneEnd;
-                            const auto appearance = averageAppearance(track, sceneStart, sceneEnd);
-                            window.appearanceEmbedding = appearance.embedding;
-                            window.appearanceConfidence = appearance.confidence;
-                            const auto facePrototype = averageAppearance(track, sceneStart, sceneEnd, true);
-                            window.faceEmbedding = facePrototype.embedding;
-                            window.faceConfidence = facePrototype.confidence;
-                            for (const auto& observation : track.observations) {
-                                if (observation.timestampSeconds >= sceneStart
-                                    && observation.timestampSeconds < sceneEnd) {
-                                    window.frames.push_back({observation.timestampSeconds, observation.keypoints});
+                            const auto trackIndex = static_cast<std::size_t>(trackPtr - tracker.tracks().data());
+                            for (const auto observationRun : sourceSelection.observationRuns[trackIndex]) {
+                                const bool bounded = sourceSelection.recovered[trackIndex]
+                                    || observationRun.begin != 0 || observationRun.end != track.observations.size();
+                                const double supportedStart = bounded
+                                    ? std::max(sceneStart, track.observations[observationRun.begin].timestampSeconds) : sceneStart;
+                                const double supportedEnd = bounded
+                                    ? std::min(sceneEnd, track.observations[observationRun.end-1].timestampSeconds + 1e-6) : sceneEnd;
+                                if (supportedEnd <= supportedStart) continue;
+                                pfcore::MotionWindow window;
+                                window.sourceId = path.toStdString();
+                                window.trackId = track.id;
+                                window.sceneIndex = sceneIndex;
+                                window.hasSceneIndex = true;
+                                window.sceneStartSeconds = supportedStart;
+                                window.sceneEndSeconds = supportedEnd;
+                                const auto appearance = averageAppearance(track, supportedStart, supportedEnd);
+                                window.appearanceEmbedding = appearance.embedding;
+                                window.appearanceConfidence = appearance.confidence;
+                                const auto facePrototype = averageAppearance(track, supportedStart, supportedEnd, true);
+                                window.faceEmbedding = facePrototype.embedding;
+                                window.faceConfidence = facePrototype.confidence;
+                                for (const auto& observation : track.observations) {
+                                    if (observation.timestampSeconds >= supportedStart
+                                        && observation.timestampSeconds < supportedEnd) {
+                                        window.frames.push_back({observation.timestampSeconds, observation.keypoints});
+                                    }
                                 }
-                            }
-                            // Never reduce a scene to one representative frame. Each
-                            // selected analysis mode creates a temporal set of fresh
-                            // samples; the matcher can then enforce its multi-frame
-                            // support and motion/static policy.
-                            const auto appendChunks = [&](double windowSeconds,
-                                                          double strideSeconds,
-                                                          double minimumWindowSeconds,
-                                                          bool staticFrameSet,
-                                                          std::size_t first = 0,
-                                                          std::size_t stop = std::numeric_limits<std::size_t>::max()) {
-                                const auto limit = std::min(stop, window.frames.size());
-                                if (first >= limit || limit - first < 2) return;
-                                std::size_t start = first;
-                                while (start < limit) {
-                                    if (isCancelled()) { markCancelled(); break; }
-                                    const double startTime = window.frames[start].timestampSeconds;
-                                    if (startTime + minimumWindowSeconds > sceneEnd + 1e-9) break;
-                                    std::size_t end = start;
-                                    while (end + 1 < limit
-                                           && window.frames[end + 1].timestampSeconds
-                                               <= startTime + windowSeconds + 1e-9
-                                           && window.frames[end + 1].timestampSeconds
-                                               - window.frames[end].timestampSeconds <= 0.5) {
-                                        ++end;
+                                // Never reduce a scene to one representative frame. Each
+                                // selected analysis mode creates a temporal set of fresh
+                                // samples; the matcher can then enforce its multi-frame
+                                // support and motion/static policy.
+                                const auto appendChunks = [&](double windowSeconds,
+                                                              double strideSeconds,
+                                                              double minimumWindowSeconds,
+                                                              bool staticFrameSet,
+                                                              std::size_t first = 0,
+                                                              std::size_t stop = std::numeric_limits<std::size_t>::max()) {
+                                    const auto limit = std::min(stop, window.frames.size());
+                                    if (first >= limit || limit - first < 2) return;
+                                    std::size_t start = first;
+                                    while (start < limit) {
+                                        if (isCancelled()) { markCancelled(); break; }
+                                        const double startTime = window.frames[start].timestampSeconds;
+                                        if (startTime + minimumWindowSeconds > sceneEnd + 1e-9) break;
+                                        std::size_t end = start;
+                                        while (end + 1 < limit
+                                               && window.frames[end + 1].timestampSeconds
+                                                   <= startTime + windowSeconds + 1e-9
+                                               && window.frames[end + 1].timestampSeconds
+                                                   - window.frames[end].timestampSeconds <= 0.5) {
+                                            ++end;
+                                        }
+                                        if (end > start
+                                            && window.frames[end].timestampSeconds - startTime
+                                                >= minimumWindowSeconds) {
+                                            pfcore::MotionWindow chunk;
+                                            chunk.sourceId = window.sourceId;
+                                            chunk.trackId = window.trackId;
+                                            chunk.sceneIndex = window.sceneIndex;
+                                            chunk.hasSceneIndex = window.hasSceneIndex;
+                                            chunk.staticFrameSet = staticFrameSet;
+                                            chunk.sceneStartSeconds = window.sceneStartSeconds;
+                                            chunk.sceneEndSeconds = window.sceneEndSeconds;
+                                            chunk.appearanceEmbedding = window.appearanceEmbedding;
+                                            chunk.appearanceConfidence = window.appearanceConfidence;
+                                            chunk.faceEmbedding = window.faceEmbedding;
+                                            chunk.faceConfidence = window.faceConfidence;
+                                            chunk.frames.assign(window.frames.begin()
+                                                                    + static_cast<std::ptrdiff_t>(start),
+                                                                window.frames.begin()
+                                                                    + static_cast<std::ptrdiff_t>(end + 1));
+                                            windows.push_back(std::move(chunk));
+                                            previewA.push_back(previewStart);
+                                            previewB.push_back(previewEnd);
+                                        }
+                                        const double nextTime = startTime + strideSeconds;
+                                        std::size_t next = start + 1;
+                                        while (next < limit
+                                               && window.frames[next].timestampSeconds < nextTime) {
+                                            ++next;
+                                        }
+                                        start = next;
                                     }
-                                    if (end > start
-                                        && window.frames[end].timestampSeconds - startTime
-                                            >= minimumWindowSeconds) {
-                                        pfcore::MotionWindow chunk;
-                                        chunk.sourceId = window.sourceId;
-                                        chunk.trackId = window.trackId;
-                                        chunk.sceneIndex = window.sceneIndex;
-                                        chunk.hasSceneIndex = window.hasSceneIndex;
-                                        chunk.staticFrameSet = staticFrameSet;
-                                        chunk.sceneStartSeconds = window.sceneStartSeconds;
-                                        chunk.sceneEndSeconds = window.sceneEndSeconds;
-                                        chunk.appearanceEmbedding = window.appearanceEmbedding;
-                                        chunk.appearanceConfidence = window.appearanceConfidence;
-                                        chunk.faceEmbedding = window.faceEmbedding;
-                                        chunk.faceConfidence = window.faceConfidence;
-                                        chunk.frames.assign(window.frames.begin()
-                                                                + static_cast<std::ptrdiff_t>(start),
-                                                            window.frames.begin()
-                                                                + static_cast<std::ptrdiff_t>(end + 1));
-                                        windows.push_back(std::move(chunk));
-                                        previewA.push_back(previewStart);
-                                        previewB.push_back(previewEnd);
-                                    }
-                                    const double nextTime = startTime + strideSeconds;
-                                    std::size_t next = start + 1;
-                                    while (next < limit
-                                           && window.frames[next].timestampSeconds < nextTime) {
-                                        ++next;
-                                    }
-                                    start = next;
+                                };
+                                if (analysisMode == QStringLiteral("motion")) {
+                                    appendChunks(2.5, 0.75, 0.75, false);
+                                } else if (analysisMode == QStringLiteral("static")) {
+                                    appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds, true);
+                                } else { // combined: independent motion and static passes
+                                    appendChunks(2.5, 0.75, 0.75, false);
+                                    appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds, true);
                                 }
-                            };
-                            if (analysisMode == QStringLiteral("motion")) {
-                                appendChunks(2.5, 0.75, 0.75, false);
-                            } else if (analysisMode == QStringLiteral("static")) {
-                                appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds, true);
-                            } else { // combined: independent motion and static passes
-                                appendChunks(2.5, 0.75, 0.75, false);
-                                appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds, true);
-                            }
-                            if (analysisMode != QStringLiteral("motion")) {
-                                for (const auto range : pfcore::observedPoseRuns(window)) {
-                                    if (range.begin == 0 && range.end + 1 == window.frames.size()) continue;
-                                    appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds,
-                                                 true, range.begin, range.end + 1);
+                                if (analysisMode != QStringLiteral("motion")) {
+                                    for (const auto range : pfcore::observedPoseRuns(window)) {
+                                        if (range.begin == 0 && range.end + 1 == window.frames.size()) continue;
+                                        appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds,
+                                                     true, range.begin, range.end + 1);
+                                    }
                                 }
                             }
                         }
@@ -2423,11 +2877,23 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         candidate.sceneContext = contextIndex.query(
                             candidate.frames.front().timestampSeconds, candidate.frames.back().timestampSeconds);
                 }
+                std::vector<pfcore::MotionWindow> fileWindows;
+                for (const auto& candidate : windows)
+                    if (candidate.sourceId == path.toStdString()) fileWindows.push_back(candidate);
+                ensureSceneViews(fileWindows, decoder, isCancelled);
+                ensureSceneSequences(fileWindows,path.toStdString(),cacheKey,analysisCache.get(),false,isCancelled,&samples);
+                if (isCancelled()) { markCancelled(); break; }
+                std::unordered_map<std::size_t, const pfcore::MotionWindow*> views;
+                for (const auto& candidate : fileWindows) if (candidate.sceneViewSampled)
+                    views.try_emplace(candidate.sceneIndex, &candidate);
+                for (auto& candidate : windows) if (candidate.sourceId == path.toStdString()) {
+                    if (const auto found = views.find(candidate.sceneIndex); found != views.end()) {
+                        candidate.sceneView = found->second->sceneView;
+                        candidate.sceneViewSampled = true;
+                    }
+                }
                 const auto windowsReadyNs = stageNow();
                 if (analysisCache && !isCancelled() && faceFailure.isEmpty() && reidFailure.isEmpty()) {
-                    std::vector<pfcore::MotionWindow> fileWindows;
-                    for (const auto& candidate : windows)
-                        if (candidate.sourceId == path.toStdString()) fileWindows.push_back(candidate);
                     std::string cacheError;
                     analysisCache->put(cacheKey, serializeMotionWindows(fileWindows,
                         static_cast<int>(sceneBoundaries.size()) + 1), cacheError);
@@ -2446,10 +2912,40 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         }
         markCancelled();
         if (error.isEmpty() && windows.size() >= 2 && !isCancelled()) {
+            const auto sharedIdentity = pfcore::selectDominantVideoWindows(windows);
+            if (paths.size() > 1) {
+                std::vector<pfcore::MotionWindow> admitted;
+                QStringList admittedA, admittedB;
+                for (std::size_t i=0;i<windows.size();++i) if (sharedIdentity.windows[i]) {
+                    admitted.push_back(std::move(windows[i]));
+                    admittedA.push_back(previewA[static_cast<qsizetype>(i)]);
+                    admittedB.push_back(previewB[static_cast<qsizetype>(i)]);
+                }
+                if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
+                    std::fprintf(stderr,"PF_DEBUG_SHARED_IDENTITY supplied=%zu selected=%zu windows_before=%zu windows_after=%zu\n",
+                        sharedIdentity.suppliedSources,sharedIdentity.sources.size(),windows.size(),admitted.size());
+                    for (const auto& source:sharedIdentity.sources)
+                        std::fprintf(stderr,"PF_DEBUG_SHARED_SOURCE %s\n",source.c_str());
+                }
+                windows=std::move(admitted);previewA=std::move(admittedA);previewB=std::move(admittedB);
+                sharedIdentityStatus = QStringLiteral(" · Один человек в %1 из %2 видео")
+                    .arg(sharedIdentity.sources.size()).arg(paths.size());
+                if (sharedIdentity.sources.size()>1) {
+                    QMetaObject::invokeMethod(this,[this,cancel] {
+                        if (analysisCancel_==cancel && !cancel->load())
+                            setStatus(QStringLiteral("Проверяем повторы между видео…"));
+                    },Qt::QueuedConnection);
+                    for (const auto& source:sharedIdentity.sources) {
+                        ensureSceneSequences(windows,source,sequenceCacheKeys.at(source),analysisCache.get(),
+                            providerChoice==QStringLiteral("cuda") || providerChoice==QStringLiteral("tensorrt"),isCancelled);
+                        if (isCancelled()) {markCancelled();break;}
+                    }
+                }
+            }
             if (expandedSearch) {
                 // Separate cacheable observations from the current search
-                // policy. New temporal alternatives are derived after cache
-                // lookup, so enabling repeat search does not force inference.
+                // policy. Repeat analysis has already refreshed the source
+                // namespace and inferred every video again above.
                 std::unordered_set<std::string> ranges;
                 const auto rangeKey = [](const pfcore::MotionWindow& w) {
                     return w.sourceId + "|" + std::to_string(w.trackId) + "|"
@@ -2471,7 +2967,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                  originalCount, windows.size() - originalCount);
             }
             const QString diagnosticPath = qEnvironmentVariable("PF_DEBUG_POSES_JSON");
-            if (!diagnosticPath.isEmpty()) {
+            const auto dumpWindows=[&] {if (!diagnosticPath.isEmpty()) {
                 QJsonArray diagnosticWindows;
                 for (const auto& window : windows) {
                     QJsonArray framesJson;
@@ -2494,19 +2990,29 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         {"faceConfidence", window.faceConfidence}, {"bodyConfidence", window.appearanceConfidence},
                         {"face", embeddingJson(window.faceEmbedding)},
                         {"body", embeddingJson(window.appearanceEmbedding)},
-                        {"context", embeddingJson(window.sceneContext)}});
+                        {"context", embeddingJson(window.sceneContext)},
+                        {"view", embeddingJson(window.sceneView)}, {"viewSampled", window.sceneViewSampled},
+                        {"sequence",embeddingJson(window.sceneSequence)},
+                        {"sequencePts",[&window] {QJsonArray values;for (const auto t:window.sceneSequenceTimes)values.append(t);return values;}()},
+                        {"measuredFaces",[&window] {QJsonArray values;for (const auto& f:window.measuredFaces) {
+                            values.append(QJsonObject{{"time",f.timestampSeconds},{"observed",f.observed},{"similarity",f.similarity},{"eyeSpan",f.relativeEyeSpan}});}return values;}()}});
                 }
                 QSaveFile diagnosticFile(diagnosticPath);
                 if (diagnosticFile.open(QIODevice::WriteOnly)) {
                     const auto bytes = QJsonDocument(diagnosticWindows).toJson(QJsonDocument::Compact);
                     if (diagnosticFile.write(bytes) == bytes.size()) diagnosticFile.commit();
                 }
-            }
+            }};
             pfcore::MotionMatcherParams params;
+            params.individualPairs = true;
+            params.recoverUnusedShots = true;
+            params.coverageSeedLimit = similarityThreshold<=.70 ? 50U : similarityThreshold>=.84 ? 200U : 100U;
             bool reuseOverrideValid = false;
             const int reuseOverride = qEnvironmentVariableIntValue("PF_RESULTS_PER_SHOT", &reuseOverrideValid);
-            if (reuseOverrideValid && reuseOverride >= 0 && reuseOverride <= 100)
+            if (reuseOverrideValid && reuseOverride >= 0 && reuseOverride <= 100) {
                 params.maxResultsPerShot = static_cast<std::size_t>(reuseOverride);
+                params.individualPairs = false; // explicit diagnostic override
+            }
             params.similarityThreshold = similarityThreshold;
             params.candidateThreshold = candidateThreshold;
             params.minRepeatGapSec = repeatGap;
@@ -2538,12 +3044,21 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             // never inflates the percentage shown in the result rail.
             params.minAppearanceSimilarity = 0.76;
             params.appearanceWeight = 0.0;
+            MatchedFaceVerifier faceVerifier(windows,sequenceCacheKeys,analysisCache.get(),face,
+                providerChoice==QStringLiteral("cuda") || providerChoice==QStringLiteral("tensorrt"),isCancelled);
             QElapsedTimer resultTimer;
             resultTimer.start();
             foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows);
+            while (!isCancelled() && faceVerifier.verify(windows,foundMatches)>0) {
+                QMetaObject::invokeMethod(this,[this,cancel] {
+                    if(analysisCancel_==cancel && !cancel->load())setStatus(QStringLiteral("Проверяем человека в найденных фрагментах…"));
+                },Qt::QueuedConnection);
+                foundMatches=pfcore::MotionMatcher(params).findAllPairs(windows);
+            }
             if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
                 std::fprintf(stderr, "PF_DEBUG_TIMING matcher_ms=%lld\n", static_cast<long long>(resultTimer.restart()));
             pfcore::MotionRanker::rank(foundMatches, windows);
+            dumpWindows();
             if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
                 std::fprintf(stderr, "PF_DEBUG_TIMING rank_ms=%lld ranked_results=%zu\n",
                     static_cast<long long>(resultTimer.restart()), foundMatches.size());
@@ -2563,7 +3078,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 if (!std::isfinite(seconds)) return std::string{};
                 auto [fingerprint, inserted] = previewFingerprints.try_emplace(path);
                 if (inserted) fingerprint->second = cacheFileFingerprint(path);
-                return "preview-v1|1920x1080|" + fingerprint->second + "|t="
+                return "preview-v1|1920x1080|" + fingerprint->second + "|generation="
+                    + sourceGenerations[path] + "|t="
                     + std::to_string(std::llround(std::max(0.0, seconds) * 1000000.0));
             };
             struct PreviewRequest {
@@ -2721,6 +3237,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         reidStatus += face ? QStringLiteral(" · проверка лица включена")
             : (faceFailure.isEmpty() ? QStringLiteral(" · модель лица не установлена")
                                     : QStringLiteral(" · ошибка модели лица: ") + faceFailure);
+        reidStatus += sharedIdentityStatus;
         const QString debugSummary = qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")
             ? QStringLiteral(" · debug: windows=%1 detections=%2")
                 .arg(static_cast<qulonglong>(windows.size()))
@@ -2735,7 +3252,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             summary.insert("matchCount", count);
             entry.value() = summary;
         }
-        QMetaObject::invokeMethod(this, [this, cancel, files, frames, duration, scenes, poseDetections, matches, resultRecords, foundMatches, error, processedFrames, totalFramesEstimate, sourceFps, reidStatus, debugSummary, summaries] {
+        QMetaObject::invokeMethod(this, [this, cancel, files, frames, duration, scenes, poseDetections, matches, resultRecords, foundMatches, error, processedFrames, totalFramesEstimate, sourceFps, reidStatus, debugSummary, summaries, expandedSearch] {
             if (pendingInspectionPaths_) {
                 busy_ = false;
                 emit busyChanged();
@@ -2754,10 +3271,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             emit resultsChanged();
             analysisCompleted_ = error.isEmpty();
             emit analysisStateChanged();
-            setProgress(error.isEmpty() ? 1.0 : progress_, error.isEmpty() ? QStringLiteral("Анализ завершён") : QStringLiteral("Анализ остановлен"), processedFrames, totalFramesEstimate);
+            setProgress(error.isEmpty() ? 1.0 : progress_, error.isEmpty()
+                ? (expandedSearch ? QStringLiteral("Повторный анализ завершён") : QStringLiteral("Анализ завершён"))
+                : QStringLiteral("Анализ остановлен"), processedFrames, totalFramesEstimate);
             busy_ = false; emit busyChanged();
             if (analysisCancel_ == cancel) analysisCancel_.reset();
-            setStatus(error.isEmpty() ? QStringLiteral("Анализ сцен завершён · ") + reidStatus + debugSummary
+            setStatus(error.isEmpty() ? (expandedSearch ? QStringLiteral("Повторный анализ завершён · ")
+                                                       : QStringLiteral("Анализ сцен завершён · ")) + reidStatus + debugSummary
                                       : QStringLiteral("Анализ остановлен: ") + error);
         }, Qt::QueuedConnection);
         } catch (const std::exception& exception) {

@@ -2,6 +2,7 @@
 
 #include <QCryptographicHash>
 #include <QCoreApplication>
+#include <QUuid>
 
 #include <algorithm>
 #include <array>
@@ -179,6 +180,28 @@ bool PfCache::erase(const std::string& key, std::string& error)
         return false;
     }
     return true;
+}
+
+std::string PfCache::sourceGeneration(const std::string& source) const
+{
+    const auto key = "source-generation-v1|" + source;
+    auto path = fileFor(key);
+    path.replace_extension(".generation");
+    std::vector<std::uint8_t> payload;
+    if (!readEntry(path, key, payload)) return {};
+    return std::string(payload.begin(), payload.end());
+}
+
+bool PfCache::resetSource(const std::string& source, std::string& error)
+{
+    const auto key = "source-generation-v1|" + source;
+    auto path = fileFor(key);
+    path.replace_extension(".generation");
+    const auto generation = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+    // Rotate first. All cache types derive their keys from this generation,
+    // including old profiles/models and entries whose keys are hashed.
+    // Older bytes can be evicted normally, but cannot become cache hits.
+    return writeEntry(path, key, std::vector<std::uint8_t>(generation.begin(), generation.end()), error);
 }
 
 bool PfCache::clear(std::string& error)

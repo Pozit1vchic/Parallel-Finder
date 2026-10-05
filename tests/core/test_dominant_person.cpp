@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <cmath>
+#include <algorithm>
 
 #include <pfcore/DominantPerson.hpp>
 
@@ -273,4 +275,264 @@ TEST(DominantPerson, SingleContradictoryFaceVetoesAClothingBridge)
               (std::vector<bool>{true, true, true}));
 }
 
+TEST(DominantPerson, ConflictingDuplicateCannotContinueLeadThroughUnsampledFrames)
+{
+    pfcore::PersonTracker tracker;
+    auto lead = person(0, 0, .9);
+    lead.keypoints = {{4,2,.9},{3,2,.9},{5,2,.9},{2,3,.9},{6,3,.9},{2,6,.9},{7,6,.9}};
+    lead.faceEmbedding = {1,0};
+    tracker.update(0, .1, {lead});
+    tracker.update(.1, .1, {lead});
+    auto other = lead; other.faceEmbedding = {0,1}; other.confidence = .7;
+    auto duplicate = other; duplicate.faceEmbedding.clear(); duplicate.confidence = .31;
+    duplicate.box = {-.5,0,9.5,20};
+    tracker.update(.2, .1, {duplicate,other});
+    other.faceEmbedding.clear();
+    tracker.update(.3, .1, {duplicate,other});
+    ASSERT_EQ(tracker.tracks()[0].observations.size(), 2U);
+    std::size_t samples = 0;
+    for (const auto& track : tracker.tracks()) samples += track.observations.size();
+    EXPECT_EQ(samples, 6U); // all actual detections, no invented identity crops
+    tracker.retrackScenes({.15});
+    samples = 0;
+    for (const auto& track : tracker.tracks()) samples += track.observations.size();
+    EXPECT_EQ(samples, 6U);
+}
+
+TEST(DominantPerson, OverlappingOtherDoesNotRetireVisibleLead)
+{
+    pfcore::PersonTracker tracker;
+    auto lead = person(0, 0, .9); lead.faceEmbedding = {1,0};
+    tracker.update(0, .1, {lead});
+    auto other = person(.1, 1, .95); other.faceEmbedding = {0,1};
+    tracker.update(.1, .1, {other,lead});
+    lead.faceEmbedding.clear();
+    tracker.update(.2, .1, {lead});
+    ASSERT_EQ(tracker.tracks()[0].observations.size(), 3U);
+}
+
+TEST(DominantPerson, IndependentIdentityConflictEndsTrackBeforeUnsampledContinuation)
+{
+    pfcore::PersonTracker tracker;
+    auto lead = person(0,0,.9); lead.faceEmbedding = {1,0};
+    tracker.update(0,.1,{lead});
+    auto other = lead; other.faceEmbedding = {0,1};
+    tracker.update(.1,.1,{other});
+    other.faceEmbedding.clear();
+    tracker.update(.2,.1,{other});
+    ASSERT_EQ(tracker.tracks().size(),2U);
+    EXPECT_EQ(tracker.tracks()[0].observations.size(),1U);
+    EXPECT_EQ(tracker.tracks()[1].observations.size(),2U);
+}
+
+
 } // namespace
+
+namespace {
+std::vector<pfcore::PersonTrack> profileFragments()
+{
+    std::vector<pfcore::PersonTrack> identities(5);
+    const double angles[] = {0, 20, 30, 80, 120};
+    for (std::size_t i = 0; i < identities.size(); ++i) {
+        const double radians = angles[i] * std::acos(-1.0) / 180;
+        identities[i].id = i + 1;
+        for (int sample = 0; sample < 3; ++sample) {
+            auto observation = person(i * 10 + sample * .5, 0, .9);
+            observation.faceEmbedding = {static_cast<float>(std::cos(radians)),
+                                         static_cast<float>(std::sin(radians))};
+            observation.appearanceEmbedding = {1, 0};
+            observation.frameDurationSeconds = (i < 3 ? 10.0 : 1.0) / 3;
+            identities[i].observations.push_back(std::move(observation));
+        }
+    }
+    return identities;
+}
+}
+
+TEST(DominantPerson, ProfileRecoveryUsesFaceConsensusAndIndependentBodyEvidence)
+{
+    const auto identities = profileFragments();
+    // Profile 80 disagrees with the front-facing anchor, but has two direct
+    // positive face links and corroborating body evidence to the original lead.
+    EXPECT_EQ(pfcore::selectDominantSourceTracks(identities).tracks,
+              (std::vector<bool>{true, true, true, true, false}));
+}
+
+TEST(DominantPerson, ProfileRecoveryDoesNotUseRecoveredFragmentsAsAnchors)
+{
+    auto identities = profileFragments();
+    // 120 matches 80 and its clothing, but not the original face consensus.
+    std::swap(identities[3], identities[4]);
+    EXPECT_EQ(pfcore::selectDominantSourceTracks(identities).tracks,
+              (std::vector<bool>{true, true, true, false, true}));
+}
+
+TEST(DominantPerson, CorrectedAssociationCannotAdmitAnUnverifiedRc16RejectedTrack)
+{
+    const auto current = profileFragments();
+    auto previous = current;
+    // This former extra belongs to the new component, but lacked independent
+    // repeated-face support. A changed component alone must not admit it.
+    auto extra = current[0];
+    extra.id = 99;
+    for (auto& observation : extra.observations) observation.timestampSeconds += 100;
+    extra.observations[1].faceEmbedding.clear();
+    extra.observations[2].faceEmbedding.clear();
+    auto corrected = current;
+    corrected.push_back(extra);
+    auto oldExtra = extra;
+    pfcore::PersonTrack foreign;
+    foreign.id = 100;
+    for (int sample = 0; sample < 5; ++sample) {
+        auto observation = extra.observations.back();
+        observation.timestampSeconds += 2 + sample * .2;
+        observation.faceEmbedding = {-1, 0};
+        observation.appearanceEmbedding = {-1, 0};
+        foreign.observations.push_back(observation);
+        oldExtra.observations.push_back(observation);
+    }
+    corrected.push_back(foreign);
+    previous.push_back(oldExtra);
+    // Identical raw observations, with only association changed.
+    EXPECT_TRUE(pfcore::selectDominantSourceTracks(corrected).tracks[current.size()]);
+    EXPECT_FALSE(pfcore::selectDominantSourceTracks(corrected, &previous).tracks[current.size()]);
+}
+
+TEST(DominantPerson, Rc16AdmissionPreservesOnlyTheOriginallyAdmittedObservationRange)
+{
+    auto current = profileFragments();
+    auto previous = current;
+    // The same raw tail belonged to a rejected fragment in the old association.
+    auto tail = previous[0].observations.back();
+    previous[0].observations.pop_back();
+    tail.faceEmbedding.clear();
+    current[0].observations.back() = tail;
+    previous.push_back({99, {tail}});
+    const auto selection = pfcore::selectDominantSourceTracks(current, &previous);
+    ASSERT_TRUE(selection.tracks[0]);
+    ASSERT_EQ(selection.observationRuns[0].size(), 1U);
+    EXPECT_EQ(selection.observationRuns[0][0].begin, 0U);
+    EXPECT_EQ(selection.observationRuns[0][0].end, 2U);
+}
+
+TEST(DominantPerson, ProfileRecoveryRequiresRepeatedFaceAndCorroboratingBody)
+{
+    auto identities = profileFragments();
+    for (std::size_t i = 1; i < 3; ++i) identities[3].observations[i].faceEmbedding.clear();
+    EXPECT_EQ(pfcore::selectDominantSourceTracks(identities).tracks,
+              (std::vector<bool>{true, true, true, false, false}));
+    identities = profileFragments();
+    for (auto& observation : identities[3].observations) observation.appearanceEmbedding = {0, 1};
+    EXPECT_EQ(pfcore::selectDominantSourceTracks(identities).tracks,
+              (std::vector<bool>{true, true, true, false, false}));
+}
+
+TEST(DominantPerson, ProfileRecoveryCannotJoinACoVisibleLeadOrAmbiguousNewPeople)
+{
+    auto identities = profileFragments();
+    for (std::size_t i = 0; i < 3; ++i)
+        identities[3].observations[i].timestampSeconds = identities[0].observations[i].timestampSeconds;
+    EXPECT_EQ(pfcore::selectDominantSourceTracks(identities).tracks,
+              (std::vector<bool>{true, true, true, false, false}));
+    identities = profileFragments();
+    identities[4] = identities[3];
+    // Both new detections pass the same independent evidence. They coexist,
+    // so neither is silently chosen through order-dependent admission.
+    EXPECT_EQ(pfcore::selectDominantSourceTracks(identities).tracks,
+              (std::vector<bool>{true, true, true, false, false}));
+}
+
+TEST(DominantPerson, ProfileRecoveryDoesNotExtrapolateIntoUnverifiedPrefixOrTail)
+{
+    auto tracks = profileFragments();
+    auto prefix = tracks[3].observations.front();
+    prefix.timestampSeconds -= .5;
+    prefix.faceEmbedding.clear();
+    auto tail = tracks[3].observations.back();
+    tail.timestampSeconds += .5;
+    tail.faceEmbedding.clear();
+    tracks[3].observations.insert(tracks[3].observations.begin(), prefix);
+    tracks[3].observations.push_back(tail);
+    const auto selection = pfcore::selectDominantSourceTracks(tracks);
+    ASSERT_TRUE(selection.recovered[3]);
+    ASSERT_EQ(selection.observationRuns[3].size(), 1U);
+    EXPECT_EQ(selection.observationRuns[3][0].begin, 1U);
+    EXPECT_EQ(selection.observationRuns[3][0].end, 4U);
+}
+
+TEST(DominantPerson, ProfileRecoverySplitsAtAnObservedIdentityConflict)
+{
+    auto tracks = profileFragments();
+    const auto positive = tracks[3].observations.front();
+    tracks[3].observations.clear();
+    for (int sample = 0; sample < 9; ++sample) {
+        auto observation = positive;
+        observation.timestampSeconds = 30 + sample * .5;
+        observation.frameDurationSeconds = .1;
+        if (sample == 4) observation.faceEmbedding = {-1, 0};
+        tracks[3].observations.push_back(std::move(observation));
+    }
+    const auto selection = pfcore::selectDominantSourceTracks(tracks);
+    ASSERT_TRUE(selection.recovered[3]);
+    ASSERT_EQ(selection.observationRuns[3].size(), 2U);
+    EXPECT_EQ(selection.observationRuns[3][0].begin, 0U);
+    EXPECT_EQ(selection.observationRuns[3][0].end, 4U);
+    EXPECT_EQ(selection.observationRuns[3][1].begin, 5U);
+    EXPECT_EQ(selection.observationRuns[3][1].end, 9U);
+}
+
+namespace {
+std::vector<pfcore::MotionWindow> videoIdentity(const std::string& source,
+    std::vector<float> face, double duration=10)
+{
+    std::vector<pfcore::MotionWindow> windows;
+    for (std::size_t shot=0;shot<2;++shot) {
+        pfcore::MotionWindow w;w.sourceId=source;w.hasSceneIndex=true;w.sceneIndex=shot;
+        w.faceEmbedding=face;w.faceConfidence=1;
+        w.sceneStartSeconds=shot*duration;w.sceneEndSeconds=(shot+1)*duration;
+        w.frames={pfcore::PoseFrame{w.sceneStartSeconds,{}},pfcore::PoseFrame{w.sceneEndSeconds-.1,{}}};
+        windows.push_back(std::move(w));
+    }
+    return windows;
+}
+}
+
+TEST(DominantPerson, SharedPersonAcrossFilesOutvotesALongerForeignVideo)
+{
+    auto windows=videoIdentity("short-a",{1,0});
+    const auto b=videoIdentity("short-b",{.98F,.1F});
+    const auto foreign=videoIdentity("long-foreign",{0,1},1000);
+    windows.insert(windows.end(),b.begin(),b.end());windows.insert(windows.end(),foreign.begin(),foreign.end());
+    const auto selection=pfcore::selectDominantVideoWindows(windows);
+    EXPECT_EQ(selection.sources,(std::vector<std::string>{"short-a","short-b"}));
+    EXPECT_EQ(selection.windows,(std::vector<bool>{true,true,true,true,false,false}));
+    std::reverse(windows.begin(),windows.end());
+    const auto reversed=pfcore::selectDominantVideoWindows(windows);
+    EXPECT_EQ(reversed.sources,selection.sources);
+    EXPECT_EQ(reversed.windows,(std::vector<bool>{false,false,true,true,true,true}));
+}
+
+TEST(DominantPerson, SharedPersonDoesNotBridgeConflictingFacesOrUseLocalTimestamps)
+{
+    auto windows=videoIdentity("a",{1,0});
+    const auto b=videoIdentity("b",{.707F,.707F});
+    const auto c=videoIdentity("c",{0,1});
+    windows.insert(windows.end(),b.begin(),b.end());windows.insert(windows.end(),c.begin(),c.end());
+    const auto selection=pfcore::selectDominantVideoWindows(windows);
+    EXPECT_EQ(selection.sources.size(),2U);
+    EXPECT_FALSE(selection.windows[0] && selection.windows[4]);
+    // All files start at time zero, which cannot mean co-visible people.
+    EXPECT_TRUE(selection.windows[2]);
+}
+
+TEST(DominantPerson, SharedPersonNeedsIndependentShotsAndDoesNotCountSlidingWindows)
+{
+    auto windows=videoIdentity("good",{1,0},20);
+    auto weak=videoIdentity("weak",{1,0},10);weak.resize(1);
+    for (int i=0;i<100;++i) windows.push_back(weak[0]);
+    const auto selected=pfcore::selectDominantVideoWindows(windows);
+    EXPECT_EQ(selected.sources,(std::vector<std::string>{"good"}));
+    EXPECT_TRUE(selected.windows[0]);EXPECT_FALSE(selected.windows.back());
+    auto single=videoIdentity("one",{});
+    EXPECT_EQ(pfcore::selectDominantVideoWindows(single).windows,(std::vector<bool>{true,true}));
+}

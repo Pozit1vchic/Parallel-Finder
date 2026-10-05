@@ -1,5 +1,6 @@
 #include <pfcore/MotionMatcher.hpp>
 #include <pfcore/MotionRanker.hpp>
+#include <pfcore/DominantPerson.hpp>
 #include <QCoreApplication>
 #include <QFile>
 #include <QJsonDocument>
@@ -37,6 +38,13 @@ int main(int argc, char** argv)
         for (const auto& v : o["face"].toArray()) w.faceEmbedding.push_back(v.toDouble());
         for (const auto& v : o["body"].toArray()) w.appearanceEmbedding.push_back(v.toDouble());
         for (const auto& v : o["context"].toArray()) w.sceneContext.push_back(v.toDouble());
+        for (const auto& v : o["view"].toArray()) w.sceneView.push_back(v.toDouble());
+        for (const auto& v : o["sequence"].toArray()) w.sceneSequence.push_back(v.toDouble());
+        for (const auto& v : o["sequencePts"].toArray()) w.sceneSequenceTimes.push_back(v.toDouble());
+        for (const auto& v:o["measuredFaces"].toArray()) {
+            const auto f=v.toObject();w.measuredFaces.push_back({f["time"].toDouble(),f["observed"].toBool(),
+                f["similarity"].toDouble(),f["eyeSpan"].toDouble()});
+        }
         for (const auto& v : o["frames"].toArray()) {
             const auto frame = v.toObject();
             pfcore::PoseFrame f; f.timestampSeconds = frame["time"].toDouble();
@@ -48,6 +56,15 @@ int main(int argc, char** argv)
             w.frames.push_back(std::move(f));
         }
         windows.push_back(std::move(w));
+    }
+    if (args[2]=="--identity") {
+        const auto selected=pfcore::selectDominantVideoWindows(windows);
+        QJsonArray sources,mask;
+        for (const auto& source:selected.sources)sources.append(QString::fromStdString(source));
+        for (const auto yes:selected.windows)mask.append(yes);
+        const auto bytes=QJsonDocument(QJsonObject{{"sources",sources},{"windows",mask},
+            {"supplied",static_cast<qint64>(selected.suppliedSources)}}).toJson(QJsonDocument::Compact);
+        std::cout<<bytes.constData()<<'\n';return 0;
     }
     pfcore::MotionMatcherParams params;
     params.allowStaticFrames = params.mirrorInvariant = params.requireAppearance = true;
@@ -77,6 +94,7 @@ int main(int argc, char** argv)
         PF_NUMBER(sameFileGapSec); PF_NUMBER(crossFileGapSec); PF_NUMBER(duplicateWindowSec);
         PF_NUMBER(noiseFactor); PF_NUMBER(timeWeight); PF_NUMBER(maxUniqueResults);
         PF_NUMBER(maxResultsPerShot); PF_NUMBER(minTemporalFrames); PF_NUMBER(minMotionSpanSec);
+        PF_NUMBER(coverageSeedLimit);
         PF_NUMBER(maxComparisonThreads);
         PF_NUMBER(staticPoseSimilarityThreshold); PF_NUMBER(staticArticulationSimilarityThreshold);
         PF_NUMBER(minAppearanceSimilarity); PF_NUMBER(minFaceSimilarity); PF_NUMBER(sameSceneContextThreshold);
@@ -84,6 +102,9 @@ int main(int argc, char** argv)
         PF_NUMBER(sameSourceGapFloorSec); PF_NUMBER(minMotionRange); PF_NUMBER(motionDeltaThreshold);
         PF_BOOL(requireAppearance); PF_BOOL(requireSameTrackWithinSource); PF_BOOL(mirrorInvariant);
         PF_BOOL(normalizeSize); PF_BOOL(expandedSearch); PF_BOOL(allowStaticFrames);
+        PF_BOOL(individualPairs);
+        PF_BOOL(recoverUnusedShots);
+        PF_BOOL(bodyMotionOnly);
 #undef PF_NUMBER
 #undef PF_BOOL
     }

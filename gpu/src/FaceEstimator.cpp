@@ -56,10 +56,47 @@ double overlap(const Face& a, const Face& b)
 }
 }
 
+std::vector<float> FaceEstimator::inferFromPose(const ReIdImage& image,
+    const std::array<double,6>& points,FaceRecognitionDiagnostics* diagnostic)
+{
+    if(diagnostic)*diagnostic={};
+    if(!image.rgba || image.width<=0 || image.height<=0
+        || !std::all_of(points.begin(),points.end(),[](double v){return std::isfinite(v);})
+        || std::hypot(points[0]-points[2],points[1]-points[3])<10)return {};
+    constexpr double target[6]={38.2946,51.6963,73.5318,51.5014,56.0252,71.7366};
+    double sx=0,sy=0,tx=0,ty=0;
+    for(int k=0;k<3;++k) {sx+=points[k*2]/3;sy+=points[k*2+1]/3;tx+=target[k*2]/3;ty+=target[k*2+1]/3;}
+    double a=0,b=0,den=0;
+    for(int k=0;k<3;++k) {
+        const double x=target[k*2]-tx,y=target[k*2+1]-ty,u=points[k*2]-sx,v=points[k*2+1]-sy;
+        a+=x*u+y*v;b+=x*v-y*u;den+=x*x+y*y;
+    }
+    a/=den;b/=den;
+    FloatTensor input;input.shape={1,3,112,112};input.values.resize(3*112*112);
+    for(int y=0;y<112;++y)for(int x=0;x<112;++x)for(int c=0;c<3;++c)
+        input.values[c*112*112+y*112+x]=pixel(image,a*(x-tx)-b*(y-ty)+sx,b*(x-tx)+a*(y-ty)+sy,c);
+    const auto session=processSessionCache().getOrCreate(ModelRef::fromPath(recognizer_),{provider_,0,"face-recognizer",1});
+    if(!session.ok)throw std::runtime_error(session.error);
+    const auto output=runFloat(session.handle,input);
+    if(!output.ok)throw std::runtime_error(output.error);
+    if(output.outputs.size()!=1 || output.outputs[0].values.size()!=128)return {};
+    auto face=output.outputs[0].values;double norm=0;
+    for(float v:face) {if(!std::isfinite(v))return {};norm+=v*v;}
+    if(norm<1e-12)return {};
+    for(auto& v:face)v/=std::sqrt(norm);
+    if(diagnostic) {
+        diagnostic->accepted=true;
+        std::copy(points.begin(),points.end(),diagnostic->landmarks.begin());
+        diagnostic->canonicalToSource={a,-b,sx-a*tx+b*ty,b,a,sy-b*tx-a*ty};
+    }
+    return face;
+}
+
 FaceEstimator::FaceEstimator(std::string detector, std::string recognizer, Provider provider)
     : detector_(std::move(detector)), recognizer_(std::move(recognizer)), provider_(provider) {}
 
-std::vector<float> FaceEstimator::infer(const ReIdImage& image, FaceRecognitionDiagnostics* diagnostics)
+std::vector<float> FaceEstimator::infer(const ReIdImage& image, FaceRecognitionDiagnostics* diagnostics,
+                                      double minimumDetectionConfidence,const std::array<double,2>* expectedNose)
 {
     if (diagnostics) *diagnostics = {};
     FaceTimings timings;
@@ -114,7 +151,9 @@ std::vector<float> FaceEstimator::infer(const ReIdImage& image, FaceRecognitionD
         const auto& kps = tensor("kps_"+suffix,count*10);
         for (std::size_t i=0; i<count; ++i) {
             const double score = std::sqrt(std::clamp(cls[i],0.0F,1.0F)*std::clamp(obj[i],0.0F,1.0F));
-            if (!std::isfinite(score) || score<0.85) continue;
+            const double threshold=std::isfinite(minimumDetectionConfidence)
+                ? std::clamp(minimumDetectionConfidence,.65,.95) : .85;
+            if (!std::isfinite(score) || score<threshold) continue;
             const double cx = (i%cols+box[i*4])*stride/scale+left;
             const double cy = (i/cols+box[i*4+1])*stride/scale+top;
             const double w = std::exp(box[i*4+2])*stride/scale;
@@ -127,6 +166,11 @@ std::vector<float> FaceEstimator::infer(const ReIdImage& image, FaceRecognitionD
                 face.landmarks[k] = {(i%cols+kps[i*10+2*k])*stride/scale+left,
                                      (i/cols+kps[i*10+2*k+1])*stride/scale+top};
                 finite = finite && std::isfinite(face.landmarks[k].first+face.landmarks[k].second);
+            }
+            if (finite && expectedNose) {
+                const auto& nose=face.landmarks[2];
+                finite=std::isfinite((*expectedNose)[0]+(*expectedNose)[1])
+                    && std::hypot(nose.first-(*expectedNose)[0],nose.second-(*expectedNose)[1])<=.35*std::max(w,h);
             }
             if (finite) candidates.push_back(face);
         }

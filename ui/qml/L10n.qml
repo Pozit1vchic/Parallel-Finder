@@ -66,8 +66,8 @@ QtObject {
             "search.presetBalanced": "Баланс",
             "search.presetPrecise": "Высокая точность",
             "search.advanced": "Дополнительные настройки",
-            "search.reanalyze": "Повторный поиск",
-            "search.reanalyzeHint": "Переанализировать: проверить больше кандидатов на новые параллели. Использует сохранённые наблюдения, сохраняет порог сходства. Может занять больше времени; новые пары не гарантированы.",
+            "search.reanalyze": "Повторный анализ",
+            "search.reanalyzeHint": "Включите и нажмите «Запустить анализ», чтобы сбросить кэш выбранных видео и полностью проанализировать их с нуля: кадры, позы, лица и превью. Займёт больше времени.",
             "search.advancedHint": "Здесь только три параметра, которые сильнее всего влияют на точность. Остальное профиль подбирает автоматически.",
             "search.fast": "Быстро",
             "search.medium": "Средне",
@@ -304,8 +304,8 @@ QtObject {
             "search.presetBalanced": "Balanced",
             "search.presetPrecise": "High precision",
             "search.advanced": "Advanced settings",
-            "search.reanalyze": "Search again",
-            "search.reanalyzeHint": "Re-analyze: check more candidates for additional parallels using cached observations and the same similarity threshold. May take longer; new pairs are not guaranteed.",
+            "search.reanalyze": "Analyze again",
+            "search.reanalyzeHint": "Enable and click Start analysis to reset the selected videos' cache and analyze frames, poses, faces and previews from scratch. This takes longer.",
             "search.advancedHint": "Only the three controls with the biggest impact on precision are shown here. The profile handles the rest.",
             "search.fast": "Fast",
             "search.medium": "Balanced",
@@ -502,6 +502,11 @@ QtObject {
             "Файлы готовы": "Files ready",
             "Файлы готовы к анализу": "Files ready for analysis",
             "Подготавливаем анализ": "Preparing analysis",
+            "Проверяем повторы между видео…": "Checking repeated footage across videos…",
+            "Проверяем человека в найденных фрагментах…": "Verifying the person in matched fragments…",
+            "Подготавливаем повторный поиск": "Preparing repeat search",
+            "Повторный поиск: проверяем больше кандидатов…": "Repeat search: checking more candidates…",
+            "Повторный поиск завершён": "Repeat search complete",
             "Читаем кадры": "Reading frames",
             "Анализируем движение": "Analyzing motion",
             "Декодируем кадры и ищем смены сцен…": "Decoding frames and detecting scenes…",
@@ -519,6 +524,7 @@ QtObject {
             "Добавьте хотя бы одно видео для анализа": "Add at least one video to analyze"
         }
         if (exact[text] !== undefined) return exact[text]
+        if (text.indexOf("Повторный поиск завершён · ") === 0) return "Repeat search complete · " + text.slice("Повторный поиск завершён · ".length)
         if (text.indexOf("Не удалось открыть файл: ") === 0) return "Could not open file: " + text.slice("Не удалось открыть файл: ".length)
         if (text.indexOf("Анализ остановлен: ") === 0) return "Analysis stopped: " + text.slice("Анализ остановлен: ".length)
         if (text.indexOf("Анализ не запущен: ") === 0) return "Analysis did not start: " + text.slice("Анализ не запущен: ".length)

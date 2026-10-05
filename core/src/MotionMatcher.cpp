@@ -1,7 +1,10 @@
 #include "pfcore/MotionMatcher.hpp"
 #include "pfcore/MotionIndex.hpp"
+#include "pfcore/MovementClassifier.hpp"
+#include "pfcore/PoseSupport.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -16,6 +19,8 @@
 #include <functional>
 #include <future>
 #include <thread>
+#include <numeric>
+#include <set>
 
 namespace pfcore {
 namespace {
@@ -30,6 +35,41 @@ constexpr std::size_t kMinimumComparableJoints = 6;
 bool validPoint(const std::pair<double, double>& point)
 {
     return std::isfinite(point.first) && std::isfinite(point.second);
+}
+
+bool measuredIdentityCompatible(const MotionWindow& w,double start,double end,bool portrait)
+{
+    if (w.measuredFaces.empty()) return true;
+    // Identity inherited from a wider shot must not label a cropped face as
+    // a body pose. Inspect the limbs that are actually visible in this pair.
+    if (w.staticFrameSet && !portrait) {
+        constexpr std::size_t chains[4][3]={{5,7,9},{6,8,10},{11,13,15},{12,14,16}};
+        std::size_t sampled=0,body=0;
+        for (const auto& frame:w.frames) {
+            if(frame.timestampSeconds<start-.01 || frame.timestampSeconds>end+.01)continue;
+            if(frame.keypoints.size()!=17)continue;
+            ++sampled;
+            if(std::any_of(std::begin(chains),std::end(chains),[&](const auto& chain) {
+                return std::all_of(std::begin(chain),std::end(chain),[&](std::size_t i) {
+                    const auto& p=frame.keypoints[i];return p.confidence>=.25 && std::isfinite(p.x+p.y);
+                });
+            }))++body;
+        }
+        // A cropped head must not borrow a body prototype and masquerade as
+        // an observed limb pose. Real body/back views keep their ReID proof;
+        // face-only pictures require measured face identity on this interval.
+        portrait=sampled && body*2<sampled;
+    }
+    std::set<double> supported,inspected;
+    for (const auto& face:w.measuredFaces) {
+        if (face.timestampSeconds<start-.01 || face.timestampSeconds>end+.01) continue;
+        inspected.insert(face.timestampSeconds);
+        if (!face.observed) continue;
+        if (!std::isfinite(face.similarity)
+            || (face.relativeEyeSpan>=.02 && face.similarity<=.25)) return false;
+        if (face.similarity>=.363 && face.relativeEyeSpan>=.02) supported.insert(face.timestampSeconds);
+    }
+    return !portrait || inspected.size()<3 || supported.size()>=2;
 }
 
 double appearanceCosine(const std::vector<float>& left,
@@ -58,6 +98,145 @@ double sceneContextSimilarity(const MotionWindow& left, const MotionWindow& righ
         context += std::sqrt(std::max(0.0F, left.sceneContext[i])
                              * std::max(0.0F, right.sceneContext[i]));
     return std::clamp(context, 0.0, 1.0);
+}
+
+bool sameCameraView(const MotionWindow& left, const MotionWindow& right)
+{
+    if (left.sceneView.size() != 432
+        || right.sceneView.size() != left.sceneView.size()) return false;
+    if (!left.sceneContext.empty() && !right.sceneContext.empty()
+        && sceneContextSimilarity(left, right) < .90) return false;
+    for (std::size_t i = 0; i < left.sceneView.size(); ++i) {
+        const double a = left.sceneView[i], b = right.sceneView[i];
+        if (!std::isfinite(a) || !std::isfinite(b) || a < 0 || b < 0 || a > 1 || b > 1) return false;
+    }
+    // A returning camera can reframe a portrait slightly. Align by at most
+    // one measured grid column (6.25% of frame width), without widening the
+    // colour-error threshold or accepting a different background layout.
+    for (int shift = -1; shift <= 1; ++shift) {
+        double difference = 0, weight = 0;
+        for (int row = 0; row < 9; ++row) for (int column = std::max(0, -shift);
+             column < std::min(16, 16 - shift); ++column) {
+            // Weight both aligned columns so exchanging A/B cannot change
+            // camera equality at the threshold after a small reframe.
+            const double cellWeight = ((column < 5 || column >= 11 ? 2.0 : 1.0)
+                + (column + shift < 5 || column + shift >= 11 ? 2.0 : 1.0)) / 2.0;
+            for (int channel = 0; channel < 3; ++channel) {
+                difference += cellWeight * std::abs(left.sceneView[(row*16+column)*3+channel]
+                    - right.sceneView[(row*16+column+shift)*3+channel]);
+                weight += cellWeight;
+            }
+        }
+        if (difference / weight <= .035) return true;
+    }
+    return false;
+}
+
+bool copiedScene(const MotionWindow& a,const MotionWindow& b,bool cameraOnly=false)
+{
+    if (a.sourceId==b.sourceId || !a.hasSceneIndex || !b.hasSceneIndex
+        || a.sceneSequence.size()<1296 || b.sceneSequence.size()<1296
+        || a.sceneSequence.size()%432 || b.sceneSequence.size()%432) return false;
+    // Individual portraits in an already matching visual setting need more
+    // novelty than a slight change of head angle or framing. This wider gate
+    // is ONLY for redundant head views, never proof that body footage is a
+    // copy and never a shared-shot quota. Distinct settings keep strict bounds.
+    const bool recurringSetting=cameraOnly && sceneContextSimilarity(a,b)>=.93;
+    const double meanLimit=!cameraOnly?.018:recurringSetting?.095:.055;
+    const double coarseLimit=!cameraOnly?.035:recurringSetting?.14:.08;
+    const double localLimit=!cameraOnly?.085:recurringSetting?.45:.20;
+    // Every independently sampled frame must agree, in order. A repeated
+    // background or one coincidentally similar portrait is not copied video.
+    struct FrameStats {std::array<double,3> mean{},variance{};};
+    const auto statistics=[](const std::vector<float>& pixels) {
+        std::vector<FrameStats> result(pixels.size()/432);
+        for (std::size_t frame=0;frame<result.size();++frame) {
+            auto& stats=result[frame];
+            for (std::size_t i=0;i<432;++i) {
+                const double v=pixels[frame*432+i];stats.mean[i%3]+=v/144;stats.variance[i%3]+=v*v/144;
+            }
+            for (int c=0;c<3;++c)stats.variance[c]-=stats.mean[c]*stats.mean[c];
+        }
+        return result;
+    };
+    const auto statsA=statistics(a.sceneSequence),statsB=statistics(b.sceneSequence);
+    const auto equalFrame=[&](std::size_t left,std::size_t right,bool mirror,int shift) {
+        auto sa=statsA[left],sb=statsB[right];
+        const auto valid=[&](std::size_t i) {const int x=(i/3)%16;return x+shift>=0 && x+shift<16;};
+        const auto indexB=[&](std::size_t i) {
+            const int x=(i/3)%16+shift;
+            return ((i/48)*16+(mirror?15-x:x))*3+i%3;
+        };
+        const double pixels=(16-std::abs(shift))*9;
+        if(shift) {
+            sa={};sb={};
+            for(std::size_t i=0;i<432;++i)if(valid(i)) {
+                const double u=a.sceneSequence[left*432+i],v=b.sceneSequence[right*432+indexB(i)];
+                sa.mean[i%3]+=u/pixels;sb.mean[i%3]+=v/pixels;
+                sa.variance[i%3]+=u*u/pixels;sb.variance[i%3]+=v*v/pixels;
+            }
+            for(int c=0;c<3;++c) {sa.variance[c]-=sa.mean[c]*sa.mean[c];sb.variance[c]-=sb.mean[c]*sb.mean[c];}
+        }
+        if (std::accumulate(sa.variance.begin(),sa.variance.end(),0.0)/3<.0004
+            || std::accumulate(sb.variance.begin(),sb.variance.end(),0.0)/3<.0004) return false;
+        std::array<double,3> gain{},bias{};
+        // SCPs often change exposure/colour while copying the same pixels.
+        // Fit only a bounded per-channel affine transform; local layout and
+        // three successive frames must still agree independently.
+        for (int c=0;c<3;++c) {
+            gain[c]=std::clamp(std::sqrt(std::max(0.0,sa.variance[c])/std::max(1e-9,sb.variance[c])),cameraOnly?2.0/3:.80,cameraOnly?1.5:1.25);
+            bias[c]=sa.mean[c]-gain[c]*sb.mean[c];if (std::abs(bias[c])/std::sqrt(gain[c])>(cameraOnly?.15:.10)) return false;
+        }
+        const auto residual=[&](std::size_t i) {
+            return std::abs(a.sceneSequence[left*432+i]-(gain[i%3]*b.sceneSequence[right*432+indexB(i)]+bias[i%3]))
+                /std::sqrt(gain[i%3]);
+        };
+        double coarse=0;std::size_t coarseSamples=0;
+        for (const int row:{2,4,6}) for (const int column:{2,6,10,14})
+            for (int c=0;c<3;++c)if(valid((row*16+column)*3+c)) {coarse+=residual((row*16+column)*3+c);++coarseSamples;}
+        if (coarse/coarseSamples>coarseLimit) return false;
+        double error=0;std::array<double,144> local{};
+        for (std::size_t i=0;i<432;++i)if(valid(i)) {
+            const auto u=a.sceneSequence[left*432+i],v=b.sceneSequence[right*432+indexB(i)];
+            if (!std::isfinite(u) || !std::isfinite(v) || u<0 || u>1 || v<0 || v>1) return false;
+            const double difference=residual(i);error+=difference;local[i/3]+=difference/3;
+            if (error>meanLimit*pixels*3) return false;
+        }
+        std::partial_sort(local.begin(),local.begin()+8,local.end(),std::greater<double>());
+        // Keep the whole-frame bound strict, while allowing a small moving
+        // foreground region to differ at the independently measured PTS.
+        // A 4 fps thumbnail in two differently trimmed edits can straddle a
+        // head/hand movement even when their background and pixels agree.
+        if(std::accumulate(local.begin(),local.begin()+8,0.0)/8>localLimit)return false;
+        if(cameraOnly) {
+            double product=0,normA=0,normB=0;
+            for(std::size_t i=0;i<432;++i)if(valid(i)) {
+                const double u=a.sceneSequence[left*432+i]-sa.mean[i%3];
+                const double v=b.sceneSequence[right*432+indexB(i)]-sb.mean[i%3];
+                product+=u*v;normA+=u*u;normB+=v*v;
+            }
+            if(product/std::sqrt(std::max(1e-12,normA*normB))<(recurringSetting?.25:.90))return false;
+        }
+        return true;
+    };
+    const auto countA=a.sceneSequence.size()/432,countB=b.sceneSequence.size()/432;
+    for (const bool mirror:{false,true}) for (const int shift:{0,-1,1,-2,2,-3,3}) {
+      if(shift && !cameraOnly)continue;
+      for (std::size_t i=0;i+2<countA;++i) for (std::size_t j=0;j+2<countB;++j) {
+        if (!equalFrame(i,j,mirror,shift) || !equalFrame(i+1,j+1,mirror,shift) || !equalFrame(i+2,j+2,mirror,shift)) continue;
+        if (a.sceneSequenceTimes.size()==countA && b.sceneSequenceTimes.size()==countB) {
+            const double spanA=a.sceneSequenceTimes[i+2]-a.sceneSequenceTimes[i];
+            const double spanB=b.sceneSequenceTimes[j+2]-b.sceneSequenceTimes[j];
+            if (spanA<.30 || spanB<.30 || std::abs(spanA-spanB)>.10
+                || a.sceneSequenceTimes[i+1]<=a.sceneSequenceTimes[i]
+                || a.sceneSequenceTimes[i+2]<=a.sceneSequenceTimes[i+1]
+                || b.sceneSequenceTimes[j+1]<=b.sceneSequenceTimes[j]
+                || b.sceneSequenceTimes[j+2]<=b.sceneSequenceTimes[j+1]) continue;
+        }
+        return true;
+      }
+    }
+    return false;
 }
 
 // Tracker IDs are local to one source and scene cuts can restart a tracker.
@@ -1600,6 +1779,16 @@ MotionMatch MotionMatcher::compare(const MotionWindow& left, const MotionWindow&
         if (mirrored.similarity > best.similarity) best = mirrored;
     }
     best.unmirroredSimilarity = directScore;
+    if (!measuredIdentityCompatible(left,best.leftStartSeconds,best.leftEndSeconds,left.staticFrameSet && best.headOnlyComparison)
+        || !measuredIdentityCompatible(right,best.rightStartSeconds,best.rightEndSeconds,right.staticFrameSet && best.headOnlyComparison))
+        best.similarity=best.rankScore=0;
+    if (params_.individualPairs && (copiedScene(left,right)
+        || (best.headOnlyComparison && copiedScene(left,right,true)))) best.similarity=best.rankScore=0;
+    if (params_.bodyMotionOnly && !left.staticFrameSet && best.headOnlyComparison) best.similarity=best.rankScore=0;
+    if (params_.individualPairs && left.staticFrameSet && right.staticFrameSet
+        && sameCameraView(left, right)
+        && best.headOnlyComparison)
+        best.similarity = best.rankScore = 0;
     return best;
 }
 
@@ -1704,6 +1893,68 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             ? std::to_string(windows[i].sceneIndex) : "unknown-" + std::to_string(i));
         shotOf[i] = shotIds.try_emplace(key, shotIds.size()).first->second;
     }
+    const auto originalShotOf=shotOf;
+    std::unordered_set<std::uint64_t> copiedShotPairs;
+    std::unordered_set<std::uint64_t> returningHeadViews;
+    const auto shotPairKey=[](std::size_t a,std::size_t b) {
+        return (static_cast<std::uint64_t>(std::min(a,b))<<32U)|std::max(a,b);
+    };
+    if (params_.individualPairs) {
+        std::vector<std::size_t> representatives(shotIds.size(),windows.size());
+        for (std::size_t i=0;i<windows.size();++i)
+            if (windows[i].hasSceneIndex && (representatives[shotOf[i]]==windows.size()
+                || (!windows[i].sceneSequence.empty() && windows[representatives[shotOf[i]]].sceneSequence.empty())))
+                representatives[shotOf[i]]=i;
+        struct FootageSnapshot {
+            std::string source;std::size_t scene=0;bool known=false;
+            std::vector<float> context,pixels;std::vector<double> times;
+            bool operator==(const FootageSnapshot&) const = default;
+        };
+        struct FootageMemo {
+            std::vector<FootageSnapshot> inputs;
+            std::unordered_set<std::uint64_t> copies,heads;
+        };
+        // Face verification changes observations, not measured source pixels.
+        // Reuse an EXACT picture/context/PTS snapshot during refinement; no
+        // approximate hash, inherited identity, or stale source cache key.
+        static thread_local std::vector<FootageMemo> footageMemo;
+        std::vector<FootageSnapshot> snapshots;
+        for(const auto i:representatives) {
+            if(i==windows.size()) {snapshots.emplace_back();continue;}
+            const auto& w=windows[i];snapshots.push_back({w.sourceId,w.sceneIndex,w.hasSceneIndex,w.sceneContext,w.sceneSequence,w.sceneSequenceTimes});
+        }
+        const auto cached=std::find_if(footageMemo.begin(),footageMemo.end(),[&](const auto& m){return m.inputs==snapshots;});
+        if(cached!=footageMemo.end()) {copiedShotPairs=cached->copies;returningHeadViews=cached->heads;}
+        else {
+        for (std::size_t a=0;a<representatives.size();++a) if (representatives[a]!=windows.size())
+            for (std::size_t b=a+1;b<representatives.size();++b) if (representatives[b]!=windows.size()
+                && copiedScene(windows[representatives[a]],windows[representatives[b]]))
+                copiedShotPairs.insert(shotPairKey(a,b));
+        for(std::size_t a=0;a<representatives.size();++a)if(representatives[a]!=windows.size())
+            for(std::size_t b=a+1;b<representatives.size();++b)if(representatives[b]!=windows.size()
+                && !copiedShotPairs.contains(shotPairKey(a,b))
+                && copiedScene(windows[representatives[a]],windows[representatives[b]],true))
+                returningHeadViews.insert(shotPairKey(a,b));
+        footageMemo.push_back({std::move(snapshots),copiedShotPairs,returningHeadViews});
+        if(footageMemo.size()>2)footageMemo.erase(footageMemo.begin());
+        }
+        std::vector<std::size_t> canonical(shotIds.size());std::iota(canonical.begin(),canonical.end(),0);
+        const auto root=[&](std::size_t shot) {
+            while (canonical[shot]!=shot) shot=canonical[shot];
+            return shot;
+        };
+        // A long measured shot can overlap two disjoint shorter edits. All
+        // edits share its one-shot quota, even when the short edits do not
+        // overlap each other. This concerns copied pixels, never face identity.
+        for (const auto edge:copiedShotPairs) {
+            const auto a=root(edge>>32U),b=root(edge&0xffffffffULL);
+            canonical[std::max(a,b)]=std::min(a,b);
+        }
+        std::size_t copies=0;
+        for (std::size_t shot=0;shot<canonical.size();++shot) {canonical[shot]=root(shot);copies+=canonical[shot]!=shot;}
+        for (auto& shot:shotOf) shot=canonical[shot];
+        if (profile) std::fprintf(stderr,"PF_DEBUG_FOOTAGE copied_shots=%zu\n",copies);
+    }
 
     // HNSW returns a bounded candidate set. The union of both query
     // directions keeps the all-pairs semantics while making DTW the expensive
@@ -1714,9 +1965,8 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     std::unordered_set<std::uint64_t> candidatePairs;
     candidatePairs.reserve(preparedCount * 24U);
     const auto sameKnownShot = [&](std::size_t i, std::size_t j) {
-        return windows[i].sourceId == windows[j].sourceId
-            && windows[i].hasSceneIndex && windows[j].hasSceneIndex
-            && windows[i].sceneIndex == windows[j].sceneIndex;
+        return windows[i].hasSceneIndex && windows[j].hasSceneIndex
+            && (shotOf[i]==shotOf[j] || copiedShotPairs.contains(shotPairKey(originalShotOf[i],originalShotOf[j])));
     };
     const auto identityAllowed = [&](std::size_t i, std::size_t j) {
         const bool crossTrack = windows[i].sourceId == windows[j].sourceId
@@ -1729,6 +1979,16 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         return !(crossTrack || params_.requireAppearance)
             || evidence(i,j).verified;
     };
+    const bool wideRetrieval = params_.expandedSearch || params_.individualPairs;
+    // Individual diversity already broadens the default search. Repeat search
+    // must still add an independent retrieval tier, including motion-only
+    // analysis where there are no short static windows to derive.
+    const std::size_t poseNeighbourBudget = params_.expandedSearch ? 384 : wideRetrieval ? 192 : 96;
+    const std::size_t identityNeighbourBudget = params_.expandedSearch ? 256 : wideRetrieval ? 128 : 64;
+    const unsigned neighboursPerShot = params_.expandedSearch ? 12U : wideRetrieval ? 8U : 4U;
+    if (profile)
+        std::fprintf(stderr, "PF_DEBUG_SEARCH expanded=%d pose_neighbours=%zu identity_neighbours=%zu neighbours_per_shot=%u\n",
+            params_.expandedSearch ? 1 : 0, poseNeighbourBudget, identityNeighbourBudget, neighboursPerShot);
     for (const bool staticWindow : {false, true}) {
         std::vector<std::size_t> group;
         group.reserve(preparedCount);
@@ -1749,7 +2009,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if (profile) indexBuildMs += elapsed() - stageStart;
         stageStart = profile ? elapsed() : 0;
         const std::size_t candidateCount = std::min<std::size_t>(group.size(),
-            std::max<std::size_t>(24, std::min<std::size_t>(params_.expandedSearch ? 192 : 96, group.size())));
+            std::max<std::size_t>(24, std::min<std::size_t>(poseNeighbourBudget, group.size())));
         const double retrievalThreshold = params_.candidateThreshold * 0.65;
         for (const std::size_t i : group) {
             const auto collect = [&](const std::vector<double>& queryEmbedding) {
@@ -1758,7 +2018,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 // Grow retrieval only when needed, counting usable neighbours
                 // rather than same-shot or disallowed-identity observations.
                 // Keep expensive DTW bounded.
-                const auto limit = std::min(group.size(), candidateCount * (params_.expandedSearch ? 16 : 8));
+                const auto limit = std::min(group.size(), candidateCount * (wideRetrieval ? 16 : 8));
                 MotionIndex::QueryWorkspace queryWorkspace;
                 for (auto requested = candidateCount;; requested = std::min(limit, requested * 2)) {
                     std::size_t usable = 0;
@@ -1770,7 +2030,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                         // One other long shot must not fill every ANN slot.
                         // Keep several temporal alternatives, then retrieve
                         // deeper for independently edited shots.
-                        if (windows[neighbour.id].hasSceneIndex && shotSlots[shotOf[neighbour.id]]++ >= (params_.expandedSearch ? 8U : 4U)) continue;
+                        if (windows[neighbour.id].hasSceneIndex && shotSlots[shotOf[neighbour.id]]++ >= neighboursPerShot) continue;
                         const auto left = std::min(i, neighbour.id);
                         const auto right = std::max(i, neighbour.id);
                         candidatePairs.insert((static_cast<std::uint64_t>(left) << 32U)
@@ -1793,7 +2053,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     // L2-normalized by their estimators, so Euclidean ANN preserves cosine
     // neighbourhood ordering without an O(N^2) scan.
     std::size_t appearanceCandidatePairs = 0;
-    const std::size_t maxAppearanceNeighbours = params_.expandedSearch ? 128 : 64;
+    const std::size_t maxAppearanceNeighbours = identityNeighbourBudget;
     auto addAppearanceCandidates = [&](bool useFace, bool staticWindow) {
         MotionIndex identityIndex;
         std::vector<std::size_t> group;
@@ -1836,7 +2096,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                     const std::size_t j = neighbour.id;
                     if (i == j || j >= windows.size() || sameKnownShot(i, j)) continue;
                     if (!evidence(i,j).verified) continue;
-                    if (windows[j].hasSceneIndex && shotSlots[shotOf[j]]++ >= (params_.expandedSearch ? 8U : 4U)) continue;
+                    if (windows[j].hasSceneIndex && shotSlots[shotOf[j]]++ >= neighboursPerShot) continue;
                     const auto left = std::min(i, j);
                     const auto right = std::max(i, j);
                     if (candidatePairs.insert((static_cast<std::uint64_t>(left) << 32U)
@@ -1868,6 +2128,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         const std::size_t i = static_cast<std::size_t>(key >> 32U);
         const std::size_t j = static_cast<std::size_t>(key & 0xffffffffULL);
         if (i >= windows.size() || j >= windows.size() || i >= j) continue;
+        if (params_.individualPairs && sameKnownShot(i,j)) {++sceneRejected;continue;}
         const bool sameSource = windows[i].sourceId == windows[j].sourceId;
         if (windows[i].staticFrameSet != windows[j].staticFrameSet) { ++staticRejected; continue; }
         if (sameSource && params_.requireSameTrackWithinSource
@@ -1945,6 +2206,9 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             if (mirroredCandidate.similarity > candidate.similarity) candidate = mirroredCandidate;
         }
         candidate.unmirroredSimilarity = directScore;
+        if(params_.individualPairs && candidate.headOnlyComparison
+            && returningHeadViews.contains(shotPairKey(originalShotOf[i],originalShotOf[j])))continue;
+        if (params_.bodyMotionOnly && !windows[i].staticFrameSet && candidate.headOnlyComparison) continue;
         if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
             std::fprintf(stderr, "PF_DEBUG_MATCHER compared a=%zu b=%zu t=%.3f/%.3f static=%d/%d similarity=%.3f dtw=%.3f appearance=%.3f\n",
                          i, j,
@@ -1995,12 +2259,62 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if (a.leftIndex != b.leftIndex) return a.leftIndex < b.leftIndex;
         return a.rightIndex < b.rightIndex;
     };
-    std::sort(matches.begin(), matches.end(), strongestFirst);
+    const auto selectionFirst = [&](const auto& a, const auto& b) {
+        if (params_.individualPairs && a.headOnlyComparison != b.headOnlyComparison)
+            return !a.headOnlyComparison;
+        if (params_.individualPairs && a.headOnlyComparison && b.headOnlyComparison) {
+            const bool directA = a.unmirroredSimilarity >= params_.similarityThreshold;
+            const bool directB = b.unmirroredSimilarity >= params_.similarityThreshold;
+            if (directA != directB) return directA;
+            if (directA && std::abs(a.unmirroredSimilarity - b.unmirroredSimilarity) > 1e-12)
+                return a.unmirroredSimilarity > b.unmirroredSimilarity;
+        }
+        return strongestFirst(a, b);
+    };
+    std::sort(matches.begin(), matches.end(), selectionFirst);
     // Keep the strongest result for overlapping windows.  A window may still
     // participate in multiple independent pairs; only near-identical pairs
     // are removed, which is the semantics of duplicateWindowSec.
     std::vector<MotionMatch> unique;
     unique.reserve(matches.size());
+    // Recurring reverse cuts can have different shot IDs but the same camera
+    // layout. Complete-link groups avoid chaining gradually different views
+    // together through a permissive intermediate. Missing evidence stays unique.
+    std::vector<std::size_t> viewFamily(shotIds.size()), representative(shotIds.size(), windows.size());
+    std::iota(viewFamily.begin(), viewFamily.end(), 0);
+    for (std::size_t i = 0; i < windows.size(); ++i)
+        if (windows[i].hasSceneIndex && windows[i].staticFrameSet
+            && representative[shotOf[i]] == windows.size()) representative[shotOf[i]] = i;
+    if (params_.individualPairs) {
+        std::vector<std::vector<std::size_t>> families;
+        for (std::size_t shot = 0; shot < representative.size(); ++shot) {
+            if (representative[shot] == windows.size()) continue;
+            bool assigned = false;
+            for (auto& family : families) {
+                if (!std::all_of(family.begin(), family.end(), [&](std::size_t other) {
+                    return sameCameraView(windows[representative[shot]], windows[representative[other]]);
+                })) continue;
+                viewFamily[shot] = family.front(); family.push_back(shot); assigned = true; break;
+            }
+            if (!assigned) families.push_back({shot});
+        }
+    }
+    const auto sharedView = [&](const MotionMatch& a, const MotionMatch& b) {
+        for (const auto left : {a.leftIndex, a.rightIndex}) for (const auto right : {b.leftIndex, b.rightIndex})
+            if (windows[left].hasSceneIndex && windows[right].hasSceneIndex
+                && (viewFamily[shotOf[left]] == viewFamily[shotOf[right]]
+                    || sameCameraView(windows[left], windows[right]))) return true;
+        return false;
+    };
+    const auto portrait = [&](const MotionMatch& match) {
+        return windows[match.leftIndex].staticFrameSet && match.headOnlyComparison;
+    };
+    const auto viewConflict = [&](const MotionMatch& candidate, std::size_t excluded = std::numeric_limits<std::size_t>::max()) {
+        if (!params_.individualPairs || !portrait(candidate)) return false;
+        for (std::size_t i = 0; i < unique.size(); ++i)
+            if (i != excluded && sharedView(candidate, unique[i])) return true;
+        return false;
+    };
     std::size_t motionResults = 0;
     std::size_t staticResults = 0;
     // Head geometry and body articulation have different score distributions.
@@ -2028,12 +2342,15 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     // Head/body and motion retain their independent result budgets, but a
     // shot has ONE shared reuse quota across all result types.
     std::vector<std::size_t> shotUseCounts(shotIds.size());
-    const auto rounds = params_.maxResultsPerShot == 0 ? 1U : params_.maxResultsPerShot;
+    const auto seedBudget=params_.coverageSeedLimit==0 ? params_.maxUniqueResults
+        : std::min(params_.maxUniqueResults,params_.coverageSeedLimit);
+    const auto shotLimit = params_.individualPairs ? 1U : params_.maxResultsPerShot;
+    const auto rounds = shotLimit == 0 ? 1U : shotLimit;
     for (std::size_t round = 0; round < rounds; ++round) {
     nextHead = nextBody = 0;
     for (const MotionMatch& ranked : matches) {
         const MotionMatch* next = &ranked;
-        if (windows[ranked.leftIndex].staticFrameSet) {
+        if (!params_.individualPairs && windows[ranked.leftIndex].staticFrameSet) {
             const bool takeHead = nextHead < heads.size()
                 && (nextBody == bodies.size() || keptHeads < keptBodies
                     || (keptHeads == keptBodies
@@ -2042,6 +2359,15 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         }
         const MotionMatch& candidate = *next;
         const bool staticCandidate = windows[candidate.leftIndex].staticFrameSet;
+        if (params_.individualPairs && !staticCandidate) {
+            const auto classification = MovementClassifier().classify(
+                windows[candidate.leftIndex], windows[candidate.rightIndex]);
+            // MotionRanker removes these results anyway. Apply the identical
+            // semantic guard before reserving shots, so rejected jitter cannot
+            // hide an independently supported pose or another real gesture.
+            if (classification.direction == MovementDirection::Static
+                && classification.gesture == GestureClass::Static) continue;
+        }
         auto& typeCount = staticCandidate ? staticResults : motionResults;
         if (std::getenv("PF_DEBUG_SELECTION") != nullptr) {
             std::fprintf(stderr, "PF_SELECTION t=%.3f/%.3f score=%.6f static=%d head=%d used=%zu limit=%zu\n",
@@ -2049,9 +2375,9 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 staticCandidate ? 1 : 0, candidate.headOnlyComparison ? 1 : 0,
                 typeCount, params_.maxUniqueResults);
         }
-        if (typeCount >= params_.maxUniqueResults) continue;
+        if (typeCount >= seedBudget) continue;
         const auto shotUses = [&](std::size_t index) { return windows[index].hasSceneIndex ? shotUseCounts[shotOf[index]] : 0U; };
-        if (params_.maxResultsPerShot > 0
+        if (shotLimit > 0
             && (shotUses(candidate.leftIndex) > round || shotUses(candidate.rightIndex) > round)) continue;
         const bool duplicate = std::any_of(unique.begin(), unique.end(), [&](const MotionMatch& kept) {
             // A pose result is not a duplicate of a repeated movement. Their
@@ -2177,6 +2503,185 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         }
     }
     }
+    if (params_.individualPairs) {
+        // A greedy strongest-first choice A/B can leave C and D unused even
+        // when verified A/C and B/D exist. Augment that path into two disjoint
+        // parallels, without weakening comparison or spending another shot.
+        // Collapse sliding hypotheses into their strongest shot-pair edge.
+        std::vector<std::vector<const MotionMatch*>> adjacency(shotIds.size());
+        std::unordered_set<std::uint64_t> edges;
+        for (const auto& match : matches) {
+            if (!windows[match.leftIndex].hasSceneIndex || !windows[match.rightIndex].hasSceneIndex) continue;
+            if (!windows[match.leftIndex].staticFrameSet) {
+                const auto classification = MovementClassifier().classify(
+                    windows[match.leftIndex], windows[match.rightIndex]);
+                if (classification.direction == MovementDirection::Static
+                    && classification.gesture == GestureClass::Static) continue;
+            }
+            const auto a = shotOf[match.leftIndex], b = shotOf[match.rightIndex];
+            const auto key = (static_cast<std::uint64_t>(std::min(a,b)) << 32U) | std::max(a,b);
+            if (a == b || !edges.insert(key).second) continue;
+            adjacency[a].push_back(&match); adjacency[b].push_back(&match);
+        }
+        const auto otherShot = [&](const MotionMatch& match, std::size_t shot) {
+            const auto a = shotOf[match.leftIndex], b = shotOf[match.rightIndex];
+            return a == shot ? b : a;
+        };
+        const auto informationPreserved = [&](const MotionMatch& replacement, const MotionMatch& original) {
+            if (!original.headOnlyComparison && replacement.headOnlyComparison) return false;
+            if (original.headOnlyComparison && replacement.headOnlyComparison
+                && original.unmirroredSimilarity >= params_.similarityThreshold
+                && replacement.unmirroredSimilarity < params_.similarityThreshold) return false;
+            return true;
+        };
+        bool augmented = true;
+        while (augmented) {
+            augmented = false;
+            for (std::size_t keptIndex = 0; keptIndex < unique.size() && !augmented; ++keptIndex) {
+                const auto original = unique[keptIndex];
+                if (!windows[original.leftIndex].hasSceneIndex || !windows[original.rightIndex].hasSceneIndex) continue;
+                const auto a = shotOf[original.leftIndex], b = shotOf[original.rightIndex];
+                for (const auto* ac : adjacency[a]) {
+                    const auto c = otherShot(*ac,a);
+                    if (shotUseCounts[c] || !informationPreserved(*ac,original)) continue;
+                    for (const auto* bd : adjacency[b]) {
+                        const auto d = otherShot(*bd,b);
+                        if (c == d || shotUseCounts[d] || !informationPreserved(*bd,original)) continue;
+                        const auto staticEdge = [&](const MotionMatch& edge) {
+                            return windows[edge.leftIndex].staticFrameSet ? 1U : 0U;
+                        };
+                        const auto newStatics = staticResults - staticEdge(original) + staticEdge(*ac) + staticEdge(*bd);
+                        const auto newMotions = motionResults - (1U-staticEdge(original))
+                            + (1U-staticEdge(*ac)) + (1U-staticEdge(*bd));
+                        if (newStatics > seedBudget || newMotions > seedBudget) continue;
+                        unique[keptIndex] = *ac;
+                        unique.push_back(*bd);
+                        ++shotUseCounts[c]; ++shotUseCounts[d];
+                        staticResults = newStatics; motionResults = newMotions;
+                        augmented = true;
+                        break;
+                    }
+                    if (augmented) break;
+                }
+            }
+        }
+    }
+    if (params_.individualPairs) {
+        // Freeze the established body/motion coverage before reducing camera
+        // repeats. Filtering portrait edges earlier can change augmenting
+        // paths and accidentally lose an unrelated, useful body parallel.
+        auto covered = std::move(unique);
+        unique.clear();
+        std::fill(shotUseCounts.begin(), shotUseCounts.end(), 0);
+        staticResults = motionResults = 0;
+        const auto append = [&](const MotionMatch& match) {
+            const bool head=portrait(match);
+            if (!measuredIdentityCompatible(windows[match.leftIndex],match.leftStartSeconds,match.leftEndSeconds,head)
+                || !measuredIdentityCompatible(windows[match.rightIndex],match.rightStartSeconds,match.rightEndSeconds,head)) return;
+            const auto a = shotOf[match.leftIndex], b = shotOf[match.rightIndex];
+            auto& count = windows[match.leftIndex].staticFrameSet ? staticResults : motionResults;
+            if (a == b || shotUseCounts[a] || shotUseCounts[b] || count >= params_.maxUniqueResults) return;
+            if (!windows[match.leftIndex].staticFrameSet) {
+                const auto movement=MovementClassifier().classify(windows[match.leftIndex],windows[match.rightIndex]);
+                if (movement.direction==MovementDirection::Static && movement.gesture==GestureClass::Static) return;
+            }
+            if (portrait(match) && (sameCameraView(windows[match.leftIndex], windows[match.rightIndex])
+                || viewConflict(match))) return;
+            unique.push_back(match);
+            ++shotUseCounts[a]; ++shotUseCounts[b]; ++count;
+        };
+        for (const auto& match : covered) if (!portrait(match)) append(match);
+        // Camera filtering can free shots after initial NMS/augmentation.
+        // Refill them with already accepted body/gesture edges before generic
+        // portraits. Established body/motion pairs and all gates stay intact.
+        for (const auto& match : matches) if (!match.headOnlyComparison) append(match);
+        // Preserve direct head orientation preference when choosing a single
+        // useful portrait from a returning camera.
+        const auto headPriority = [&](const MotionMatch& a, const MotionMatch& b) {
+            const bool directA = a.unmirroredSimilarity >= params_.similarityThreshold;
+            const bool directB = b.unmirroredSimilarity >= params_.similarityThreshold;
+            if (directA != directB) return directA;
+            return strongestFirst(a,b);
+        };
+        std::sort(covered.begin(), covered.end(), headPriority);
+        for (const auto& match : covered) if (portrait(match)) append(match);
+        // Freed portrait shots can support other, genuinely different views.
+        std::vector<MotionMatch> alternatives;
+        for (const auto& match : matches) if (portrait(match)) alternatives.push_back(match);
+        std::sort(alternatives.begin(), alternatives.end(), headPriority);
+        for (const auto& match : alternatives) append(match);
+    }
+    if (params_.individualPairs && params_.recoverUnusedShots
+        && (staticResults < params_.maxUniqueResults || motionResults < params_.maxUniqueResults)) {
+        std::vector<MotionWindow> unused;
+        std::vector<std::size_t> originalIndices;
+        std::unordered_set<std::string> ranges;
+        std::unordered_map<std::string,std::size_t> footage;
+        std::unordered_set<std::string> suppliedFootage;
+        for (std::size_t i=0;i<windows.size();++i) if (!windows[i].sceneSequence.empty())
+            footage.try_emplace(windows[i].sourceId+"|"+std::to_string(windows[i].sceneIndex),i);
+        const auto appendWindow=[&](MotionWindow w,std::size_t original) {
+            const auto key=w.sourceId+"|"+std::to_string(w.trackId)+"|"+std::to_string(w.sceneIndex)+"|"
+                +std::to_string(w.staticFrameSet)+"|"+std::to_string(std::llround(w.frames.front().timestampSeconds*1e6))
+                +"|"+std::to_string(std::llround(w.frames.back().timestampSeconds*1e6));
+            if (!ranges.insert(key).second) return;
+            const auto shot=w.sourceId+"|"+std::to_string(w.sceneIndex);
+            if (suppliedFootage.insert(shot).second) {
+                if (const auto found=footage.find(shot);found!=footage.end()) {
+                    w.sceneSequence=windows[found->second].sceneSequence;
+                    w.sceneSequenceTimes=windows[found->second].sceneSequenceTimes;
+                }
+            } else {w.sceneSequence.clear();w.sceneSequenceTimes.clear();}
+            unused.push_back(std::move(w));originalIndices.push_back(original);
+        };
+        for (std::size_t i=0;i<windows.size();++i) {
+            if (!windows[i].hasSceneIndex || shotUseCounts[shotOf[i]] || windows[i].frames.empty()) continue;
+            if (windows[i].staticFrameSet ? !params_.allowStaticFrames : prepared[i].descriptors.empty()) continue;
+            if ((windows[i].staticFrameSet ? staticResults : motionResults) >= params_.maxUniqueResults) continue;
+            appendWindow(windows[i],i);
+            for (auto& shorter:shortPoseWindows(windows[i])) {
+                appendWindow(std::move(shorter),i);
+            }
+        }
+        if (unused.size()>=2) {
+            auto recovery=params_;recovery.recoverUnusedShots=false;recovery.expandedSearch=true;
+            recovery.coverageSeedLimit=0;recovery.bodyMotionOnly=true;
+            const auto additions=MotionMatcher(recovery).findAllPairs(unused);
+            std::size_t recovered=0;
+            // The secondary pass cannot replace an existing edge or borrow
+            // its shot. Each result still passes the same temporal/identity
+            // gates, visual-family conflict check and shared diversity quota.
+            for (auto match:additions) {
+                match.leftIndex=originalIndices[match.leftIndex];match.rightIndex=originalIndices[match.rightIndex];
+                const auto a=shotOf[match.leftIndex],b=shotOf[match.rightIndex];
+                auto& count=windows[match.leftIndex].staticFrameSet ? staticResults : motionResults;
+                if (a==b || shotUseCounts[a] || shotUseCounts[b] || count>=params_.maxUniqueResults) continue;
+                if (portrait(match) && (sameCameraView(windows[match.leftIndex],windows[match.rightIndex])
+                    || viewConflict(match))) continue;
+                unique.push_back(std::move(match));++shotUseCounts[a];++shotUseCounts[b];++count;++recovered;
+            }
+            if (profile) std::fprintf(stderr,"PF_DEBUG_RECOVERY unused_windows=%zu recovered_pairs=%zu\n",unused.size(),recovered);
+        }
+    }
+    std::erase_if(unique,[&](const auto& match) {
+        const bool head=portrait(match);
+        return !measuredIdentityCompatible(windows[match.leftIndex],match.leftStartSeconds,match.leftEndSeconds,head)
+            || !measuredIdentityCompatible(windows[match.rightIndex],match.rightStartSeconds,match.rightEndSeconds,head);
+    });
+    if (params_.individualPairs && params_.recoverUnusedShots) {
+        // Recovery runs after portrait selection. A newly supported body pose
+        // can share a camera with an earlier portrait; apply body priority
+        // once more across the final set, without replacing any strong edge.
+        auto selected=std::move(unique);unique.clear();
+        for (const auto& match:selected) if (!portrait(match)) unique.push_back(match);
+        std::sort(selected.begin(),selected.end(),[&](const auto& a,const auto& b) {
+            const bool directA=a.unmirroredSimilarity>=params_.similarityThreshold;
+            const bool directB=b.unmirroredSimilarity>=params_.similarityThreshold;
+            if (directA!=directB) return directA;
+            return strongestFirst(a,b);
+        });
+        for (const auto& match:selected) if (portrait(match) && !viewConflict(match)) unique.push_back(match);
+    }
     // Retrieval policy must not change the public descending-score ordering.
     std::sort(unique.begin(), unique.end(), strongestFirst);
     matches = std::move(unique);
@@ -2193,6 +2698,11 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                      matches.size());
     }
     return matches;
+}
+
+bool observedIdentityAllows(const MotionWindow& window,double start,double end,bool portrait)
+{
+    return measuredIdentityCompatible(window,start,end,portrait);
 }
 
 } // namespace pfcore

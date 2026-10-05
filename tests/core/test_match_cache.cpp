@@ -45,6 +45,14 @@ TEST(MatchCache, InvalidatesExactInputsSettingsAndSourceOrder)
     params = {};
     params.maxResultsPerShot = 0;
     EXPECT_NE(key,pfservices::MatchCache::key(original,params));
+    params={};params.individualPairs=true;
+    EXPECT_NE(key,pfservices::MatchCache::key(original,params));
+    params={};params.recoverUnusedShots=true;
+    EXPECT_NE(key,pfservices::MatchCache::key(original,params));
+    changed=original;changed[0].sceneView={.1F,.2F};
+    EXPECT_NE(key,pfservices::MatchCache::key(changed,{}));
+    changed=original;changed[0].sceneSequence={.1F,.2F};
+    EXPECT_NE(key,pfservices::MatchCache::key(changed,{}));
 }
 
 TEST(MatchCache, PreservesExactScoresEmptyHitsAndRejectsCorruption)

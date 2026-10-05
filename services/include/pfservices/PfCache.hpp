@@ -23,6 +23,10 @@ public:
     bool put(const std::string& key, const std::vector<std::uint8_t>& payload,
              std::string& error);
     bool erase(const std::string& key, std::string& error);
+    // Persistent per-source namespace, outside LRU eviction: resetting a
+    // video must never make its older measurements reusable later.
+    [[nodiscard]] std::string sourceGeneration(const std::string& source) const;
+    bool resetSource(const std::string& source, std::string& error);
     bool clear(std::string& error);
     [[nodiscard]] std::size_t bytesUsed() const;
     [[nodiscard]] std::size_t limitBytes() const noexcept { return limitBytes_; }
