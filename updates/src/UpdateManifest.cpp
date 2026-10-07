@@ -2,6 +2,7 @@
 #include "UpdateTrust.hpp"
 #include <QCryptographicHash>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -48,6 +49,18 @@ bool safeRelativePath(const QString& path) {
         if(QRegularExpression("^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\.|$)",QRegularExpression::CaseInsensitiveOption).match(part).hasMatch())return false;
     }
     return true;
+}
+std::optional<QString> restartAcknowledgementVersion(const QByteArray& request,
+    const QString& currentVersion,const QString& installationDirectory,const QByteArray& publicKey) {
+    if(request.size()>4*1024*1024)return {};
+    const auto o=QJsonDocument::fromJson(request).object();QString error;
+    const auto root=QFileInfo(o["root"].toString()).canonicalFilePath();
+    if(o["schema"].toInt()!=1 || !o["consent"].toBool() || root.isEmpty()
+        || root!=QFileInfo(installationDirectory).canonicalFilePath())return {};
+    const auto manifest=verifyManifest(QByteArray::fromBase64(o["manifest"].toString().toLatin1()),
+        QByteArray::fromBase64(o["signature"].toString().toLatin1()),publicKey,error);
+    if(!manifest || compareVersions(manifest->version,currentVersion).value_or(-1)!=0)return {};
+    return manifest->version;
 }
 std::optional<Manifest> verifyManifest(const QByteArray& bytes,const QByteArray& signature,const QByteArray& publicKey,QString& error) {
     auto fail=[&](QString message)->std::optional<Manifest>{error=message;return {};};

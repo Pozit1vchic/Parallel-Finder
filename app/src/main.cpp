@@ -364,9 +364,24 @@ int main(int argc, char* argv[])
         const auto ackIndex=args.indexOf("--pf-update-ack");
         if(ackIndex>=0 && ackIndex+1<args.size()) {
             const auto ack=args[ackIndex+1];
+            auto acknowledgedVersion=QCoreApplication::applicationVersion();
+            // RC17.1 compares the acknowledgement literally. Preserve the
+            // trusted request's spelling (optional v prefix) for that worker.
+            const QDir storage(QString::fromStdString(pfservices::SettingsStore::defaultDirectory())+"/updates");
+            if(QFileInfo(ack).absolutePath()==storage.absolutePath()) {
+                for(const auto& info:storage.entryInfoList({"request-*.json"},QDir::Files,QDir::Time)) {
+                    QFile request(info.absoluteFilePath());
+                    if(!request.open(QIODevice::ReadOnly) || request.size()>4*1024*1024)continue;
+                    const auto version=pfupdate::restartAcknowledgementVersion(request.readAll(),acknowledgedVersion,
+                        QCoreApplication::applicationDirPath(),pfupdate::trustedPublicKey());
+                    if(version) {
+                        acknowledgedVersion=*version;break;
+                    }
+                }
+            }
             if(auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().first()))
-                QObject::connect(window,&QQuickWindow::frameSwapped,&app,[ack]{
-                    QSaveFile file(ack);if(file.open(QIODevice::WriteOnly)){file.write(QCoreApplication::applicationVersion().toUtf8());file.commit();}
+                QObject::connect(window,&QQuickWindow::frameSwapped,&app,[ack,acknowledgedVersion]{
+                    QSaveFile file(ack);if(file.open(QIODevice::WriteOnly)){file.write(acknowledgedVersion.toUtf8());file.commit();}
                 },Qt::SingleShotConnection);
         }
         updates->startup();

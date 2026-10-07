@@ -105,7 +105,7 @@ int main(int argc,char** argv) {
         if(!QProcess::startDetached(executable,{"--pf-update-ack",ack},QFileInfo(executable).absolutePath(),&pid)){error="Cannot restart updated application";return false;}
         QElapsedTimer timer;timer.start();
         while(timer.elapsed()<30000) {
-            QFile file(ack);if(file.open(QIODevice::ReadOnly) && QString::fromUtf8(file.read(256))==manifest->version){file.close();QFile::remove(ack);return true;}
+            QFile file(ack);if(file.open(QIODevice::ReadOnly) && pfupdate::compareVersions(QString::fromUtf8(file.read(256)),manifest->version).value_or(-1)==0){file.close();QFile::remove(ack);return true;}
             QThread::msleep(100);
         }
 #ifdef Q_OS_WIN

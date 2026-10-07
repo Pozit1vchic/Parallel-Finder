@@ -24,6 +24,20 @@ UpdateService::UpdateService(UpdateOptions options,QObject* parent):QObject(pare
         if(o["channel"]=="beta")channel_="beta";
         automaticCheck_=o["automaticCheck"].toBool(true);automaticDownload_=o["automaticDownload"].toBool(false);skipped_=o["skipped"].toString();
     }
+    QFile cached(options_.storageDirectory+"/package-cache.json");
+    if(cached.open(QIODevice::ReadOnly) && cached.size()<4*1024*1024) {
+        const auto o=QJsonDocument::fromJson(cached.readAll()).object();QString error;
+        const auto bytes=QByteArray::fromBase64(o["manifest"].toString().toLatin1());
+        const auto signature=QByteArray::fromBase64(o["signature"].toString().toLatin1());
+        const auto manifest=verifyManifest(bytes,signature,options_.publicKey,error);
+        const QUrl url(o["url"].toString());
+        if(manifest && compareVersions(manifest->version,currentVersion()).value_or(-1)>0
+            && (channel_=="beta" || !o["prerelease"].toBool(true)) && allowedUrl(url)) {
+            releasePrerelease_=o["prerelease"].toBool(true);
+            manifest_=manifest;manifestBytes_=bytes;signature_=signature;assetUrl_=url;
+            state_=reusePackage()?"ready":"available";
+        }
+    }
     QFile result(options_.storageDirectory+"/last-result.json");
     if(result.open(QIODevice::ReadOnly) && result.size()<64*1024) {
         const auto o=QJsonDocument::fromJson(result.readAll()).object();
@@ -37,11 +51,15 @@ void UpdateService::savePreferences() {
     const auto bytes=QJsonDocument(QJsonObject{{"channel",channel_},{"automaticCheck",automaticCheck_},{"automaticDownload",automaticDownload_},{"skipped",skipped_}}).toJson();
     if(!file.open(QIODevice::WriteOnly) || file.write(bytes)!=bytes.size() || !file.commit())transition("error","Cannot save update preferences");
 }
-void UpdateService::setChannel(const QString& value){if(busy() || (value!="stable" && value!="beta") || value==channel_)return;channel_=value;skipped_.clear();manifest_.reset();state_="idle";savePreferences();emit changed();}
+void UpdateService::setChannel(const QString& value){if(busy() || (value!="stable" && value!="beta") || value==channel_)return;channel_=value;manifest_.reset();state_="idle";savePreferences();emit changed();}
 void UpdateService::setAutomaticCheck(bool value){automaticCheck_=value;savePreferences();emit changed();}
 void UpdateService::setAutomaticDownload(bool value){automaticDownload_=value;savePreferences();emit changed();}
 void UpdateService::transition(const QString& state,const QString& error){state_=state;error_=error;emit changed();}
-void UpdateService::startup(){if(automaticCheck_ && state_!="error")QTimer::singleShot(2500,this,[this]{if(automaticCheck_)check(false);});}
+void UpdateService::startup(){
+    if(!automaticCheck_ || state_=="error")return;
+    if(manifest_ && compareVersions(manifest_->version,skipped_).value_or(-1)!=0){visible_=true;emit changed();}
+    QTimer::singleShot(0,this,[this]{if(automaticCheck_)check(false);});
+}
 bool UpdateService::allowedUrl(const QUrl& url) const {
     if(!url.userInfo().isEmpty() || !url.fragment().isEmpty())return false;
     if(options_.allowTestHttp && url.scheme()=="http" && (url.host()=="127.0.0.1" || url.host()=="localhost"))return true;
@@ -64,8 +82,8 @@ void UpdateService::fetch(const QUrl& url,qsizetype limit,std::function<void(QBy
 }
 void UpdateService::check(bool manual) {
     if(busy())return;
-    if(!packagePath_.isEmpty()){QFile::remove(packagePath_);packagePath_.clear();}
-    manual_=manual;visible_=manual;manifest_.reset();received_=0;speed_=0;releases_=QJsonArray{};++serial_;transition("checking");fetchPage(1);
+    packagePath_.clear();
+    manual_=manual;visible_=manual || visible_;manifest_.reset();received_=0;speed_=0;releases_=QJsonArray{};++serial_;transition("checking");fetchPage(1);
 }
 void UpdateService::fetchPage(int page) {
     auto url=options_.releasesUrl;url.setQuery(QString("per_page=100&page=%1").arg(page));
@@ -80,58 +98,110 @@ void UpdateService::chooseRelease() {
     QJsonObject best;
     for(const auto& row:releases_) {
         const auto o=row.toObject();const auto version=o["tag_name"].toString();const auto newer=compareVersions(version,currentVersion());
-        if(o["draft"].toBool() || !newer || *newer<=0 || (channel_=="stable" && (o["prerelease"].toBool() || version.contains('-'))))continue;
+        if(o["draft"].toBool() || !newer || *newer<=0 || (channel_=="stable" && o["prerelease"].toBool()))continue;
         if(best.isEmpty() || compareVersions(version,best["tag_name"].toString()).value_or(-1)>0)best=o;
     }
-    if(best.isEmpty()){transition("upToDate");return;}
-    if(!manual_ && skipped_==best["tag_name"].toString()){transition("idle");return;}
+    if(best.isEmpty()){if(!manual_)visible_=false;transition("upToDate");return;}
+    if(compareVersions(skipped_,best["tag_name"].toString()).value_or(-1)==0){if(!manual_)visible_=false;transition(manual_?"skipped":"idle");return;}
     QMap<QString,QUrl> assets;QMap<QString,qint64> sizes;
     for(const auto& a:best["assets"].toArray()) {const auto o=a.toObject();assets[o["name"].toString()]=QUrl(o["browser_download_url"].toString());sizes[o["name"].toString()]=o["size"].toInteger();}
     if(!assets.contains("update.json") || !assets.contains("update.json.sig")){transition("error","New release has no signed update package");return;}
     const auto version=best["tag_name"].toString();
+    releasePrerelease_=best["prerelease"].toBool();
     fetch(assets["update.json"],2*1024*1024,[this,assets,sizes,version](const QByteArray& bytes) {
         manifestBytes_=bytes;
         fetch(assets["update.json.sig"],64,[this,assets,sizes,version](const QByteArray& signature) {
             signature_=signature;QString error;manifest_=verifyManifest(manifestBytes_,signature_,options_.publicKey,error);
             if(!manifest_){transition("error",error);return;}
-            if(compareVersions(manifest_->version,version).value_or(-1)!=0 || (channel_=="stable" && manifest_->channel!="stable") || !assets.contains(manifest_->asset) || sizes[manifest_->asset]!=manifest_->size){manifest_.reset();transition("error","Signed metadata does not match release");return;}
-            assetUrl_=assets[manifest_->asset];visible_=true;transition("available");if(automaticDownload_)download();
+            if(compareVersions(manifest_->version,version).value_or(-1)!=0 || !assets.contains(manifest_->asset) || sizes[manifest_->asset]!=manifest_->size){manifest_.reset();transition("error","Signed metadata does not match release");return;}
+            assetUrl_=assets[manifest_->asset];saveCache();visible_=true;
+            transition(reusePackage()?"ready":"available");if(automaticDownload_ && state_=="available")download();
         });
     });
+}
+QString UpdateService::cachePackagePath() const {
+    return options_.storageDirectory+"/package-"+QString::fromLatin1(manifest_->sha256.toHex())+".zip";
+}
+void UpdateService::saveCache() {
+    QSaveFile file(options_.storageDirectory+"/package-cache.json");
+    const auto bytes=QJsonDocument(QJsonObject{{"manifest",QString::fromLatin1(manifestBytes_.toBase64())},
+        {"signature",QString::fromLatin1(signature_.toBase64())},{"url",assetUrl_.toString()},{"prerelease",releasePrerelease_}}).toJson();
+    if(file.open(QIODevice::WriteOnly)){file.write(bytes);file.commit();}
+}
+bool UpdateService::reusePackage() {
+    const auto path=cachePackagePath();QString error;
+    if(QFileInfo(path).isFile() && verifyPackage(path,*manifest_,error)) {
+        packagePath_=path;received_=manifest_->size;return true;
+    }
+    if(!QFileInfo::exists(path)) {
+        const QDir storage(options_.storageDirectory);
+        for(const auto& info:storage.entryInfoList({"update-*.zip"},QDir::Files)) {
+            if(info.size()==manifest_->size && verifyPackage(info.absoluteFilePath(),*manifest_,error)
+                && QFile::rename(info.absoluteFilePath(),path)) {
+                packagePath_=path;received_=manifest_->size;return true;
+            }
+        }
+    }
+    const auto partial=path+".part";
+    if(QFileInfo(partial).isFile() && QFileInfo(partial).size()==manifest_->size && verifyPackage(partial,*manifest_,error)
+        && (!QFileInfo::exists(path) || QFile::remove(path)) && QFile::rename(partial,path)) {
+        packagePath_=path;received_=manifest_->size;return true;
+    }
+    received_=QFileInfo(partial).exists()?std::min(manifest_->size,QFileInfo(partial).size()):0;
+    return false;
 }
 void UpdateService::download() {
     if(!manifest_ || (state_!="available" && state_!="cancelled" && state_!="error"))return;
     if(!allowedUrl(assetUrl_)){transition("error","Untrusted package URL");return;}
-    ++serial_;const auto serial=serial_;received_=0;speed_=0;hash_.reset();
-    packagePath_=options_.storageDirectory+"/update-"+QUuid::createUuid().toString(QUuid::WithoutBraces)+".zip";
-    downloadFile_=std::make_unique<QSaveFile>(packagePath_);if(!downloadFile_->open(QIODevice::WriteOnly)){transition("error","Cannot create update download");return;}
+    if(reusePackage()){transition("ready");return;}
+    saveCache();++serial_;const auto serial=serial_;speed_=0;hash_.reset();
+    packagePath_=cachePackagePath();
+    downloadFile_=std::make_unique<QFile>(packagePath_+".part");
+    if(!downloadFile_->open(QIODevice::ReadWrite)){transition("error","Cannot create update download");return;}
+    if(downloadFile_->size()>=totalBytes())downloadFile_->resize(0);
+    while(!downloadFile_->atEnd())hash_.addData(downloadFile_->read(1024*1024));
+    received_=downloadFile_->size();const auto resumedBytes=received_;
     QNetworkRequest request(assetUrl_);request.setTransferTimeout(30000);request.setRawHeader("User-Agent","ParallelFinder-Updater/1");request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::UserVerifiedRedirectPolicy);
+    if(resumedBytes>0)request.setRawHeader("Range", "bytes="+QByteArray::number(resumedBytes)+'-');
     auto* reply=network_.get(request);reply_=reply;transferTimer_.start();uiTimer_.start();transition("downloading");
     connect(reply,&QNetworkReply::redirected,this,[this,reply](const QUrl& target){if(allowedUrl(target))reply->redirectAllowed();else reply->abort();});
-    const auto consume=[this,reply,serial] {
+    auto headersAccepted=std::make_shared<bool>(false);
+    const auto consume=[this,reply,serial,resumedBytes,headersAccepted] {
         if(serial!=serial_ || !downloadFile_)return;
+        if(!*headersAccepted) {
+            const auto status=reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if(status==200) {
+                if(resumedBytes>0){downloadFile_->resize(0);downloadFile_->seek(0);received_=0;hash_.reset();}
+            } else if(status==206 && resumedBytes>0) {
+                const auto range=reply->rawHeader("Content-Range");
+                if(!range.startsWith("bytes "+QByteArray::number(resumedBytes)+'-') || !range.endsWith('/'+QByteArray::number(totalBytes()))) {reply->abort();return;}
+            } else {reply->abort();return;}
+            *headersAccepted=true;
+        }
         const auto bytes=reply->readAll();received_+=bytes.size();
         if(received_>totalBytes() || downloadFile_->write(bytes)!=bytes.size()){reply->abort();return;}
-        hash_.addData(bytes);speed_=received_*1000.0/std::max<qint64>(1,transferTimer_.elapsed());
+        hash_.addData(bytes);speed_=(received_-(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()==206?resumedBytes:0))*1000.0/std::max<qint64>(1,transferTimer_.elapsed());
         if(uiTimer_.elapsed()>=100){uiTimer_.restart();emit changed();}
     };
     connect(reply,&QNetworkReply::readyRead,this,consume);
-    connect(reply,&QNetworkReply::finished,this,[this,reply,serial,consume] {
+    connect(reply,&QNetworkReply::finished,this,[this,reply,serial,consume,headersAccepted] {
         reply->deleteLater();if(serial!=serial_)return;consume();reply_=nullptr;
-        if(reply->error()!=QNetworkReply::NoError || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()!=200){downloadFile_.reset();transition("error","Download failed: "+reply->errorString());return;}
+        const auto status=reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if(reply->error()!=QNetworkReply::NoError || !*headersAccepted || (status!=200 && status!=206)){downloadFile_.reset();transition("error","Download failed: "+reply->errorString());return;}
         transition("verifying");QString error;
-        if(!verifyManifest(manifestBytes_,signature_,options_.publicKey,error) || received_!=totalBytes() || hash_.result()!=manifest_->sha256 || !downloadFile_->commit()) {
-            downloadFile_.reset();transition("error",error.isEmpty()?"Update integrity check failed":error);return;
+        if(!verifyManifest(manifestBytes_,signature_,options_.publicKey,error) || received_!=totalBytes() || hash_.result()!=manifest_->sha256 || !downloadFile_->flush()) {
+            downloadFile_.reset();QFile::remove(packagePath_+".part");transition("error",error.isEmpty()?"Update integrity check failed":error);return;
         }
-        downloadFile_.reset();transition("ready");
+        downloadFile_.reset();
+        if((QFileInfo::exists(packagePath_) && !QFile::remove(packagePath_)) || !QFile::rename(packagePath_+".part",packagePath_)){transition("error","Cannot retain verified update package");return;}
+        transition("ready");
     });
 }
 void UpdateService::cancel() {
     if(state_=="installing")return;
     ++serial_;
     if(reply_){reply_->abort();reply_=nullptr;}downloadFile_.reset();
-    if(!packagePath_.isEmpty()){QFile::remove(packagePath_);packagePath_.clear();}
-    received_=0;speed_=0;transition("cancelled");
+    speed_=0;transition("cancelled");
 }
 void UpdateService::later(){visible_=false;emit changed();}
 void UpdateService::skip(){if(busy())return;if(manifest_)skipped_=manifest_->version;savePreferences();visible_=false;emit changed();}

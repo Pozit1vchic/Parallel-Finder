@@ -19,4 +19,6 @@ bool safeRelativePath(const QString& path);
 std::optional<Manifest> verifyManifest(const QByteArray& bytes, const QByteArray& signature,
     const QByteArray& publicKey, QString& error);
 bool verifyPackage(const QString& path, const Manifest& manifest, QString& error);
+std::optional<QString> restartAcknowledgementVersion(const QByteArray& request,
+    const QString& currentVersion, const QString& installationDirectory, const QByteArray& publicKey);
 }

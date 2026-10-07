@@ -5,6 +5,7 @@
 #include <QPointer>
 #include <QNetworkReply>
 #include <QSaveFile>
+#include <QFile>
 #include <QElapsedTimer>
 #include <QUrl>
 #include <QJsonArray>
@@ -70,11 +71,12 @@ private:
     UpdateOptions options_;
     QNetworkAccessManager network_;
     QPointer<QNetworkReply> reply_;
-    std::unique_ptr<QSaveFile> downloadFile_;
+    std::unique_ptr<QFile> downloadFile_;
     QCryptographicHash hash_{QCryptographicHash::Sha256};
     QElapsedTimer transferTimer_,uiTimer_;
     QString state_="idle",error_,channel_="stable",skipped_,packagePath_;
     bool visible_=false,automaticCheck_=true,automaticDownload_=false,manual_=false;
+    bool releasePrerelease_=true;
     qint64 received_=0;double speed_=0;quint64 serial_=0;
     std::optional<Manifest> manifest_;
     QByteArray manifestBytes_,signature_;
@@ -87,6 +89,9 @@ private:
     void fetch(const QUrl& url,qsizetype limit,std::function<void(QByteArray)> done);
     void fetchPage(int page);
     void chooseRelease();
+    void saveCache();
+    bool reusePackage();
+    QString cachePackagePath() const;
     bool launch(const QString& request,QString& error);
 };
 }

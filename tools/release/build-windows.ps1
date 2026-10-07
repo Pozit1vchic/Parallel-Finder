@@ -3,6 +3,7 @@ param(
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
     [string]$ReleaseTag = '0.1.0-rc.18',
+    [string]$GitHubTag = '',
     [string]$ReleaseNotes = 'docs/rc18-release-notes.md',
     [string]$SigningKey = (Join-Path $env:LOCALAPPDATA 'ParallelFinder/release-signing/update-ed25519-private.pem'),
     [switch]$KeepStaging,
@@ -14,6 +15,7 @@ $bin = Join-Path $Toolchain 'bin'
 $releaseOriginalPath = $env:PATH
 $env:PATH = "$bin;$env:PATH"
 $tag = $ReleaseTag
+if ($GitHubTag -and $GitHubTag.TrimStart('v') -cne $tag.TrimStart('v')) { throw 'GitHubTag must match ReleaseTag except for the optional v prefix' }
 Push-Location $root
 try {
     & cmake --preset ucrt64-release "-DPF_RELEASE_LABEL=$tag"
@@ -133,7 +135,7 @@ try {
     & tar.exe -a -cf $zip -C (Split-Path $stage) ParallelFinder
     if ($LASTEXITCODE) { throw 'ZIP creation failed' }
     if (Test-Path -LiteralPath $SigningKey) {
-        & "$PSScriptRoot/sign-update.ps1" -Stage $stage -Package $zip -Version $tag -SigningKey $SigningKey -OpenSSL "$bin/openssl.exe" -ChangelogPath "$stage/RELEASE-NOTES.md"
+        & "$PSScriptRoot/sign-update.ps1" -Stage $stage -Package $zip -Version $(if ($GitHubTag) { $GitHubTag } else { $tag }) -SigningKey $SigningKey -OpenSSL "$bin/openssl.exe" -ChangelogPath "$stage/RELEASE-NOTES.md"
     } else {
         throw 'Release signing key missing. Refusing to create an update-capable release without a trusted signature.'
     }

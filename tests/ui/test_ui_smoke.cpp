@@ -32,6 +32,7 @@ class UiSmokeTests : public QObject {
 private slots:
     void initTestCase() { QCoreApplication::setOrganizationName("ParallelFinderTests"); QCoreApplication::setOrganizationDomain("test.invalid"); QCoreApplication::setApplicationName("UiAudit"); }
     void mainQmlLoadsFromResources();
+    void updateDialogDragsWithinWindow();
     void themeSingletonResolves();
     void appInfoBridgeResolves();
     void gpuInfoPropagatesToQml();
@@ -75,6 +76,59 @@ void UiSmokeTests::mainQmlLoadsFromResources()
     int expectedIndex = files.indexOf(pfui::AnalysisController::instance()->modelChoice());
     if (expectedIndex < 0) expectedIndex = files.indexOf(QStringLiteral("yolo26m-pose.onnx"));
     QTRY_COMPARE(modelCombo->property("currentIndex").toInt(), expectedIndex);
+}
+
+void UiSmokeTests::updateDialogDragsWithinWindow()
+{
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(R"(
+import QtQuick
+import PfUi
+Window {
+    id: testWindow
+    width: 1000; height: 700; visible: true
+    QtObject {
+        id: fake
+        property string state: "available"
+        property string currentVersion: "0.1.0-rc.17.1"
+        property string newVersion: "0.1.0-rc.18"
+        property string changelog: "Changes"
+        property string error: ""
+        property bool dialogVisible: true
+        property bool busy: false
+        property int totalBytes: 1024
+        property int receivedBytes: 0
+        property real bytesPerSecond: 0
+        property real progress: 0
+        signal changed()
+        function later() { dialogVisible = false; changed() }
+    }
+    UpdateDialog { rootWindow: testWindow; service: fake }
+}
+)", QUrl());
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto* window = qobject_cast<QQuickWindow*>(object.data());
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto* popup = window->findChild<QObject*>("updateDialog");
+    auto* handle = window->findChild<QQuickItem*>("updateDragArea");
+    QVERIFY(popup && handle);
+    QTRY_VERIFY(popup->property("opened").toBool());
+    const double x = popup->property("x").toDouble(), y = popup->property("y").toDouble();
+    const auto start = handle->mapToScene(QPointF(60, 20)).toPoint();
+    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start);
+    QTest::mouseMove(window, start + QPoint(90, 55), 20);
+    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, start + QPoint(90, 55));
+    QTRY_VERIFY(qAbs(popup->property("x").toDouble() - x - 90) < 2);
+    QTRY_VERIFY(qAbs(popup->property("y").toDouble() - y - 55) < 2);
+    popup->setProperty("positionOffsetX", 10000);
+    popup->setProperty("positionOffsetY", -10000);
+    QTRY_VERIFY(popup->property("x").toDouble() + popup->property("width").toDouble() <= window->width() - 11);
+    QCOMPARE(popup->property("y").toDouble(), 12.0);
+    window->resize(720, 500);
+    QTRY_VERIFY(popup->property("x").toDouble() + popup->property("width").toDouble() <= window->width() - 11);
 }
 
 namespace {

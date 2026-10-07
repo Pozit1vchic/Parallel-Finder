@@ -72,6 +72,8 @@ public:
     QMap<QByteArray,QByteArray> body;
     QSet<QByteArray> delayed;
     QSet<QByteArray> partial;
+    bool rangeEnabled=false;
+    QMap<QByteArray,qint64> requestedRanges;
     Server() {
         listen(QHostAddress::LocalHost);
         connect(this,&QTcpServer::newConnection,this,[this] {
@@ -81,7 +83,16 @@ public:
                 if(!request.contains("\r\n\r\n") || socket->property("responded").toBool())return;
                 socket->setProperty("responded",true);const auto path=request.split(' ').value(1).split('?').first();
                 if(delayed.contains(path))return;
-                const bool found=body.contains(path);const auto bytes=body.value(path);
+                const bool found=body.contains(path);auto bytes=body.value(path);
+                qint64 offset=0;bool ranged=false;
+                for(const auto& line:request.split('\n'))if(line.toLower().startsWith("range: bytes=")) {
+                    offset=line.mid(13).split('-').first().trimmed().toLongLong();requestedRanges[path]=offset;ranged=rangeEnabled && offset>0;
+                }
+                if(ranged && offset<bytes.size()) {
+                    const auto total=bytes.size();bytes=bytes.mid(offset);
+                    socket->write("HTTP/1.1 206 Partial Content\r\nContent-Range: bytes "+QByteArray::number(offset)+'-'+QByteArray::number(total-1)+'/'+QByteArray::number(total)+"\r\nContent-Length: "+QByteArray::number(bytes.size())+"\r\nConnection: close\r\n\r\n"+bytes);
+                    socket->disconnectFromHost();return;
+                }
                 socket->write("HTTP/1.1 "+QByteArray(found?"200 OK":"503 Unavailable")+"\r\nContent-Length: "+QByteArray::number(bytes.size())+"\r\nConnection: close\r\n\r\n"+(partial.contains(path)?bytes.left(bytes.size()/2):bytes));
                 if(!partial.contains(path))socket->disconnectFromHost();
             });
@@ -107,6 +118,11 @@ private slots:
     void signaturesAndPaths();
     void foundAndDownloaded();
     void prefixedReleaseTag();
+    void verifiedPackageSurvivesRestart();
+    void pausedDownloadResumes_data();
+    void pausedDownloadResumes();
+    void ordinaryRcReleaseIsStable();
+    void legacyAcknowledgementUsesTrustedVersionSpelling();
     void noUpdates();
     void networkError();
     void damagedDownload();
@@ -149,10 +165,15 @@ void UpdateTests::foundAndDownloaded() {
 }
 void UpdateTests::noUpdates(){Fixture f;Server server;server.body["/releases"]="[]";pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("upToDate"));}
 void UpdateTests::prefixedReleaseTag(){Fixture f;Server server;server.release(f,"v1.0.0");pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("available"));service.download();QTRY_COMPARE(service.state(),QString("ready"));server.release(f,"v1.0.1");service.check();QTRY_COMPARE(service.state(),QString("error"));QVERIFY(service.error().contains("does not match"));}
+void UpdateTests::verifiedPackageSurvivesRestart(){Fixture f;Server server;server.release(f);const auto o=options(f,server);{pfupdate::UpdateService service(o);service.check();QTRY_COMPARE(service.state(),QString("available"));service.download();QTRY_COMPARE(service.state(),QString("ready"));service.later();service.check();QTRY_COMPARE(service.state(),QString("ready"));}server.body.remove('/'+f.manifest.asset.toUtf8());pfupdate::UpdateService restored(o);QCOMPARE(restored.state(),QString("ready"));QCOMPARE(restored.receivedBytes(),qint64(f.zip.size()));restored.check();QTRY_COMPARE(restored.state(),QString("ready"));}
+void UpdateTests::pausedDownloadResumes_data(){QTest::addColumn<bool>("range");QTest::newRow("range-supported")<<true;QTest::newRow("server-restarts-full")<<false;}
+void UpdateTests::pausedDownloadResumes(){QFETCH(bool,range);Fixture f;Server server;server.release(f);server.rangeEnabled=range;const auto path='/'+f.manifest.asset.toUtf8();server.partial.insert(path);const auto o=options(f,server);qint64 saved=0;{pfupdate::UpdateService service(o);service.check();QTRY_COMPARE(service.state(),QString("available"));service.download();QTRY_VERIFY(service.receivedBytes()>0);saved=service.receivedBytes();service.later();QCOMPARE(service.state(),QString("downloading"));service.cancel();QCOMPARE(service.state(),QString("cancelled"));}server.partial.clear();pfupdate::UpdateService restored(o);QCOMPARE(restored.state(),QString("available"));QCOMPARE(restored.receivedBytes(),saved);restored.download();QTRY_COMPARE(restored.state(),QString("ready"));QCOMPARE(server.requestedRanges[path],saved);QCOMPARE(restored.receivedBytes(),qint64(f.zip.size()));}
+void UpdateTests::ordinaryRcReleaseIsStable(){Fixture f;f.object["version"]="0.1.0-rc.18";f.object["channel"]="beta";f.resign();Server server;server.release(f,"v0.1.0-rc.18",false);pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("available"));server.release(f,"v0.1.0-rc.18",true);service.check();QTRY_COMPARE(service.state(),QString("upToDate"));service.setChannel("beta");service.check();QTRY_COMPARE(service.state(),QString("available"));}
+void UpdateTests::legacyAcknowledgementUsesTrustedVersionSpelling(){Fixture f;f.object["version"]="v1.0.0";f.resign();const auto root=f.root();auto o=QJsonObject{{"schema",1},{"consent",true},{"root",root},{"manifest",QString::fromLatin1(f.bytes.toBase64())},{"signature",QString::fromLatin1(f.signature.toBase64())}};const auto ack=[&]{return pfupdate::restartAcknowledgementVersion(QJsonDocument(o).toJson(),"1.0.0",root,f.publicKey);};QCOMPARE(ack().value_or(QString{}),QString("v1.0.0"));o["signature"]=QString::fromLatin1(QByteArray(64,'x').toBase64());QVERIFY(!ack());}
 void UpdateTests::networkError(){Fixture f;Server server;pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("error"));QVERIFY(!service.error().isEmpty());}
 void UpdateTests::damagedDownload(){Fixture f;Server server;server.release(f);auto& bytes=server.body['/'+f.manifest.asset.toUtf8()];bytes[bytes.size()/2]^=1;pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("available"));service.download();QTRY_COMPARE(service.state(),QString("error"));QVERIFY(service.error().contains("integrity"));}
 void UpdateTests::cancellation(){Fixture f;Server server;server.release(f);server.partial.insert('/'+f.manifest.asset.toUtf8());pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("available"));service.download();QCOMPARE(service.state(),QString("downloading"));QTRY_VERIFY(service.receivedBytes()>0);QVERIFY(service.progress()>0 && service.progress()<1);QVERIFY(service.bytesPerSecond()>0);service.cancel();QTest::qWait(50);QCOMPARE(service.state(),QString("cancelled"));QVERIFY(QDir(f.directory.path()+"/cache").entryList({"*.zip"},QDir::Files).isEmpty());}
-void UpdateTests::skipAndChannels(){Fixture f;f.object["version"]="1.0.0-beta.2";f.object["channel"]="beta";f.resign();Server server;server.release(f,"1.0.0-beta.2",true);pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("upToDate"));service.setChannel("beta");service.check();QTRY_COMPARE(service.state(),QString("available"));service.skip();service.check(false);QTRY_COMPARE(service.state(),QString("idle"));QVERIFY(!service.dialogVisible());service.check();QTRY_COMPARE(service.state(),QString("available"));}
+void UpdateTests::skipAndChannels(){Fixture f;f.object["version"]="1.0.0-beta.2";f.object["channel"]="beta";f.resign();Server server;server.release(f,"1.0.0-beta.2",true);const auto o=options(f,server);{pfupdate::UpdateService service(o);service.check();QTRY_COMPARE(service.state(),QString("upToDate"));service.setChannel("beta");service.check();QTRY_COMPARE(service.state(),QString("available"));service.skip();server.release(f,"v1.0.0-beta.2",true);service.check(false);QTRY_COMPARE(service.state(),QString("idle"));QVERIFY(!service.dialogVisible());service.check();QTRY_COMPARE(service.state(),QString("skipped"));}pfupdate::UpdateService restored(o);restored.startup();QTRY_COMPARE(restored.state(),QString("idle"));QVERIFY(!restored.dialogVisible());f.object["version"]="1.0.0-beta.3";f.resign();server.release(f,"v1.0.0-beta.3",true);restored.check(false);QTRY_COMPARE(restored.state(),QString("available"));QVERIFY(restored.dialogVisible());}
 void UpdateTests::automaticDownloadRequiresConsent() {
     Fixture f;Server server;server.release(f);auto o=options(f,server);int installs=0;o.launchUpdater=[&](const QString& request,QString&){++installs;return read(request).contains("\"consent\": true");};
     pfupdate::UpdateService service(o);QSignalSpy quit(&service,&pfupdate::UpdateService::quitRequested);service.setAutomaticDownload(true);service.check(false);QTRY_COMPARE(service.state(),QString("ready"));QCOMPARE(installs,0);QCOMPARE(quit.size(),0);
@@ -182,7 +203,7 @@ void UpdateTests::dialogMatchesThemeAndShowsDownload() {
     popup->setProperty("service",QVariant::fromValue<QObject*>(&service));
     service.check();QTRY_COMPARE(service.state(),QString("available"));QTRY_VERIFY(popup->property("opened").toBool());
     auto* button=popup->findChild<QObject*>("updatePrimaryButton");auto* progress=popup->findChild<QQuickItem*>("updateProgress");QVERIFY(button && progress);QVERIFY(button->property("primary").toBool());QCOMPARE(popup->property("width").toInt(),560);
-    service.download();QTRY_VERIFY(progress->isVisible());QTRY_VERIFY(service.receivedBytes()>0);QCOMPARE(button->property("text").toString(),QString("Cancel download"));
+    service.download();QTRY_VERIFY(progress->isVisible());QTRY_VERIFY(service.receivedBytes()>0);QCOMPARE(button->property("text").toString(),QString("Pause download"));
     const auto capture=qEnvironmentVariable("PF_UI_CAPTURE_DIR");if(!capture.isEmpty()){QDir().mkpath(capture);QTest::qWait(200);QVERIFY(window->grabWindow().save(capture+"/update-download.png"));}
     service.cancel();service.check();QTRY_COMPARE(service.state(),QString("available"));
     if(!capture.isEmpty()){QTest::qWait(200);QVERIFY(window->grabWindow().save(capture+"/update-available.png"));}
@@ -190,15 +211,17 @@ void UpdateTests::dialogMatchesThemeAndShowsDownload() {
 }
 #ifdef Q_OS_WIN
 void UpdateTests::updaterProcessRestartsAndRollsBack_data() {
-    QTest::addColumn<bool>("failHealth");QTest::addColumn<bool>("cancelHandoff");
-    QTest::newRow("successful-restart")<<false<<false;QTest::newRow("failed-health-restores-old")<<true<<false;
-    QTest::newRow("cancelled-handoff-keeps-old")<<false<<true;
+    QTest::addColumn<bool>("failHealth");QTest::addColumn<bool>("cancelHandoff");QTest::addColumn<bool>("prefixed");
+    QTest::newRow("successful-restart")<<false<<false<<false;QTest::newRow("failed-health-restores-old")<<true<<false<<false;
+    QTest::newRow("cancelled-handoff-keeps-old")<<false<<true<<false;
+    QTest::newRow("prefixed-manifest-restart")<<false<<false<<true;
 }
 void UpdateTests::updaterProcessRestartsAndRollsBack() {
-    QFETCH(bool,failHealth);QFETCH(bool,cancelHandoff);Fixture f;const auto stub=read(PF_UPDATE_APP_STUB);QVERIFY(!stub.isEmpty());
+    QFETCH(bool,failHealth);QFETCH(bool,cancelHandoff);QFETCH(bool,prefixed);Fixture f;const auto stub=read(PF_UPDATE_APP_STUB);QVERIFY(!stub.isEmpty());
     QMap<QString,QByteArray> contents{{"ParallelFinder.exe",stub},{"ParallelFinderUpdater.exe",read(PF_UPDATE_TEST_WORKER)},{"version.txt","1.0.0"}};
     if(failHealth)contents["fail-health.txt"]="fail";
     f.repackage(contents);
+    if(prefixed){f.object["version"]="v1.0.0";f.resign();}
     const auto root=f.root();write(root+"/ParallelFinder.exe",stub);write(root+"/version.txt","0.1.0");
     QProcess parent;parent.start(root+"/ParallelFinder.exe",{"--wait"});QVERIFY(parent.waitForStarted());
     const auto request=f.directory.path()+"/request.json";

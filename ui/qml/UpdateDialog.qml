@@ -9,12 +9,16 @@ Popup {
     objectName: "updateDialog"
     property var service: Updates
     property var rootWindow
+    property real positionOffsetX: 0
+    property real positionOffsetY: 0
     readonly property bool transferring: root.service.state === "downloading" || root.service.state === "verifying"
     modal: true; focus: true; padding: 0
     width: Math.min(560, rootWindow ? rootWindow.width - 40 : 560)
-    height: Math.min(520, updateColumn.implicitHeight + 48)
-    x: rootWindow ? (rootWindow.width - width) / 2 : 0
-    y: rootWindow ? (rootWindow.height - height) / 2 : 0
+    height: Math.min(520, updateColumn.implicitHeight + 48, rootWindow ? Math.max(1, rootWindow.height - 24) : 520)
+    Behavior on height { NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
+    x: rootWindow ? Math.max(12, Math.min(rootWindow.width - width - 12, (rootWindow.width - width) / 2 + positionOffsetX)) : 0
+    y: rootWindow ? Math.max(12, Math.min(rootWindow.height - height - 12, (rootWindow.height - height) / 2 + positionOffsetY)) : 0
+    onOpened: { positionOffsetX = 0; positionOffsetY = 0 }
     closePolicy: root.service.state === "installing" ? Popup.NoAutoClose : Popup.CloseOnEscape
     onClosed: root.service.later()
     Connections {
@@ -38,6 +42,7 @@ Popup {
     }
     contentItem: Flickable {
         clip: true; contentWidth: width; contentHeight: updateColumn.implicitHeight + 48
+        Behavior on contentHeight { NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
         Column {
@@ -46,6 +51,27 @@ Popup {
                 width: parent.width; height: 44
                 Text { text: L10n.t("updates.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 25 }
                 PfIconButton { anchors.right: parent.right; iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); enabled: root.service.state !== "installing"; onClicked: root.service.later() }
+                MouseArea {
+                    objectName: "updateDragArea"
+                    anchors.fill: parent; anchors.rightMargin: 48
+                    enabled: !!root.rootWindow
+                    preventStealing: true
+                    cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                    property point pressPoint
+                    property point startPosition
+                    onPressed: function(mouse) {
+                        pressPoint = mapToItem(root.rootWindow.contentItem, mouse.x, mouse.y)
+                        startPosition = Qt.point(root.x, root.y)
+                    }
+                    onPositionChanged: function(mouse) {
+                        if (!pressed) return
+                        const point = mapToItem(root.rootWindow.contentItem, mouse.x, mouse.y)
+                        const nextX = Math.max(12, Math.min(root.rootWindow.width - root.width - 12, startPosition.x + point.x - pressPoint.x))
+                        const nextY = Math.max(12, Math.min(root.rootWindow.height - root.height - 12, startPosition.y + point.y - pressPoint.y))
+                        root.positionOffsetX = nextX - (root.rootWindow.width - root.width) / 2
+                        root.positionOffsetY = nextY - (root.rootWindow.height - root.height) / 2
+                    }
+                }
             }
             Rectangle { width: parent.width; height: 1; color: Theme.hairline }
             Text {
@@ -59,7 +85,10 @@ Popup {
                 wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 13
             }
             Text {
+                id: updateStatusText
                 width: parent.width; text: L10n.t("updates.state." + root.service.state); wrapMode: Text.WordWrap
+                NumberAnimation { id: statusFade; target: updateStatusText; property: "opacity"; from: 0; to: 1; duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic }
+                onTextChanged: statusFade.restart()
                 color: root.service.state === "error" ? Theme.accent : Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 13
             }
             Rectangle {
@@ -82,8 +111,8 @@ Popup {
                     objectName: "updatePrimaryButton"; width: (parent.width - 16) / 3; primary: true
                     visible: root.service.state !== "checking" && root.service.state !== "installing"
                     enabled: !root.service.busy || root.transferring
-                    text: root.transferring ? L10n.t("updates.cancel") : root.service.state === "ready" ? L10n.t("updates.install") : root.service.state === "available" ? L10n.t("updates.update") : L10n.t("updates.check")
-                    onClicked: { if (root.transferring) root.service.cancel(); else if (root.service.state === "ready") root.service.install(); else if (root.service.state === "available") root.service.download(); else root.service.check() }
+                    text: root.transferring ? L10n.t("updates.cancel") : root.service.state === "ready" ? L10n.t("updates.install") : root.service.state === "available" || root.service.state === "cancelled" ? L10n.t("updates.update") : L10n.t("updates.check")
+                    onClicked: { if (root.transferring) root.service.cancel(); else if (root.service.state === "ready") root.service.install(); else if (root.service.state === "available" || root.service.state === "cancelled") root.service.download(); else root.service.check() }
                 }
                 PfButton { width: (parent.width - 16) / 3; text: L10n.t("updates.later"); quiet: true; enabled: root.service.state !== "installing"; onClicked: root.service.later() }
                 PfButton { width: (parent.width - 16) / 3; text: L10n.t("updates.skip"); quiet: true; visible: root.service.newVersion.length > 0; enabled: !root.service.busy; onClicked: root.service.skip() }
