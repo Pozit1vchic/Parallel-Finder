@@ -87,6 +87,10 @@ ApplicationWindow {
         property real modalReveal: settingsDialog.visible || exportDialog.visible || updateDialog.visible ? 1 : 0
         Behavior on modalReveal { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic } }
         layer.enabled: modalReveal > 0 && GraphicsInfo.api !== GraphicsInfo.Software
+        // The backdrop is blurred anyway: render it at half resolution to
+        // avoid four times the fill cost during modal transitions.
+        layer.textureSize: Qt.size(Math.max(1, Math.ceil(width / 2)), Math.max(1, Math.ceil(height / 2)))
+        layer.smooth: true
         layer.effect: MultiEffect { blurEnabled: true; blurMax: 12; blur: workspaceSurface.modalReveal; colorization: 0.6 * workspaceSurface.modalReveal; colorizationColor: "black" }
         PfReveal { anchors.fill: parent; active: true; distance: 24
         ColumnLayout { anchors.fill: parent; spacing: 0
@@ -133,7 +137,8 @@ ApplicationWindow {
                     selectedRows: root.selectedExportRows; selectedIndex: root.selectedResultIndex
                     onExportSelectionChanged: function(rows) { root.selectedExportRows = rows }
                     onResultSelected: function(index) { root.selectResult(index) }
-                    onExportRequested: function(rows) { exportDialog.selectedRows = rows; exportDialog.open() }
+                    onPairColorRequested: function(index, name, color) { Analysis.setResultCategory(index, name, color) }
+                    onExportRequested: function(rows) { exportDialog.selectionOrder = resultsRail.visibleResults.map(function(item) { return Number(item.id) }); exportDialog.selectedRows = rows; exportDialog.open() }
                 }
                 }
             }

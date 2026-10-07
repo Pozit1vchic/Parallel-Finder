@@ -13,6 +13,7 @@
 
 #include <AppInfo.h>
 #include <UiRuntime.h>
+#include <ExportOrder.h>
 #include <AnalysisController.h>
 #include <QTemporaryDir>
 #include <pfservices/SettingsStore.hpp>
@@ -54,7 +55,9 @@ private slots:
     void resultNavigationStopsAtEnds();
     void sourcesLiveInsideDropAreaAboveActions();
     void sourceWheelDoesNotMoveSettingsRail();
-    void resultGroupsFilterAndExportOnlyVisibleSelection();
+    void pairColorsAndExportOrder();
+    void exportColorOrderControlsFileNumbering();
+    void dialogFramesAdvanceDuringRealEventLoop();
     void finiteAnimationsRespectReducedMotion();
     void idleWorkspaceStopsRequestingFrames();
     void resultArrowKeysWorkAfterSourceButtonFocus();
@@ -558,52 +561,108 @@ void UiSmokeTests::sourceWheelDoesNotMoveSettingsRail()
     QCOMPARE(outer->property("contentY").toDouble(),initial);
 }
 
-void UiSmokeTests::resultGroupsFilterAndExportOnlyVisibleSelection()
+void UiSmokeTests::pairColorsAndExportOrder()
 {
-    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;QQmlComponent component(&engine);
-    component.setData(R"(
-import QtQuick
-import PfUi
-ResultsRail {
-    width: 300; height: 740
-    results: [{id: 0, similarity: .9, classification: "turn/left", category: "Turns", categoryColor: "#D56565"},
-              {id: 1, similarity: .8, classification: "body_pose", category: "Backs", categoryColor: "#638EDB"},
-              {id: 2, similarity: .7, classification: "turn/left"}]
-    selectedRows: ({0: true, 1: true, 2: true})
-    function exportedIds() { return Object.keys(exportRows()).sort().join(",") }
-}
-)",QUrl());
-    std::unique_ptr<QObject> rail(component.create());QVERIFY2(rail,qPrintable(component.errorString()));
-    QVariant ids;QVERIFY(QMetaObject::invokeMethod(rail.get(),"exportedIds",Q_RETURN_ARG(QVariant,ids)));QCOMPARE(ids.toString(),QString("0,1,2"));
-    rail->setProperty("categoryFilter","Backs");
-    QCOMPARE(rail->property("selectedCount").toInt(),1);
-    QVERIFY(QMetaObject::invokeMethod(rail.get(),"exportedIds",Q_RETURN_ARG(QVariant,ids)));QCOMPARE(ids.toString(),QString("1"));
-    rail->setProperty("classificationFilter","turn/left");QCOMPARE(rail->property("selectedCount").toInt(),0);
-    // A zero-result filter must leave the controls available to clear it.
-    QVERIFY(rail->findChild<QQuickItem*>("categoryFilterCombo")->isVisible());
-    rail->setProperty("categoryFilter","");QCOMPARE(rail->property("selectedCount").toInt(),2);
-    rail->setProperty("categoryFilter","__untagged__");
-    QVERIFY(QMetaObject::invokeMethod(rail.get(),"exportedIds",Q_RETURN_ARG(QVariant,ids)));QCOMPARE(ids.toString(),QString("2"));
-    rail->setProperty("classificationFilter","");rail->setProperty("categoryFilter","");
-    rail->setProperty("colorFilter","#638edb");
-    QVERIFY(QMetaObject::invokeMethod(rail.get(),"exportedIds",Q_RETURN_ARG(QVariant,ids)));QCOMPARE(ids.toString(),QString("1"));
-    rail->setProperty("colorFilter","");
-    // The expanded editor must still leave the export action reachable in the
-    // smallest supported desktop window, without overlapping the result list.
-    auto* window=loadWindow(engine);QVERIFY(window);
-    window->resize(1100,700);
-    auto* desktopRail=window->findChild<QObject*>("resultsRail");QVERIFY(desktopRail);
-    desktopRail->setProperty("results",rail->property("results"));
-    desktopRail->setProperty("selectedRows",rail->property("selectedRows"));
-    auto* editor=desktopRail->findChild<QObject*>("resultCategoryEditor");QVERIFY(editor);
-    editor->setProperty("expanded",true);QTest::qWait(300);
-    auto* apply=desktopRail->findChild<QQuickItem*>("applyCategoryButton");QVERIFY(apply);
-    QVERIFY(apply->mapToScene(QPointF(0,apply->height())).y()<=window->height());
-    auto* controls=desktopRail->findChild<QQuickItem*>("resultControlsFlick");QVERIFY(controls);
-    QVERIFY(apply->mapToItem(controls,QPointF(0,apply->height())).y()<=controls->height());
-    QVERIFY(desktopRail->findChild<QQuickItem*>("resultList")->height()>=80);
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    auto* window = loadWindow(engine); QVERIFY(window);
+    auto* rail = window->findChild<QObject*>("resultsRail"); QVERIFY(rail);
+    const QVariantList records{
+        QVariantMap{{"id",0},{"similarity",.9},{"categoryColor","#D56565"}},
+        QVariantMap{{"id",1},{"similarity",.8},{"categoryColor","#638EDB"}},
+        QVariantMap{{"id",2},{"similarity",.7}}};
+    rail->setProperty("results", records);
+    rail->setProperty("selectedRows", QVariantMap{{"0",true},{"1",true},{"2",true}});
+    QTest::qWait(100);
+    QVERIFY(!rail->findChild<QObject*>("classificationFilterCombo"));
+    QVERIFY(!rail->findChild<QObject*>("categoryFilterCombo"));
+    QVERIFY(!rail->findChild<QObject*>("colorFilterCombo"));
+    QVERIFY(!rail->findChild<QObject*>("resultCategoryEditor"));
+    QCOMPARE(rail->property("selectedCount").toInt(),3);
+    std::function<QQuickItem*(QQuickItem*, const QString&)> findVisual = [&](QQuickItem* item, const QString& name) -> QQuickItem* {
+        if (item->objectName() == name) return item;
+        for (auto* child : item->childItems()) if (auto* result = findVisual(child, name)) return result;
+        return nullptr;
+    };
+    QVERIFY(!window->grabWindow().isNull());
+    auto* color = findVisual(window->contentItem(),"resultColorButton0"); QVERIFY(color);
+    QVERIFY(!window->grabWindow().isNull());
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, color->mapToScene(QPointF(9,14)).toPoint());
+    auto* picker = rail->findChild<QObject*>("resultColorPicker"); QVERIFY(picker);
+    QTRY_VERIFY(picker->property("opened").toBool());
+    QCOMPARE(rail->property("colorTargetId").toInt(),0);
+    QVERIFY(!window->grabWindow().isNull());
+    QVERIFY(findVisual(window->contentItem(),"resultPaletteColor0"));
+    QVERIFY(findVisual(window->contentItem(),"resultPaletteColor5"));
+    QSignalSpy requested(rail, SIGNAL(pairColorRequested(int,QString,QString))); QVERIFY(requested.isValid());
+    auto* blue = findVisual(window->contentItem(),"resultPaletteColor2"); QVERIFY(blue);
+    QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,blue->mapToScene(QPointF(14,14)).toPoint());
+    QCOMPARE(requested.size(),1);
+    QCOMPARE(requested[0][0].toInt(),0);
+    QCOMPARE(requested[0][2].toString(),QString("#638EDB"));
+    QCOMPARE(rail->property("selectedCount").toInt(),3);
+    QTRY_VERIFY(!picker->property("visible").toBool());
+    QTest::mouseMove(window,QPoint(650,400));
+    auto* popup = window->findChild<QObject*>("exportDialog"); QVERIFY(popup);
+    popup->setProperty("results", records);
+    popup->setProperty("selectedRows", QVariantMap{{"0",true},{"1",true},{"2",true}});
+    QCOMPARE(popup->property("colorOrder").value<QJSValue>().toVariant().toStringList(), (QStringList{"#d56565","#638edb",""}));
+    popup->setProperty("selectionOrder", QVariantList{2,0,1});
+    QVariant selected;
+    QVERIFY(QMetaObject::invokeMethod(popup,"selectedIndexes",Q_RETURN_ARG(QVariant,selected)));
+    QCOMPARE(selected.value<QJSValue>().toVariant().toList(), (QVariantList{2,0,1}));
+    QVERIFY(QMetaObject::invokeMethod(popup,"moveColor", Q_ARG(QVariant,1),Q_ARG(QVariant,-1)));
+    QCOMPARE(popup->property("colorOrder").value<QJSValue>().toVariant().toStringList(), (QStringList{"#638edb","#d56565",""}));
+    QVERIFY(QMetaObject::invokeMethod(popup,"moveColor", Q_ARG(QVariant,0),Q_ARG(QVariant,-1)));
+    QCOMPARE(popup->property("colorOrder").value<QJSValue>().toVariant().toStringList().first(),QString("#638edb"));
     const auto capture=qEnvironmentVariable("PF_UI_CAPTURE_DIR");
-    if(!capture.isEmpty()) {QDir().mkpath(capture);QVERIFY(window->grabWindow().save(capture+"/result-groups.png"));}
+    if(!capture.isEmpty()) {
+        QDir().mkpath(capture); QVERIFY(window->grabWindow().save(capture+"/pair-colors.png"));
+        QVERIFY(QMetaObject::invokeMethod(popup,"open"));
+        QEventLoop loop; QTimer::singleShot(550,&loop,&QEventLoop::quit); loop.exec();
+        QVERIFY(window->grabWindow().save(capture+"/export-color-order.png"));
+    }
+}
+
+void UiSmokeTests::exportColorOrderControlsFileNumbering()
+{
+    std::vector<pfcore::MotionMatch> matches(5);
+    for (int i=0;i<5;++i) { matches[i].leftSourceId="one.mp4"; matches[i].leftStartSeconds=50-i*10; }
+    const QVariantList records{
+        QVariantMap{{"categoryColor","#D56565"}}, QVariantMap{{"categoryColor","#638EDB"}},
+        QVariantMap{{"categoryColor","#d56565"}}, QVariantMap{}, QVariantMap{{"categoryColor","#abcdef"}}};
+    const QVariantList indexes{0,1,2,3,4,1,-1,50,"invalid"};
+    const QStringList colors{"#638edb","#d56565",""};
+    QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,0,colors), (std::vector<int>{1,2,0,3,4}));
+    QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,1,colors), (std::vector<int>{1,0,2,3,4}));
+    QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,0,{}), (std::vector<int>{4,3,2,1,0}));
+    QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,1,{}), (std::vector<int>{0,1,2,3,4}));
+}
+
+void UiSmokeTests::dialogFramesAdvanceDuringRealEventLoop()
+{
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    auto* window = loadWindow(engine); QVERIFY(window);
+    auto* popup = window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
+    QElapsedTimer elapsed; elapsed.start();
+    QList<qint64> timestamps;
+    connect(window, &QQuickWindow::frameSwapped, this, [&] { timestamps.push_back(elapsed.elapsed()); }, Qt::QueuedConnection);
+    QEventLoop loop;
+    QTimer::singleShot(100, popup, [popup] { QMetaObject::invokeMethod(popup,"open"); });
+    QTimer::singleShot(900, &loop, &QEventLoop::quit);
+    loop.exec();
+    QVERIFY(popup->property("opened").toBool());
+    QVERIFY(popup->property("opacity").toDouble() > .99);
+    QVERIFY(std::abs(popup->property("entranceOffset").toDouble()) < .1);
+    QVERIFY(timestamps.size() >= 8);
+    QList<qint64> gaps;
+    for(int i=1;i<timestamps.size();++i) if(timestamps[i]>120 && timestamps[i]<500) gaps.push_back(timestamps[i]-timestamps[i-1]);
+    std::sort(gaps.begin(),gaps.end());
+    QVERIFY(!gaps.isEmpty());
+    qInfo("Dialog frames: %lld; median interval: %lld ms", static_cast<long long>(timestamps.size()), static_cast<long long>(gaps[gaps.size()/2]));
+    auto* tabs = popup->findChild<QQuickItem*>("settingsTabs"); QVERIFY(tabs);
+    QCOMPARE(tabs->x(),0.0);
+    QCOMPARE(tabs->width(),popup->property("width").toDouble());
 }
 
 void UiSmokeTests::slowSettingsWritesDoNotBlockUiAndKeepOtherSections()

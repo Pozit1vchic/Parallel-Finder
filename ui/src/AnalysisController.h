@@ -147,7 +147,8 @@ public:
                                    const QString& outputFolder,
                                    const QString& prefix,
                                    const QVariantList& selectedIndexes,
-                                   bool mergeChronological = false);
+                                   bool mergeChronological = false,
+                                   const QStringList& colorOrder = {});
     Q_INVOKABLE bool exportTheme(const QString& path, const QVariantMap& theme) const;
     Q_INVOKABLE QVariantMap importTheme(const QString& path) const;
     Q_INVOKABLE QString videoSourceUrl(const QString& sourcePath) const;

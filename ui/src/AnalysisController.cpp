@@ -1,3 +1,4 @@
+#include "ExportOrder.h"
 #include "AnalysisController.h"
 #include <QCryptographicHash>
 #include "AppInfo.h"
@@ -1714,24 +1715,18 @@ bool AnalysisController::exportResults(const QString& format,
                                        const QString& outputFolder,
                                        const QString& prefix,
                                        const QVariantList& selectedIndexes,
-                                       bool mergeChronological)
+                                       bool mergeChronological,
+                                       const QStringList& colorOrder)
 {
     if (exportBusy_) return false;
-    std::vector<pfcore::MotionMatch> selected;
-    for (const QVariant& value : selectedIndexes) {
-        bool ok = false;
-        const int index = value.toInt(&ok);
-        if (ok && index >= 0 && index < static_cast<int>(matches_.size()))
-            selected.push_back(matches_[static_cast<std::size_t>(index)]);
-    }
-    if (selected.empty()) {
+    const auto ordered = orderedExportIndexes(selectedIndexes, matches_, results_, numberingMode, colorOrder);
+    if (ordered.empty()) {
         emit exportFinished(false, QStringLiteral("Не выбраны результаты для экспорта"));
         return false;
     }
-    if (numberingMode == 0) std::stable_sort(selected.begin(), selected.end(), [](const auto& a, const auto& b) {
-        return std::tie(a.leftSourceId, a.leftStartSeconds, a.rightStartSeconds)
-             < std::tie(b.leftSourceId, b.leftStartSeconds, b.rightStartSeconds);
-    });
+    std::vector<pfcore::MotionMatch> selected;
+    selected.reserve(ordered.size());
+    for (const int index : ordered) selected.push_back(matches_[index]);
     const QString normalized = format.trimmed().toUpper();
     if (normalized == QStringLiteral("FFMPEG")) {
         const QString folder = localPathFromInput(outputFolder);
@@ -1880,6 +1875,7 @@ bool AnalysisController::exportResults(const QString& format,
     else options.format = pfexporters::ExportFormat::Json;
     options.numbering = numberingMode == 1 ? pfexporters::NumberingMode::RenumberSorted
                                            : pfexporters::NumberingMode::AsInVideo;
+    options.preserveInputOrder = !colorOrder.isEmpty();
     options.cutMode = cutMode == 1 ? pfexporters::CutMode::Fast : pfexporters::CutMode::Exact;
     const QString exportPrefix = prefix.trimmed().isEmpty() ? QStringLiteral("frame_") : prefix.trimmed();
     if (!isSafeExportPrefix(exportPrefix)) {

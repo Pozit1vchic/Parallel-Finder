@@ -46,6 +46,25 @@ pfcore::MotionMatch sample()
     return result;
 }
 
+TEST(Exporters, KeepsExplicitColorOrderInEveryTextFormat)
+{
+    auto first = sample(); first.leftSourceId = "z-chosen-first.mp4"; first.leftStartSeconds=40; first.rankScore=.1;
+    auto second = sample(); second.leftSourceId = "a-chosen-second.mp4"; second.leftStartSeconds=10; second.rankScore=.9;
+    auto third = sample(); third.leftSourceId = "m-chosen-third.mp4"; third.leftStartSeconds=20; third.rankScore=.5;
+    for (const auto mode : {pfexporters::NumberingMode::AsInVideo, pfexporters::NumberingMode::RenumberSorted}) {
+        for (const auto format : {pfexporters::ExportFormat::Json, pfexporters::ExportFormat::Csv, pfexporters::ExportFormat::Txt}) {
+            pfexporters::ExportOptions options; options.format=format; options.numbering=mode; options.preserveInputOrder=true;
+            const auto content=pfexporters::formatResults({first,second,third},options);
+            const auto one=content.find("z-chosen-first.mp4"), two=content.find("a-chosen-second.mp4"), three=content.find("m-chosen-third.mp4");
+            ASSERT_NE(one,std::string::npos); ASSERT_NE(two,std::string::npos); ASSERT_NE(three,std::string::npos);
+            EXPECT_LT(one,two); EXPECT_LT(two,three);
+            options.preserveInputOrder=false;
+            const auto legacy=pfexporters::formatResults({first,second,third},options);
+            EXPECT_LT(legacy.find("a-chosen-second.mp4"),legacy.find("z-chosen-first.mp4"));
+        }
+    }
+}
+
 TEST(Exporters, FormatsStructuredResults)
 {
     const std::vector<pfcore::MotionMatch> matches {sample()};

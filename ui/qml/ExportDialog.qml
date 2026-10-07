@@ -16,8 +16,35 @@ Popup {
     property real entranceOffset: 0
     property var rootWindow
     property var selectedRows: ({})
+    property var selectionOrder: []
     property string outputFolder: ""
     property string exportStatus: ""
+    property var results: { Analysis.resultCategoryRevision; return Analysis.results }
+    property var colorOrder: []
+    readonly property var palette: ["", "#d56565", "#638edb", "#7c9885", "#aa83d4", "#d5ad63"]
+    readonly property var colorLabels: ["colors.none", "colors.orange", "colors.blue", "colors.green", "colors.purple", "colors.gold"]
+    function refreshColors() {
+        const present = []
+        for (const item of root.results) {
+            if (root.selectedRows[item.id] !== true) continue
+            const color = String(item.categoryColor || "").toLowerCase()
+            if (present.indexOf(color) < 0) present.push(color)
+        }
+        const next = colorOrder.filter(function(color) { return present.indexOf(color) >= 0 })
+        for (const color of present) if (next.indexOf(color) < 0) next.push(color)
+        colorOrder = next
+    }
+    function moveColor(index, direction) {
+        const target = index + direction
+        if (index < 0 || target < 0 || target >= colorOrder.length) return
+        const next = colorOrder.slice()
+        const color = next.splice(index, 1)[0]
+        next.splice(target, 0, color)
+        colorOrder = next
+    }
+    onSelectedRowsChanged: refreshColors()
+    onResultsChanged: refreshColors()
+
     property bool userPositioned: false
     modal: true; focus: true; padding: 0
     width: Math.min(600, rootWindow ? rootWindow.width - 40 : 560)
@@ -49,7 +76,12 @@ Popup {
         }
     }
     Connections { target: Analysis; function onExportFinished(success, message) { root.exportStatus = message; if (success) root.close() } }
-    function selectedIndexes() { return Object.keys(root.selectedRows).map(function (key) { return Number(key) }) }
+    function selectedIndexes() {
+        const selected = Object.keys(root.selectedRows).filter(function(key) { return root.selectedRows[key] === true }).map(Number)
+        const ordered = selectionOrder.filter(function(id) { return selected.indexOf(Number(id)) >= 0 }).map(Number)
+        for (const id of selected) if (ordered.indexOf(id) < 0) ordered.push(id)
+        return ordered
+    }
     function localFolderPath(value) {
         if (value && value.toLocalFile) {
             const local = value.toLocalFile()
@@ -107,6 +139,29 @@ Popup {
             enabled: !Analysis.exportBusy
             text: L10n.t("export.mergeChronological")
         }
+        Column {
+            objectName: "exportColorOrderPanel"
+            width: parent.width; spacing: 6; visible: root.colorOrder.length > 0
+            enabled: !Analysis.exportBusy
+            Text { text: L10n.t("export.colorOrder"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
+            Repeater {
+                model: root.colorOrder
+                delegate: Rectangle {
+                    required property int index
+                    required property string modelData
+                    width: parent.width; height: 36; radius: Theme.radiusButton
+                    color: Theme.well; border.color: Theme.hairline
+                    Row {
+                        anchors.fill: parent; anchors.margins: 4; spacing: 8
+                        Rectangle { width: 18; height: 18; y: 5; radius: 4; color: modelData || Theme.surfaceMuted; border.color: Theme.hairlineStrong }
+                        Text { width: parent.width - 106; height: 28; verticalAlignment: Text.AlignVCenter; text: root.palette.indexOf(modelData) >= 0 ? L10n.t(root.colorLabels[root.palette.indexOf(modelData)]) : modelData; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                        PfButton { objectName: "exportColorUp" + index; width: 28; height: 28; text: "↑"; Accessible.name: L10n.t("export.moveUp"); enabled: index > 0; onClicked: root.moveColor(index, -1) }
+                        PfButton { objectName: "exportColorDown" + index; width: 28; height: 28; text: "↓"; Accessible.name: L10n.t("export.moveDown"); enabled: index < root.colorOrder.length - 1; onClicked: root.moveColor(index, 1) }
+                    }
+                }
+            }
+            Text { width: parent.width; text: L10n.t("export.colorOrderHint"); wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
+        }
         Text { font.family: Theme.fontFamily; text: L10n.t("export.numbering"); color: Theme.textSecondary; font.pixelSize: 11 }
             Row { width: parent.width; spacing: 8; enabled: !root.mergeChronological
                 PfButton { width: (parent.width - 8) / 2; objectName: "videoNumberingButton"; text: L10n.t("export.asVideo"); selected: exportNumbering.currentIndex === 0; onClicked: exportNumbering.currentIndex = 0 }
@@ -133,7 +188,7 @@ Popup {
             font.pixelSize: 11
             wrapMode: Text.WordWrap
         }
-        PfButton { width: parent.width; primary: true; text: Analysis.exportBusy ? L10n.t("export.running") + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal + " · " + Analysis.exportClipProgress + "%" : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological) }
+        PfButton { width: parent.width; primary: true; text: Analysis.exportBusy ? L10n.t("export.running") + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal + " · " + Analysis.exportClipProgress + "%" : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological, root.colorOrder) }
         PfButton { width: parent.width; visible: Analysis.exportBusy; text: L10n.t("export.cancel"); onClicked: Analysis.cancelExport() }
         }
     }
@@ -143,5 +198,5 @@ Popup {
         root.x = Math.round((rootWindow.width - root.width) / 2)
         root.y = Math.round((rootWindow.height - root.height) / 2)
     }
-    onOpened: centerInWindow()
+    onOpened: { refreshColors(); centerInWindow() }
 }

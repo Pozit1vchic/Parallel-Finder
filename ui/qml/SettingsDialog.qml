@@ -278,8 +278,8 @@ Popup {
         TabBar {
             id: tabs
             objectName: "settingsTabs"
-            x: 22
-            width: parent.width - 44
+            x: 0
+            width: parent.width
             height: 44
             padding: 4
             spacing: 0

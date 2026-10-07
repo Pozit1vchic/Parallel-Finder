@@ -7,6 +7,11 @@ QtObject {
 
     readonly property var _dict: ({
         ru: {
+            "colors.none": "Без цвета",
+            "export.colorOrder": "Порядок цветов",
+            "export.colorOrderHint": "Цвета идут сверху вниз; нумерация применяется внутри каждого цвета. Общий ролик остаётся хронологическим.",
+            "export.moveUp": "Выше",
+            "export.moveDown": "Ниже",
             "results.allColors": "Все цвета",
             "sources.identityExcluded": "Этот источник не вошёл в подтверждённую группу одного человека.",
             "results.allClasses": "Все типы движений",
@@ -306,6 +311,11 @@ QtObject {
             "export.failed": "Экспорт не выполнен"
         },
         en: {
+            "colors.none": "No color",
+            "export.colorOrder": "Color order",
+            "export.colorOrderHint": "Colors export from top to bottom; numbering applies within each color. The combined video stays chronological.",
+            "export.moveUp": "Move up",
+            "export.moveDown": "Move down",
             "results.allColors": "All colors",
             "sources.identityExcluded": "This source was excluded from the verified single-person group.",
             "results.allClasses": "All movement types",

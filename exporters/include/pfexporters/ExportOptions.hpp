@@ -34,6 +34,7 @@ struct ExportOptions {
     ExportFormat format = ExportFormat::Json;
     NumberingMode numbering = NumberingMode::AsInVideo;
     CutMode cutMode = CutMode::Exact;
+    bool preserveInputOrder = false; // caller already applied color/group ordering
     // Output folder + prefix (default "frame_", auto-numbering #0001).
     std::string outputFolder;
     std::string filePrefix = "frame_";

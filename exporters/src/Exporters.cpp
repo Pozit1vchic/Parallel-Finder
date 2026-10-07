@@ -341,7 +341,7 @@ bool validPrefix(const std::string& prefix)
 std::string formatResults(const std::vector<pfcore::MotionMatch>& matches,
                           const ExportOptions& options)
 {
-    const auto ordered = orderedMatches(matches, options.numbering);
+    const auto ordered = options.preserveInputOrder ? matches : orderedMatches(matches, options.numbering);
     switch (options.format) {
     case ExportFormat::Json: return jsonResults(ordered);
     case ExportFormat::Csv: return csvResults(ordered);
