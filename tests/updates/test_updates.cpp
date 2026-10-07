@@ -123,6 +123,7 @@ private slots:
     void pausedDownloadResumes();
     void ordinaryRcReleaseIsStable();
     void legacyAcknowledgementUsesTrustedVersionSpelling();
+    void signedReleaseArchiveInstalls();
     void noUpdates();
     void networkError();
     void damagedDownload();
@@ -170,6 +171,18 @@ void UpdateTests::pausedDownloadResumes_data(){QTest::addColumn<bool>("range");Q
 void UpdateTests::pausedDownloadResumes(){QFETCH(bool,range);Fixture f;Server server;server.release(f);server.rangeEnabled=range;const auto path='/'+f.manifest.asset.toUtf8();server.partial.insert(path);const auto o=options(f,server);qint64 saved=0;{pfupdate::UpdateService service(o);service.check();QTRY_COMPARE(service.state(),QString("available"));service.download();QTRY_VERIFY(service.receivedBytes()>0);saved=service.receivedBytes();service.later();QCOMPARE(service.state(),QString("downloading"));service.cancel();QCOMPARE(service.state(),QString("cancelled"));}server.partial.clear();pfupdate::UpdateService restored(o);QCOMPARE(restored.state(),QString("available"));QCOMPARE(restored.receivedBytes(),saved);restored.download();QTRY_COMPARE(restored.state(),QString("ready"));QCOMPARE(server.requestedRanges[path],saved);QCOMPARE(restored.receivedBytes(),qint64(f.zip.size()));}
 void UpdateTests::ordinaryRcReleaseIsStable(){Fixture f;f.object["version"]="0.1.0-rc.18";f.object["channel"]="beta";f.resign();Server server;server.release(f,"v0.1.0-rc.18",false);pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("available"));server.release(f,"v0.1.0-rc.18",true);service.check();QTRY_COMPARE(service.state(),QString("upToDate"));service.setChannel("beta");service.check();QTRY_COMPARE(service.state(),QString("available"));}
 void UpdateTests::legacyAcknowledgementUsesTrustedVersionSpelling(){Fixture f;f.object["version"]="v1.0.0";f.resign();const auto root=f.root();auto o=QJsonObject{{"schema",1},{"consent",true},{"root",root},{"manifest",QString::fromLatin1(f.bytes.toBase64())},{"signature",QString::fromLatin1(f.signature.toBase64())}};const auto ack=[&]{return pfupdate::restartAcknowledgementVersion(QJsonDocument(o).toJson(),"1.0.0",root,f.publicKey);};QCOMPARE(ack().value_or(QString{}),QString("v1.0.0"));o["signature"]=QString::fromLatin1(QByteArray(64,'x').toBase64());QVERIFY(!ack());}
+void UpdateTests::signedReleaseArchiveInstalls(){
+    const auto directory=qEnvironmentVariable("PF_UPDATE_PACKAGE_DIRECTORY");
+    if(directory.isEmpty())QSKIP("Run after packaging with PF_UPDATE_PACKAGE_DIRECTORY");
+    QString error;const auto manifest=pfupdate::verifyManifest(read(directory+"/update.json"),read(directory+"/update.json.sig"),pfupdate::trustedPublicKey(),error);
+    QVERIFY2(manifest.has_value(),qPrintable(error));QTemporaryDir temporary;QVERIFY(temporary.isValid());
+    const auto root=temporary.path()+"/installation";write(root+"/ParallelFinder.exe","previous-build");
+    pfupdate::UpdateTransaction transaction(root);pfupdate::InstallHooks hooks;
+    hooks.healthCheck=[](const QString& exe,QString& e){QProcess process;process.setWorkingDirectory(QFileInfo(exe).absolutePath());process.start(exe,{"--pf-update-healthcheck"});if(!process.waitForStarted(10000) || !process.waitForFinished(30000) || process.exitStatus()!=QProcess::NormalExit || process.exitCode()!=0){process.kill();process.waitForFinished();e="Real packaged application health check failed";return false;}return true;};
+    QVERIFY2(transaction.install(directory+'/'+manifest->asset,*manifest,hooks,error),qPrintable(error));
+    QVERIFY(!QFileInfo::exists(transaction.journalPath()));
+    for(const auto& f:manifest->files)if(f.path=="ParallelFinder.exe")QCOMPARE(digest(read(root+'/'+f.path)),f.sha256);
+}
 void UpdateTests::networkError(){Fixture f;Server server;pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("error"));QVERIFY(!service.error().isEmpty());}
 void UpdateTests::damagedDownload(){Fixture f;Server server;server.release(f);auto& bytes=server.body['/'+f.manifest.asset.toUtf8()];bytes[bytes.size()/2]^=1;pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("available"));service.download();QTRY_COMPARE(service.state(),QString("error"));QVERIFY(service.error().contains("integrity"));}
 void UpdateTests::cancellation(){Fixture f;Server server;server.release(f);server.partial.insert('/'+f.manifest.asset.toUtf8());pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("available"));service.download();QCOMPARE(service.state(),QString("downloading"));QTRY_VERIFY(service.receivedBytes()>0);QVERIFY(service.progress()>0 && service.progress()<1);QVERIFY(service.bytesPerSecond()>0);service.cancel();QTest::qWait(50);QCOMPARE(service.state(),QString("cancelled"));QVERIFY(QDir(f.directory.path()+"/cache").entryList({"*.zip"},QDir::Files).isEmpty());}

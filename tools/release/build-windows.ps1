@@ -132,12 +132,29 @@ try {
     }
     $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $stage 'files.sha256.json') -Encoding utf8
     $zip = Join-Path $out "ParallelFinder-$tag-Portable-x64.zip"
-    & tar.exe -a -cf $zip -C (Split-Path $stage) ParallelFinder
+    # The RC17.1 updater admits only directories implied by signed files.
+    # windeployqt creates empty directories, so archive files explicitly.
+    $archiveFiles = Join-Path (Split-Path $stage) 'archive-files.txt'
+    $paths = @(Get-ChildItem -LiteralPath $stage -Recurse -File | Sort-Object FullName | ForEach-Object {
+        'ParallelFinder/' + [IO.Path]::GetRelativePath($stage, $_.FullName).Replace('\','/')
+    })
+    [IO.File]::WriteAllLines($archiveFiles, $paths, [Text.UTF8Encoding]::new($false))
+    & tar.exe -a -cf $zip -C (Split-Path $stage) -T $archiveFiles
     if ($LASTEXITCODE) { throw 'ZIP creation failed' }
     if (Test-Path -LiteralPath $SigningKey) {
         & "$PSScriptRoot/sign-update.ps1" -Stage $stage -Package $zip -Version $(if ($GitHubTag) { $GitHubTag } else { $tag }) -SigningKey $SigningKey -OpenSSL "$bin/openssl.exe" -ChangelogPath "$stage/RELEASE-NOTES.md"
     } else {
         throw 'Release signing key missing. Refusing to create an update-capable release without a trusted signature.'
+    }
+    if (!$SkipChecks) {
+        $verification = Join-Path $out 'verification'
+        New-Item -ItemType Directory -Force -Path $verification | Out-Null
+        $previousPackageDirectory = $env:PF_UPDATE_PACKAGE_DIRECTORY
+        try {
+            $env:PF_UPDATE_PACKAGE_DIRECTORY = $out
+            & (Join-Path $root 'build/ucrt64-release/pf_update_tests.exe') signedReleaseArchiveInstalls -o "$(Join-Path $verification 'archive-install-test.txt'),txt"
+            if ($LASTEXITCODE) { throw 'Signed release archive failed updater extraction/health verification' }
+        } finally { $env:PF_UPDATE_PACKAGE_DIRECTORY = $previousPackageDirectory }
     }
     & $InnoSetup "/DStageDir=$stage" "/DOutputDir=$out" "/DAppVersion=$tag" "$PSScriptRoot/installer.iss"
     if ($LASTEXITCODE) { throw 'Installer compilation failed' }
