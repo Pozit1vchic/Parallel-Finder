@@ -22,8 +22,8 @@ Button {
     bottomPadding: compact ? 5 : 6
     hoverEnabled: true
     activeFocusOnTab: true
-    scale: down && !Theme.reducedMotion ? 0.98 : 1
-    Behavior on scale { NumberAnimation { duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
+    scale: Theme.reducedMotion ? 1 : down ? 0.975 : hovered && enabled ? 1.008 : 1
+    Behavior on scale { NumberAnimation { duration: Theme.motionDuration; easing.type: Easing.OutQuint } }
     Layout.minimumWidth: 0
 
     contentItem: Text {

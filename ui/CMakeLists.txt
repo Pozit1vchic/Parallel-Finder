@@ -14,6 +14,7 @@ set(PFUI_QML_FILES
     qml/PfCheckBox.qml
     qml/CollapsibleSection.qml
     qml/PfButton.qml
+    qml/PfReveal.qml
     qml/PfIconButton.qml
     qml/TopBar.qml
     qml/StatsStrip.qml

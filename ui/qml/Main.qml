@@ -62,7 +62,7 @@ ApplicationWindow {
         rootWindow: root
     }
     ExportDialog { id: exportDialog; rootWindow: root; selectedRows: root.selectedExportRows }
-    UpdateDialog { id: updateDialog; rootWindow: root }
+    UpdateDialog { id: updateDialog; rootWindow: root; presentationBlocked: settingsDialog.visible || exportDialog.visible }
 
     Connections {
         target: Analysis

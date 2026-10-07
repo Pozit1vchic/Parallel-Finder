@@ -26,7 +26,7 @@ Popup {
     enter: Transition {
         ParallelAnimation {
             NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic }
-            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 0.985; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint }
         }
     }
     exit: Transition {

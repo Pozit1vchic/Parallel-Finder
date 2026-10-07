@@ -9,6 +9,7 @@ Popup {
     objectName: "updateDialog"
     property var service: Updates
     property var rootWindow
+    property bool presentationBlocked: false
     property real positionOffsetX: 0
     property real positionOffsetY: 0
     readonly property bool transferring: root.service.state === "downloading" || root.service.state === "verifying"
@@ -23,12 +24,17 @@ Popup {
     onClosed: root.service.later()
     Connections {
         target: root.service
-        function onChanged() { if (root.service.dialogVisible) root.open(); else root.close() }
+        function onChanged() { root.syncPresentation() }
     }
-    Component.onCompleted: if (root.service.dialogVisible) open()
+    function syncPresentation() {
+        if (!root.service.dialogVisible) { if (root.visible) root.close() }
+        else if (!root.presentationBlocked && !root.visible) root.open()
+    }
+    onPresentationBlockedChanged: syncPresentation()
+    Component.onCompleted: syncPresentation()
     enter: Transition { ParallelAnimation {
         NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic }
-        NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic }
+        NumberAnimation { property: "scale"; from: 0.985; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint }
     } }
     exit: Transition { ParallelAnimation {
         NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.motionChangeDuration; easing.type: Easing.InCubic }

@@ -44,7 +44,7 @@ QtObject {
     property bool reducedMotion: false
     readonly property int motionDuration: reducedMotion ? 0 : 120
     readonly property int motionChangeDuration: reducedMotion ? 0 : 180
-    readonly property int motionRevealDuration: reducedMotion ? 0 : 220
+    readonly property int motionRevealDuration: reducedMotion ? 0 : 300
     readonly property int fontSizeSmall: 12
     readonly property int fontSizeBody: 13
     readonly property int fontSizeTitle: 18

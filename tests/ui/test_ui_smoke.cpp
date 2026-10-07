@@ -33,6 +33,7 @@ private slots:
     void initTestCase() { QCoreApplication::setOrganizationName("ParallelFinderTests"); QCoreApplication::setOrganizationDomain("test.invalid"); QCoreApplication::setApplicationName("UiAudit"); }
     void mainQmlLoadsFromResources();
     void updateDialogDragsWithinWindow();
+    void revealSettlesAndReducedMotionStops();
     void themeSingletonResolves();
     void appInfoBridgeResolves();
     void gpuInfoPropagatesToQml();
@@ -129,6 +130,30 @@ Window {
     QCOMPARE(popup->property("y").toDouble(), 12.0);
     window->resize(720, 500);
     QTRY_VERIFY(popup->property("x").toDouble() + popup->property("width").toDouble() <= window->width() - 11);
+}
+
+void UiSmokeTests::revealSettlesAndReducedMotionStops()
+{
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;QQmlComponent component(&engine);
+    component.setData(R"(
+import QtQuick
+import PfUi
+PfReveal {
+    width: 200; height: 80; delay: 35
+    property bool originalMotion: Theme.reducedMotion
+    function reduce(value) { Theme.reducedMotion = value }
+    Rectangle { anchors.fill: parent; color: Theme.panel }
+}
+)",QUrl());
+    QScopedPointer<QObject> item(component.create());QVERIFY2(item,qPrintable(component.errorString()));
+    const auto original=item->property("originalMotion").toBool();
+    QVERIFY(QMetaObject::invokeMethod(item.data(),"reduce",Q_ARG(QVariant,false)));
+    item->setProperty("active",true);QCOMPARE(item->property("reveal").toDouble(),0.0);
+    QTRY_COMPARE(item->property("reveal").toDouble(),1.0);QTest::qWait(80);QCOMPARE(item->property("reveal").toDouble(),1.0);
+    item->setProperty("active",false);item->setProperty("active",true);
+    QVERIFY(QMetaObject::invokeMethod(item.data(),"reduce",Q_ARG(QVariant,true)));QCOMPARE(item->property("reveal").toDouble(),1.0);
+    item->setProperty("active",false);
+    QVERIFY(QMetaObject::invokeMethod(item.data(),"reduce",Q_ARG(QVariant,original)));
 }
 
 namespace {
@@ -338,6 +363,12 @@ void UiSmokeTests::settingsAndNumericTypography()
     if (!capture.isEmpty()) { QTest::qWait(300); QVERIFY(window->grabWindow().save(capture + "/settings-analysis.png")); }
     auto* tabs = popup->findChild<QObject*>("settingsTabs");
     QVERIFY(tabs); tabs->setProperty("currentIndex", 1);
+    if (!capture.isEmpty()) {
+        for (int frame=0;frame<14;++frame) {
+            QTest::qWait(25);
+            QVERIFY(window->grabWindow().save(capture+QString("/settings-motion-%1.png").arg(frame,3,10,QChar('0'))));
+        }
+    }
     QTest::qWait(100);
     if (!capture.isEmpty()) QVERIFY(window->grabWindow().save(capture + "/settings-appearance.png"));
     QVERIFY(QMetaObject::invokeMethod(popup, "close"));

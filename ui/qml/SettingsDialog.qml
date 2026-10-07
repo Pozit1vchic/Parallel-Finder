@@ -46,7 +46,7 @@ Popup {
     enter: Transition {
         ParallelAnimation {
             NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic }
-            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 0.985; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint }
         }
     }
     exit: Transition {
@@ -238,8 +238,9 @@ Popup {
             color: Theme.surfaceRaised
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.hairline }
             Text { anchors.left: parent.left; anchors.leftMargin: 22; anchors.verticalCenter: parent.verticalCenter; text: L10n.t("settings.windowTitle"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 13; font.weight: Font.DemiBold }
-            PfIconButton { anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter; iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); activeFocusOnTab: true; focusPolicy: Qt.StrongFocus; onClicked: root.close() }
+            PfIconButton { objectName: "settingsCloseButton"; anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter; iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); activeFocusOnTab: true; focusPolicy: Qt.StrongFocus; onClicked: root.close() }
             MouseArea {
+                objectName: "settingsDragArea"
                 anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.rightMargin: 56
                 property real pressSceneX
                 property real pressSceneY
@@ -273,7 +274,16 @@ Popup {
             objectName: "settingsTabs"
             width: parent.width
             height: 46
-            background: Rectangle { color: Theme.surfaceRaised }
+            background: Rectangle {
+                color: Theme.surfaceRaised
+                Rectangle {
+                    objectName: "settingsTabIndicator"
+                    anchors.bottom: parent.bottom
+                    x: tabs.currentIndex * tabs.width / 2 + 22
+                    width: tabs.width / 2 - 44; height: 2; color: Theme.accent
+                    Behavior on x { NumberAnimation { duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint } }
+                }
+            }
             TabButton {
                 id: analysisTab
                 width: tabs.width / 2
@@ -281,7 +291,7 @@ Popup {
                 focusPolicy: Qt.StrongFocus
                 activeFocusOnTab: true
                 contentItem: Text { text: analysisTab.text; color: analysisTab.checked ? Theme.textPrimary : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: analysisTab.checked ? Font.DemiBold : Font.Normal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                background: Item { Rectangle { anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; width: parent.width - 44; height: 2; color: Theme.accent; visible: analysisTab.checked } }
+                background: Item {}
             }
             TabButton {
                 id: customizationTab
@@ -290,12 +300,14 @@ Popup {
                 focusPolicy: Qt.StrongFocus
                 activeFocusOnTab: true
                 contentItem: Text { text: customizationTab.text; color: customizationTab.checked ? Theme.textPrimary : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: customizationTab.checked ? Font.DemiBold : Font.Normal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                background: Item { Rectangle { anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; width: parent.width - 44; height: 2; color: Theme.accent; visible: customizationTab.checked } }
+                background: Item {}
             }
         }
         StackLayout { id: pages; width: parent.width; height: parent.height - 104; currentIndex: tabs.currentIndex
-            Item {
-                Flickable { anchors.fill: parent; anchors.margins: 22; clip: true; contentWidth: width; contentHeight: analysisBody.implicitHeight + 30; boundsBehavior: Flickable.StopAtBounds
+            PfReveal {
+                active: root.visible && tabs.currentIndex === 0
+                delay: 35
+                Flickable { objectName: "settingsAnalysisFlick"; anchors.fill: parent; anchors.margins: 22; clip: true; contentWidth: width; contentHeight: analysisBody.implicitHeight + 30; boundsBehavior: Flickable.StopAtBounds
                     ColumnLayout { id: analysisBody; width: parent.width; spacing: 14
                         Text { text: L10n.t("settings.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.subtitle"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 13; wrapMode: Text.WordWrap }
@@ -384,7 +396,9 @@ Popup {
                     }
                 }
             }
-            Item {
+            PfReveal {
+                active: root.visible && tabs.currentIndex === 1
+                delay: 35
                 PfButton { anchors.left: parent.left; anchors.leftMargin: 22; anchors.bottom: parent.bottom; anchors.bottomMargin: 16; width: 210; compact: true; text: L10n.t("settings.resetAppearance"); quiet: true; onClicked: root.resetAppearance() }
                 Flickable { anchors.fill: parent; anchors.margins: 22; anchors.bottomMargin: 66; clip: true; contentWidth: width; contentHeight: appearanceBody.implicitHeight + 30; boundsBehavior: Flickable.StopAtBounds
                     Column { id: appearanceBody; width: parent.width; spacing: 14

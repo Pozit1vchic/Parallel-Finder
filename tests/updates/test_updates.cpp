@@ -15,6 +15,7 @@
 #include <QQmlComponent>
 #include <QQuickWindow>
 #include <QQuickItem>
+#include <QWheelEvent>
 #include <QProcess>
 #include <AppInfo.h>
 #include <archive.h>
@@ -124,6 +125,7 @@ private slots:
     void ordinaryRcReleaseIsStable();
     void legacyAcknowledgementUsesTrustedVersionSpelling();
     void signedReleaseArchiveInstalls();
+    void settingsRemainInteractiveWhileUpdateArrives();
     void noUpdates();
     void networkError();
     void damagedDownload();
@@ -182,6 +184,31 @@ void UpdateTests::signedReleaseArchiveInstalls(){
     QVERIFY2(transaction.install(directory+'/'+manifest->asset,*manifest,hooks,error),qPrintable(error));
     QVERIFY(!QFileInfo::exists(transaction.journalPath()));
     for(const auto& f:manifest->files)if(f.path=="ParallelFinder.exe")QCOMPARE(digest(read(root+'/'+f.path)),f.sha256);
+}
+void UpdateTests::settingsRemainInteractiveWhileUpdateArrives(){
+    Fixture f;Server server;server.release(f);pfupdate::UpdateService service(options(f,server));
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));
+    auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));QVERIFY(window);QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto* settings=window->findChild<QObject*>("settingsDialog");auto* update=window->findChild<QObject*>("updateDialog");QVERIFY(settings && update);
+    update->setProperty("service",QVariant::fromValue<QObject*>(&service));
+    QVERIFY(QMetaObject::invokeMethod(settings,"open"));QTRY_VERIFY(settings->property("opened").toBool());
+    service.check();QTRY_COMPARE(service.state(),QString("available"));QVERIFY(!update->property("visible").toBool());
+    auto* drag=settings->findChild<QQuickItem*>("settingsDragArea");QVERIFY(drag);
+    const auto start=drag->mapToScene(QPointF(70,20)).toPoint();const auto initialX=settings->property("x").toDouble();
+    QTest::mousePress(window,Qt::LeftButton,Qt::NoModifier,start);QTest::mouseMove(window,start+QPoint(30,20),20);QTest::mouseRelease(window,Qt::LeftButton,Qt::NoModifier,start+QPoint(30,20));
+    QTRY_VERIFY(qAbs(settings->property("x").toDouble()-initialX-30)<2);
+    auto* flick=settings->findChild<QQuickItem*>("settingsAnalysisFlick");QVERIFY(flick);
+    const auto wheelPosition=flick->mapToScene(QPointF(flick->width()-12,flick->height()/2));
+    QWheelEvent wheel(wheelPosition,window->mapToGlobal(wheelPosition.toPoint()),QPoint(),QPoint(0,-120),Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);
+    QCoreApplication::sendEvent(window,&wheel);QTRY_VERIFY(flick->property("contentY").toDouble()>0);
+    auto* tabs=settings->findChild<QQuickItem*>("settingsTabs");QVERIFY(tabs);
+    QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,tabs->mapToScene(QPointF(tabs->width()*0.75,tabs->height()/2)).toPoint());QTRY_COMPARE(tabs->property("currentIndex").toInt(),1);
+    auto* close=settings->findChild<QQuickItem*>("settingsCloseButton");QVERIFY(close);
+    QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,close->mapToScene(QPointF(close->width()/2,close->height()/2)).toPoint());
+    QTRY_VERIFY(!settings->property("visible").toBool());QTRY_VERIFY(update->property("opened").toBool());service.later();QTRY_VERIFY(!update->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(settings,"open"));QTRY_VERIFY(settings->property("opened").toBool());
+    QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,tabs->mapToScene(QPointF(tabs->width()*0.25,tabs->height()/2)).toPoint());QTRY_COMPARE(tabs->property("currentIndex").toInt(),0);
+    QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,close->mapToScene(QPointF(close->width()/2,close->height()/2)).toPoint());QTRY_VERIFY(!settings->property("visible").toBool());
 }
 void UpdateTests::networkError(){Fixture f;Server server;pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("error"));QVERIFY(!service.error().isEmpty());}
 void UpdateTests::damagedDownload(){Fixture f;Server server;server.release(f);auto& bytes=server.body['/'+f.manifest.asset.toUtf8()];bytes[bytes.size()/2]^=1;pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("available"));service.download();QTRY_COMPARE(service.state(),QString("error"));QVERIFY(service.error().contains("integrity"));}
