@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <string>
+#include <functional>
 #include <QJsonObject>
 
 namespace pfservices {
@@ -51,6 +52,11 @@ public:
     const std::string& path() const noexcept { return path_; }
     Settings load(std::string& error) const;
     bool save(const Settings& settings, std::string& error) const;
+    // Serial read/modify/write: unrelated UI sections cannot overwrite each
+    // other's settings. Disk commits never run on the calling UI thread.
+    void updateAsync(std::string section, std::function<void(Settings&)> change,
+                     std::function<void(std::string)> completion = {}) const;
+    static void flushPendingWrites();
 
 private:
     std::string path_;

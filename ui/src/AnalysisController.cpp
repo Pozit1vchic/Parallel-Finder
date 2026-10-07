@@ -1275,9 +1275,8 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
 
 void AnalysisController::saveMatcherSettings() const
 {
-    std::string error;
     pfservices::SettingsStore store;
-    auto settings = store.load(error);
+    pfservices::Settings settings;
     settings.similarityThreshold = similarityThreshold_;
     settings.candidateThreshold = candidateThreshold_;
     settings.minRepeatGapSec = repeatGap_;
@@ -1287,14 +1286,23 @@ void AnalysisController::saveMatcherSettings() const
     settings.noiseFactor = noiseFactor_;
     settings.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults_);
     settings.timeWeight = timeWeight_;
-    store.save(settings, error);
+    store.updateAsync("matcher", [settings](auto& current) {
+        current.similarityThreshold = settings.similarityThreshold;
+        current.candidateThreshold = settings.candidateThreshold;
+        current.minRepeatGapSec = settings.minRepeatGapSec;
+        current.sameFileGapSec = settings.sameFileGapSec;
+        current.crossFileGapSec = settings.crossFileGapSec;
+        current.duplicateWindowSec = settings.duplicateWindowSec;
+        current.noiseFactor = settings.noiseFactor;
+        current.maxUniqueResults = settings.maxUniqueResults;
+        current.timeWeight = settings.timeWeight;
+    });
 }
 
 void AnalysisController::saveSettings() const
 {
-    std::string error;
     pfservices::SettingsStore store;
-    auto settings = store.load(error);
+    pfservices::Settings settings;
     settings.provider = providerChoice_.toStdString();
     settings.qualityProfile = qualityProfile_.toStdString();
     settings.analysisMode = analysisMode_.toStdString();
@@ -1316,7 +1324,29 @@ void AnalysisController::saveSettings() const
     settings.noiseFactor = noiseFactor_;
     settings.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults_);
     settings.timeWeight = timeWeight_;
-    store.save(settings, error);
+    store.updateAsync("analysis", [settings](auto& current) {
+        current.provider = settings.provider;
+        current.qualityProfile = settings.qualityProfile;
+        current.analysisMode = settings.analysisMode;
+        current.normalizeSize = settings.normalizeSize;
+        current.mirrorPoses = settings.mirrorPoses;
+        current.expandedSearch = settings.expandedSearch;
+        current.modelPath = settings.modelPath;
+        current.modelChoice = settings.modelChoice;
+        current.cachePath = settings.cachePath;
+        current.cacheLimitBytes = settings.cacheLimitBytes;
+        current.processingThreads = settings.processingThreads;
+        current.sceneThreshold = settings.sceneThreshold;
+        current.similarityThreshold = settings.similarityThreshold;
+        current.candidateThreshold = settings.candidateThreshold;
+        current.minRepeatGapSec = settings.minRepeatGapSec;
+        current.sameFileGapSec = settings.sameFileGapSec;
+        current.crossFileGapSec = settings.crossFileGapSec;
+        current.duplicateWindowSec = settings.duplicateWindowSec;
+        current.noiseFactor = settings.noiseFactor;
+        current.maxUniqueResults = settings.maxUniqueResults;
+        current.timeWeight = settings.timeWeight;
+    });
 }
 
 void AnalysisController::setProgress(double value, const QString& stage, qlonglong processed, qlonglong total)
@@ -1507,7 +1537,10 @@ void AnalysisController::selectModel(const QString& filename)
     modelChoice_ = requested;
     saveSettings();
     emit settingsChanged();
-    if (const auto local = findLocalModelFile(requested)) {
+    const auto local = QFileInfo(modelPath_).fileName() == requested && QFileInfo(modelPath_).isFile()
+        ? std::optional<std::filesystem::path>(std::filesystem::path(modelPath_.toStdWString()))
+        : findLocalModelFile(requested);
+    if (local) {
         modelPath_ = QString::fromStdWString(local->wstring());
         modelStatus_ = QStringLiteral("Модель установлена и готова к анализу");
         modelDownloadProgress_ = 1.0;
@@ -1606,6 +1639,10 @@ void AnalysisController::selectModel(const QString& filename)
 bool AnalysisController::modelAvailable(const QString& filename) const
 {
     const QString requested = QFileInfo(filename.trimmed()).fileName();
+    // Newly chosen custom paths are already current in memory while their
+    // persistence is still queued. Do not report them missing in that window.
+    if (!isSafeModelFilename(requested)) return false;
+    if (QFileInfo(modelPath_).fileName() == requested && QFileInfo(modelPath_).isFile()) return true;
     return findLocalModelFile(requested).has_value();
 }
 
@@ -1946,6 +1983,7 @@ void AnalysisController::inspectFiles(const QStringList& paths)
                                           : QStringLiteral("Открываем файлы"), 0, 0);
     if (busy_) {
         pendingInspectionPaths_ = normalized;
+        if (inspectionCancel_) inspectionCancel_->store(true, std::memory_order_relaxed);
         if (analysisCancel_) analysisCancel_->store(true, std::memory_order_relaxed);
         return;
     }
@@ -1956,13 +1994,16 @@ void AnalysisController::inspectFiles(const QStringList& paths)
     busy_ = true;
     emit busyChanged();
     setStatus(QStringLiteral("Открываем видео…"));
-    QThread* thread = QThread::create([this, paths = normalized] {
+    auto cancel = std::make_shared<std::atomic_bool>(false);
+    inspectionCancel_ = cancel;
+    QThread* thread = QThread::create([this, paths = normalized, cancel] {
         int files = 0;
         qlonglong frames = 0;
         double duration = 0.0;
         QString error;
         QVariantMap summaries;
         for (const QString& path : paths) {
+            if (cancel->load(std::memory_order_relaxed)) break;
             try {
                 pfcore::VideoDecoder decoder;
                 decoder.open(path.toStdString());
@@ -1978,7 +2019,8 @@ void AnalysisController::inspectFiles(const QStringList& paths)
                 summaries.insert(path, QVariantMap{{"fileCount", 0}, {"error", error}});
             }
         }
-        QMetaObject::invokeMethod(this, [this, files, frames, duration, error, summaries] {
+        QMetaObject::invokeMethod(this, [this, files, frames, duration, error, summaries, cancel] {
+            if (inspectionCancel_ == cancel) inspectionCancel_.reset();
             if (pendingInspectionPaths_) {
                 busy_ = false;
                 emit busyChanged();

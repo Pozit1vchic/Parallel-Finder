@@ -18,6 +18,7 @@
 #include <QWheelEvent>
 #include <QProcess>
 #include <AppInfo.h>
+#include <UiRuntime.h>
 #include <archive.h>
 #include <archive_entry.h>
 #include <openssl/evp.h>
@@ -192,6 +193,9 @@ void UpdateTests::settingsRemainInteractiveWhileUpdateArrives(){
     auto* settings=window->findChild<QObject*>("settingsDialog");auto* update=window->findChild<QObject*>("updateDialog");QVERIFY(settings && update);
     update->setProperty("service",QVariant::fromValue<QObject*>(&service));
     QVERIFY(QMetaObject::invokeMethod(settings,"open"));QTRY_VERIFY(settings->property("opened").toBool());
+    // Native D3D tests must render the popup before reading hit-test geometry;
+    // being exposed/opened alone does not mean its deferred layout was drawn.
+    QVERIFY(!window->grabWindow().isNull());
     service.check();QTRY_COMPARE(service.state(),QString("available"));QVERIFY(!update->property("visible").toBool());
     auto* drag=settings->findChild<QQuickItem*>("settingsDragArea");QVERIFY(drag);
     const auto start=drag->mapToScene(QPointF(70,20)).toPoint();const auto initialX=settings->property("x").toDouble();
@@ -202,6 +206,15 @@ void UpdateTests::settingsRemainInteractiveWhileUpdateArrives(){
     QWheelEvent wheel(wheelPosition,window->mapToGlobal(wheelPosition.toPoint()),QPoint(),QPoint(0,-120),Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);
     QCoreApplication::sendEvent(window,&wheel);QTRY_VERIFY(flick->property("contentY").toDouble()>0);
     auto* tabs=settings->findChild<QQuickItem*>("settingsTabs");QVERIFY(tabs);
+    // Force a real frame between native input actions: QTest's nested event
+    // processing does not run the D3D presentation loop like app.exec().
+    QVERIFY(!window->grabWindow().isNull());
+    // Move the native pointer from the drag handle to the tab before clicking,
+    // just as a user does; a wheel event alone does not move that pointer.
+    QTest::mouseMove(window,tabs->mapToScene(QPointF(tabs->width()*0.75,tabs->height()/2)).toPoint(),25);
+    QTest::qWait(25); // deliver the native move/release before the next press
+    const auto inputCapture=qEnvironmentVariable("PF_UI_CAPTURE_DIR");
+    if(!inputCapture.isEmpty()) { QDir().mkpath(inputCapture); QVERIFY(window->grabWindow().save(inputCapture+"/settings-before-tab-click.png")); }
     QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,tabs->mapToScene(QPointF(tabs->width()*0.75,tabs->height()/2)).toPoint());QTRY_COMPARE(tabs->property("currentIndex").toInt(),1);
     auto* close=settings->findChild<QQuickItem*>("settingsCloseButton");QVERIFY(close);
     QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,close->mapToScene(QPointF(close->width()/2,close->height()/2)).toPoint());
@@ -285,5 +298,11 @@ void UpdateTests::lockedDirectoryRollsBack() {
     QVERIFY(!installed);QCOMPARE(read(root+"/ParallelFinder.exe"),QByteArray("old-application"));QVERIFY(!QFileInfo::exists(root+".pf-stage"));
 }
 #endif
-QTEST_MAIN(UpdateTests)
+int main(int argc, char** argv)
+{
+    pfui::configureUiRuntime();
+    QGuiApplication app(argc, argv);
+    UpdateTests tests;
+    return QTest::qExec(&tests, argc, argv);
+}
 #include "test_updates.moc"

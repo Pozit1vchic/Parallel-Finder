@@ -12,9 +12,76 @@
 #include <filesystem>
 #include <algorithm>
 #include <utility>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 
 namespace pfservices {
 namespace {
+
+class SettingsWriter {
+public:
+    struct Job {
+        std::string path, section;
+        std::function<void(Settings&)> change;
+        std::function<void(std::string)> completion;
+    };
+    SettingsWriter() : worker_([this] { run(); }) {}
+    ~SettingsWriter() {
+        { std::lock_guard lock(mutex_); stopping_ = true; }
+        ready_.notify_one();
+        worker_.join();
+    }
+    void enqueue(Job job) {
+        {
+            std::lock_guard lock(mutex_);
+            // Keep the newest slider value, while preserving the ordering of
+            // changes from different sections. In-flight commits stay intact.
+            std::erase_if(jobs_, [&](const Job& old) {
+                return old.path == job.path && old.section == job.section;
+            });
+            jobs_.push_back(std::move(job));
+        }
+        ready_.notify_one();
+    }
+    void flush() {
+        std::unique_lock lock(mutex_);
+        drained_.wait(lock, [this] { return jobs_.empty() && !writing_; });
+    }
+private:
+    void run() {
+        for (;;) {
+            Job job;
+            {
+                std::unique_lock lock(mutex_);
+                ready_.wait(lock, [this] { return stopping_ || !jobs_.empty(); });
+                if (jobs_.empty() && stopping_) return;
+                job = std::move(jobs_.front()); jobs_.pop_front(); writing_ = true;
+            }
+            std::string error;
+            try {
+                SettingsStore store(job.path);
+                auto settings = store.load(error);
+                error.clear();
+                job.change(settings);
+                store.save(settings, error);
+            } catch (const std::exception& exception) { error = exception.what(); }
+            if (job.completion) job.completion(std::move(error));
+            {
+                std::lock_guard lock(mutex_); writing_ = false;
+                if (jobs_.empty()) drained_.notify_all();
+            }
+        }
+    }
+    std::mutex mutex_;
+    std::condition_variable ready_, drained_;
+    std::deque<Job> jobs_;
+    bool writing_ = false, stopping_ = false;
+    std::thread worker_;
+};
+
+SettingsWriter& settingsWriter() { static SettingsWriter writer; return writer; }
 
 constexpr std::size_t kMaxCacheLimitBytes = 64ULL * 1024ULL * 1024ULL * 1024ULL;
 constexpr qsizetype kMaxSettingsBytes = 1 * 1024 * 1024;
@@ -191,5 +258,13 @@ bool SettingsStore::save(const Settings& settings, std::string& error) const
     }
     return true;
 }
+
+void SettingsStore::updateAsync(std::string section, std::function<void(Settings&)> change,
+                               std::function<void(std::string)> completion) const
+{
+    settingsWriter().enqueue({path_, std::move(section), std::move(change), std::move(completion)});
+}
+
+void SettingsStore::flushPendingWrites() { settingsWriter().flush(); }
 
 } // namespace pfservices

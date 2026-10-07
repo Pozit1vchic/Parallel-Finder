@@ -8,6 +8,7 @@ Popup {
     id: root
     objectName: "updateDialog"
     property var service: Updates
+    property real entranceOffset: 0
     property var rootWindow
     property bool presentationBlocked: false
     property real positionOffsetX: 0
@@ -34,7 +35,8 @@ Popup {
     Component.onCompleted: syncPresentation()
     enter: Transition { ParallelAnimation {
         NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic }
-        NumberAnimation { property: "scale"; from: 0.985; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint }
+        NumberAnimation { property: "scale"; from: 0.94; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint }
+        NumberAnimation { target: root; property: "entranceOffset"; from: 28; to: 0; duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint }
     } }
     exit: Transition { ParallelAnimation {
         NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.motionChangeDuration; easing.type: Easing.InCubic }
@@ -42,11 +44,13 @@ Popup {
     } }
     Overlay.modal: Rectangle { color: GraphicsInfo.api === GraphicsInfo.Software ? "#99000000" : "transparent" }
     background: Rectangle {
+        transform: Translate { y: root.entranceOffset }
         color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairline
         layer.enabled: GraphicsInfo.api !== GraphicsInfo.Software
         layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowOpacity: 0.78; shadowBlur: 1.0; shadowVerticalOffset: 20 }
     }
     contentItem: Flickable {
+        transform: Translate { y: root.entranceOffset }
         clip: true; contentWidth: width; contentHeight: updateColumn.implicitHeight + 48
         Behavior on contentHeight { NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
         boundsBehavior: Flickable.StopAtBounds

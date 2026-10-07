@@ -12,6 +12,7 @@
 #include <QMetaObject>
 #include <QQmlEngine>
 #include <QThread>
+#include <QPointer>
 
 #include <algorithm>
 #include <cmath>
@@ -60,6 +61,7 @@ AppInfo::AppInfo(QObject* parent)
     : QObject(parent)
 {
     connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, [this] {
+        pfservices::SettingsStore::flushPendingWrites();
         providerScan_.request_stop();
         if (providerScan_.joinable()) providerScan_.join();
         backendProbe_.request_stop();
@@ -153,6 +155,7 @@ QString AppInfo::version() const
 
 QVariantMap AppInfo::loadPreferences() const
 {
+    if (preferences_) return *preferences_;
     std::string error;
     const auto settings = pfservices::SettingsStore().load(error);
     auto result = settings.appearance.toVariantMap();
@@ -162,13 +165,19 @@ QVariantMap AppInfo::loadPreferences() const
 
 bool AppInfo::savePreferences(const QVariantMap& preferences)
 {
-    std::string error;
-    pfservices::SettingsStore store;
-    auto settings = store.load(error);
-    settings.language = preferences.value(QStringLiteral("language")).toString() == QStringLiteral("ru") ? "ru" : "en";
-    settings.appearance = QJsonObject::fromVariantMap(preferences);
-    settings.appearance.remove(QStringLiteral("language"));
-    return store.save(settings, error);
+    if (preferences_ && *preferences_ == preferences) return true;
+    preferences_ = preferences;
+    const QPointer<AppInfo> guard(this);
+    pfservices::SettingsStore().updateAsync("appearance", [preferences](auto& settings) {
+        settings.language = preferences.value(QStringLiteral("language")).toString() == QStringLiteral("ru") ? "ru" : "en";
+        settings.appearance = QJsonObject::fromVariantMap(preferences);
+        settings.appearance.remove(QStringLiteral("language"));
+    }, [guard](std::string error) {
+        if (guard && !error.empty()) QMetaObject::invokeMethod(guard, [guard, error] {
+            if (guard) emit guard->preferencesSaveFailed(QString::fromStdString(error));
+        }, Qt::QueuedConnection);
+    });
+    return true;
 }
 
 QString AppInfo::gpuBackend() const
@@ -206,8 +215,10 @@ bool AppInfo::backendAvailable(const QString& backend) const
     const auto provider = pfgpu::parseProvider(backend.toStdString());
     if (!provider) return false;
     if (backendSnapshotReady_)
-        return backendStatuses_.value(QString::fromLatin1(pfgpu::providerName(*provider))).toMap().value("available").toBool();
-    return provider.has_value() && pfgpu::isProviderAvailable(*provider);
+        return backendStatuses_.value(QString::fromLatin1(pfgpu::providerName(*provider)).toLower()).toMap().value("available").toBool();
+    // A QML getter may be re-evaluated by a font/theme change. It must never
+    // initialize a GPU runtime or wait for its global probe mutex.
+    return false;
 }
 
 QString AppInfo::providerGuideUrl(const QString& backend) const
@@ -228,10 +239,8 @@ QString AppInfo::backendReason(const QString& backend) const
     const auto provider = pfgpu::parseProvider(backend.toStdString());
     if (!provider.has_value()) return QStringLiteral("Неизвестный провайдер");
     if (backendSnapshotReady_)
-        return backendStatuses_.value(QString::fromLatin1(pfgpu::providerName(*provider))).toMap().value("reason").toString();
-    if (const auto* status = pfgpu::findBackendStatus(*provider))
-        return status->available ? QString() : QString::fromStdString(status->reason);
-    return QStringLiteral("Провайдер недоступен");
+        return backendStatuses_.value(QString::fromLatin1(pfgpu::providerName(*provider)).toLower()).toMap().value("reason").toString();
+    return QStringLiteral("Provider initialization pending");
 }
 
 void AppInfo::downloadProvider(const QString& backend)

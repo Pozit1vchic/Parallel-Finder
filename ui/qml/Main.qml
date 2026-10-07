@@ -88,6 +88,7 @@ ApplicationWindow {
         Behavior on modalReveal { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic } }
         layer.enabled: modalReveal > 0 && GraphicsInfo.api !== GraphicsInfo.Software
         layer.effect: MultiEffect { blurEnabled: true; blurMax: 12; blur: workspaceSurface.modalReveal; colorization: 0.6 * workspaceSurface.modalReveal; colorizationColor: "black" }
+        PfReveal { anchors.fill: parent; active: true; distance: 24
         ColumnLayout { anchors.fill: parent; spacing: 0
             TopBar { Layout.fillWidth: true; Layout.preferredHeight: Theme.topBarHeight; Layout.minimumHeight: Theme.topBarHeight; busy: Analysis.busy; onSettingsRequested: settingsDialog.open() }
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.hairline }
@@ -136,6 +137,7 @@ ApplicationWindow {
                 }
                 }
             }
+        }
         }
     }
 }

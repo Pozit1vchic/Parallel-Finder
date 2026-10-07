@@ -156,6 +156,11 @@ $RECYCLE.BIN/
 *.qdrep
 *.nvvp
 *.etl
+# Crash dumps and local visual/input test recordings.
+*.dmp
+*.mdmp
+/test-results/
+/ui-captures/
 *.sqlite-wal
 *.sqlite-shm
 /update-staging/

@@ -6,6 +6,7 @@
 #include <QVariantMap>
 #include <thread>
 #include <functional>
+#include <optional>
 #include <pfgpu/DeviceInfo.hpp>
 
 namespace pfui {
@@ -81,8 +82,10 @@ signals:
     void gpuInfoChanged();
     void providerDownloadChanged();
     void providersChanged();
+    void preferencesSaveFailed(const QString& error);
 
 private:
+    std::optional<QVariantMap> preferences_;
     QString m_gpuBackend = QStringLiteral("cpu");
     QString m_gpuDevice;
     QString m_ortVersion;

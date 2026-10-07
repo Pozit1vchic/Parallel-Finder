@@ -10,6 +10,7 @@
 #include <QString>
 #include <QUrl>
 #include <QQuickWindow>
+#include <UiRuntime.h>
 
 #include <pfgpu/DeviceInfo.hpp>
 #include <pfservices/SettingsStore.hpp>
@@ -112,6 +113,7 @@ int runSmoke()
 
 int main(int argc, char* argv[])
 {
+    pfui::configureUiRuntime();
     QElapsedTimer startupTimer;
     startupTimer.start();
     bool providerProbe = false;

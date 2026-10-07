@@ -10,11 +10,13 @@ import PfUiBridge
 Popup {
     id: root
     objectName: "settingsDialog"
+    property real entranceOffset: 0
     property var rootWindow
     property bool userPositioned: false
     property string themeStatus: ""
+    readonly property var installedFonts: Qt.fontFamilies()
     readonly property var fontChoices: {
-        const installed = Qt.fontFamilies()
+        const installed = root.installedFonts
         const preferred = ["Segoe UI Variable", "Segoe UI", "Inter", "Montserrat"]
         const available = preferred.filter(function(family) { return installed.indexOf(family) >= 0 })
         if (!available.length) available.push(Qt.application.font.family)
@@ -46,7 +48,8 @@ Popup {
     enter: Transition {
         ParallelAnimation {
             NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic }
-            NumberAnimation { property: "scale"; from: 0.985; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint }
+            NumberAnimation { property: "scale"; from: 0.94; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint }
+            NumberAnimation { target: root; property: "entranceOffset"; from: 28; to: 0; duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint }
         }
     }
     exit: Transition {
@@ -58,6 +61,7 @@ Popup {
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     Overlay.modal: Rectangle { color: GraphicsInfo.api === GraphicsInfo.Software ? "#99000000" : "transparent" }
     background: Rectangle {
+        transform: Translate { y: root.entranceOffset }
         color: Theme.heroPanel
         radius: Theme.radiusOverlay
         border.color: Theme.hairline
@@ -149,6 +153,7 @@ Popup {
     }
     Connections {
         target: AppInfo
+        function onPreferencesSaveFailed(error) { root.themeStatus = L10n.t("settings.saveFailed") + ": " + error }
         function onBackendInitializationChanged() {
             if (root.visible && !AppInfo.backendInitializing) AppInfo.rescanProviders()
         }
@@ -172,7 +177,7 @@ Popup {
         root.themeStatus = L10n.t("settings.appearanceResetDone")
     }
     function applyFont(family) {
-        if (Qt.fontFamilies().indexOf(family) < 0) {
+        if (root.installedFonts.indexOf(family) < 0) {
             root.themeStatus = L10n.t("settings.fontUnavailable") + ": " + family
             return false
         }
@@ -224,6 +229,7 @@ Popup {
     }
 
     contentItem: Item {
+        transform: Translate { y: root.entranceOffset }
         clip: true
         layer.enabled: root.visible && GraphicsInfo.api !== GraphicsInfo.Software
         layer.effect: MultiEffect { maskEnabled: true; maskSource: roundedMask }
@@ -272,21 +278,34 @@ Popup {
         TabBar {
             id: tabs
             objectName: "settingsTabs"
-            width: parent.width
-            height: 46
+            x: 22
+            width: parent.width - 44
+            height: 44
+            padding: 4
+            spacing: 0
             background: Rectangle {
-                color: Theme.surfaceRaised
+        transform: Translate { y: root.entranceOffset }
+                color: Theme.well
+                radius: Theme.radiusButton + 4
+                border.color: Theme.hairline
                 Rectangle {
                     objectName: "settingsTabIndicator"
-                    anchors.bottom: parent.bottom
-                    x: tabs.currentIndex * tabs.width / 2 + 22
-                    width: tabs.width / 2 - 44; height: 2; color: Theme.accent
-                    Behavior on x { NumberAnimation { duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint } }
+                    y: 4
+                    x: 4 + tabs.currentIndex * (tabs.width - 8) / 2
+                    width: (tabs.width - 8) / 2; height: tabs.height - 8
+                    radius: Theme.radiusButton
+                    color: Theme.surfaceMuted
+                    border.color: Theme.hairlineStrong
+                    Behavior on x { NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutQuint } }
                 }
             }
             TabButton {
                 id: analysisTab
-                width: tabs.width / 2
+                objectName: "settingsAnalysisTab"
+                width: (tabs.width - 8) / 2
+                height: tabs.height - 8
+                implicitHeight: tabs.height - 8
+                padding: 0
                 text: L10n.t("settings.tabAnalysis")
                 focusPolicy: Qt.StrongFocus
                 activeFocusOnTab: true
@@ -295,7 +314,11 @@ Popup {
             }
             TabButton {
                 id: customizationTab
-                width: tabs.width / 2
+                objectName: "settingsAppearanceTab"
+                width: (tabs.width - 8) / 2
+                height: tabs.height - 8
+                implicitHeight: tabs.height - 8
+                padding: 0
                 text: L10n.t("settings.tabAppearance")
                 focusPolicy: Qt.StrongFocus
                 activeFocusOnTab: true
@@ -303,10 +326,11 @@ Popup {
                 background: Item {}
             }
         }
-        StackLayout { id: pages; width: parent.width; height: parent.height - 104; currentIndex: tabs.currentIndex
+        StackLayout { id: pages; width: parent.width; height: parent.height - 102; currentIndex: tabs.currentIndex
             PfReveal {
                 active: root.visible && tabs.currentIndex === 0
-                delay: 35
+                delay: 75
+                distance: 24
                 Flickable { objectName: "settingsAnalysisFlick"; anchors.fill: parent; anchors.margins: 22; clip: true; contentWidth: width; contentHeight: analysisBody.implicitHeight + 30; boundsBehavior: Flickable.StopAtBounds
                     ColumnLayout { id: analysisBody; width: parent.width; spacing: 14
                         Text { text: L10n.t("settings.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
@@ -398,7 +422,8 @@ Popup {
             }
             PfReveal {
                 active: root.visible && tabs.currentIndex === 1
-                delay: 35
+                delay: 75
+                distance: 24
                 PfButton { anchors.left: parent.left; anchors.leftMargin: 22; anchors.bottom: parent.bottom; anchors.bottomMargin: 16; width: 210; compact: true; text: L10n.t("settings.resetAppearance"); quiet: true; onClicked: root.resetAppearance() }
                 Flickable { anchors.fill: parent; anchors.margins: 22; anchors.bottomMargin: 66; clip: true; contentWidth: width; contentHeight: appearanceBody.implicitHeight + 30; boundsBehavior: Flickable.StopAtBounds
                     Column { id: appearanceBody; width: parent.width; spacing: 14

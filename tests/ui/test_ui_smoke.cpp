@@ -12,6 +12,7 @@
 #include <QtTest/QTest>
 
 #include <AppInfo.h>
+#include <UiRuntime.h>
 #include <AnalysisController.h>
 #include <QTemporaryDir>
 #include <pfservices/SettingsStore.hpp>
@@ -30,7 +31,13 @@ class UiSmokeTests : public QObject {
     Q_OBJECT
 
 private slots:
-    void initTestCase() { QCoreApplication::setOrganizationName("ParallelFinderTests"); QCoreApplication::setOrganizationDomain("test.invalid"); QCoreApplication::setApplicationName("UiAudit"); }
+    void initTestCase() {
+        QCoreApplication::setOrganizationName("ParallelFinderTests");
+        QCoreApplication::setOrganizationDomain("test.invalid");
+        QCoreApplication::setApplicationName("UiAudit");
+        pfui::AppInfo::instance()->initializeBackendsAsync();
+        QTRY_VERIFY_WITH_TIMEOUT(!pfui::AppInfo::instance()->backendInitializing(), 30000);
+    }
     void mainQmlLoadsFromResources();
     void updateDialogDragsWithinWindow();
     void revealSettlesAndReducedMotionStops();
@@ -42,6 +49,8 @@ private slots:
     void settingsAndNumericTypography();
     void repeatSearchTogglesFromTheActualSidebar();
     void appearancePersistsAndRejectsMissingFonts();
+    void slowSettingsWritesDoNotBlockUiAndKeepOtherSections();
+    void appearanceAndVideoInspectionKeepUiResponsive();
     void resultNavigationStopsAtEnds();
     void sourcesLiveInsideDropAreaAboveActions();
     void sourceWheelDoesNotMoveSettingsRail();
@@ -163,7 +172,9 @@ QQuickWindow* loadWindow(QQmlApplicationEngine& engine)
     // resources under shared Qt.
     engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
     engine.load(QUrl(QStringLiteral("qrc:/qt/qml/PfUi/qml/Main.qml")));
-    return qobject_cast<QQuickWindow*>(engine.rootObjects().value(0, nullptr));
+    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0, nullptr));
+    if (window && !QTest::qWaitForWindowExposed(window)) return nullptr;
+    return window;
 }
 } // namespace
 
@@ -215,6 +226,10 @@ void UiSmokeTests::appInfoBridgeResolves()
 void UiSmokeTests::backendProbeDoesNotBlockUiAndPublishesReadiness()
 {
     pfui::AppInfo info;
+    QElapsedTimer getterTime; getterTime.start();
+    QVERIFY(!info.backendAvailable("cuda"));
+    QVERIFY(!info.backendReason("cuda").isEmpty());
+    QVERIFY(getterTime.elapsed() < 100);
     std::atomic_bool release{false};
     QSignalSpy ready(&info, &pfui::AppInfo::backendInitializationChanged);
     QElapsedTimer elapsed;
@@ -359,10 +374,21 @@ void UiSmokeTests::settingsAndNumericTypography()
         options->setProperty("contentY", 0);
     }
     QVERIFY(QMetaObject::invokeMethod(popup, "open"));
+    if (!capture.isEmpty()) {
+        for (int frame = 0; frame < 18; ++frame) {
+            QTest::qWait(25);
+            QVERIFY(window->grabWindow().save(capture + QString("/dialog-entrance-%1.png").arg(frame, 3, 10, QChar('0'))));
+        }
+    }
     QTRY_VERIFY(popup->property("opened").toBool());
     if (!capture.isEmpty()) { QTest::qWait(300); QVERIFY(window->grabWindow().save(capture + "/settings-analysis.png")); }
     auto* tabs = popup->findChild<QObject*>("settingsTabs");
     QVERIFY(tabs); tabs->setProperty("currentIndex", 1);
+    auto* tab = popup->findChild<QQuickItem*>("settingsAppearanceTab");
+    auto* indicator = popup->findChild<QQuickItem*>("settingsTabIndicator");
+    QVERIFY(tab && indicator);
+    QCOMPARE(tab->height(), indicator->height());
+    QVERIFY(indicator->height() >= 32);
     if (!capture.isEmpty()) {
         for (int frame=0;frame<14;++frame) {
             QTest::qWait(25);
@@ -578,6 +604,102 @@ ResultsRail {
     QVERIFY(desktopRail->findChild<QQuickItem*>("resultList")->height()>=80);
     const auto capture=qEnvironmentVariable("PF_UI_CAPTURE_DIR");
     if(!capture.isEmpty()) {QDir().mkpath(capture);QVERIFY(window->grabWindow().save(capture+"/result-groups.png"));}
+}
+
+void UiSmokeTests::slowSettingsWritesDoNotBlockUiAndKeepOtherSections()
+{
+    pfservices::SettingsStore::flushPendingWrites();
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    pfservices::SettingsStore store((directory.path() + "/settings.json").toStdString());
+    std::atomic<bool> entered{false}, release{false};
+    struct ReleaseWorker {
+        std::atomic<bool>& release;
+        ~ReleaseWorker() { release = true; pfservices::SettingsStore::flushPendingWrites(); }
+    } finish{release};
+    store.updateAsync("slow-storage", [&](auto&) {
+        entered = true;
+        while (!release.load()) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    });
+    QTRY_VERIFY(entered.load());
+    int ticks = 0;
+    QTimer heartbeat; heartbeat.setInterval(10);
+    connect(&heartbeat, &QTimer::timeout, [&] { ++ticks; }); heartbeat.start();
+    for (int i = 0; i < 100; ++i) {
+        store.updateAsync("appearance", [i](auto& settings) {
+            settings.appearance.insert("surfaceOpacity", i / 100.0);
+        });
+        store.updateAsync("analysis", [i](auto& settings) { settings.processingThreads = i; });
+    }
+    QTest::qWait(150);
+    QVERIFY2(ticks >= 5, "A blocked storage worker must not block the UI event loop");
+    release = true;
+    pfservices::SettingsStore::flushPendingWrites();
+    std::string error;
+    const auto saved = store.load(error);
+    QCOMPARE(saved.appearance.value("surfaceOpacity").toDouble(), .99);
+    QCOMPARE(saved.processingThreads, std::size_t(99));
+    // A failed atomic commit must report the error and leave the worker able
+    // to persist the next, independent file.
+    QFile blocker(directory.path() + "/not-a-directory");
+    QVERIFY(blocker.open(QIODevice::WriteOnly)); blocker.close();
+    pfservices::SettingsStore invalid((blocker.fileName() + "/settings.json").toStdString());
+    std::string writeError;
+    invalid.updateAsync("appearance", [](auto& settings) { settings.language = "ru"; },
+                        [&](std::string error) { writeError = std::move(error); });
+    store.updateAsync("language", [](auto& settings) { settings.language = "ru"; });
+    pfservices::SettingsStore::flushPendingWrites();
+    QVERIFY(!writeError.empty());
+    QCOMPARE(store.load(error).language, std::string("ru"));
+}
+
+void UiSmokeTests::appearanceAndVideoInspectionKeepUiResponsive()
+{
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    auto* window = loadWindow(engine); QVERIFY(window);
+    auto* popup = window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
+    QVERIFY(QMetaObject::invokeMethod(popup, "open"));
+    QTest::qWait(650);
+    qInfo() << "Popup presentation" << popup->property("visible") << popup->property("opened")
+            << popup->property("opacity") << popup->property("scale") << popup->property("entranceOffset")
+            << window->isExposed() << window->isActive();
+    QTRY_VERIFY(popup->property("opened").toBool());
+    auto* tabs = popup->findChild<QObject*>("settingsTabs"); QVERIFY(tabs);
+    tabs->setProperty("currentIndex", 1);
+    QTest::qWait(550);
+    QElapsedTimer elapsed; elapsed.start();
+    qint64 last = 0, maxGap = 0;
+    int ticks = 0;
+    QTimer heartbeat; heartbeat.setInterval(10);
+    connect(&heartbeat, &QTimer::timeout, [&] {
+        const auto now = elapsed.elapsed(); maxGap = std::max(maxGap, now - last); last = now; ++ticks;
+    }); heartbeat.start();
+    const auto families = popup->property("fontChoices").toStringList();
+    QVERIFY(!families.isEmpty());
+    for (int i = 0; i < 12; ++i) {
+        QVERIFY(QMetaObject::invokeMethod(popup, "applyFont", Q_ARG(QVariant, families[i % families.size()])));
+        QVERIFY(QMetaObject::invokeMethod(popup, "applyAccent", Q_ARG(QVariant, QString(i % 2 ? "blue" : "orange"))));
+        QTest::qWait(35);
+    }
+    // This opt-in path exercises the user's real scene pack without making
+    // the ordinary suite depend on a private video collection.
+    const auto video = qEnvironmentVariable("PF_UI_RESPONSIVENESS_VIDEO");
+    if (!video.isEmpty()) {
+        QVERIFY(QFileInfo::exists(video));
+        QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+        auto* analysis = pfui::AnalysisController::instance();
+        QVERIFY(QMetaObject::invokeMethod(window, "addFiles", Q_ARG(QVariant, QStringList{video})));
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(), 30000);
+        QCOMPARE(analysis->fileCount(), 1);
+        window->setProperty("sourceFiles", QStringList{});
+        analysis->inspectFiles({});
+    }
+    QTest::qWait(150);
+    maxGap = std::max(maxGap, elapsed.elapsed() - last);
+    qInfo("UI heartbeat: max gap %lld ms, %d ticks", static_cast<long long>(maxGap), ticks);
+    QVERIFY2(ticks >= 10 && maxGap < 1500, "Appearance/video actions stalled the UI event loop");
+    QVERIFY(QMetaObject::invokeMethod(popup, "resetAppearance"));
 }
 
 void UiSmokeTests::resultNavigationStopsAtEnds()
@@ -1062,5 +1184,11 @@ void UiSmokeTests::directMlDownloadIntegration()
     QVERIFY(QFileInfo::exists(root + "/providers/dml/DirectML.dll"));
 }
 
-QTEST_MAIN(UiSmokeTests)
+int main(int argc, char** argv)
+{
+    pfui::configureUiRuntime();
+    QGuiApplication app(argc, argv);
+    UiSmokeTests tests;
+    return QTest::qExec(&tests, argc, argv);
+}
 #include "test_ui_smoke.moc"

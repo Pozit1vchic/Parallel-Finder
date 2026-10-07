@@ -13,6 +13,7 @@ Popup {
     readonly property bool mergeChronological: selectedFormat === "FFMPEG" && mergeCheck.checked
     readonly property string selectedFormat: ["FFMPEG", "JSON", "CSV", "TXT"][exportFormat.currentIndex] || "FFMPEG"
     readonly property string fileBaseName: prefixField.text
+    property real entranceOffset: 0
     property var rootWindow
     property var selectedRows: ({})
     property string outputFolder: ""
@@ -26,7 +27,8 @@ Popup {
     enter: Transition {
         ParallelAnimation {
             NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic }
-            NumberAnimation { property: "scale"; from: 0.985; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint }
+            NumberAnimation { property: "scale"; from: 0.94; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint }
+            NumberAnimation { target: root; property: "entranceOffset"; from: 28; to: 0; duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint }
         }
     }
     exit: Transition {
@@ -37,7 +39,8 @@ Popup {
     }
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     Overlay.modal: Rectangle { color: GraphicsInfo.api === GraphicsInfo.Software ? "#99000000" : "transparent" }
-    background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairline; layer.enabled: GraphicsInfo.api !== GraphicsInfo.Software; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowOpacity: 0.78; shadowBlur: 1.0; shadowHorizontalOffset: 0; shadowVerticalOffset: 20 } }
+    background: Rectangle {
+        transform: Translate { y: root.entranceOffset } color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairline; layer.enabled: GraphicsInfo.api !== GraphicsInfo.Software; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowOpacity: 0.78; shadowBlur: 1.0; shadowHorizontalOffset: 0; shadowVerticalOffset: 20 } }
     FolderDialog {
         id: folderDialog
         title: L10n.t("export.chooseFolder")
@@ -65,6 +68,7 @@ Popup {
         folderDialog.open()
     }
     contentItem: Flickable {
+        transform: Translate { y: root.entranceOffset }
         clip: true
         contentWidth: width
         contentHeight: exportColumn.height + 48

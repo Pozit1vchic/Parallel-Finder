@@ -221,6 +221,7 @@ private:
     int modelCatalogRevision_ = 0;
     QStringList deferredAnalyzePaths_;
     std::optional<QStringList> pendingInspectionPaths_;
+    std::shared_ptr<std::atomic_bool> inspectionCancel_;
     QString cachePath_;
     double cacheLimitGb_ = 8.0;
     int processingThreads_ = 0;

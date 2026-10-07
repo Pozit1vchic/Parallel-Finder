@@ -49,7 +49,7 @@ Button {
               : control.primary ? (control.down ? Theme.accentPressed : control.hovered ? Theme.accentBright : Theme.accent)
               : control.down || control.selected ? Theme.accentMuted : control.hovered ? Theme.surfaceMuted : control.quiet ? Theme.well : Theme.surfaceRaised
         border.width: control.visualFocus ? 2 : 1
-        border.color: !control.enabled ? Theme.hairline : control.visualFocus || control.selected ? Theme.accent : control.hovered ? Theme.hairlineStrong : Theme.hairline
+        border.color: !control.enabled ? Theme.hairline : control.visualFocus || control.selected ? Theme.accent : Theme.hairlineStrong
         Behavior on color { ColorAnimation { duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
         Behavior on border.color { ColorAnimation { duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
     }
