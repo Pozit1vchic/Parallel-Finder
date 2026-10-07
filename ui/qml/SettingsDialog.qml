@@ -10,6 +10,9 @@ import PfUiBridge
 Popup {
     id: root
     objectName: "settingsDialog"
+    property bool backdropClosing: false
+    onAboutToShow: backdropClosing = false
+    onAboutToHide: backdropClosing = true
     property real entranceOffset: 0
     property var rootWindow
     property bool userPositioned: false
@@ -440,7 +443,6 @@ Popup {
                         Text { visible: customFont.status === FontLoader.Ready; text: L10n.t("settings.fontLoaded") + ": " + customFont.name; color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
                         Text { text: L10n.t("settings.accentColor"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfComboBox { id: appearanceAccentChoice; objectName: "appearanceAccentChoice"; width: parent.width; model: root.accentLabels; currentIndex: Math.max(0, root.accentIds.indexOf(customizationStore.accentColor)); Accessible.name: L10n.t("settings.accentColor"); onActivated: root.applyAccent(root.accentIds[currentIndex]) }
-                        Text { text: L10n.t("settings.surfaceOpacity"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfSliderField { width: parent.width; label: L10n.t("settings.surfaceOpacity"); from: 0.25; to: 1.0; stepSize: 0.01; value: Theme.surfaceOpacity; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("settings.surfaceOpacityHint"); Accessible.name: L10n.t("settings.surfaceOpacity"); onValueEdited: { Theme.surfaceOpacity = nextValue; customizationStore.surfaceOpacity = nextValue } }
                         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
                         PfCheckBox { text: L10n.t("settings.reducedMotion"); checked: Theme.reducedMotion; onToggled: { Theme.reducedMotion = checked; customizationStore.reducedMotion = checked } }

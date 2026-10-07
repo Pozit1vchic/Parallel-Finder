@@ -9,6 +9,7 @@
 #include <QtCore/QDir>
 #include <QtQml/QQmlApplicationEngine>
 #include <QtQml/QQmlComponent>
+#include <QtQml/QQmlProperty>
 #include <QtQuick/QQuickWindow>
 #include <QtQuick/QQuickItem>
 #include <QtTest/QTest>
@@ -38,6 +39,11 @@ private slots:
         QCoreApplication::setOrganizationName("ParallelFinderTests");
         QCoreApplication::setOrganizationDomain("test.invalid");
         QCoreApplication::setApplicationName("UiAudit");
+        if (qEnvironmentVariable("PF_UI_LANGUAGE") == "ru") {
+            auto preferences=pfui::AppInfo::instance()->loadPreferences();
+            preferences.insert("language","ru");
+            pfui::AppInfo::instance()->savePreferences(preferences);
+        }
         pfui::AppInfo::instance()->initializeBackendsAsync();
         QTRY_VERIFY_WITH_TIMEOUT(!pfui::AppInfo::instance()->backendInitializing(), 30000);
     }
@@ -61,6 +67,7 @@ private slots:
     void pairColorsAndExportOrder();
     void exportColorOrderControlsFileNumbering();
     void dialogFramesAdvanceDuringRealEventLoop();
+    void modalCloseKeepsNativeBordersAndFades();
     void finiteAnimationsRespectReducedMotion();
     void idleWorkspaceStopsRequestingFrames();
     void resultArrowKeysWorkAfterSourceButtonFocus();
@@ -175,22 +182,29 @@ void UiSmokeTests::revealSettlesAndReducedMotionStops()
     component.setData(R"(
 import QtQuick
 import PfUi
+Window {
+    width: 200; height: 80; visible: true
 PfReveal {
-    width: 200; height: 80; delay: 35
+    objectName: "revealTest"
+    anchors.fill: parent; delay: 35
     property bool originalMotion: Theme.reducedMotion
     function reduce(value) { Theme.reducedMotion = value }
     Rectangle { anchors.fill: parent; color: Theme.panel }
 }
+}
 )",QUrl());
-    QScopedPointer<QObject> item(component.create());QVERIFY2(item,qPrintable(component.errorString()));
+    QScopedPointer<QObject> testWindow(component.create());QVERIFY2(testWindow,qPrintable(component.errorString()));
+    auto* item=testWindow->findChild<QObject*>("revealTest"); QVERIFY(item);
     const auto original=item->property("originalMotion").toBool();
-    QVERIFY(QMetaObject::invokeMethod(item.data(),"reduce",Q_ARG(QVariant,false)));
+    QVERIFY(QMetaObject::invokeMethod(item,"reduce",Q_ARG(QVariant,false)));
     item->setProperty("active",true);QCOMPARE(item->property("reveal").toDouble(),0.0);
-    QTRY_COMPARE(item->property("reveal").toDouble(),1.0);QTest::qWait(80);QCOMPARE(item->property("reveal").toDouble(),1.0);
+    QEventLoop loop; QTimer::singleShot(650,&loop,&QEventLoop::quit); loop.exec();
+    QCOMPARE(item->property("reveal").toDouble(),1.0);
+    QTimer::singleShot(80,&loop,&QEventLoop::quit); loop.exec(); QCOMPARE(item->property("reveal").toDouble(),1.0);
     item->setProperty("active",false);item->setProperty("active",true);
-    QVERIFY(QMetaObject::invokeMethod(item.data(),"reduce",Q_ARG(QVariant,true)));QCOMPARE(item->property("reveal").toDouble(),1.0);
+    QVERIFY(QMetaObject::invokeMethod(item,"reduce",Q_ARG(QVariant,true)));QCOMPARE(item->property("reveal").toDouble(),1.0);
     item->setProperty("active",false);
-    QVERIFY(QMetaObject::invokeMethod(item.data(),"reduce",Q_ARG(QVariant,original)));
+    QVERIFY(QMetaObject::invokeMethod(item,"reduce",Q_ARG(QVariant,original)));
 }
 
 namespace {
@@ -487,10 +501,11 @@ void UiSmokeTests::idleWorkspaceStopsRequestingFrames()
     QQmlApplicationEngine engine;
     auto* window = loadWindow(engine);
     QVERIFY(window);
-    QTest::qWait(600); // initial font/image loading and probe publication
+    QEventLoop idleLoop;
+    QTimer::singleShot(1500,&idleLoop,&QEventLoop::quit); idleLoop.exec(); // settle through the normal event loop
     QSignalSpy frames(window, &QQuickWindow::frameSwapped);
     QVERIFY(frames.isValid());
-    QTest::qWait(350);
+    QTimer::singleShot(350,&idleLoop,&QEventLoop::quit); idleLoop.exec();
     QVERIFY2(frames.count() <= 3, qPrintable(QString("Idle workspace rendered %1 frames").arg(frames.count())));
 }
 
@@ -502,8 +517,8 @@ void UiSmokeTests::finiteAnimationsRespectReducedMotion()
     component.setData(R"(
 import QtQuick
 import PfUi
-Item {
-    width: 800; height: 600
+Window {
+    width: 800; height: 600; visible: true
     function reduce(value) { Theme.reducedMotion = value }
     function swap(id) { panel.record = {id: id, matchType: 'pose', leftStart: id, leftEnd: id + 1} }
     ComparisonView { id: panel; objectName: "animationPanel"; width: 300; height: 400 }
@@ -518,10 +533,13 @@ Item {
     QVERIFY(QMetaObject::invokeMethod(root.get(), "reduce", Q_ARG(QVariant, false)));
     QVERIFY(QMetaObject::invokeMethod(root.get(), "swap", Q_ARG(QVariant, 1)));
     QVERIFY(panel->property("transitionRunning").toBool());
-    QTRY_VERIFY_WITH_TIMEOUT(!panel->property("transitionRunning").toBool(), 1000);
+    QEventLoop animationLoop;
+    QTimer::singleShot(650, &animationLoop, &QEventLoop::quit); animationLoop.exec();
+    QVERIFY(!panel->property("transitionRunning").toBool());
     QCOMPARE(panel->property("pairSignalPhase").toDouble(), 0.0);
     disclosure->setProperty("expanded", true);
-    QTRY_COMPARE(disclosure->property("reveal").toDouble(), 1.0);
+    QTimer::singleShot(300, &animationLoop, &QEventLoop::quit); animationLoop.exec();
+    QCOMPARE(disclosure->property("reveal").toDouble(), 1.0);
     QVERIFY(QMetaObject::invokeMethod(root.get(), "swap", Q_ARG(QVariant, 2)));
     QVERIFY(panel->property("transitionRunning").toBool());
     QVERIFY(QMetaObject::invokeMethod(root.get(), "reduce", Q_ARG(QVariant, true)));
@@ -662,6 +680,50 @@ void UiSmokeTests::exportColorOrderControlsFileNumbering()
     QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,1,colors), (std::vector<int>{1,0,2,3,4}));
     QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,0,{}), (std::vector<int>{4,3,2,1,0}));
     QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,1,{}), (std::vector<int>{0,1,2,3,4}));
+}
+
+void UiSmokeTests::modalCloseKeepsNativeBordersAndFades()
+{
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    auto* window=loadWindow(engine); QVERIFY(window);
+    auto* popup=window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
+    auto* backdrop=window->findChild<QQuickItem*>("modalBackdrop"); QVERIFY(backdrop);
+    auto* workspace=window->findChild<QQuickItem*>("workspaceSurface"); QVERIFY(workspace);
+    QEventLoop loop;
+    bool fading=false, settled=false, nativeRaster=true;
+    int captured=0;
+    const auto capture=qEnvironmentVariable("PF_UI_CAPTURE_DIR");
+    if(!capture.isEmpty()) QDir().mkpath(capture);
+    QTimer::singleShot(100,popup,[popup]{QMetaObject::invokeMethod(popup,"open");});
+    QTimer::singleShot(650,&loop,[&]{
+        nativeRaster &= !QQmlProperty(workspace,"layer.enabled").read().toBool();
+        if(!capture.isEmpty()) window->grabWindow().save(capture+"/modal-open.png");
+        QMetaObject::invokeMethod(popup,"close");
+        QTimer::singleShot(30,&loop,[&]{
+            fading=!backdrop->property("active").toBool() && backdrop->opacity()>0 && backdrop->opacity()<1;
+            qInfo("Close fade: opacity=%f active=%d",backdrop->opacity(),backdrop->property("active").toBool());
+        });
+    });
+    QTimer captures;
+    captures.setTimerType(Qt::PreciseTimer); captures.setInterval(16);
+    connect(&captures,&QTimer::timeout,&loop,[&]{
+        nativeRaster &= !QQmlProperty(workspace,"layer.enabled").read().toBool();
+        if(!capture.isEmpty()) window->grabWindow().save(capture+QString("/modal-close-%1.png").arg(captured,3,10,QChar('0')));
+        ++captured;
+    });
+    QTimer::singleShot(655,&loop,[&]{captures.start();});
+    QTimer::singleShot(1050,&loop,[&]{ captures.stop(); });
+    QTimer::singleShot(1350,&loop,[&]{
+        settled=!popup->property("visible").toBool() && backdrop->opacity()<.001;
+        if(!capture.isEmpty()) window->grabWindow().save(capture+"/modal-closed.png");
+        loop.quit();
+    });
+    loop.exec();
+    QVERIFY(nativeRaster); QVERIFY(fading); QVERIFY(settled); QVERIFY(captured>=4);
+    // Reopening must refresh the snapshot and preserve the same fade path.
+    QTimer::singleShot(0,popup,[popup]{QMetaObject::invokeMethod(popup,"open");});
+    QTimer::singleShot(550,&loop,&QEventLoop::quit); loop.exec();
+    QVERIFY(backdrop->property("active").toBool()); QVERIFY(backdrop->opacity()>.99);
 }
 
 void UiSmokeTests::dialogFramesAdvanceDuringRealEventLoop()

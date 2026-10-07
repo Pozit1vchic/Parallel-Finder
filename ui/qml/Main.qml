@@ -84,16 +84,8 @@ ApplicationWindow {
     Shortcut { sequence: "Up"; enabled: root.resultKeysEnabled(); onActivated: resultsRail.selectPrevious() }
     Shortcut { sequence: "Down"; enabled: root.resultKeysEnabled(); onActivated: resultsRail.selectNext() }
 
-    Rectangle { id: workspaceSurface; anchors.fill: parent; color: Theme.canvas
-        property real modalReveal: settingsDialog.visible || exportDialog.visible || updateDialog.visible ? 1 : 0
-        Behavior on modalReveal { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic } }
-        layer.enabled: modalReveal > 0 && GraphicsInfo.api !== GraphicsInfo.Software
-        // The backdrop is blurred anyway: render it at half resolution to
-        // avoid four times the fill cost during modal transitions.
-        layer.textureSize: Qt.size(Math.max(1, Math.ceil(width / 2)), Math.max(1, Math.ceil(height / 2)))
-        layer.smooth: true
-        layer.effect: MultiEffect { blurEnabled: true; blurMax: 12; blur: workspaceSurface.modalReveal; colorization: 0.6 * workspaceSurface.modalReveal; colorizationColor: "black" }
-        PfReveal { anchors.fill: parent; active: root.startupPresented; distance: 24
+    Rectangle { id: workspaceSurface; objectName: "workspaceSurface"; anchors.fill: parent; color: Theme.canvas
+        PfReveal { objectName: "workspaceReveal"; anchors.fill: parent; active: root.startupPresented; distance: 24
         ColumnLayout { anchors.fill: parent; spacing: 0
             TopBar { Layout.fillWidth: true; Layout.preferredHeight: Theme.topBarHeight; Layout.minimumHeight: Theme.topBarHeight; busy: Analysis.busy; onSettingsRequested: settingsDialog.open() }
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.hairline }
@@ -146,4 +138,51 @@ ApplicationWindow {
         }
         }
     }
+    // Keep the live workspace at its native resolution. Only the cached
+    // backdrop fades, so hairlines never switch between two rasterizations.
+    ShaderEffectSource {
+        id: backdropSnapshot
+        objectName: "modalBackdropSnapshot"
+        anchors.fill: parent
+        sourceItem: modalBackdrop.visible ? workspaceSurface : null
+        live: false
+        hideSource: false
+        visible: false
+        textureSize: Qt.size(root.width, root.height)
+    }
+    MultiEffect {
+        id: modalBackdrop
+        objectName: "modalBackdrop"
+        anchors.fill: parent
+        property bool active: (settingsDialog.visible && !settingsDialog.backdropClosing)
+            || (exportDialog.visible && !exportDialog.backdropClosing)
+            || (updateDialog.visible && !updateDialog.backdropClosing)
+        property bool warming: !root.startupPresented
+        property bool prepared: true
+        source: backdropSnapshot
+        blurEnabled: true
+        blurMax: 12
+        blur: 1
+        colorization: 0.6
+        colorizationColor: "black"
+        opacity: warming ? 1 : active ? 1 : 0
+        visible: opacity > 0 && GraphicsInfo.api !== GraphicsInfo.Software
+        // Cache the finished blur; transition frames composite one texture.
+        layer.enabled: visible
+        onActiveChanged: if (active) backdropSnapshot.scheduleUpdate()
+        onWarmingChanged: {
+            if (warming) { prepared = false; backdropSnapshot.scheduleUpdate() }
+            else Qt.callLater(function() { modalBackdrop.prepared = true })
+        }
+        Behavior on opacity {
+            enabled: modalBackdrop.prepared && !Theme.reducedMotion
+            NumberAnimation { duration: modalBackdrop.active ? Theme.motionRevealDuration : Theme.motionChangeDuration; easing.type: Easing.OutCubic }
+        }
+    }
+    Connections {
+        target: root
+        function onWidthChanged() { if (modalBackdrop.active) backdropSnapshot.scheduleUpdate() }
+        function onHeightChanged() { if (modalBackdrop.active) backdropSnapshot.scheduleUpdate() }
+    }
+
 }

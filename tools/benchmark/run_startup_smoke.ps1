@@ -41,11 +41,14 @@ for ($iteration = 1; $iteration -le $Repeats; ++$iteration) {
         $first = [regex]::Match($stderr, 'PF_STARTUP first_frame_ms=(\d+) backend_pending=(\d+)')
         $ready = [regex]::Match($stderr, 'PF_STARTUP backend_ready_ms=(\d+)')
         $ui = [regex]::Match($stdout, 'PF_STARTUP_UI first_frame_ms=(\d+) frames=(\d+) max_active_gap_ms=(\d+) max_heartbeat_ms=(\d+) settled=(\d+)')
+        $motion = [regex]::Match($stdout, 'PF_MOTION changed_frames=(\d+) sampled_frames=(\d+)')
         $preparation = [regex]::Match($stdout, 'preparation_gap_ms=(\d+)')
         $guiRuntime = [regex]::Match($stdout, 'PF_STARTUP_GUI_ORT_LOADED=(\d+)')
         $records += [pscustomobject]@{
             iteration = $iteration
             localProbeBaseline = [bool]$LocalProbeBaseline
+            changedMotionFrames = $(if ($motion.Success) { [long]$motion.Groups[1].Value } else { $null })
+            sampledMotionFrames = $(if ($motion.Success) { [long]$motion.Groups[2].Value } else { $null })
             preparationGapMs = $(if ($preparation.Success) { [long]$preparation.Groups[1].Value } else { $null })
             guiOrtLoaded = $(if ($guiRuntime.Success) { $guiRuntime.Groups[1].Value -eq '1' } else { $null })
             frames = $(if ($ui.Success) { [long]$ui.Groups[2].Value } else { $null })

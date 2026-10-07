@@ -26,6 +26,7 @@
 #include <AppInfo.h>
 #include <AnalysisController.h>
 #include <cstdio>
+#include <cmath>
 #include <cstring>
 #include <memory>
 #include <QAbstractNativeEventFilter>
@@ -359,14 +360,26 @@ int main(int argc, char* argv[])
         auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
         auto* settings = window->findChild<QObject*>("settingsDialog");
         QTimer::singleShot(100,window,[window] { window->hide(); window->show(); window->requestUpdate(); });
-        struct StartupFrames { qint64 first=-1, last=-1, maxGap=0, maxHeartbeat=0, maxPreparation=0, lastHeartbeat=0; int frames=0; };
+        struct StartupFrames { qint64 first=-1, last=-1, maxGap=0, maxHeartbeat=0, maxPreparation=0, lastHeartbeat=0; int frames=0, motionSamples=0, motionChanges=0; double lastScale=-1; bool previousMotion=false; };
         auto metrics=std::make_shared<StartupFrames>();
-        QObject::connect(window,&QQuickWindow::frameSwapped,&app,[metrics,startupTimer] {
+        auto* reveal=window->findChild<QObject*>("workspaceReveal");
+        auto* backdrop=window->findChild<QObject*>("modalBackdrop");
+        QObject::connect(window,&QQuickWindow::frameSwapped,&app,[metrics,startupTimer,settings,reveal,backdrop] {
             const auto now=startupTimer.elapsed();
             if(metrics->first<0) metrics->first=now;
-            // Measure active reveal frames, not time spent idle between dialogs.
-            if(metrics->last>=0 && now-metrics->last<250) metrics->maxGap=std::max(metrics->maxGap,now-metrics->last);
+            // Measure gaps following an animated frame, excluding idle time
+            // before a new transition starts. Never discard a long stall.
+            if(metrics->last>=0 && metrics->previousMotion) metrics->maxGap=std::max(metrics->maxGap,now-metrics->last);
             metrics->last=now; ++metrics->frames;
+            const auto scale=settings->property("scale").toDouble();
+            const auto backgroundOpacity=backdrop->property("opacity").toDouble();
+            metrics->previousMotion=(settings->property("visible").toBool() && scale<.9999)
+                || reveal->property("reveal").toDouble()<.9999 || (backgroundOpacity>.0001 && backgroundOpacity<.9999);
+            if(settings->property("visible").toBool() && scale<.9999) {
+                ++metrics->motionSamples;
+                if(std::abs(scale-metrics->lastScale)>1e-7) ++metrics->motionChanges;
+                metrics->lastScale=scale;
+            }
         },Qt::QueuedConnection);
         QTimer* heartbeat=new QTimer(&app); heartbeat->setTimerType(Qt::PreciseTimer); heartbeat->setInterval(10);
         metrics->lastHeartbeat=startupTimer.elapsed();
@@ -386,6 +399,7 @@ int main(int argc, char* argv[])
 #ifdef Q_OS_WIN
             const bool guiOrtLoaded = GetModuleHandleW(L"onnxruntime.dll") != nullptr;
             std::printf("PF_STARTUP_GUI_ORT_LOADED=%d\n",guiOrtLoaded ? 1 : 0);
+            std::printf("PF_MOTION changed_frames=%d sampled_frames=%d\n", metrics->motionChanges, metrics->motionSamples);
 #else
             const bool guiOrtLoaded = false;
 #endif

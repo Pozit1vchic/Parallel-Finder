@@ -7,6 +7,9 @@ import PfUiBridge
 Popup {
     id: root
     objectName: "updateDialog"
+    property bool backdropClosing: false
+    onAboutToShow: backdropClosing = false
+    onAboutToHide: backdropClosing = true
     property var service: Updates
     property real entranceOffset: 0
     property var rootWindow

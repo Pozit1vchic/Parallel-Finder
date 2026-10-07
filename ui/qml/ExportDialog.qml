@@ -8,6 +8,9 @@ import PfUiBridge
 Popup {
     id: root
     objectName: "exportDialog"
+    property bool backdropClosing: false
+    onAboutToShow: backdropClosing = false
+    onAboutToHide: backdropClosing = true
     readonly property int selectedNumbering: exportNumbering.currentIndex
     readonly property int selectedCutMode: mergeChronological ? 0 : cutMode.currentIndex
     readonly property bool mergeChronological: selectedFormat === "FFMPEG" && mergeCheck.checked

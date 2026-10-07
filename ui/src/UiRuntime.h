@@ -7,14 +7,11 @@ namespace pfui {
 inline void configureUiRuntime()
 {
 #ifdef Q_OS_WIN
-    // Windows driver/VSync synchronization can stop the threaded animation
-    // clock during window/effect changes. Keep GPU rendering, but let Qt's
-    // basic loop drive finite animations from system timers. An explicit
-    // diagnostic/user override remains available.
-    if (!qEnvironmentVariableIsSet("QSG_RENDER_LOOP")) qputenv("QSG_RENDER_LOOP", "basic");
-    // Avoid Qt's extra update-idle delay on top of the animation timer and
-    // VSync wait. Updates remain event-driven; idle windows do not repaint.
-    if (!qEnvironmentVariableIsSet("QT_QPA_UPDATE_IDLE_TIME")) qputenv("QT_QPA_UPDATE_IDLE_TIME", "0");
+    // Render independently of GUI work, using elapsed time for animations
+    // rather than a driver-dependent VSync clock. Explicit overrides remain.
+    if (!qEnvironmentVariableIsSet("QSG_RENDER_LOOP")) qputenv("QSG_RENDER_LOOP", "threaded");
+    if (!qEnvironmentVariableIsSet("QSG_USE_SIMPLE_ANIMATION_DRIVER")) qputenv("QSG_USE_SIMPLE_ANIMATION_DRIVER", "1");
+
 #endif
 }
 }
