@@ -1,3 +1,5 @@
+#include <BackendProbeProcess.h>
+#include <cstring>
 // QTest smoke for the static QML module PfUi: Main.qml loads from resources,
 // Theme/L10n singletons resolve, AppInfo bridge is registered.
 #include <QtGui/QColor>
@@ -40,6 +42,7 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!pfui::AppInfo::instance()->backendInitializing(), 30000);
     }
     void mainQmlLoadsFromResources();
+    void isolatedBackendProbeHandlesFailureTimeoutAndCancellation();
     void updateDialogDragsWithinWindow();
     void revealSettlesAndReducedMotionStops();
     void themeSingletonResolves();
@@ -72,6 +75,28 @@ private slots:
     void resultLabelsFollowMatchTypeAndLanguage();
     void sourceStatisticsFollowSelectionAndInspectionScope();
 };
+
+void UiSmokeTests::isolatedBackendProbeHandlesFailureTimeoutAndCancellation()
+{
+    const auto executable = QCoreApplication::applicationFilePath();
+    const auto result = pfui::probeBackendProcess(executable, {}, {"--pf-test-backend-child","success"});
+    QVERIFY(result.ortLoaded); QCOMPARE(result.ortVersion,std::string("test-runtime"));
+    QCOMPARE(result.backends.size(),std::size_t(1)); QVERIFY(result.backends[0].available);
+    QVERIFY_EXCEPTION_THROWN(pfui::probeBackendProcess(executable,{}, {"--pf-test-backend-child","invalid"}),std::runtime_error);
+    QVERIFY_EXCEPTION_THROWN(pfui::probeBackendProcess(executable,{}, {"--pf-test-backend-child","failure"}),std::runtime_error);
+    QElapsedTimer elapsed; elapsed.start();
+    QVERIFY_EXCEPTION_THROWN(pfui::probeBackendProcess(executable,{}, {"--pf-test-backend-child","slow"},100),std::runtime_error);
+    QVERIFY(elapsed.elapsed()<3000);
+    std::stop_source stop;
+    std::jthread cancel([&] { std::this_thread::sleep_for(std::chrono::milliseconds(100)); stop.request_stop(); });
+    elapsed.restart();
+    QVERIFY_EXCEPTION_THROWN(pfui::probeBackendProcess(executable,stop.get_token(), {"--pf-test-backend-child","slow"}),std::runtime_error);
+    QVERIFY(elapsed.elapsed()<3000);
+    pfgpu::BackendProbe expected; expected.ortLoaded=true; expected.backends={{pfgpu::Provider::Cpu,true,"","CPU"}};
+    const auto json=pfui::backendProbeJson(expected);
+    QVERIFY(pfui::backendProbeFromJson(json).ortLoaded);
+    QVERIFY_EXCEPTION_THROWN(pfui::backendProbeFromJson("{}"),std::runtime_error);
+}
 
 void UiSmokeTests::mainQmlLoadsFromResources()
 {
@@ -1245,6 +1270,16 @@ void UiSmokeTests::directMlDownloadIntegration()
 
 int main(int argc, char** argv)
 {
+    if (argc>2 && std::strcmp(argv[1],"--pf-test-backend-child")==0) {
+        QCoreApplication app(argc,argv);
+        const auto mode=app.arguments()[2];
+        if(mode=="failure") return 3;
+        if(mode=="slow") std::this_thread::sleep_for(std::chrono::seconds(10));
+        if(mode=="invalid") { std::printf("PF_BACKENDS_JSON=invalid\n"); return 0; }
+        pfgpu::BackendProbe probe; probe.ortLoaded=true; probe.ortVersion="test-runtime";
+        probe.backends={{pfgpu::Provider::Cpu,true,"","Test CPU"}};
+        std::printf("PF_BACKENDS_JSON=%s\n",pfui::backendProbeJson(probe).constData()); return 0;
+    }
     pfui::configureUiRuntime();
     QGuiApplication app(argc, argv);
     UiSmokeTests tests;

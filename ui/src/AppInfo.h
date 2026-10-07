@@ -54,6 +54,7 @@ public:
     bool backendInitializing() const { return backendInitializing_; }
     void prepareBackendInitialization();
     void initializeBackendsAsync(std::function<pfgpu::BackendProbe()> probe = {});
+    void initializeBackendsIsolated();
     void publishBackendProbe(const pfgpu::BackendProbe& probe);
     Q_INVOKABLE bool backendAvailable(const QString& backend) const;
     Q_INVOKABLE QString backendReason(const QString& backend) const;
@@ -85,6 +86,7 @@ signals:
     void preferencesSaveFailed(const QString& error);
 
 private:
+    void startBackendProbe(std::function<pfgpu::BackendProbe(std::stop_token)> probe);
     std::optional<QVariantMap> preferences_;
     QString m_gpuBackend = QStringLiteral("cpu");
     QString m_gpuDevice;

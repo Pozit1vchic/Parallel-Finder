@@ -1,3 +1,4 @@
+#include <BackendProbeProcess.h>
 // ParallelFinder — thin entry point (init → Main).
 #include <QGuiApplication>
 #include <QDebug>
@@ -119,11 +120,13 @@ int main(int argc, char* argv[])
     bool providerProbe = false;
     bool diagnostic = false;
     for (int i = 1; i < argc; ++i) {
-        providerProbe |= std::strcmp(argv[i], "--pf-provider-probe") == 0;
+        providerProbe |= std::strcmp(argv[i], "--pf-provider-probe") == 0
+            || std::strcmp(argv[i], "--pf-backend-probe") == 0;
         diagnostic |= std::strcmp(argv[i], "--pf-smoke") == 0
             || std::strcmp(argv[i], "--pf-analysis-smoke") == 0
             || std::strcmp(argv[i], "--pf-ui-smoke") == 0;
-        diagnostic |= std::strcmp(argv[i], "--pf-update-healthcheck") == 0;
+        diagnostic |= std::strcmp(argv[i], "--pf-update-healthcheck") == 0
+            || std::strcmp(argv[i], "--pf-startup-profile") == 0;
     }
 #if defined(Q_OS_WIN)
     if (providerProbe)
@@ -217,6 +220,12 @@ int main(int argc, char* argv[])
         qputenv("PF_TRT_CACHE_PATH", QDir::toNativeSeparators(trtCache).toUtf8());
     }
 
+    if (app.arguments().contains(QStringLiteral("--pf-backend-probe"))) {
+        const auto json = pfui::backendProbeJson(pfgpu::probeBackends());
+        std::printf("PF_BACKENDS_JSON=%s\n", json.constData());
+        return 0;
+    }
+
     // Each child loads exactly one bundle. Never load another ORT DLL into a
     // GUI process with live sessions just to discover an installed provider.
     const auto probeIndex = app.arguments().indexOf(QStringLiteral("--pf-provider-probe"));
@@ -233,7 +242,8 @@ int main(int argc, char* argv[])
     }
 
     const bool windowDiagnostic = app.arguments().contains(QStringLiteral("--pf-ui-smoke"))
-        || app.arguments().contains(QStringLiteral("--pf-update-healthcheck"));
+        || app.arguments().contains(QStringLiteral("--pf-update-healthcheck"))
+        || app.arguments().contains(QStringLiteral("--pf-startup-profile"));
     if (diagnostic && !windowDiagnostic) publishGpuInfo();
     else {
         auto* info = pfui::AppInfo::instance();
@@ -310,6 +320,7 @@ int main(int argc, char* argv[])
     engine.addImportPath(QCoreApplication::applicationDirPath() + QStringLiteral("/qml"));
     // Load by URL: loadFromModule() needs the module's plugin registered,
     // which shared-Qt builds of static modules do not do automatically.
+    engine.rootContext()->setContextProperty("pfDeferWindowPresentation", true);
     engine.load(QUrl(QStringLiteral("qrc:/qt/qml/PfUi/qml/Main.qml")));
     if (qEnvironmentVariableIsSet("PF_DEBUG_STARTUP"))
         std::fprintf(stderr, "PF_STARTUP qml_ms=%lld\n", static_cast<long long>(startupTimer.elapsed()));
@@ -322,8 +333,19 @@ int main(int argc, char* argv[])
         desktopInstance->setWindow(qobject_cast<QQuickWindow*>(engine.rootObjects().first()));
 #endif
     if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
-        QObject::connect(window, &QQuickWindow::frameSwapped, &app, [] {
-            pfui::AppInfo::instance()->initializeBackendsAsync();
+        // Prepare the complete first scene before presenting the entrance.
+        // This keeps initial RHI/font/shader work outside the visible reveal.
+        window->setProperty("startupPresented", false);
+        window->setOpacity(0);
+        window->show();
+        QObject::connect(window,&QQuickWindow::frameSwapped,&app,[window] {
+            window->setProperty("startupPresented", true);
+            window->setOpacity(1);
+        },Qt::SingleShotConnection);
+        QObject::connect(window, &QQuickWindow::frameSwapped, &app, [args] {
+            if (args.contains("--pf-startup-profile") && args.contains("--pf-profile-local-probe"))
+                pfui::AppInfo::instance()->initializeBackendsAsync();
+            else pfui::AppInfo::instance()->initializeBackendsIsolated();
         }, Qt::SingleShotConnection);
     }
     if (qEnvironmentVariableIsSet("PF_DEBUG_STARTUP")) {
@@ -332,6 +354,44 @@ int main(int argc, char* argv[])
             std::fprintf(stderr, "PF_STARTUP first_frame_ms=%lld backend_pending=%d\n",
                 static_cast<long long>(startupTimer.elapsed()), pfui::AppInfo::instance()->backendInitializing() ? 1 : 0);
         }, Qt::SingleShotConnection);
+    }
+    if (args.contains(QStringLiteral("--pf-startup-profile"))) {
+        auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+        auto* settings = window->findChild<QObject*>("settingsDialog");
+        QTimer::singleShot(100,window,[window] { window->hide(); window->show(); window->requestUpdate(); });
+        struct StartupFrames { qint64 first=-1, last=-1, maxGap=0, maxHeartbeat=0, maxPreparation=0, lastHeartbeat=0; int frames=0; };
+        auto metrics=std::make_shared<StartupFrames>();
+        QObject::connect(window,&QQuickWindow::frameSwapped,&app,[metrics,startupTimer] {
+            const auto now=startupTimer.elapsed();
+            if(metrics->first<0) metrics->first=now;
+            // Measure active reveal frames, not time spent idle between dialogs.
+            if(metrics->last>=0 && now-metrics->last<250) metrics->maxGap=std::max(metrics->maxGap,now-metrics->last);
+            metrics->last=now; ++metrics->frames;
+        },Qt::QueuedConnection);
+        QTimer* heartbeat=new QTimer(&app); heartbeat->setTimerType(Qt::PreciseTimer); heartbeat->setInterval(10);
+        metrics->lastHeartbeat=startupTimer.elapsed();
+        QObject::connect(heartbeat,&QTimer::timeout,&app,[metrics,startupTimer] {
+            const auto now=startupTimer.elapsed();
+            if(metrics->first<0) metrics->maxPreparation=std::max(metrics->maxPreparation,now-metrics->lastHeartbeat);
+            else metrics->maxHeartbeat=std::max(metrics->maxHeartbeat,now-metrics->lastHeartbeat);
+            metrics->lastHeartbeat=now;
+        }); heartbeat->start();
+        QTimer::singleShot(250,settings,[settings]{QMetaObject::invokeMethod(settings,"open");});
+        QTimer::singleShot(1500,settings,[settings]{QMetaObject::invokeMethod(settings,"close");});
+        QTimer::singleShot(2000,settings,[settings]{QMetaObject::invokeMethod(settings,"open");});
+        QTimer::singleShot(3500,&app,[&app,metrics,settings,args]{
+            std::printf("PF_STARTUP_UI first_frame_ms=%lld frames=%d max_active_gap_ms=%lld max_heartbeat_ms=%lld settled=%d preparation_gap_ms=%lld\n",
+                static_cast<long long>(metrics->first),metrics->frames,static_cast<long long>(metrics->maxGap),static_cast<long long>(metrics->maxHeartbeat),
+                settings->property("opened").toBool() && settings->property("opacity").toDouble()>.99, static_cast<long long>(metrics->maxPreparation));
+#ifdef Q_OS_WIN
+            const bool guiOrtLoaded = GetModuleHandleW(L"onnxruntime.dll") != nullptr;
+            std::printf("PF_STARTUP_GUI_ORT_LOADED=%d\n",guiOrtLoaded ? 1 : 0);
+#else
+            const bool guiOrtLoaded = false;
+#endif
+            const bool runtimeIsolated = !guiOrtLoaded || args.contains("--pf-profile-local-probe");
+            app.exit(runtimeIsolated && metrics->frames>=8 && metrics->maxHeartbeat<250 && settings->property("opened").toBool() ? 0 : 4);
+        });
     }
     // Unlike --pf-smoke, exercise the shipped QML imports and actual renderer.
     if (args.contains(QStringLiteral("--pf-ui-smoke")) || args.contains(QStringLiteral("--pf-update-healthcheck"))) {

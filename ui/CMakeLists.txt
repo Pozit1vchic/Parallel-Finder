@@ -57,6 +57,7 @@ qt_add_qml_module(pfui
 # a pure-QML module generates no plugin, and AppInfo is registered manually
 # (AppInfo::registerQmlTypes) by the app/tests. See AppInfo.h.
 target_sources(pfui PRIVATE
+    src/BackendProbeProcess.cpp
     src/AppInfo.cpp
     src/AnalysisController.cpp
 )

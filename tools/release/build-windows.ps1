@@ -2,9 +2,9 @@ param(
     [string]$Toolchain = 'D:\msys2\ucrt64',
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-    [string]$ReleaseTag = '0.1.0-rc.18.4',
+    [string]$ReleaseTag = '0.1.0-rc.18.5',
     [string]$GitHubTag = '',
-    [string]$ReleaseNotes = 'docs/rc18.4-release-notes.md',
+    [string]$ReleaseNotes = 'docs/rc18.5-release-notes.md',
     [string]$SigningKey = (Join-Path $env:LOCALAPPDATA 'ParallelFinder/release-signing/update-ed25519-private.pem'),
     [switch]$KeepStaging,
     [switch]$SkipChecks

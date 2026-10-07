@@ -1,3 +1,4 @@
+#include "BackendProbeProcess.h"
 #include "AppInfo.h"
 #include "AnalysisController.h"
 #include <pfupdate/UpdateService.hpp>
@@ -78,11 +79,22 @@ void AppInfo::prepareBackendInitialization()
 
 void AppInfo::initializeBackendsAsync(std::function<pfgpu::BackendProbe()> probe)
 {
+    startBackendProbe([probe = std::move(probe)](std::stop_token) { return probe ? probe() : pfgpu::probeBackends(); });
+}
+
+void AppInfo::initializeBackendsIsolated()
+{
+    const auto executable = QCoreApplication::applicationFilePath();
+    startBackendProbe([executable](std::stop_token stop) { return probeBackendProcess(executable, stop); });
+}
+
+void AppInfo::startBackendProbe(std::function<pfgpu::BackendProbe(std::stop_token)> probe)
+{
     if (backendProbe_.joinable() || backendSnapshotReady_) return;
     prepareBackendInitialization();
     backendProbe_ = std::jthread([this, probe = std::move(probe)](std::stop_token stop) {
         pfgpu::BackendProbe result;
-        try { result = probe ? probe() : pfgpu::probeBackends(); }
+        try { result = probe(stop); }
         catch (const std::exception& error) { result.ortError = error.what(); }
         if (stop.stop_requested()) return;
         QMetaObject::invokeMethod(this, [this, result = std::move(result)] {

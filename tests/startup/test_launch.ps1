@@ -44,5 +44,10 @@ try {
     if (-not $line) { throw "Missing probe JSON: $($probe.Err)" }
     $data = $line.Substring('PF_PROVIDER_JSON='.Length) | ConvertFrom-Json
     if ($data.provider -ne 'cpu' -or -not $data.available) { throw 'CPU probe did not succeed' }
+    $backendProbe = Invoke-IsolatedApp '--pf-backend-probe'
+    $line = ($backendProbe.Out -split "`n" | Where-Object { $_ -like 'PF_BACKENDS_JSON=*' } | Select-Object -Last 1)
+    if (-not $line) { throw 'Missing isolated backend JSON' }
+    $data = $line.Substring('PF_BACKENDS_JSON='.Length) | ConvertFrom-Json
+    if ($data.schema -ne 1 -or !$data.loaded -or !($data.backends | Where-Object { $_.provider -eq 'cpu' -and $_.available })) { throw 'Backend worker did not succeed' }
     Write-Output 'PASS: duplicate desktop exits before Qt GUI; provider probe bypasses lock and needs no platform plugin.'
 } finally { $instance.Dispose() }

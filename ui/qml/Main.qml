@@ -12,7 +12,8 @@ ApplicationWindow {
     height: 860
     minimumWidth: 1100
     minimumHeight: 700
-    visible: true
+    property bool startupPresented: true
+    visible: typeof pfDeferWindowPresentation === "undefined" || !pfDeferWindowPresentation
     title: L10n.t("app.title") + " · " + AppInfo.version
     color: Theme.canvas
 
@@ -92,7 +93,7 @@ ApplicationWindow {
         layer.textureSize: Qt.size(Math.max(1, Math.ceil(width / 2)), Math.max(1, Math.ceil(height / 2)))
         layer.smooth: true
         layer.effect: MultiEffect { blurEnabled: true; blurMax: 12; blur: workspaceSurface.modalReveal; colorization: 0.6 * workspaceSurface.modalReveal; colorizationColor: "black" }
-        PfReveal { anchors.fill: parent; active: true; distance: 24
+        PfReveal { anchors.fill: parent; active: root.startupPresented; distance: 24
         ColumnLayout { anchors.fill: parent; spacing: 0
             TopBar { Layout.fillWidth: true; Layout.preferredHeight: Theme.topBarHeight; Layout.minimumHeight: Theme.topBarHeight; busy: Analysis.busy; onSettingsRequested: settingsDialog.open() }
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.hairline }

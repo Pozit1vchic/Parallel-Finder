@@ -2096,11 +2096,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     }
     if (const auto requested = pfgpu::parseProvider(providerChoice_.toStdString());
         requested.has_value() && *requested != pfgpu::Provider::Auto
-        && !pfgpu::isProviderAvailable(*requested)) {
-        const auto* status = pfgpu::findBackendStatus(*requested);
-        const QString reason = status && !status->reason.empty()
-            ? QStringLiteral(": ") + QString::fromStdString(status->reason)
-            : QString();
+        && !AppInfo::instance()->backendAvailable(QString::fromLatin1(pfgpu::providerName(*requested)))) {
+        const auto detail = AppInfo::instance()->backendReason(QString::fromLatin1(pfgpu::providerName(*requested)));
+        const QString reason = detail.isEmpty() ? QString() : QStringLiteral(": ") + detail;
         setProgress(0.0, QStringLiteral("Провайдер недоступен"), 0, 0);
         setStatus(QStringLiteral("Выбранный провайдер ")
                   + QString::fromLatin1(pfgpu::providerName(*requested))
