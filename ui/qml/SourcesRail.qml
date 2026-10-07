@@ -338,6 +338,7 @@ Rectangle {
                 width: parent.width
                 spacing: 7
                 PfButton {
+                    objectName: "sourcePrimaryAction"
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     Layout.preferredHeight: 42

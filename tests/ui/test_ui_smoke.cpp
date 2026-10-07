@@ -68,6 +68,8 @@ private slots:
     void exportColorOrderControlsFileNumbering();
     void dialogFramesAdvanceDuringRealEventLoop();
     void modalCloseKeepsNativeBordersAndFades();
+    void appearanceRefreshesBackdropBeforeClosing();
+    void settingsDragAndScrollKeepRendering();
     void finiteAnimationsRespectReducedMotion();
     void idleWorkspaceStopsRequestingFrames();
     void resultArrowKeysWorkAfterSourceButtonFocus();
@@ -680,6 +682,84 @@ void UiSmokeTests::exportColorOrderControlsFileNumbering()
     QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,1,colors), (std::vector<int>{1,0,2,3,4}));
     QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,0,{}), (std::vector<int>{4,3,2,1,0}));
     QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,1,{}), (std::vector<int>{0,1,2,3,4}));
+}
+
+void UiSmokeTests::settingsDragAndScrollKeepRendering()
+{
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    auto* window=loadWindow(engine); QVERIFY(window);
+    auto* popup=window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
+    auto* handle=window->findChild<QQuickItem*>("settingsDragArea"); QVERIFY(handle);
+    auto* flick=window->findChild<QQuickItem*>("settingsAnalysisFlick"); QVERIFY(flick);
+    window->findChild<QObject*>("settingsTabs")->setProperty("currentIndex",0);
+    QEventLoop loop;
+    const auto wait=[&](int ms) { QTimer::singleShot(ms,&loop,&QEventLoop::quit); loop.exec(); };
+    QMetaObject::invokeMethod(popup,"open"); wait(1500);
+    QElapsedTimer elapsed; elapsed.start();
+    qint64 last=-1,maxGap=0; int frames=0;
+    const auto connection=connect(window,&QQuickWindow::frameSwapped,&loop,[&] {
+        const auto now=elapsed.elapsed(); if(last>=0) maxGap=std::max(maxGap,now-last);
+        last=now; ++frames;
+    },Qt::QueuedConnection);
+    const auto start=handle->mapToScene(QPointF(80,20)).toPoint();
+    const auto originalX=popup->property("x").toDouble();
+    QTest::mousePress(window,Qt::LeftButton,Qt::NoModifier,start);
+    int step=0;
+    QTimer input; input.setTimerType(Qt::PreciseTimer); input.setInterval(8);
+    connect(&input,&QTimer::timeout,&loop,[&] { QTest::mouseMove(window,start+QPoint(++step,step/3),0); });
+    input.start(); wait(600); input.stop();
+    QTest::mouseRelease(window,Qt::LeftButton,Qt::NoModifier,start+QPoint(step,step/3));
+    wait(50);
+    QVERIFY(popup->property("x").toDouble()>originalX+20);
+    const auto dragFrames=frames; const auto dragGap=maxGap;
+    frames=0;last=-1;maxGap=0;
+    const auto point=flick->mapToScene(QPointF(5,300));
+    disconnect(&input,nullptr,&loop,nullptr); input.setInterval(24);
+    connect(&input,&QTimer::timeout,&loop,[&] {
+        QWheelEvent event(point,window->mapToGlobal(point.toPoint()),QPoint(),QPoint(0,-120),Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);
+        QCoreApplication::sendEvent(window,&event);
+    });
+    input.start(); wait(600); input.stop(); disconnect(connection);
+    qInfo("Settings input: drag=%d frames max_gap=%lld ms; scroll=%d frames max_gap=%lld ms",dragFrames,static_cast<long long>(dragGap),frames,static_cast<long long>(maxGap));
+    QVERIFY(flick->property("contentY").toDouble()>20);
+    QVERIFY(dragFrames>=20); QVERIFY(frames>=15);
+    QVERIFY(dragGap<100); QVERIFY(maxGap<100);
+}
+
+void UiSmokeTests::appearanceRefreshesBackdropBeforeClosing()
+{
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    auto* window=loadWindow(engine); QVERIFY(window);
+    auto* popup=window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
+    auto* button=window->findChild<QQuickItem*>("sourcePrimaryAction"); QVERIFY(button);
+    auto* refresh=window->findChild<QObject*>("modalBackdropRefresh"); QVERIFY(refresh);
+    QEventLoop loop;
+    const auto wait=[&](int milliseconds) { QTimer::singleShot(milliseconds,&loop,&QEventLoop::quit); loop.exec(); };
+    wait(1500);
+    QVERIFY(QMetaObject::invokeMethod(popup,"applyAccent",Q_ARG(QVariant,"orange")));
+    QVERIFY(QMetaObject::invokeMethod(popup,"open")); wait(650);
+    const auto sample=[&] {
+        const auto image=window->grabWindow();
+        const auto point=button->mapToScene(QPointF(25,button->height()/2))*window->devicePixelRatio();
+        return image.pixelColor(point.toPoint());
+    };
+    const auto before=sample();
+    QVERIFY(before.red()>before.blue());
+    QVERIFY(QMetaObject::invokeMethod(popup,"applyAccent",Q_ARG(QVariant,"blue")));
+    wait(250);
+    QVERIFY(popup->property("visible").toBool());
+    QVERIFY(!refresh->property("running").toBool());
+    const auto after=sample();
+    qInfo()<<"Backdrop color while settings remain open:"<<before<<after;
+    QVERIFY2(after.blue()>after.red(),"Background must show the newly selected blue accent before closing settings");
+    QVERIFY(after!=before);
+    wait(150); // drain the explicit screenshot readback before measuring idle
+    QSignalSpy frames(window,&QQuickWindow::frameSwapped); wait(350);
+    QVERIFY2(frames.count()<=3,qPrintable(QString("Appearance refresh must stop: %1 idle frames").arg(frames.count())));
+    const auto capture=qEnvironmentVariable("PF_UI_CAPTURE_DIR");
+    if(!capture.isEmpty()) { QDir().mkpath(capture); window->grabWindow().save(capture+"/live-accent-blue.png"); }
+    QVERIFY(QMetaObject::invokeMethod(popup,"applyAccent",Q_ARG(QVariant,"orange")));
+    wait(250);
 }
 
 void UiSmokeTests::modalCloseKeepsNativeBordersAndFades()

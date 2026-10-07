@@ -3,7 +3,9 @@ param(
     [ValidateRange(1, 10)][int]$Repeats = 3,
     [string]$ReportPath = '',
     [switch]$ProfileStartupUI,
-    [switch]$LocalProbeBaseline
+    [switch]$LocalProbeBaseline,
+    [string]$DiagnosticsDirectory = '',
+    [switch]$ForegroundProfile
 )
 $ErrorActionPreference = 'Stop'
 $records = @()
@@ -12,6 +14,7 @@ for ($iteration = 1; $iteration -le $Repeats; ++$iteration) {
     $psi.FileName = (Resolve-Path -LiteralPath $Exe).Path
     $psi.Arguments = if ($ProfileStartupUI) { '--pf-startup-profile' } else { '--pf-ui-smoke' }
     if ($ProfileStartupUI -and $LocalProbeBaseline) { $psi.Arguments += ' --pf-profile-local-probe' }
+    if ($ProfileStartupUI -and $ForegroundProfile) { $psi.Arguments += ' --pf-profile-foreground' }
     $psi.UseShellExecute = $false
     $psi.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
     $psi.RedirectStandardOutput = $true
@@ -19,6 +22,10 @@ for ($iteration = 1; $iteration -le $Repeats; ++$iteration) {
     $psi.EnvironmentVariables['QT_QPA_PLATFORM'] = 'windows'
     $psi.EnvironmentVariables['PF_DEBUG_STARTUP'] = '1'
     $psi.EnvironmentVariables['PF_UI_SMOKE_WAIT_BACKEND'] = '1'
+    if ($DiagnosticsDirectory) {
+        $psi.EnvironmentVariables['QSG_INFO'] = '1'
+        $psi.EnvironmentVariables['QT_FORCE_STDERR_LOGGING'] = '1'
+    }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $psi
     try {
@@ -35,6 +42,11 @@ for ($iteration = 1; $iteration -le $Repeats; ++$iteration) {
         $timer.Stop()
         $stdout = $stdoutTask.GetAwaiter().GetResult()
         $stderr = $stderrTask.GetAwaiter().GetResult()
+        if ($DiagnosticsDirectory) {
+            New-Item -ItemType Directory -Force -Path $DiagnosticsDirectory | Out-Null
+            [IO.File]::WriteAllText((Join-Path $DiagnosticsDirectory "startup-$iteration-stdout.txt"), $stdout)
+            [IO.File]::WriteAllText((Join-Path $DiagnosticsDirectory "startup-$iteration-stderr.txt"), $stderr)
+        }
         if ($process.ExitCode -ne 0 -or $stdout -notmatch $(if ($ProfileStartupUI) { 'PF_STARTUP_UI' } else { 'window rendered' })) {
             throw "Startup smoke failed (exit $($process.ExitCode)): $stdout $stderr"
         }
@@ -47,6 +59,7 @@ for ($iteration = 1; $iteration -le $Repeats; ++$iteration) {
         $records += [pscustomobject]@{
             iteration = $iteration
             localProbeBaseline = [bool]$LocalProbeBaseline
+            foregroundProfile = [bool]$ForegroundProfile
             changedMotionFrames = $(if ($motion.Success) { [long]$motion.Groups[1].Value } else { $null })
             sampledMotionFrames = $(if ($motion.Success) { [long]$motion.Groups[2].Value } else { $null })
             preparationGapMs = $(if ($preparation.Success) { [long]$preparation.Groups[1].Value } else { $null })

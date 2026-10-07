@@ -85,8 +85,8 @@ ApplicationWindow {
     Shortcut { sequence: "Down"; enabled: root.resultKeysEnabled(); onActivated: resultsRail.selectNext() }
 
     Rectangle { id: workspaceSurface; objectName: "workspaceSurface"; anchors.fill: parent; color: Theme.canvas
-        PfReveal { objectName: "workspaceReveal"; anchors.fill: parent; active: root.startupPresented; distance: 24
-        ColumnLayout { anchors.fill: parent; spacing: 0
+        PfReveal { id: workspaceReveal; objectName: "workspaceReveal"; anchors.fill: parent; active: root.startupPresented; distance: 24
+        ColumnLayout { id: workspaceContents; anchors.fill: parent; spacing: 0
             TopBar { Layout.fillWidth: true; Layout.preferredHeight: Theme.topBarHeight; Layout.minimumHeight: Theme.topBarHeight; busy: Analysis.busy; onSettingsRequested: settingsDialog.open() }
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.hairline }
             Item {
@@ -144,11 +144,42 @@ ApplicationWindow {
         id: backdropSnapshot
         objectName: "modalBackdropSnapshot"
         anchors.fill: parent
-        sourceItem: modalBackdrop.visible ? workspaceSurface : null
+        // Capture the contents rather than their entrance transform/opacity.
+        sourceItem: modalBackdrop.visible ? workspaceContents : null
         live: false
         hideSource: false
         visible: false
         textureSize: Qt.size(root.width, root.height)
+    }
+    // Theme controls animate their colors for a short, finite period. Refresh
+    // through that period, then leave the backdrop cached while the dialog idles.
+    Timer {
+        id: backdropRefresh
+        objectName: "modalBackdropRefresh"
+        property int framesRemaining: 0
+        interval: 16
+        repeat: true
+        function refreshAppearance() {
+            if (!modalBackdrop.visible) return
+            framesRemaining = Math.ceil(Theme.motionDuration / interval) + 2
+            restart()
+            backdropSnapshot.scheduleUpdate()
+        }
+        onTriggered: {
+            if (!modalBackdrop.visible || --framesRemaining <= 0) stop()
+            else backdropSnapshot.scheduleUpdate()
+        }
+    }
+    Connections {
+        target: Theme
+        function onAccentChanged() { backdropRefresh.refreshAppearance() }
+        function onFontFamilyChanged() { backdropRefresh.refreshAppearance() }
+        function onSurfaceOpacityChanged() { backdropRefresh.refreshAppearance() }
+        function onReducedMotionChanged() { backdropRefresh.refreshAppearance() }
+    }
+    Connections {
+        target: L10n
+        function onLanguageChanged() { backdropRefresh.refreshAppearance() }
     }
     MultiEffect {
         id: modalBackdrop
@@ -169,6 +200,10 @@ ApplicationWindow {
         visible: opacity > 0 && GraphicsInfo.api !== GraphicsInfo.Software
         // Cache the finished blur; transition frames composite one texture.
         layer.enabled: visible
+        onVisibleChanged: {
+            if (visible) Qt.callLater(function() { backdropSnapshot.scheduleUpdate() })
+            else backdropRefresh.stop()
+        }
         onActiveChanged: if (active) backdropSnapshot.scheduleUpdate()
         onWarmingChanged: {
             if (warming) { prepared = false; backdropSnapshot.scheduleUpdate() }

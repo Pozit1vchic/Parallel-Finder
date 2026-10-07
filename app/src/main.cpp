@@ -359,7 +359,10 @@ int main(int argc, char* argv[])
     if (args.contains(QStringLiteral("--pf-startup-profile"))) {
         auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
         auto* settings = window->findChild<QObject*>("settingsDialog");
-        QTimer::singleShot(100,window,[window] { window->hide(); window->show(); window->requestUpdate(); });
+        QTimer::singleShot(100,window,[window,args] {
+            window->hide(); window->show(); window->requestUpdate();
+            if (args.contains("--pf-profile-foreground")) { window->raise(); window->requestActivate(); }
+        });
         struct StartupFrames { qint64 first=-1, last=-1, maxGap=0, maxHeartbeat=0, maxPreparation=0, lastHeartbeat=0; int frames=0, motionSamples=0, motionChanges=0; double lastScale=-1; bool previousMotion=false; };
         auto metrics=std::make_shared<StartupFrames>();
         auto* reveal=window->findChild<QObject*>("workspaceReveal");
