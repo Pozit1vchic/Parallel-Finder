@@ -94,7 +94,7 @@ void UpdateService::chooseRelease() {
         fetch(assets["update.json.sig"],64,[this,assets,sizes,version](const QByteArray& signature) {
             signature_=signature;QString error;manifest_=verifyManifest(manifestBytes_,signature_,options_.publicKey,error);
             if(!manifest_){transition("error",error);return;}
-            if(manifest_->version!=version || (channel_=="stable" && manifest_->channel!="stable") || !assets.contains(manifest_->asset) || sizes[manifest_->asset]!=manifest_->size){manifest_.reset();transition("error","Signed metadata does not match release");return;}
+            if(compareVersions(manifest_->version,version).value_or(-1)!=0 || (channel_=="stable" && manifest_->channel!="stable") || !assets.contains(manifest_->asset) || sizes[manifest_->asset]!=manifest_->size){manifest_.reset();transition("error","Signed metadata does not match release");return;}
             assetUrl_=assets[manifest_->asset];visible_=true;transition("available");if(automaticDownload_)download();
         });
     });

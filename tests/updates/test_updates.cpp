@@ -106,6 +106,7 @@ private slots:
     void versions();
     void signaturesAndPaths();
     void foundAndDownloaded();
+    void prefixedReleaseTag();
     void noUpdates();
     void networkError();
     void damagedDownload();
@@ -147,6 +148,7 @@ void UpdateTests::foundAndDownloaded() {
     service.download();QTRY_COMPARE(service.state(),QString("ready"));QCOMPARE(service.receivedBytes(),qint64(f.zip.size()));QCOMPARE(service.progress(),1.0);QCOMPARE(quit.size(),0);
 }
 void UpdateTests::noUpdates(){Fixture f;Server server;server.body["/releases"]="[]";pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("upToDate"));}
+void UpdateTests::prefixedReleaseTag(){Fixture f;Server server;server.release(f,"v1.0.0");pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("available"));service.download();QTRY_COMPARE(service.state(),QString("ready"));server.release(f,"v1.0.1");service.check();QTRY_COMPARE(service.state(),QString("error"));QVERIFY(service.error().contains("does not match"));}
 void UpdateTests::networkError(){Fixture f;Server server;pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("error"));QVERIFY(!service.error().isEmpty());}
 void UpdateTests::damagedDownload(){Fixture f;Server server;server.release(f);auto& bytes=server.body['/'+f.manifest.asset.toUtf8()];bytes[bytes.size()/2]^=1;pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("available"));service.download();QTRY_COMPARE(service.state(),QString("error"));QVERIFY(service.error().contains("integrity"));}
 void UpdateTests::cancellation(){Fixture f;Server server;server.release(f);server.partial.insert('/'+f.manifest.asset.toUtf8());pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("available"));service.download();QCOMPARE(service.state(),QString("downloading"));QTRY_VERIFY(service.receivedBytes()>0);QVERIFY(service.progress()>0 && service.progress()<1);QVERIFY(service.bytesPerSecond()>0);service.cancel();QTest::qWait(50);QCOMPARE(service.state(),QString("cancelled"));QVERIFY(QDir(f.directory.path()+"/cache").entryList({"*.zip"},QDir::Files).isEmpty());}
