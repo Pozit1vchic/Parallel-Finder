@@ -34,6 +34,7 @@ add_executable(pf_tests
     core/test_thumbnail_cache.cpp
     core/test_exporters.cpp
     core/test_settings_store.cpp
+    core/test_result_categories.cpp
     core/test_model_store.cpp
     core/test_provider_store.cpp
     core/test_cut_service.cpp

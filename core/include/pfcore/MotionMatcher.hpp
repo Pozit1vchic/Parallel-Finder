@@ -3,8 +3,16 @@
 #include <cstddef>
 #include <string>
 #include <vector>
+#include <functional>
 
 namespace pfcore {
+
+enum class MotionSearchStage { Prepare, Footage, Retrieval, Compare, Select, Recovery };
+struct MotionSearchControl {
+    std::function<bool()> cancelled;
+    // Called only on the search thread, never concurrently from comparison workers.
+    std::function<void(MotionSearchStage, std::size_t, std::size_t)> progress;
+};
 
 struct Keypoint {
     double x = 0.0;
@@ -101,7 +109,7 @@ struct MotionMatcherParams {
     // Additional discovery may require observable body motion. Existing
     // admitted head movements keep the ordinary policy in the primary pass.
     bool bodyMotionOnly = false;
-    // Zero: up to four workers on large exact-comparison sets. One forces
+    // Zero: use available CPU workers on large exact-comparison sets. One forces
     // serial execution for reproducible A/B checks. Retrieval and selection
     // stay serial; no candidate or sample is dropped by this setting.
     std::size_t maxComparisonThreads = 0;
@@ -236,7 +244,8 @@ public:
 
     // All-pairs search. Windows are never consumed: one window may participate
     // in several independent results, as required by the product semantics.
-    std::vector<MotionMatch> findAllPairs(const std::vector<MotionWindow>& windows) const;
+    std::vector<MotionMatch> findAllPairs(const std::vector<MotionWindow>& windows,
+                                        const MotionSearchControl& control = {}) const;
 
 private:
     MotionMatcherParams params_;

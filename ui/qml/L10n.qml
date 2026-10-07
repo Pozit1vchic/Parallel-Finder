@@ -7,6 +7,41 @@ QtObject {
 
     readonly property var _dict: ({
         ru: {
+            "results.allColors": "Все цвета",
+            "sources.identityExcluded": "Этот источник не вошёл в подтверждённую группу одного человека.",
+            "results.allClasses": "Все типы движений",
+            "results.classification": "Классификация",
+            "results.allCategories": "Все группы",
+            "results.untagged": "Без группы",
+            "results.category": "Группа",
+            "results.tagSelection": "Цвет и группа",
+            "results.categoryName": "Название группы",
+            "results.categoryColor": "Цвет группы",
+            "results.removeTag": "Убрать группу",
+            "results.applyTag": "Применить к выбранным",
+            "colors.orange": "Красный",
+            "colors.blue": "Синий",
+            "colors.green": "Зелёный",
+            "colors.purple": "Фиолетовый",
+            "colors.gold": "Золотой",
+            "class.head_pose": "Положение головы",
+            "class.body_pose": "Положение тела",
+            "class.unknown": "Не определено",
+            "class.push": "Толчок",
+            "class.pull": "Тяга",
+            "class.raise": "Подъём",
+            "class.lower": "Опускание",
+            "class.turn": "Поворот",
+            "class.head_turn": "Поворот головы",
+            "class.step": "Шаг",
+            "class.wave": "Взмах",
+            "class.static": "Без движения",
+            "class.mixed": "Смешанное движение",
+            "class.left": "Влево",
+            "class.right": "Вправо",
+            "class.toward_camera": "К камере",
+            "class.away_from_camera": "От камеры",
+
             "updates.title": "Обновление Parallel Finder",
             "updates.channel": "Канал обновлений",
             "updates.autoCheck": "Проверять обновления при запуске",
@@ -213,9 +248,9 @@ QtObject {
             "settings.cachePlaceholder": "%LocalAppData%/ParallelFinder/cache",
             "settings.choose": "Выбрать",
             "settings.chooseCache": "Выберите папку кэша",
-            "settings.processingThreads": "Потоки ONNX Runtime (0 — авто)",
-            "settings.processingThreadsHint": "Количество потоков ONNX Runtime. Ноль оставляет безопасный выбор движку.",
-            "settings.systemHint": "Лимит кэша относится к диску; число потоков применяется к обработке модели после следующего запуска.",
+            "settings.processingThreads": "Потоки CPU (0 — авто)",
+            "settings.processingThreadsHint": "Потоки для обработки модели и поиска параллелей. Ноль выбирает число автоматически.",
+            "settings.systemHint": "Лимит кэша относится к диску; настройка потоков применяется при следующем анализе с учётом возможностей каждого этапа.",
             "settings.reset": "Сбросить параметры анализа",
             "settings.advancedHint": "Точные слайдеры доступны на главной панели в раскрываемом блоке.",
             "settings.openAdvanced": "Открыть продвинутые настройки",
@@ -270,6 +305,41 @@ QtObject {
             "export.failed": "Экспорт не выполнен"
         },
         en: {
+            "results.allColors": "All colors",
+            "sources.identityExcluded": "This source was excluded from the verified single-person group.",
+            "results.allClasses": "All movement types",
+            "results.classification": "Classification",
+            "results.allCategories": "All groups",
+            "results.untagged": "Untagged",
+            "results.category": "Group",
+            "results.tagSelection": "Color and group",
+            "results.categoryName": "Group name",
+            "results.categoryColor": "Group color",
+            "results.removeTag": "Remove group",
+            "results.applyTag": "Apply to selection",
+            "colors.orange": "Red",
+            "colors.blue": "Blue",
+            "colors.green": "Green",
+            "colors.purple": "Purple",
+            "colors.gold": "Gold",
+            "class.head_pose": "Head position",
+            "class.body_pose": "Body position",
+            "class.unknown": "Unknown",
+            "class.push": "Push",
+            "class.pull": "Pull",
+            "class.raise": "Raise",
+            "class.lower": "Lower",
+            "class.turn": "Turn",
+            "class.head_turn": "Head turn",
+            "class.step": "Step",
+            "class.wave": "Wave",
+            "class.static": "Still",
+            "class.mixed": "Mixed movement",
+            "class.left": "Left",
+            "class.right": "Right",
+            "class.toward_camera": "Toward camera",
+            "class.away_from_camera": "Away from camera",
+
             "updates.title": "Update Parallel Finder",
             "updates.channel": "Update channel",
             "updates.autoCheck": "Check for updates at startup",
@@ -468,9 +538,9 @@ QtObject {
             "settings.cachePlaceholder": "%LocalAppData%/ParallelFinder/cache",
             "settings.choose": "Choose",
             "settings.chooseCache": "Choose cache folder",
-            "settings.processingThreads": "ONNX Runtime threads (0 — auto)",
-            "settings.processingThreadsHint": "Number of ONNX Runtime threads. Zero lets the engine choose a safe default.",
-            "settings.systemHint": "The cache limit applies to disk; the thread count is used by the model on the next run.",
+            "settings.processingThreads": "CPU threads (0 — auto)",
+            "settings.processingThreadsHint": "Threads for model processing and parallel search. Zero selects the count automatically.",
+            "settings.systemHint": "The cache limit applies to disk; thread settings apply on the next analysis within each stage’s limits.",
             "settings.reset": "Reset analysis parameters",
             "settings.advancedHint": "Precise sliders are available in the expandable section on the main workspace.",
             "settings.openAdvanced": "Open advanced settings",
@@ -523,6 +593,11 @@ QtObject {
         }
     })
 
+    function classificationLabel(key) {
+        const parts = String(key || "unknown").split("/")
+        return parts.map(function(part) { return t("class." + (part || "unknown")) }).join(" · ")
+    }
+
     function matchLabel(record) {
         if (record && record.matchType === "pose")
             return t(record.headOnlyComparison ? "results.headSimilarity" : "results.poseSimilarity")
@@ -541,6 +616,14 @@ QtObject {
         const text = String(value || "")
         if (language !== "en") return text
         const exact = {
+            "Подготавливаем поиск параллелей": "Preparing parallel search",
+            "Исключаем одинаковые фрагменты": "Removing copied footage",
+            "Ищем похожие движения": "Finding similar movements",
+            "Сравниваем найденные движения": "Comparing candidate movements",
+            "Выбираем уникальные параллели": "Selecting unique parallels",
+            "Ищем дополнительные параллели": "Finding additional parallels",
+            "Подготавливаем результаты": "Preparing results",
+
             "Открываем видео…": "Opening video…",
             "Открываем файлы": "Opening files",
             "Файлы готовы": "Files ready",
@@ -569,6 +652,9 @@ QtObject {
             "Добавьте хотя бы одно видео для анализа": "Add at least one video to analyze"
         }
         if (exact[text] !== undefined) return exact[text]
+        const separator = text.indexOf(" · ")
+        if (separator > 0 && exact[text.slice(0, separator)] !== undefined)
+            return exact[text.slice(0, separator)] + text.slice(separator)
         if (text.indexOf("Повторный поиск завершён · ") === 0) return "Repeat search complete · " + text.slice("Повторный поиск завершён · ".length)
         if (text.indexOf("Не удалось открыть файл: ") === 0) return "Could not open file: " + text.slice("Не удалось открыть файл: ".length)
         if (text.indexOf("Анализ остановлен: ") === 0) return "Analysis stopped: " + text.slice("Анализ остановлен: ".length)

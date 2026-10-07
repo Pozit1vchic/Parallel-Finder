@@ -3,6 +3,7 @@ import QtQuick.Controls.Basic
 import QtQuick.Effects
 import QtQuick.Layouts
 import PfUi
+import PfUiBridge
 
 Rectangle {
     id: root
@@ -14,7 +15,23 @@ Rectangle {
     property string sortCriterion: "movement"
     signal exportSelectionChanged(var rows)
     signal resultSelected(int index)
-    signal exportRequested()
+    signal exportRequested(var rows)
+    property string classificationFilter: ""
+    property string categoryFilter: ""
+    property string colorFilter: ""
+    readonly property var classificationKeys: [...new Set((results || []).map(function(item) { return String(item.classification || "") }).filter(function(key) { return key.length > 0 }))].sort()
+    readonly property var categoryKeys: [...new Set((results || []).map(function(item) { return String(item.category || "") }).filter(function(key) { return key.length > 0 }))].sort()
+    readonly property var groupColors: ["", "#D56565", "#638EDB", "#7C9885", "#AA83D4", "#D5AD63"]
+    function exportRows() {
+        const rows = {}
+        for (const item of visibleResults) if (selectedRows[item.id] === true) rows[item.id] = true
+        return rows
+    }
+    function applyCategory(name, color) {
+        const ids = selectedCount > 0 ? visibleResults.filter(function(item) { return selectedRows[item.id] === true }).map(function(item) { return Number(item.id) }) : [selectedIndex]
+        // Snapshot IDs before category edits rebuild the filtered list.
+        for (const id of ids) if (id >= 0) Analysis.setResultCategory(id, name, color)
+    }
     implicitWidth: Theme.sidePanelWidth
     color: Theme.rail
     radius: Theme.radiusCard
@@ -63,8 +80,13 @@ Rectangle {
 
     function rebuild() {
         const next = []
-        for (const item of (results || []))
+        for (const item of (results || [])) {
+            if (classificationFilter && String(item.classification || "") !== classificationFilter) continue
+            if (categoryFilter === "__untagged__" && item.category) continue
+            if (categoryFilter && categoryFilter !== "__untagged__" && item.category !== categoryFilter) continue
+            if (colorFilter && String(item.categoryColor || "").toLowerCase() !== colorFilter.toLowerCase()) continue
             next.push(item)
+        }
         next.sort(compareValues)
         visibleResults = next
         Qt.callLater(revealSelection)
@@ -95,6 +117,11 @@ Rectangle {
 
     onSelectedIndexChanged: revealSelection()
     onResultsChanged: rebuild()
+    onClassificationFilterChanged: rebuild()
+    onCategoryFilterChanged: rebuild()
+    onColorFilterChanged: rebuild()
+    onClassificationKeysChanged: if (classificationFilter && classificationKeys.indexOf(classificationFilter) < 0) classificationFilter = ""
+    onCategoryKeysChanged: if (categoryFilter && categoryFilter !== "__untagged__" && categoryKeys.indexOf(categoryFilter) < 0) categoryFilter = ""
     onSortDescendingChanged: rebuild()
     onSortCriterionChanged: rebuild()
     Component.onCompleted: rebuild()
@@ -102,11 +129,22 @@ Rectangle {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 16
-        spacing: 12
+        spacing: 8
 
+        Flickable {
+            id: controlsFlick
+            objectName: "resultControlsFlick"
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(controlsColumn.implicitHeight, Math.max(120,root.height-180))
+            contentWidth: width; contentHeight: controlsColumn.implicitHeight; clip: true
+            onContentHeightChanged: if (categoryEditor.expanded) contentY = Math.max(0,contentHeight-height)
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ColumnLayout {
+                id: controlsColumn; width: parent.width; spacing: 8
         RowLayout {
             Layout.fillWidth: true
-            visible: root.visibleResults.length > 0
+            visible: root.results.length > 0
             spacing: 6
             PfButton { objectName: "selectAllResultsButton"; Layout.fillWidth: true; quiet: true; enabled: root.selectedCount < root.visibleResults.length; text: L10n.t("results.selectAll"); onClicked: root.selectAll() }
             PfButton { objectName: "clearResultsSelectionButton"; Layout.fillWidth: true; quiet: true; enabled: root.selectedCount > 0; text: L10n.t("results.clearSelection"); onClicked: root.clearSelection() }
@@ -138,8 +176,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
-            Layout.preferredHeight: root.visibleResults.length > 0 ? 28 : 0
-            visible: root.visibleResults.length > 0
+            Layout.preferredHeight: root.results.length > 0 ? 28 : 0
+            visible: root.results.length > 0
             spacing: 6
             PfIconButton {
                 Layout.preferredWidth: 28
@@ -164,14 +202,14 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: root.visibleResults.length > 0 ? 1 : 0
-            visible: root.visibleResults.length > 0
+            Layout.preferredHeight: root.results.length > 0 ? 1 : 0
+            visible: root.results.length > 0
             color: Theme.hairline
         }
 
         Text {
             Layout.fillWidth: true
-            visible: root.visibleResults.length > 0
+            visible: root.results.length > 0
             text: L10n.t("results.sortBy")
             font.family: Theme.fontFamily
             font.pixelSize: 10
@@ -190,7 +228,7 @@ Rectangle {
                 event.accepted = true
             }
             Layout.fillWidth: true
-            visible: root.visibleResults.length > 0
+            visible: root.results.length > 0
             Accessible.name: L10n.t("results.sortBy")
             model: [L10n.t("results.scoreHigh"), L10n.t("results.scoreLow"),
                     L10n.t("results.sceneHigh"), L10n.t("results.sceneLow"),
@@ -204,13 +242,68 @@ Rectangle {
                 resultList.forceActiveFocus()
             }
         }
+        RowLayout {
+            Layout.fillWidth: true; visible: root.results.length > 0; spacing: 6
+            PfComboBox {
+                objectName: "classificationFilterCombo"
+                Layout.fillWidth: true; Layout.minimumWidth: 0
+                model: [L10n.t("results.allClasses")].concat(root.classificationKeys.map(L10n.classificationLabel))
+                currentIndex: Math.max(0,root.classificationKeys.indexOf(root.classificationFilter)+1)
+                Accessible.name: L10n.t("results.classification")
+                onActivated: function(index) { root.classificationFilter = index > 0 ? root.classificationKeys[index-1] : "" }
+            }
+        }
+        PfComboBox {
+            objectName: "categoryFilterCombo"
+            Layout.fillWidth: true; visible: root.results.length > 0
+            model: [L10n.t("results.allCategories"),L10n.t("results.untagged")].concat(root.categoryKeys)
+            currentIndex: root.categoryFilter === "__untagged__" ? 1 : root.categoryFilter ? Math.max(0,root.categoryKeys.indexOf(root.categoryFilter)+2) : 0
+            Accessible.name: L10n.t("results.category")
+            onActivated: function(index) { root.categoryFilter = index === 1 ? "__untagged__" : index > 1 ? root.categoryKeys[index-2] : "" }
+        }
+        PfComboBox {
+            objectName: "colorFilterCombo"
+            Layout.fillWidth: true; visible: root.results.length > 0
+            model: [L10n.t("results.allColors"),L10n.t("colors.orange"),L10n.t("colors.blue"),L10n.t("colors.green"),L10n.t("colors.purple"),L10n.t("colors.gold")]
+            currentIndex: Math.max(0,root.groupColors.indexOf(root.colorFilter))
+            Accessible.name: L10n.t("results.categoryColor")
+            onActivated: function(index) { root.colorFilter = root.groupColors[index] }
+        }
+        CollapsibleSection {
+            id: categoryEditor
+            objectName: "resultCategoryEditor"
+            Layout.fillWidth: true; visible: root.results.length > 0
+            title: L10n.t("results.tagSelection")
+            onToggled: function(value) {
+                expanded = value
+                if (value) Qt.callLater(function() { controlsFlick.contentY = Math.max(0,controlsFlick.contentHeight-controlsFlick.height) })
+            }
+            Column {
+                width: parent.width; spacing: 6
+                PfTextField { id: categoryName; width: parent.width; placeholderText: L10n.t("results.categoryName"); maximumLength: 64; Accessible.name: placeholderText }
+                PfComboBox {
+                    id: categoryColor; objectName: "categoryColorCombo"; width: parent.width
+                    model: [L10n.t("results.removeTag"),L10n.t("colors.orange"),L10n.t("colors.blue"),L10n.t("colors.green"),L10n.t("colors.purple"),L10n.t("colors.gold")]
+                    currentIndex: 1
+                    Accessible.name: L10n.t("results.categoryColor")
+                }
+                PfButton {
+                    objectName: "applyCategoryButton"; width: parent.width; text: L10n.t("results.applyTag")
+                    enabled: !Analysis.busy && (root.selectedCount > 0 || root.selectedIndex >= 0)
+                    onClicked: root.applyCategory(categoryColor.currentIndex === 0 ? "" : categoryName.text.trim() || categoryColor.currentText, root.groupColors[categoryColor.currentIndex])
+                }
+            }
+        }
         PfButton {
             Layout.fillWidth: true
-            visible: root.visibleResults.length > 0
+            visible: root.results.length > 0
             text: L10n.t("results.export") + (root.selectedCount > 0 ? " · " + root.selectedCount : "")
             enabled: root.selectedCount > 0
             primary: enabled
-            onClicked: root.exportRequested()
+            onClicked: root.exportRequested(root.exportRows())
+        }
+
+            }
         }
 
         Item {
@@ -267,8 +360,8 @@ Rectangle {
                 Behavior on border.color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
                 Rectangle {
                     x: 0; y: 14; width: 2; height: parent.height - 28; radius: 1
-                    color: Theme.accent
-                    opacity: Number(modelData.id) === root.selectedIndex ? 1 : 0
+                    color: modelData.categoryColor || Theme.accent
+                    opacity: modelData.category ? 1 : Number(modelData.id) === root.selectedIndex ? 1 : 0
                     Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration } }
                 }
                 Accessible.name: L10n.matchLabel(modelData) + " " + Math.round(root.movementSimilarity(modelData) * 100) + "%"
@@ -319,6 +412,15 @@ Rectangle {
                             color: Theme.sage
                             font.pixelSize: 10
                             elide: Text.ElideRight
+                        }
+                        Text {
+                            width: parent.width; font.family: Theme.fontFamily; font.pixelSize: 10
+                            text: L10n.classificationLabel(String(modelData.classification || ""))
+                            color: Theme.textSecondary; elide: Text.ElideRight
+                        }
+                        Text {
+                            visible: !!modelData.category; width: parent.width; font.family: Theme.fontFamily; font.pixelSize: 10
+                            text: "●  " + (modelData.category || ""); color: modelData.categoryColor || Theme.accent; elide: Text.ElideRight
                         }
                         Text {
                             font.family: Theme.fontFamily

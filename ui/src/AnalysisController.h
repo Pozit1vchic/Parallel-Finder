@@ -25,6 +25,7 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(int matchCount READ matchCount NOTIFY summaryChanged)
     Q_PROPERTY(QVariantMap sourceSummaries READ sourceSummaries NOTIFY summaryChanged)
     Q_PROPERTY(QVariantList results READ results NOTIFY resultsChanged)
+    Q_PROPERTY(int resultCategoryRevision READ resultCategoryRevision NOTIFY resultCategoriesChanged)
     Q_PROPERTY(double progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(QString progressStage READ progressStage NOTIFY progressChanged)
     Q_PROPERTY(qlonglong processedFrames READ processedFrames NOTIFY progressChanged)
@@ -75,6 +76,7 @@ public:
     QVariantMap sourceSummaries() const { return sourceSummaries_; }
     Q_INVOKABLE QVariantMap summaryForSource(const QString& path) const;
     QVariantList results() const { return results_; }
+    int resultCategoryRevision() const { return resultCategoryRevision_; }
     double progress() const noexcept { return progress_; }
     QString progressStage() const { return progressStage_; }
     qlonglong processedFrames() const noexcept { return processedFrames_; }
@@ -154,10 +156,12 @@ public:
     Q_INVOKABLE QStringList filesInFolder(const QString& folder) const;
     Q_INVOKABLE void analyzeFiles(const QStringList& paths);
     Q_INVOKABLE void stopAnalysis();
+    Q_INVOKABLE void setResultCategory(int id, const QString& name, const QString& color);
 
 signals:
     void summaryChanged();
     void resultsChanged();
+    void resultCategoriesChanged();
     void progressChanged();
     void statusChanged();
     void busyChanged();
@@ -186,6 +190,7 @@ private:
     int matchCount_ = 0;
     QVariantMap sourceSummaries_;
     QVariantList results_;
+    int resultCategoryRevision_ = 0;
     std::vector<pfcore::MotionMatch> matches_;
     double sourceFps_ = 0.0;
     QString status_;

@@ -42,6 +42,8 @@ private slots:
     void appearancePersistsAndRejectsMissingFonts();
     void resultNavigationStopsAtEnds();
     void sourcesLiveInsideDropAreaAboveActions();
+    void sourceWheelDoesNotMoveSettingsRail();
+    void resultGroupsFilterAndExportOnlyVisibleSelection();
     void finiteAnimationsRespectReducedMotion();
     void idleWorkspaceStopsRequestingFrames();
     void resultArrowKeysWorkAfterSourceButtonFocus();
@@ -422,6 +424,75 @@ void UiSmokeTests::sourcesLiveInsideDropAreaAboveActions()
     QVERIFY(remove->isEnabled());
     sources->setProperty("sourceFiles", QStringList{});
     QVERIFY(!remove->isEnabled()); QVERIFY(!clear->isEnabled());
+}
+
+void UiSmokeTests::sourceWheelDoesNotMoveSettingsRail()
+{
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;
+    auto* window=loadWindow(engine);QVERIFY(window);
+    auto* sources=window->findChild<QObject*>("sourcesRail");
+    QStringList files;for(int i=0;i<30;++i)files<<QString("D:/source-%1.mp4").arg(i);
+    sources->setProperty("sourceFiles",files);QTest::qWait(80);
+    auto* outer=window->findChild<QQuickItem*>("sourceOptionsFlick");
+    auto* list=window->findChild<QQuickItem*>("loadedSourcesList");QVERIFY(outer && list);
+    const auto point=list->mapToScene(QPointF(list->width()/2,list->height()/2));
+    const auto initial=outer->property("contentY").toDouble();
+    QWheelEvent event(point,window->mapToGlobal(point.toPoint()),QPoint(),QPoint(0,-120),Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);
+    QCoreApplication::sendEvent(window,&event);QTest::qWait(50);
+    QCOMPARE(outer->property("contentY").toDouble(),initial);
+    QVERIFY(list->property("contentY").toDouble()>0);
+    list->setProperty("contentY",list->property("contentHeight").toDouble()-list->height());
+    QWheelEvent endEvent(point,window->mapToGlobal(point.toPoint()),QPoint(),QPoint(0,-120),Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);
+    QCoreApplication::sendEvent(window,&endEvent);QTest::qWait(50);
+    QCOMPARE(outer->property("contentY").toDouble(),initial);
+}
+
+void UiSmokeTests::resultGroupsFilterAndExportOnlyVisibleSelection()
+{
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;QQmlComponent component(&engine);
+    component.setData(R"(
+import QtQuick
+import PfUi
+ResultsRail {
+    width: 300; height: 740
+    results: [{id: 0, similarity: .9, classification: "turn/left", category: "Turns", categoryColor: "#D56565"},
+              {id: 1, similarity: .8, classification: "body_pose", category: "Backs", categoryColor: "#638EDB"},
+              {id: 2, similarity: .7, classification: "turn/left"}]
+    selectedRows: ({0: true, 1: true, 2: true})
+    function exportedIds() { return Object.keys(exportRows()).sort().join(",") }
+}
+)",QUrl());
+    std::unique_ptr<QObject> rail(component.create());QVERIFY2(rail,qPrintable(component.errorString()));
+    QVariant ids;QVERIFY(QMetaObject::invokeMethod(rail.get(),"exportedIds",Q_RETURN_ARG(QVariant,ids)));QCOMPARE(ids.toString(),QString("0,1,2"));
+    rail->setProperty("categoryFilter","Backs");
+    QCOMPARE(rail->property("selectedCount").toInt(),1);
+    QVERIFY(QMetaObject::invokeMethod(rail.get(),"exportedIds",Q_RETURN_ARG(QVariant,ids)));QCOMPARE(ids.toString(),QString("1"));
+    rail->setProperty("classificationFilter","turn/left");QCOMPARE(rail->property("selectedCount").toInt(),0);
+    // A zero-result filter must leave the controls available to clear it.
+    QVERIFY(rail->findChild<QQuickItem*>("categoryFilterCombo")->isVisible());
+    rail->setProperty("categoryFilter","");QCOMPARE(rail->property("selectedCount").toInt(),2);
+    rail->setProperty("categoryFilter","__untagged__");
+    QVERIFY(QMetaObject::invokeMethod(rail.get(),"exportedIds",Q_RETURN_ARG(QVariant,ids)));QCOMPARE(ids.toString(),QString("2"));
+    rail->setProperty("classificationFilter","");rail->setProperty("categoryFilter","");
+    rail->setProperty("colorFilter","#638edb");
+    QVERIFY(QMetaObject::invokeMethod(rail.get(),"exportedIds",Q_RETURN_ARG(QVariant,ids)));QCOMPARE(ids.toString(),QString("1"));
+    rail->setProperty("colorFilter","");
+    // The expanded editor must still leave the export action reachable in the
+    // smallest supported desktop window, without overlapping the result list.
+    auto* window=loadWindow(engine);QVERIFY(window);
+    window->resize(1100,700);
+    auto* desktopRail=window->findChild<QObject*>("resultsRail");QVERIFY(desktopRail);
+    desktopRail->setProperty("results",rail->property("results"));
+    desktopRail->setProperty("selectedRows",rail->property("selectedRows"));
+    auto* editor=desktopRail->findChild<QObject*>("resultCategoryEditor");QVERIFY(editor);
+    editor->setProperty("expanded",true);QTest::qWait(300);
+    auto* apply=desktopRail->findChild<QQuickItem*>("applyCategoryButton");QVERIFY(apply);
+    QVERIFY(apply->mapToScene(QPointF(0,apply->height())).y()<=window->height());
+    auto* controls=desktopRail->findChild<QQuickItem*>("resultControlsFlick");QVERIFY(controls);
+    QVERIFY(apply->mapToItem(controls,QPointF(0,apply->height())).y()<=controls->height());
+    QVERIFY(desktopRail->findChild<QQuickItem*>("resultList")->height()>=80);
+    const auto capture=qEnvironmentVariable("PF_UI_CAPTURE_DIR");
+    if(!capture.isEmpty()) {QDir().mkpath(capture);QVERIFY(window->grabWindow().save(capture+"/result-groups.png"));}
 }
 
 void UiSmokeTests::resultNavigationStopsAtEnds()

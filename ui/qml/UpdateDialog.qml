@@ -23,12 +23,12 @@ Popup {
     }
     Component.onCompleted: if (root.service.dialogVisible) open()
     enter: Transition { ParallelAnimation {
-        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.reducedMotion ? 0 : 180; easing.type: Easing.OutCubic }
-        NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: Theme.reducedMotion ? 0 : 180; easing.type: Easing.OutCubic }
+        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic }
+        NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic }
     } }
     exit: Transition { ParallelAnimation {
-        NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.reducedMotion ? 0 : 150; easing.type: Easing.InCubic }
-        NumberAnimation { property: "scale"; from: 1; to: 0.97; duration: Theme.reducedMotion ? 0 : 150; easing.type: Easing.InCubic }
+        NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.motionChangeDuration; easing.type: Easing.InCubic }
+        NumberAnimation { property: "scale"; from: 1; to: 0.97; duration: Theme.motionChangeDuration; easing.type: Easing.InCubic }
     } }
     Overlay.modal: Rectangle { color: GraphicsInfo.api === GraphicsInfo.Software ? "#99000000" : "transparent" }
     background: Rectangle {

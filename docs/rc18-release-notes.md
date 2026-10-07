@@ -2,30 +2,42 @@
 
 ## Русский
 
-Обновление выбора главного персонажа и границ сцен. Сохраняет исправления rc.17: ограничение повторов одного шота, статистику выбранного видео, исключение соседних фрагментов одного источника, отдельную папку кэша, один статус анализа и экспорт без потерь.
+[+] Ускорен матчер на длинных наборах из нескольких источников: проверка копий кадров использует точный индекс консервативных границ, повторяющиеся ракурсы проверяются по необходимости, одинаковые запросы личности переиспользуют результат обхода индекса.
+[+] Сохранены проверки человека, позы, временной согласованности и копий исходного видео; пороги принятия не снижены ради скорости.
+[+] Сравнения используют доступные потоки CPU, до 32; ручная настройка потоков применяется и к поиску.
+[+] После 85% отображаются отдельные этапы поиска: исключение копий, поиск кандидатов, сравнение движений, отбор уникальных пар и подготовка результатов; поиск поддерживает отмену.
+[+] Добавлены именованные цветовые группы результатов, массовое назначение, удаление меток, фильтрация и экспорт только выбранных пар видимой группы.
+[+] Метки сохраняются для конкретной пары и файлов между запусками; замена видео по тому же пути не наследует старые метки.
+[+] Добавлен фильтр классификации: положение головы/тела, поворот, в том числе головы, шаг, подъём, опускание и другие уже измеряемые движения с направлением. Неоднозначные движения отображаются как смешанные.
+[+] Источники, не вошедшие в подтверждённую группу одного человека, отмечаются в списке с пояснением.
+[+] Согласованы плавные переходы диалогов и размытия фона; настройка уменьшения анимаций сохраняется.
+[-] Исправлена прокрутка списка Sources: колесо над списком больше не перемещает панель настроек, в том числе на границах списка.
+[-] Исправлена сборка с чистого build: зависимости готовятся перед изолированными тестами запуска.
+[-] В пакет включается только отслеживаемая документация; промежуточные staging-папки успешной сборки автоматически удаляются. Дополнены правила игнорирования видео, профилей производительности и временных обновлений.
 
-- Восстановление сложных ракурсов требует нескольких независимых подтверждений лица и проверки тела. Восстановленные треки не расширяют цепочку доказательств личности; их непроверенные края не допускаются в поиск.
-- Восстановленные участки ограничиваются подтверждёнными наблюдениями. Конфликт лица и слишком большой промежуток между подтверждениями разрывают участок; непроверенные хвосты не наследуют личность автоматически.
-- Старые окна анализа пересчитываются из-за новых правил. Повторный поиск использует обновлённый кэш.
-- Добавлены проверки диапазонов личности и диагностика причин отклонения пар. Исправления проверяются на реальных видео из D:\for_tests_pf, включая длинные 4K источники, с CUDA.
+Контрольный A/B этапа поиска, на одном потоке: 5 источников / 300 окон — 290 390 мс → 4 839 мс, все 149 пар совпали полностью; 100 окон — 32 042 мс → 554 мс, все 49 пар совпали. Это нагрузочная проверка на записанной геометрии поз с синтетическими независимыми изображениями; она исключает декодирование и модели и не измеряет смысловую точность.
 
-Улучшения подтверждены для конкретных проверенных фрагментов, а не только ростом количества карточек. Матчер ещё может пропускать полезные параллели; двойные обнаружения человека и пропущенные склейки могут приводить к ошибкам личности. Общие проценты точности и ускорение первого анализа для rc.18 не заявляются.
+Реальный CUDA-прогон пяти разных 40-секундных 4K-фрагментов Эллиота: 4 818 кадров, около 56 с холодного анализа; поиск около 2,3 с. Повторный запуск с кэшем около 0,3 с. Допущены 3 из 5 источников: источник без достаточных подтверждений лица и источник с противоречащей личностью исключены. Эта проверка не обещает включение всех видео без доказательств личности и не заменяет длительный прогон всех шести часов исходного материала.
 
-**Установка:** запусти Setup или полностью распакуй Portable и открой ParallelFinder.exe. Провайдер меняется в настройках приложения; GPU-компоненты устанавливаются отдельно из приложения. CUDA Toolkit для обычного запуска не нужен. Настройки и скачанные компоненты остаются в общем профиле AppData.
-
-**Качество экспорта:** для сохранения декодированных пикселей, разрешения, глубины цвета и исходного звука используй точный экспорт без потерь MKV/FFV1. Режимы MP4 имеют отдельные компромиссы по перекодированию и ключевым кадрам.
+GPU используется моделями при выбранном доступном провайдере; сам поиск поз выполняется на CPU. Для этих 10-битных HEVC-фрагментов декодер сохранил проверенный CPU-путь. Память и видеокарта не загружаются искусственно до 100%.
 
 ## English
 
-This update improves dominant-person selection and scene boundaries. It retains the rc.17 fixes: repeated-shot limits, statistics for the selected video, exclusion of neighboring fragments from the same source, a dedicated cache folder, a single analysis status, and lossless export.
+[+] Faster matching on long multi-source sets: copied footage uses an exact conservative range index, recurring views are checked on demand, and identical identity queries reuse their raw index traversal.
+[+] Preserved person, pose, temporal and source-footage checks; acceptance thresholds were not lowered for speed.
+[+] Exact comparisons use available CPU workers, up to 32; the manual thread setting also applies to matching.
+[+] Progress after 85% reports copied-footage checks, candidate retrieval, movement comparisons, unique-pair selection and result preparation; matching supports cancellation.
+[+] Added named color groups, bulk tagging, tag removal, filtering and export restricted to selected pairs in the visible group.
+[+] Tags persist for an exact pair and source files across runs; replacing a video does not inherit its previous tags.
+[+] Added classification filtering for head/body position, turns including head turns, steps, raises, lowers and other measured gestures with direction. Ambiguous movements remain marked as mixed.
+[+] Sources excluded from the verified single-person group are marked in the source list with an explanation.
+[+] Unified dialog and backdrop transitions while respecting reduced motion.
+[-] Fixed Sources wheel scrolling so it does not move the settings rail, including at list boundaries.
+[-] Fixed clean-build startup verification by deploying dependencies before isolated launch tests.
+[-] Packages include only tracked documentation; successful packaging removes its staging intermediates. Updated ignore rules for videos, profiling captures and temporary updates.
 
-- Recovering difficult views requires multiple independent face confirmations and corroborating body evidence. Recovered tracks cannot become new identity anchors, and their unverified edges are excluded from matching.
-- Recovered intervals are bounded by confirmed observations. A conflicting face or excessive gap between confirmations splits the interval; unverified tails do not automatically inherit an identity.
-- Old analysis windows are recomputed for the updated rules. Subsequent searches use the new cache.
-- Added regression checks for verified identity ranges and diagnostics explaining pair rejection. Changes are evaluated on the provided real videos in D:\for_tests_pf, including long 4K inputs, with CUDA.
+Controlled matcher-only A/B, one worker: 5 sources / 300 windows — 290,390 ms → 4,839 ms with all 149 pairs identical; 100 windows — 32,042 ms → 554 ms with all 49 pairs identical. The workload uses recorded pose geometry and synthetic independent images; it excludes decoding/inference and does not measure semantic precision.
 
-Improvements are supported by specific reviewed examples, not merely a higher result count. Useful parallels may still be missed; duplicate person detections and missed cuts can still cause identity errors. No overall accuracy percentage or faster first-analysis claim is made for rc.18.
+A real CUDA run of five different 40-second 4K Elliot excerpts processed 4,818 frames in about 56 seconds cold, with about 2.3 seconds in matching; a cached run took about 0.3 seconds. Three sources were admitted; missing face evidence and conflicting identity excluded the other two. This is not a guarantee that every source is accepted or a full six-hour end-to-end benchmark.
 
-**Installation:** run Setup, or fully extract Portable and launch ParallelFinder.exe. Change the provider in application settings; GPU components can be installed separately from the application. CUDA Toolkit is not required for normal use. Settings and downloaded components remain in the shared AppData profile.
-
-**Export quality:** use exact lossless MKV/FFV1 to preserve decoded pixels, resolution, bit depth, and source audio. MP4 modes have separate encoding and keyframe tradeoffs.
+Models use the selected available GPU provider; pose search runs on CPU. These 10-bit HEVC excerpts retained the validated CPU decoding path. RAM and GPU utilization are not artificially driven to 100%.

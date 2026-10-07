@@ -2,9 +2,10 @@ param(
     [string]$Toolchain = 'D:\msys2\ucrt64',
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-    [string]$ReleaseTag = '0.1.0-rc.17',
-    [string]$ReleaseNotes = 'docs/updates.md',
+    [string]$ReleaseTag = '0.1.0-rc.18',
+    [string]$ReleaseNotes = 'docs/rc18-release-notes.md',
     [string]$SigningKey = (Join-Path $env:LOCALAPPDATA 'ParallelFinder/release-signing/update-ed25519-private.pem'),
+    [switch]$KeepStaging,
     [switch]$SkipChecks
 )
 $ErrorActionPreference = 'Stop'
@@ -19,6 +20,7 @@ try {
     if ($LASTEXITCODE) { throw 'Configure failed' }
     & cmake --build --preset ucrt64-release -j 4
     if ($LASTEXITCODE) { throw 'Build failed' }
+    & "$PSScriptRoot/deploy-runtime.ps1" -Stage (Join-Path $root 'build/ucrt64-release') -Toolchain $Toolchain
     if (!$SkipChecks) {
     $releaseTestQpa = $env:QT_QPA_PLATFORM
     $releaseTestPlugins = $env:QT_PLUGIN_PATH
@@ -41,7 +43,12 @@ try {
     Copy-Item -LiteralPath 'build/ucrt64-release/ParallelFinder.exe' -Destination $stage
     Copy-Item -LiteralPath 'build/ucrt64-release/ParallelFinderUpdater.exe' -Destination $stage
     Copy-Item -LiteralPath LICENSE,README.md,AUDIT.md -Destination $stage
-    Copy-Item -LiteralPath "$root/docs" -Destination (Join-Path $stage "docs") -Recurse
+    # Package only versioned documentation; local investigations stay local.
+    foreach ($relative in (& git ls-files docs)) {
+        $docTarget = Join-Path $stage $relative
+        New-Item -ItemType Directory -Force -Path (Split-Path $docTarget) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $root $relative) -Destination $docTarget
+    }
     & "$bin/windeployqt.exe" --release --no-translations --qmldir "$root/ui/qml" --dir $stage "$stage/ParallelFinder.exe"
     if ($LASTEXITCODE) { throw 'Qt deployment failed' }
     Copy-Item -LiteralPath "$PSScriptRoot/qt.conf" -Destination $stage
@@ -155,7 +162,18 @@ try {
     $hashes | ForEach-Object { $_.Hash.ToLowerInvariant() + '  ' + [IO.Path]::GetFileName($_.Path) } |
         Set-Content -LiteralPath (Join-Path $out 'SHA256SUMS.txt') -Encoding ascii
     $hashes | Format-Table -AutoSize
-    Write-Output "STAGING=$stage"
+    if ($KeepStaging) { Write-Output "STAGING=$stage" }
+    else {
+        # Clean this successful run only, after every deliverable is complete.
+        $buildRoot = [IO.Path]::GetFullPath((Join-Path $root 'build')) + [IO.Path]::DirectorySeparatorChar
+        foreach ($temporary in @((Split-Path $stage), (Split-Path $sourceStage))) {
+            $resolved = (Resolve-Path -LiteralPath $temporary).Path
+            if (!$resolved.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Refusing to remove staging outside build: $resolved"
+            }
+            Remove-Item -LiteralPath $resolved -Recurse -Force
+        }
+    }
     Write-Output "ARTIFACTS=$out"
 } finally {
     $env:PATH = $releaseOriginalPath

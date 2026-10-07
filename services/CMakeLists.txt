@@ -12,6 +12,7 @@ add_library(pfservices STATIC
     src/PfCache.cpp
     src/CachedPreview.cpp
     src/PreviewWriter.cpp
+    src/ResultCategoryStore.cpp
 )
 add_library(pf::services ALIAS pfservices)
 set_target_properties(pfservices PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)

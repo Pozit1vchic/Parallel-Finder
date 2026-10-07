@@ -111,16 +111,41 @@ Rectangle {
                     }
                 }
             ListView {
-                objectName: "loadedSourcesList"; anchors.fill: parent; anchors.margins: 8; visible: root.sourceFiles.length > 0; boundsBehavior: Flickable.StopAtBounds; clip: true; model: root.sourceFiles; focus: true; activeFocusOnTab: true
+                id: loadedSourcesList; objectName: "loadedSourcesList"; anchors.fill: parent; anchors.margins: 8; visible: root.sourceFiles.length > 0; boundsBehavior: Flickable.StopAtBounds; clip: true; model: root.sourceFiles; focus: true; activeFocusOnTab: true
+                // Own the wheel even at the ends; the settings rail must not jump.
+                WheelHandler {
+                    objectName: "sourceListWheelHandler"
+                    target: null
+                    onWheel: function(event) {
+                        loadedSourcesList.contentY = Math.max(0,Math.min(
+                            Math.max(0,loadedSourcesList.contentHeight-loadedSourcesList.height),
+                            loadedSourcesList.contentY - (event.pixelDelta.y || event.angleDelta.y / 3)))
+                        event.accepted = true
+                    }
+                }
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 Accessible.name: L10n.t("sources.title")
                 Keys.onUpPressed: { root.selectedSourceIndex = Math.max(0, root.selectedSourceIndex < 0 ? 0 : root.selectedSourceIndex - 1); positionViewAtIndex(root.selectedSourceIndex, ListView.Contain); event.accepted = true }
                 Keys.onDownPressed: { root.selectedSourceIndex = Math.min(root.sourceFiles.length - 1, root.selectedSourceIndex < 0 ? 0 : root.selectedSourceIndex + 1); positionViewAtIndex(root.selectedSourceIndex, ListView.Contain); event.accepted = true }
                 Keys.onReturnPressed: if (root.selectedSourceIndex >= 0) root.removeRequested(root.selectedSourceIndex)
                 delegate: Rectangle {
+                    id: sourceCard
+                    property var identitySummary: { Analysis.sourceSummaries; return Analysis.summaryForSource(String(modelData)) }
+                    readonly property bool identityExcluded: Analysis.analysisCompleted && identitySummary.identityAdmitted === false
                     width: ListView.view.width; height: 30; radius: 5; color: index === root.selectedSourceIndex ? Theme.accentMuted : (index % 2 === 0 ? Theme.surfaceRaised : "transparent"); Accessible.name: root.sourceName(modelData); Accessible.role: Accessible.ListItem
-                    Text { font.family: Theme.fontFamily; anchors.left: parent.left; anchors.leftMargin: 9; anchors.right: parent.right; anchors.rightMargin: 7; anchors.verticalCenter: parent.verticalCenter; text: (index + 1) + "  " + root.sourceName(modelData); color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideMiddle }
-                    MouseArea { anchors.fill: parent; onClicked: root.selectedSourceIndex = index }
+                    Text { font.family: Theme.fontFamily; anchors.left: parent.left; anchors.leftMargin: 9; anchors.right: parent.right; anchors.rightMargin: parent.identityExcluded ? 21 : 7; anchors.verticalCenter: parent.verticalCenter; text: (index + 1) + "  " + root.sourceName(modelData); color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideMiddle }
+                    Rectangle { anchors.right: parent.right; anchors.rightMargin: 7; anchors.verticalCenter: parent.verticalCenter; width: 6; height: 6; radius: 3; color: Theme.accent; visible: parent.identityExcluded }
+                    MouseArea {
+                        id: sourceHover
+                        anchors.fill: parent; hoverEnabled: true; onClicked: root.selectedSourceIndex = index
+                    }
+                    ToolTip {
+                        id: sourceTip
+                        visible: sourceHover.containsMouse; delay: 650
+                        text: root.sourceName(modelData) + (sourceCard.identityExcluded ? "\n" + L10n.t("sources.identityExcluded") : "")
+                        contentItem: Text { text: sourceTip.text; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.Wrap; width: Math.min(360,implicitWidth) }
+                        background: Rectangle { color: Theme.surfaceRaised; radius: Theme.radiusButton; border.color: Theme.hairlineStrong }
+                    }
                 }
                 Text { font.family: Theme.fontFamily; anchors.centerIn: parent; visible: root.sourceFiles.length === 0; text: L10n.t("sources.empty"); color: Theme.textDisabled; font.pixelSize: 10 }
             }

@@ -150,3 +150,21 @@ Thumbs.db
 desktop.ini
 .DS_Store
 $RECYCLE.BIN/
+
+# Local profiler recordings and transient release/update workspaces.
+*.nsys-rep
+*.qdrep
+*.nvvp
+*.etl
+*.sqlite-wal
+*.sqlite-shm
+/update-staging/
+/.update-backup/
+/benchmark-output/
+# Source videos belong in external test folders; keep small test fixtures.
+*.mp4
+*.mkv
+*.mov
+*.avi
+!tests/fixtures/**/*.mp4
+!tests/fixtures/**/*.mkv

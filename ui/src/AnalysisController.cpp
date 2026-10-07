@@ -21,6 +21,7 @@
 #include <QThread>
 #include <QVariantMap>
 #include <QVersionNumber>
+#include <QColor>
 
 #include <algorithm>
 #include <cctype>
@@ -50,6 +51,7 @@
 #include "pfgpu/FaceEstimator.hpp"
 #include "pfgpu/DeviceInfo.hpp"
 #include "pfservices/SettingsStore.hpp"
+#include <pfservices/ResultCategoryStore.hpp>
 #include "pfservices/ModelStore.hpp"
 #include "pfservices/PfCache.hpp"
 #include "pfservices/CutService.hpp"
@@ -1652,6 +1654,23 @@ void AnalysisController::setSceneThreshold(double value)
     emit settingsChanged();
 }
 
+void AnalysisController::setResultCategory(int id,const QString& name,const QString& color)
+{
+    if(busy_ || id<0 || id>=results_.size())return;
+    auto record=results_[id].toMap();
+    if(record.value("id").toInt()!=id)return;
+    const auto category=name.trimmed().left(64);
+    const QColor chosen(color);
+    if(!category.isEmpty() && !chosen.isValid())return;
+    record.insert("category",category);
+    record.insert("categoryColor",category.isEmpty() ? QString{} : chosen.name());
+    pfservices::ResultCategoryStore::save(record,category,chosen.name());
+    results_[id]=record;
+    // Tag edits preserve selection and playback; analysis results are unchanged.
+    ++resultCategoryRevision_;
+    emit resultCategoriesChanged();
+}
+
 bool AnalysisController::exportResults(const QString& format,
                                        int numberingMode,
                                        int cutMode,
@@ -2961,6 +2980,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 windows=std::move(admitted);previewA=std::move(admittedA);previewB=std::move(admittedB);
                 sharedIdentityStatus = QStringLiteral(" · Один человек в %1 из %2 видео")
                     .arg(sharedIdentity.sources.size()).arg(paths.size());
+                for(auto entry=summaries.begin();entry!=summaries.end();++entry) {
+                    auto summary=entry.value().toMap();
+                    summary.insert("identityAdmitted",std::binary_search(sharedIdentity.sources.begin(),
+                        sharedIdentity.sources.end(),entry.key().toStdString()));
+                    entry.value()=summary;
+                }
             }
             {
                 // Cached pose windows from earlier releases also need measured
@@ -3058,7 +3083,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.noiseFactor = noiseFactor;
             params.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults);
             params.maxComparisonThreads = settings.processingThreads == 0 ? 0
-                : std::min<std::size_t>(settings.processingThreads, 4);
+                : std::min<std::size_t>(settings.processingThreads, 32);
             params.expandedSearch = expandedSearch;
             params.timeWeight = timeWeight;
             params.minTemporalFrames = qualityProfile == QStringLiteral("fast") ? 6U
@@ -3083,15 +3108,42 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 providerChoice==QStringLiteral("cuda") || providerChoice==QStringLiteral("tensorrt"),isCancelled);
             QElapsedTimer resultTimer;
             resultTimer.start();
-            foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows);
+            pfcore::MotionSearchControl searchControl;
+            searchControl.cancelled=isCancelled;
+            QElapsedTimer searchUpdates;searchUpdates.start();
+            auto lastStage=pfcore::MotionSearchStage::Recovery;
+            searchControl.progress=[&,this](pfcore::MotionSearchStage stage,std::size_t done,std::size_t total) {
+                if(stage==lastStage && searchUpdates.elapsed()<150 && done!=total)return;
+                lastStage=stage;searchUpdates.restart();
+                const QStringList stages={QStringLiteral("Подготавливаем поиск параллелей"),
+                    QStringLiteral("Исключаем одинаковые фрагменты"),QStringLiteral("Ищем похожие движения"),
+                    QStringLiteral("Сравниваем найденные движения"),QStringLiteral("Выбираем уникальные параллели"),
+                    QStringLiteral("Ищем дополнительные параллели")};
+                const auto index=static_cast<int>(stage);
+                const double fraction=total ? std::min(1.0,static_cast<double>(done)/total) : 0;
+                const double value=.85+.12*(index+fraction)/6.0;
+                const auto label=stages[index];
+                QMetaObject::invokeMethod(this,[this,cancel,label,value,done,total,processedFrames,totalFramesEstimate] {
+                    if(analysisCancel_!=cancel || cancel->load())return;
+                    setProgress(std::max(progress_,value),label,processedFrames,totalFramesEstimate);
+                    setStatus(label+QStringLiteral(" · %1 / %2").arg(done).arg(total));
+                },Qt::QueuedConnection);
+            };
+            foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows,searchControl);
+            markCancelled();
             while (!isCancelled() && faceVerifier.verify(windows,foundMatches)>0) {
                 QMetaObject::invokeMethod(this,[this,cancel] {
                     if(analysisCancel_==cancel && !cancel->load())setStatus(QStringLiteral("Проверяем человека в найденных фрагментах…"));
                 },Qt::QueuedConnection);
-                foundMatches=pfcore::MotionMatcher(params).findAllPairs(windows);
+                foundMatches=pfcore::MotionMatcher(params).findAllPairs(windows,searchControl);
+                markCancelled();
             }
             if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
                 std::fprintf(stderr, "PF_DEBUG_TIMING matcher_ms=%lld\n", static_cast<long long>(resultTimer.restart()));
+            QMetaObject::invokeMethod(this,[this,cancel,processedFrames,totalFramesEstimate] {
+                if(analysisCancel_==cancel && !cancel->load())
+                    setProgress(.98,QStringLiteral("Подготавливаем результаты"),processedFrames,totalFramesEstimate);
+            },Qt::QueuedConnection);
             pfcore::MotionRanker::rank(foundMatches, windows);
             dumpWindows();
             if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
@@ -3203,6 +3255,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert(QStringLiteral("similarity"), item.similarity);
                 record.insert(QStringLiteral("direction"), QString::fromStdString(item.directionLabel));
                 record.insert(QStringLiteral("gesture"), QString::fromStdString(item.gestureLabel));
+                record.insert("classification", item.leftIndex<windows.size() && windows[item.leftIndex].staticFrameSet
+                    ? (item.headOnlyComparison ? QStringLiteral("head_pose") : QStringLiteral("body_pose"))
+                    : QString::fromStdString((item.headOnlyComparison && item.gestureLabel=="turn" ? std::string("head_turn") : item.gestureLabel)+"/"+item.directionLabel));
                 record.insert(QStringLiteral("matchType"),
                     item.leftIndex < windows.size() && windows[item.leftIndex].staticFrameSet
                         ? QStringLiteral("pose") : QStringLiteral("motion"));
@@ -3242,6 +3297,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 markers << item.leftStartSeconds << item.leftEndSeconds
                         << item.rightStartSeconds << item.rightEndSeconds;
                 record.insert(QStringLiteral("markers"), markers);
+                const auto tag=pfservices::ResultCategoryStore::load(record);
+                record.insert("category",tag.value("name").toString());
+                record.insert("categoryColor",tag.value("color").toString());
                 resultRecords.push_back(record);
                 const QString exactA = exactPreviews.get(QString::fromStdString(item.leftSourceId), item.leftStartSeconds);
                 const QString exactB = exactPreviews.get(QString::fromStdString(item.rightSourceId), item.rightStartSeconds);

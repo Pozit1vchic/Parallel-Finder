@@ -523,6 +523,14 @@ DominantVideoSelection selectDominantVideoWindows(const std::vector<MotionWindow
         };
         return majority(x,y) && majority(y,x);
     };
+    if(std::getenv("PF_DEBUG_ANALYSIS")) {
+        for(std::size_t i=0;i<sources.size();++i)
+            std::fprintf(stderr,"PF_DEBUG_SOURCE_IDENTITY source=%s shots=%zu face_anchors=%zu\n",
+                names[i].c_str(),sources[i]->shots.size(),sources[i]->anchors.size());
+        for(std::size_t i=0;i<sources.size();++i)for(std::size_t j=i+1;j<sources.size();++j)
+            std::fprintf(stderr,"PF_DEBUG_SOURCE_LINK a=%zu b=%zu face_cosine=%.3f accepted=%d\n",
+                i,j,embeddingScore(sources[i]->face,sources[j]->face),agrees(i,j)?1:0);
+    }
     // Build complete-link groups for the small source list. Merge only if
     // every member agrees with every other member;
     // a weak intermediate must never silently bridge incompatible identities.

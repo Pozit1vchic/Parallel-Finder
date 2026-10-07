@@ -64,7 +64,11 @@ ApplicationWindow {
     ExportDialog { id: exportDialog; rootWindow: root; selectedRows: root.selectedExportRows }
     UpdateDialog { id: updateDialog; rootWindow: root }
 
-    Connections { target: Analysis; function onResultsChanged() { root.syncResultsSelection() } }
+    Connections {
+        target: Analysis
+        function onResultsChanged() { root.syncResultsSelection() }
+        function onResultCategoriesChanged() { root.selectResult(root.selectedResultIndex) }
+    }
 
     function resultKeysEnabled() {
         if (settingsDialog.visible || exportDialog.visible || updateDialog.visible || fileDialog.visible
@@ -80,8 +84,10 @@ ApplicationWindow {
     Shortcut { sequence: "Down"; enabled: root.resultKeysEnabled(); onActivated: resultsRail.selectNext() }
 
     Rectangle { id: workspaceSurface; anchors.fill: parent; color: Theme.canvas
-        layer.enabled: (settingsDialog.visible || exportDialog.visible || updateDialog.visible) && GraphicsInfo.api !== GraphicsInfo.Software
-        layer.effect: MultiEffect { blurEnabled: true; blurMax: 12; blur: 1.0; colorization: 0.6; colorizationColor: "black" }
+        property real modalReveal: settingsDialog.visible || exportDialog.visible || updateDialog.visible ? 1 : 0
+        Behavior on modalReveal { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic } }
+        layer.enabled: modalReveal > 0 && GraphicsInfo.api !== GraphicsInfo.Software
+        layer.effect: MultiEffect { blurEnabled: true; blurMax: 12; blur: workspaceSurface.modalReveal; colorization: 0.6 * workspaceSurface.modalReveal; colorizationColor: "black" }
         ColumnLayout { anchors.fill: parent; spacing: 0
             TopBar { Layout.fillWidth: true; Layout.preferredHeight: Theme.topBarHeight; Layout.minimumHeight: Theme.topBarHeight; busy: Analysis.busy; onSettingsRequested: settingsDialog.open() }
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.hairline }
@@ -122,10 +128,11 @@ ApplicationWindow {
                     Layout.preferredWidth: Theme.sidePanelWidth
                     Layout.maximumWidth: 310
                     Layout.fillHeight: true
-                    results: Analysis.results; selectedRows: root.selectedExportRows; selectedIndex: root.selectedResultIndex
+                    results: { Analysis.resultCategoryRevision; return Analysis.results }
+                    selectedRows: root.selectedExportRows; selectedIndex: root.selectedResultIndex
                     onExportSelectionChanged: function(rows) { root.selectedExportRows = rows }
                     onResultSelected: function(index) { root.selectResult(index) }
-                    onExportRequested: exportDialog.open()
+                    onExportRequested: function(rows) { exportDialog.selectedRows = rows; exportDialog.open() }
                 }
                 }
             }
