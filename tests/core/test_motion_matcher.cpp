@@ -163,7 +163,7 @@ TEST(MotionMatcher, ReturningBodyCameraDoesNotBecomeExclusiveAfterHeadExpression
     }
 }
 
-TEST(MotionMatcher, ParallelBodyCameraProofKeepsSelectionAndCallerProgress)
+TEST(MotionMatcher, DeferredBodyCameraProofKeepsSelectionAndCallerProgress)
 {
     const auto recorded=recordedPoseFixture("elliot-returning-body-camera.json",true,true);
     std::vector<pfcore::MotionWindow> windows;
@@ -180,16 +180,28 @@ TEST(MotionMatcher, ParallelBodyCameraProofKeepsSelectionAndCallerProgress)
     pfcore::MotionMatcherParams p;p.individualPairs=p.allowStaticFrames=p.requireAppearance=p.mirrorInvariant=true;
     p.similarityThreshold=.7;p.staticArticulationSimilarityThreshold=.82;
     p.sameSourceGapFloorSec=p.sameFileGapSec=3;p.maxComparisonThreads=1;
-    const auto expected=pfcore::MotionMatcher(p).findAllPairs(windows);ASSERT_FALSE(expected.empty());
+    const auto expected=pfcore::MotionMatcher(p).findAllPairs(windows);
+    // Frozen against the shipped RC19 eager verifier: retain both distinct
+    // settings per replication, reject every recorded returning-body camera.
+    // Replication also crosses the packed cache's 32/64/96 column boundaries.
+    std::set<std::pair<std::size_t,std::size_t>> eagerPairs,selectedPairs;
+    for(std::size_t copy=0;copy<8;++copy) {
+        eagerPairs.emplace(copy*14,copy*14+1);
+        eagerPairs.emplace(copy*14+2,copy*14+3);
+    }
+    for(const auto& match:expected)selectedPairs.emplace(
+        std::min(match.leftIndex,match.rightIndex),std::max(match.leftIndex,match.rightIndex));
+    EXPECT_EQ(selectedPairs,eagerPairs);
+    ASSERT_EQ(expected.size(),eagerPairs.size());
     p.maxComparisonThreads=4;
-    const auto caller=std::this_thread::get_id();bool parallelCamera=false;
+    const auto caller=std::this_thread::get_id();bool selectionProgress=false;
     pfcore::MotionSearchControl control;
     control.progress=[&](auto stage,std::size_t done,std::size_t total) {
         EXPECT_EQ(std::this_thread::get_id(),caller);EXPECT_LE(done,total);
-        if(stage==pfcore::MotionSearchStage::Camera && total>=64)parallelCamera=true;
+        if(stage==pfcore::MotionSearchStage::Select && total>=64)selectionProgress=true;
     };
     const auto actual=pfcore::MotionMatcher(p).findAllPairs(windows,control);
-    EXPECT_TRUE(parallelCamera);ASSERT_EQ(actual.size(),expected.size());
+    EXPECT_TRUE(selectionProgress);ASSERT_EQ(actual.size(),expected.size());
     for(std::size_t i=0;i<actual.size();++i) {
         const auto& a=actual[i];const auto& b=expected[i];
         EXPECT_EQ(a.leftIndex,b.leftIndex);EXPECT_EQ(a.rightIndex,b.rightIndex);
