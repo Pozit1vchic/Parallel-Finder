@@ -6,7 +6,7 @@ param(
     [string]$OrtDll = "D:\\msys2\\ucrt64\\bin\\onnxruntime.dll",
     [string]$ReIdModel = "",
     [string[]]$AdditionalVideos = @(),
-    [ValidateSet('offscreen','windows')][string]$QpaPlatform = 'offscreen',
+    [ValidateSet('offscreen','windows')][string]$QpaPlatform = 'windows',
     [ValidateSet('cpu','cuda','tensorrt','dml')][string]$Provider = 'cpu',
     [ValidateRange(1, 3600)][int]$TimeoutSec = 120,
     [ValidateRange(0, 10000)][int]$MinimumPairs = 0,
@@ -55,6 +55,8 @@ foreach ($mode in $Modes) {
     $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+    $psi.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
     # Packaged Windows builds ship qwindows, not the developer offscreen
     # plugin. Analysis smoke creates no window; -QpaPlatform windows permits
     # testing that actual package without injecting developer Qt plugins.
@@ -82,12 +84,23 @@ foreach ($mode in $Modes) {
     # pipe fills before the child has a chance to exit.
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
     $stderrTask = $process.StandardError.ReadToEndAsync()
+    # Cover startup too: the application's own analysis timer cannot fire if
+    # runtime/platform initialization fails before its event loop begins.
+    $exited = $process.WaitForExit(($TimeoutSec + 45) * 1000)
+    if (-not $exited) {
+        $process.Kill()
+    }
     $process.WaitForExit()
+    $process.Refresh()
     $processClock.Stop()
     $stdout = $stdoutTask.GetAwaiter().GetResult()
     $stderr = $stderrTask.GetAwaiter().GetResult()
     Write-Host $stdout
     if ($stderr) { Write-Warning $stderr }
+    if (-not $exited) {
+        $process.Dispose()
+        throw "Analysis process exceeded the $TimeoutSec second limit and startup allowance."
+    }
     if ($process.ExitCode -ne 0) {
         throw "Analysis smoke failed for mode '$mode' (exit $($process.ExitCode))"
     }
@@ -101,12 +114,14 @@ foreach ($mode in $Modes) {
             $cpuTimeMs = $null
             try { $cpuTimeMs = [math]::Round($process.TotalProcessorTime.TotalMilliseconds, 1) } catch {}
             $report = @{ video=$Video; inputVideos=@($Video) + $AdditionalVideos; mode=$mode; results=$pairs;
+                debugFlags=@{analysis=$psi.EnvironmentVariables['PF_DEBUG_ANALYSIS']; matcher=$psi.EnvironmentVariables['PF_DEBUG_MATCHER']; pose=$psi.EnvironmentVariables['PF_DEBUG_POSE']};
                 processWallMs=$processClock.ElapsedMilliseconds;
                 cpuTimeMs=$cpuTimeMs;
                 elapsedMs=$(if ($elapsedMatch.Success) { [long]$elapsedMatch.Groups[1].Value } else { $null });
                 frameCount=$(if ($framesMatch.Success) { [long]$framesMatch.Groups[1].Value } else { $null });
                 decodeDiagnostics=@([regex]::Matches($stderr, 'PF_DECODE [^\r\n]+') | ForEach-Object { $_.Value });
                 timingDiagnostics=@([regex]::Matches($stderr, 'PF_DEBUG_TIMING [^\r\n]+') | ForEach-Object { $_.Value });
+                progressDiagnostics=@([regex]::Matches($stderr, 'PF_DEBUG_PROGRESS [^\r\n]+') | ForEach-Object { $_.Value });
                 inferenceDiagnostics=@([regex]::Matches($stderr, 'PF_DEBUG_INFERENCE [^\r\n]+') | ForEach-Object { $_.Value });
                 previewDiagnostics=@([regex]::Matches($stderr, 'PF_DEBUG_PREVIEW [^\r\n]+') | ForEach-Object { $_.Value }) }
             $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $ReportPath -Encoding UTF8

@@ -24,6 +24,7 @@ set_target_properties(pf_ffmpeg_stall_stub PROPERTIES AUTOMOC OFF AUTOUIC OFF AU
 
 # ── Core tests (Google Test): pfcore + pfservices + pfgpu ──────────────────
 add_executable(pf_tests
+    core/test_scene_sequence_cache.cpp
     core/test_scene_detector.cpp
     core/test_video_decoder.cpp
     core/test_motion_matcher.cpp

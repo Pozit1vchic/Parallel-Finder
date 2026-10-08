@@ -7,7 +7,7 @@
 
 namespace pfcore {
 
-enum class MotionSearchStage { Prepare, Footage, Retrieval, Compare, Select, Recovery };
+enum class MotionSearchStage { Prepare, Footage, Retrieval, Compare, Select, Camera, Recovery };
 struct MotionSearchControl {
     std::function<bool()> cancelled;
     // Called only on the search thread, never concurrently from comparison workers.

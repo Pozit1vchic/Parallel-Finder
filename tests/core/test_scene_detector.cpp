@@ -250,3 +250,27 @@ TEST(SceneContent, DarkSidesAndAsymmetricNightSkyRemainPartOfThePicture)
     const pfcore::SceneSample image{0,160,90,pixels};
     EXPECT_EQ(pfcore::sceneContentDescriptor(image),pfcore::sceneViewDescriptor(image));
 }
+
+TEST(SceneDetector, StreamingProgressCancelsBothPassesWithoutPartialBoundaries)
+{
+    std::vector<std::uint8_t> image(64*36*4,80);
+    std::vector<pfcore::SceneSample> samples;
+    for(int i=0;i<500;++i)samples.push_back({i*.25,64,36,image});
+    pfcore::SceneDetector detector;bool cancelled=false;std::size_t reports=0;
+    auto result=detector.detectWithProgress(samples,[&] {return cancelled;},[&](auto done,auto total) {
+        EXPECT_LE(done,total);++reports;if(done>=65)cancelled=true;
+    });
+    EXPECT_TRUE(cancelled);EXPECT_TRUE(result.empty());EXPECT_GT(reports,1U);
+    cancelled=false;reports=0;
+    result=detector.detectWithProgress(samples,[&] {return cancelled;},[&](auto done,auto total) {
+        EXPECT_LE(done,total);++reports;if(done>samples.size())cancelled=true;
+    });
+    EXPECT_TRUE(cancelled);EXPECT_TRUE(result.empty());EXPECT_GT(reports,1U);
+    std::size_t finalDone=0,finalTotal=0;
+    const auto full=detector.detectWithProgress(samples,{},[&](auto done,auto total) {finalDone=done;finalTotal=total;});
+    EXPECT_EQ(finalDone,finalTotal);EXPECT_EQ(finalDone,samples.size()*2);
+    const auto plain=detector.detect(samples);ASSERT_EQ(full.size(),plain.size());
+    for(std::size_t i=0;i<full.size();++i) {
+        EXPECT_DOUBLE_EQ(full[i].timestampSeconds,plain[i].timestampSeconds);EXPECT_DOUBLE_EQ(full[i].score,plain[i].score);
+    }
+}

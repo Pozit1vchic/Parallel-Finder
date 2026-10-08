@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <algorithm>
+#include <thread>
 
 #include <pfcore/DominantPerson.hpp>
 
@@ -535,4 +536,30 @@ TEST(DominantPerson, SharedPersonNeedsIndependentShotsAndDoesNotCountSlidingWind
     EXPECT_TRUE(selected.windows[0]);EXPECT_FALSE(selected.windows.back());
     auto single=videoIdentity("one",{});
     EXPECT_EQ(pfcore::selectDominantVideoWindows(single).windows,(std::vector<bool>{true,true}));
+}
+
+TEST(DominantPerson, IdentitySelectionReportsCallerProgressAndCancelsWithoutPartialAdmission)
+{
+    std::vector<pfcore::IdentitySummary> people(100);
+    for(std::size_t i=0;i<people.size();++i) {
+        auto& p=people[i];p.face={1,0};p.faceEvidence=1;p.duration=1;p.area=1;p.observationTimes={double(i*2)};
+    }
+    const auto expected=pfcore::selectDominantIdentities(people);
+    const auto caller=std::this_thread::get_id();
+    pfcore::DominantSelectionControl control;std::size_t reports=0;bool cancelled=false;
+    control.cancelled=[&] {return cancelled;};
+    control.progress=[&](auto stage,std::size_t done,std::size_t total) {
+        EXPECT_EQ(std::this_thread::get_id(),caller);EXPECT_LE(done,total);++reports;
+        if(stage==pfcore::DominantSelectionStage::Link && done>=20)cancelled=true;
+    };
+    const auto stopped=pfcore::selectDominantIdentities(people,control);
+    EXPECT_TRUE(cancelled);EXPECT_GT(reports,1U);EXPECT_EQ(std::count(stopped.begin(),stopped.end(),true),0);
+    control.progress=[&](auto,std::size_t done,std::size_t total) {EXPECT_LE(done,total);};cancelled=false;
+    EXPECT_EQ(pfcore::selectDominantIdentities(people,control),expected);
+    control.progress=[&](auto stage,std::size_t,std::size_t) {
+        if(stage==pfcore::DominantSelectionStage::Cluster)cancelled=true;
+    };
+    EXPECT_EQ(std::count(expected.begin(),expected.end(),true),100);
+    const auto clustered=pfcore::selectDominantIdentities(people,control);
+    EXPECT_EQ(std::count(clustered.begin(),clustered.end(),true),0);
 }

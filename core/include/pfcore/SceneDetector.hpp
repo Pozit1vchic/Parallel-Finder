@@ -6,6 +6,8 @@
 #include <optional>
 #include <stop_token>
 #include <array>
+#include <functional>
+#include <string>
 
 namespace pfcore {
 class VideoDecoder;
@@ -24,6 +26,20 @@ struct SceneSample {
     int height = 0;
     std::span<const std::uint8_t> rgba;
 };
+
+struct SceneViewRequest {double target=0, start=0, end=0;};
+struct SceneViewObservation {double timestampSeconds=0; std::vector<float> pixels;};
+// Exact decoded frames at or after each target. Nearby requests share forward
+// decoding, while distant requests seek. Results retain caller order and bounds.
+std::vector<SceneViewObservation> sampleSceneViews(VideoDecoder& decoder,
+    std::span<const SceneViewRequest> requests, const std::function<bool()>& cancelled={},
+    const std::function<void(std::size_t,std::size_t)>& progress={});
+
+// Bounded parallel CPU decoding. Each worker owns its decoder; callbacks run
+// only on the caller, and output order matches the supplied requests.
+std::vector<SceneViewObservation> sampleSceneViewsParallel(const std::string& source,
+    std::span<const SceneViewRequest> requests, const std::function<bool()>& cancelled={},
+    const std::function<void(std::size_t,std::size_t)>& progress={}, std::size_t threadBudget=8);
 
 // Compact spatial colour layout. Rejects malformed, flat or nearly black
 // images, which cannot independently establish a recurring camera view.
@@ -76,6 +92,9 @@ public:
     // Detects cuts from adjacent RGBA frame samples. Samples must be ordered
     // by timestamp; malformed/empty frames are skipped.
     std::vector<SceneBoundary> detect(std::span<const SceneSample> samples) const;
+    std::vector<SceneBoundary> detectWithProgress(std::span<const SceneSample> samples,
+        const std::function<bool()>& cancelled,
+        const std::function<void(std::size_t,std::size_t)>& progress={}) const;
 
     // Convenience overload for callers that have no decoded samples yet.
     std::vector<SceneBoundary> detect() const;

@@ -173,3 +173,6 @@ $RECYCLE.BIN/
 *.avi
 !tests/fixtures/**/*.mp4
 !tests/fixtures/**/*.mkv
+
+# Byte-exact decoder benchmark dumps are generated observations, not fixtures.
+/tools/benchmark/*.bin

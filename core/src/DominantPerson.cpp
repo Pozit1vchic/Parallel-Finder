@@ -367,21 +367,42 @@ std::optional<PersonTrack> DominantPersonTracker::dominant() const
     return *best;
 }
 
-std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities)
+std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities,
+    const DominantSelectionControl& control)
 {
     const auto count = identities.size();
     std::vector<bool> selected(count, false);
     if (!count) return selected;
-    const auto faceObserved = [&](std::size_t i) {
-        return identities[i].faceEvidence > 0.0
-            && embeddingScore(identities[i].face, identities[i].face) > 0.99;
+    const auto cancelled=[&] {return control.cancelled && control.cancelled();};
+    if(control.progress)control.progress(DominantSelectionStage::Link,0,count);
+    if(cancelled())return selected;
+    // Identity evidence is immutable during clustering. Validate each prototype
+    // once, instead of rescanning 512-dimensional embeddings for every edge.
+    std::vector<bool> observedFace(count), readyFace(count), readyBody(count);
+    for (std::size_t i=0;i<count;++i) {
+        observedFace[i]=identities[i].faceEvidence>0.0
+            && embeddingScore(identities[i].face,identities[i].face)>0.99;
+        readyFace[i]=identities[i].faceEvidence>=0.45 && observedFace[i];
+        readyBody[i]=identities[i].bodyEvidence>=0.45
+            && embeddingScore(identities[i].body,identities[i].body)>0.99;
+    }
+    const auto faceObserved=[&](std::size_t i) {return observedFace[i];};
+    const auto faceReady=[&](std::size_t i) {return readyFace[i];};
+    const auto bodyReady=[&](std::size_t i) {return readyBody[i];};
+    std::vector<double> faceNorm(count),bodyNorm(count);
+    const auto norm=[](const std::vector<float>& values) {
+        double result=0;
+        for(const float v:values) {if(!std::isfinite(v))return -1.0;result+=static_cast<double>(v)*v;}
+        return result;
     };
-    const auto faceReady = [&](std::size_t i) {
-        return identities[i].faceEvidence >= 0.45 && faceObserved(i);
-    };
-    const auto bodyReady = [&](std::size_t i) {
-        return identities[i].bodyEvidence >= 0.45
-            && embeddingScore(identities[i].body, identities[i].body) > 0.99;
+    for(std::size_t i=0;i<count;++i) {faceNorm[i]=norm(identities[i].face);bodyNorm[i]=norm(identities[i].body);}
+    const auto prototypeScore=[&](std::size_t a,std::size_t b,bool face) {
+        const auto& left=face ? identities[a].face : identities[a].body;
+        const auto& right=face ? identities[b].face : identities[b].body;
+        const auto& norms=face ? faceNorm : bodyNorm;
+        if(left.empty() || left.size()!=right.size() || norms[a]<=1e-12 || norms[b]<=1e-12)return -1.0;
+        double dot=0;for(std::size_t i=0;i<left.size();++i)dot+=static_cast<double>(left[i])*right[i];
+        return std::clamp(dot/std::sqrt(norms[a]*norms[b]),-1.0,1.0);
     };
     struct Edge { std::size_t a, b; double score; bool face; };
     const auto coVisible = [&](std::size_t a, std::size_t b) {
@@ -397,14 +418,20 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
         return false;
     };
     std::vector<Edge> edges;
-    for (std::size_t a = 0; a < count; ++a) for (std::size_t b = a + 1; b < count; ++b) {
+    for (std::size_t a = 0; a < count; ++a) {
+      if(cancelled())return selected;
+      if(control.progress)control.progress(DominantSelectionStage::Link,a,count);
+      for (std::size_t b = a + 1; b < count; ++b) {
         if (coVisible(a,b)) continue;
         const bool face = faceReady(a) && faceReady(b);
         if (!face && !(bodyReady(a) && bodyReady(b))) continue;
-        const double score = face ? embeddingScore(identities[a].face, identities[b].face)
-                                  : embeddingScore(identities[a].body, identities[b].body);
+        const double score = prototypeScore(a,b,face);
         if (score >= (face ? 0.363 : 0.76)) edges.push_back({a, b, score, face});
     }
+    }
+    if(control.progress)control.progress(DominantSelectionStage::Link,count,count);
+    if(cancelled())return selected;
+    if(control.progress)control.progress(DominantSelectionStage::Cluster,0,edges.size());
     // Build reliable face groups before allowing weaker clothing links.
     std::stable_sort(edges.begin(), edges.end(), [](const Edge& a, const Edge& b) {
         if (a.face != b.face) return a.face > b.face;
@@ -415,7 +442,13 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
     std::vector<std::size_t> owner(count);
     std::vector<std::vector<std::size_t>> members(count);
     for (std::size_t i = 0; i < count; ++i) { owner[i] = i; members[i].push_back(i); }
+    if(control.progress)control.progress(DominantSelectionStage::Cluster,0,edges.size());
+    std::size_t linked=0;
     for (const auto& edge : edges) {
+        if((linked++ % 256)==0) {
+            if(cancelled())return selected;
+            if(control.progress)control.progress(DominantSelectionStage::Cluster,linked-1,edges.size());
+        }
         const auto a = owner[edge.a], b = owner[edge.b];
         if (a == b) continue;
         bool conflict = false;
@@ -426,7 +459,7 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
                 // clothing bridge. Otherwise a short extra joins the lead
                 // simply because its face has not reached two samples yet.
                 if (coVisible(left,right) || (faceObserved(left) && faceObserved(right)
-                    && embeddingScore(identities[left].face, identities[right].face) < 0.363)) {
+                    && prototypeScore(left,right,true) < 0.363)) {
                     conflict = true; break;
                 }
             }
@@ -436,6 +469,8 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
         for (const auto i : members[b]) { owner[i] = a; members[a].push_back(i); }
         members[b].clear();
     }
+    if(control.progress)control.progress(DominantSelectionStage::Cluster,edges.size(),edges.size());
+    if(cancelled())return selected;
     std::size_t best = 0;
     double bestDuration = -1, bestArea = -1;
     bool bestEvidence = false;
@@ -627,7 +662,7 @@ std::vector<bool> selectDominantSceneTracks(const std::vector<PersonTrack>& trac
 }
 
 DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack>& tracks,
-    const std::vector<PersonTrack>* rc16Tracks)
+    const std::vector<PersonTrack>* rc16Tracks,const DominantSelectionControl& control)
 {
     DominantSourceSelection result;
     result.tracks.assign(tracks.size(), false);
@@ -640,7 +675,8 @@ DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack
         summaries.push_back(summarizeObservations(tracks[i].observations));
         indices.push_back(i);
     }
-    auto original = selectDominantIdentities(summaries);
+    auto original = selectDominantIdentities(summaries,control);
+    if(control.cancelled && control.cancelled())return result;
     // Association corrections can change component membership even for an
     // unrelated short track. Preserve the actual rc16 admission, independently
     // replayed on the same detections, rather than treating reordered track IDs
@@ -659,7 +695,8 @@ DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack
             previousSummaries.push_back(summarizeObservations((*rc16Tracks)[i].observations));
             previousIndices.push_back(i);
         }
-        const auto previous = selectDominantIdentities(previousSummaries);
+        const auto previous = selectDominantIdentities(previousSummaries,control);
+        if(control.cancelled && control.cancelled())return result;
         for (std::size_t i = 0; i < previous.size(); ++i) if (previous[i])
             for (const auto& observation : (*rc16Tracks)[previousIndices[i]].observations)
                 previouslyAdmitted.insert(key(observation));
@@ -669,15 +706,17 @@ DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack
                 [&](const auto& observation) { return previouslyAdmitted.contains(key(observation)); });
         }
     }
-    const auto faceObserved = [&](std::size_t i) {
-        return summaries[i].faceEvidence > 0
-            && embeddingScore(summaries[i].face, summaries[i].face) > .99;
-    };
-    const auto faceReady = [&](std::size_t i) { return faceObserved(i) && summaries[i].faceEvidence >= .45; };
-    const auto bodyReady = [&](std::size_t i) {
-        return summaries[i].bodyEvidence >= .45
-            && embeddingScore(summaries[i].body, summaries[i].body) > .99;
-    };
+    std::vector<bool> observedFace(summaries.size()), readyFace(summaries.size()), readyBody(summaries.size());
+    for (std::size_t i=0;i<summaries.size();++i) {
+        observedFace[i]=summaries[i].faceEvidence>0
+            && embeddingScore(summaries[i].face,summaries[i].face)>.99;
+        readyFace[i]=observedFace[i] && summaries[i].faceEvidence>=.45;
+        readyBody[i]=summaries[i].bodyEvidence>=.45
+            && embeddingScore(summaries[i].body,summaries[i].body)>.99;
+    }
+    const auto faceObserved=[&](std::size_t i) {return observedFace[i];};
+    const auto faceReady=[&](std::size_t i) {return readyFace[i];};
+    const auto bodyReady=[&](std::size_t i) {return readyBody[i];};
     const auto coVisible = [&](std::size_t a, std::size_t b) {
         const auto& left = summaries[a].observationTimes;
         const auto& right = summaries[b].observationTimes;
@@ -705,7 +744,10 @@ DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack
     }
     if (anchors.size() < 2) return result;
     std::vector<bool> candidate(summaries.size(), false), ambiguous(summaries.size(), false);
+    if(control.progress)control.progress(DominantSelectionStage::Recovery,0,summaries.size());
     for (std::size_t i = 0; i < summaries.size(); ++i) {
+        if(control.cancelled && control.cancelled())return {};
+        if(control.progress)control.progress(DominantSelectionStage::Recovery,i,summaries.size());
         if (original[i] || !faceReady(i) || !bodyReady(i)) continue;
         if (std::any_of(lead.begin(), lead.end(), [&](std::size_t anchor) {
             return coVisible(i, anchor) || (faceObserved(anchor) && !faceReady(anchor)
@@ -726,6 +768,7 @@ DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack
             ambiguous[i] = ambiguous[j] = true;
     const bool trace = std::getenv("PF_DEBUG_DOMINANT") != nullptr;
     for (std::size_t i = 0; i < candidate.size(); ++i) {
+        if(control.cancelled && control.cancelled())return {};
         if (!candidate[i] || ambiguous[i]) continue;
         const auto trackIndex = indices[i];
         const auto& observations = tracks[trackIndex].observations;
@@ -755,6 +798,7 @@ DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack
         // between identity observations; never extrapolate before/after them.
         constexpr double maximumIdentityGapSeconds = 1.0;
         for (std::size_t j = 0; j < observations.size(); ++j) {
+            if(control.cancelled && control.cancelled())return {};
             const auto& observation = observations[j];
             if (independentFaces && observation.timestampSeconds - observations[last].timestampSeconds
                     > maximumIdentityGapSeconds) finish();
@@ -777,6 +821,7 @@ DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack
                 tracks[trackIndex].id, range.begin, range.end,
                 observations[range.begin].timestampSeconds, observations[range.end - 1].timestampSeconds);
     }
+    if(control.progress)control.progress(DominantSelectionStage::Recovery,summaries.size(),summaries.size());
     return result;
 }
 

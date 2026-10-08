@@ -22,6 +22,8 @@
 #include <numeric>
 #include <set>
 #include <atomic>
+#include <map>
+#include <tuple>
 
 namespace pfcore {
 namespace {
@@ -133,8 +135,12 @@ bool sameCameraView(const MotionWindow& left, const MotionWindow& right)
     return false;
 }
 
+struct FootageFrameStats {std::array<double,3> mean{},variance{};};
+// Search-local, immutable source pixels; no global cache can outlive a window.
+using FootageStatsCache=std::map<std::tuple<const std::vector<float>*,int,bool,bool>,std::vector<FootageFrameStats>>;
+
 bool copiedScene(const MotionWindow& a,const MotionWindow& b,bool cameraOnly=false,
-                 const std::function<bool()>& cancelled = {})
+                 const std::function<bool()>& cancelled = {}, FootageStatsCache* statisticsCache=nullptr)
 {
     // A returning camera is just as redundant within one film as across files.
     // Keep the stricter copied-footage policy separate from portrait filtering.
@@ -155,7 +161,7 @@ bool copiedScene(const MotionWindow& a,const MotionWindow& b,bool cameraOnly=fal
     const double localLimit=!cameraOnly?.085:recurringSetting?.45:.20;
     // Every independently sampled frame must agree, in order. A repeated
     // background or one coincidentally similar portrait is not copied video.
-    struct FrameStats {std::array<double,3> mean{},variance{};};
+    using FrameStats=FootageFrameStats;
     const auto statistics=[](const std::vector<float>& pixels) {
         std::vector<FrameStats> result(pixels.size()/432);
         for (std::size_t frame=0;frame<result.size();++frame) {
@@ -167,8 +173,7 @@ bool copiedScene(const MotionWindow& a,const MotionWindow& b,bool cameraOnly=fal
         }
         return result;
     };
-    const auto statsA=statistics(a.sceneSequence),statsB=statistics(b.sceneSequence);
-    std::vector<FrameStats> shiftedA, shiftedB;
+
     const auto shiftedStatistics = [](const std::vector<float>& sequence, int shift, bool mirror, bool right) {
         std::vector<FrameStats> result(sequence.size()/432);
         const double pixels=(16-std::abs(shift))*9;
@@ -186,8 +191,22 @@ bool copiedScene(const MotionWindow& a,const MotionWindow& b,bool cameraOnly=fal
         }
         return result;
     };
+    FootageStatsCache localCache;
+    auto& cache=statisticsCache ? *statisticsCache : localCache;
+    const auto cachedStatistics=[&](const std::vector<float>& sequence,int shift,bool mirror,bool right)
+        -> const std::vector<FrameStats>& {
+        // Mirroring does not change whole-frame means or variances.
+        const auto key=std::make_tuple(&sequence,shift,shift ? mirror : false,shift ? right : false);
+        auto [entry,inserted]=cache.try_emplace(key);
+        if(inserted)entry->second=shift ? shiftedStatistics(sequence,shift,mirror,right) : statistics(sequence);
+        return entry->second;
+    };
+    const auto& statsA=cachedStatistics(a.sceneSequence,0,false,false);
+    const auto& statsB=cachedStatistics(b.sceneSequence,0,false,false);
+    const std::vector<FrameStats>* shiftedA=nullptr;
+    const std::vector<FrameStats>* shiftedB=nullptr;
     const auto equalFrame=[&](std::size_t left,std::size_t right,bool mirror,int shift) {
-        auto sa=shift ? shiftedA[left] : statsA[left], sb=shift ? shiftedB[right] : statsB[right];
+        auto sa=shift ? (*shiftedA)[left] : statsA[left], sb=shift ? (*shiftedB)[right] : statsB[right];
         const auto valid=[&](std::size_t i) {const int x=(i/3)%16;return x+shift>=0 && x+shift<16;};
         const auto indexB=[&](std::size_t i) {
             const int x=(i/3)%16+shift;
@@ -196,22 +215,29 @@ bool copiedScene(const MotionWindow& a,const MotionWindow& b,bool cameraOnly=fal
         const double pixels=(16-std::abs(shift))*9;
         if (std::accumulate(sa.variance.begin(),sa.variance.end(),0.0)/3<.0004
             || std::accumulate(sb.variance.begin(),sb.variance.end(),0.0)/3<.0004) return false;
-        std::array<double,3> gain{},bias{};
+        std::array<double,3> gain{},bias{},normalizer{};
         // SCPs often change exposure/colour while copying the same pixels.
         // Fit only a bounded per-channel affine transform; local layout and
         // three successive frames must still agree independently.
         for (int c=0;c<3;++c) {
             gain[c]=std::clamp(std::sqrt(std::max(0.0,sa.variance[c])/std::max(1e-9,sb.variance[c])),cameraOnly?2.0/3:.80,cameraOnly?1.5:1.25);
-            bias[c]=sa.mean[c]-gain[c]*sb.mean[c];if (std::abs(bias[c])/std::sqrt(gain[c])>(cameraOnly?.15:.10)) return false;
+            normalizer[c]=std::sqrt(gain[c]);
+            bias[c]=sa.mean[c]-gain[c]*sb.mean[c];if (std::abs(bias[c])/normalizer[c]>(cameraOnly?.15:.10)) return false;
         }
         const auto residual=[&](std::size_t i) {
             return std::abs(a.sceneSequence[left*432+i]-(gain[i%3]*b.sceneSequence[right*432+indexB(i)]+bias[i%3]))
-                /std::sqrt(gain[i%3]);
+                /normalizer[i%3];
         };
         double coarse=0;std::size_t coarseSamples=0;
-        for (const int row:{2,4,6}) for (const int column:{2,6,10,14})
-            for (int c=0;c<3;++c)if(valid((row*16+column)*3+c)) {coarse+=residual((row*16+column)*3+c);++coarseSamples;}
-        if (coarse/coarseSamples>coarseLimit) return false;
+        for(const int column:{2,6,10,14})if(valid(column*3))coarseSamples+=9;
+        for (const int row:{2,4,6}) {
+            for (const int column:{2,6,10,14})
+                for (int c=0;c<3;++c)if(valid((row*16+column)*3+c))coarse+=residual((row*16+column)*3+c);
+            // Non-negative residuals can only increase. Dividing by the FINAL
+            // sample count preserves the original floating-point threshold,
+            // while rejecting impossible frame pairs before more pixel work.
+            if(coarse/coarseSamples>coarseLimit)return false;
+        }
         double error=0;std::array<double,144> local{};
         for (std::size_t i=0;i<432;++i)if(valid(i)) {
             const auto u=a.sceneSequence[left*432+i],v=b.sceneSequence[right*432+indexB(i)];
@@ -241,8 +267,8 @@ bool copiedScene(const MotionWindow& a,const MotionWindow& b,bool cameraOnly=fal
       if(shift && !cameraOnly)continue;
       if (cancelled && cancelled()) return false;
       if(shift) {
-          shiftedA=shiftedStatistics(a.sceneSequence,shift,mirror,false);
-          shiftedB=shiftedStatistics(b.sceneSequence,shift,mirror,true);
+          shiftedA=&cachedStatistics(a.sceneSequence,shift,mirror,false);
+          shiftedB=&cachedStatistics(b.sceneSequence,shift,mirror,true);
       }
       for (std::size_t i=0;i+2<countA;++i) {
         if (cancelled && cancelled()) return false;
@@ -2101,6 +2127,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if(windows[i].hasSceneIndex && (cameraRepresentatives[originalShotOf[i]]==windows.size()
             || (!windows[i].sceneSequence.empty() && windows[cameraRepresentatives[originalShotOf[i]]].sceneSequence.empty())))
             cameraRepresentatives[originalShotOf[i]]=i;
+    FootageStatsCache cameraStatistics;
     std::unordered_set<std::uint64_t> checkedHeadPairs;
     const auto returningHeadView=[&](std::size_t a,std::size_t b) {
         const auto key=shotPairKey(a,b);
@@ -2108,7 +2135,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if(a==b || copiedShotPairs.contains(key) || !checkedHeadPairs.insert(key).second)return false;
         const auto i=cameraRepresentatives[a],j=cameraRepresentatives[b];
         if(i!=windows.size() && j!=windows.size()
-            && copiedScene(windows[i],windows[j],true,control.cancelled)) {
+            && copiedScene(windows[i],windows[j],true,control.cancelled,&cameraStatistics)) {
             returningHeadViews.insert(key);return true;
         }
         return false;
@@ -2525,9 +2552,13 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         : std::min(params_.maxUniqueResults,params_.coverageSeedLimit);
     const auto shotLimit = params_.individualPairs ? 1U : params_.maxResultsPerShot;
     const auto rounds = shotLimit == 0 ? 1U : shotLimit;
+    std::size_t selectedCandidates=0;
     for (std::size_t round = 0; round < rounds; ++round) {
     nextHead = nextBody = 0;
     for (const MotionMatch& ranked : matches) {
+        if(cancelled())return {};
+        if(selectedCandidates%64==0)report(MotionSearchStage::Select,selectedCandidates,matches.size()*rounds);
+        ++selectedCandidates;
         const MotionMatch* next = &ranked;
         if (!params_.individualPairs && windows[ranked.leftIndex].staticFrameSet) {
             const bool takeHead = nextHead < heads.size()
@@ -2682,6 +2713,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         }
     }
     }
+    report(MotionSearchStage::Select,selectedCandidates,matches.size()*rounds);
     if (params_.individualPairs) {
         // A greedy strongest-first choice A/B can leave C and D unused even
         // when verified A/C and B/D exist. Augment that path into two disjoint
@@ -2785,12 +2817,20 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             return strongestFirst(a,b);
         };
         std::sort(covered.begin(), covered.end(), headPriority);
-        for (const auto& match : covered) if (portrait(match)) append(match);
+        const auto cameraTotal=std::count_if(covered.begin(),covered.end(),portrait)
+            +std::count_if(matches.begin(),matches.end(),portrait);
+        std::size_t cameraDone=0;report(MotionSearchStage::Camera,0,cameraTotal);
+        for (const auto& match : covered) if (portrait(match)) {
+            if(cancelled())return {};
+            append(match);report(MotionSearchStage::Camera,++cameraDone,cameraTotal);
+        }
         // Freed portrait shots can support other, genuinely different views.
         std::vector<MotionMatch> alternatives;
         for (const auto& match : matches) if (portrait(match)) alternatives.push_back(match);
         std::sort(alternatives.begin(), alternatives.end(), headPriority);
-        for (const auto& match : alternatives) { if(cancelled())return {}; append(match); }
+        for (const auto& match : alternatives) {
+            if(cancelled())return {};append(match);report(MotionSearchStage::Camera,++cameraDone,cameraTotal);
+        }
     }
     if(cancelled())return {};
     if (params_.individualPairs && params_.recoverUnusedShots

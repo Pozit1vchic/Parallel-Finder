@@ -6,6 +6,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <numeric>
+#include <limits>
+#include <future>
+#include <atomic>
+#include <thread>
+#include <chrono>
 #include <stdexcept>
 #include <vector>
 
@@ -170,22 +175,38 @@ void SceneDetector::setAdaptiveMultiplier(double value)
 
 std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> samples) const
 {
+    return detectWithProgress(samples,{});
+}
+
+std::vector<SceneBoundary> SceneDetector::detectWithProgress(std::span<const SceneSample> samples,
+    const std::function<bool()>& cancelled,
+    const std::function<void(std::size_t,std::size_t)>& progress) const
+{
     std::vector<SceneBoundary> boundaries;
     if (samples.size() < 2) return boundaries;
     const bool debugScores = std::getenv("PF_DEBUG_SCENE_SCORES") != nullptr;
 
-    std::vector<CompactFrame> frames;
-    frames.reserve(samples.size());
-    for (const auto& sample : samples) frames.push_back(compact(sample));
-
-    std::vector<double> deltas(samples.size(), 0.0);
-    for (std::size_t i = 1; i < frames.size(); ++i)
-        deltas[i] = hsvDistance(frames[i - 1], frames[i]);
-
+    // A six-hour 4 fps source previously retained ~4.8 GB of HSV doubles.
+    // Keep exact arithmetic but only two compact frames, scalar brightness
+    // and adjacent differences. Source thumbnails remain available for fades.
+    std::vector<double> brightness(samples.size(),0.0),deltas(samples.size(),0.0);
+    std::vector<bool> validFrames(samples.size(),false);
+    CompactFrame previous;
+    if(progress)progress(0,samples.size()*2);
+    for(std::size_t i=0;i<samples.size();++i) {
+        if(cancelled && cancelled())return {};
+        auto current=compact(samples[i]);
+        brightness[i]=current.meanValue;validFrames[i]=!current.pixels.empty();
+        if(i)deltas[i]=hsvDistance(previous,current);
+        previous=std::move(current);
+        if(progress && i%64==0)progress(i+1,samples.size()*2);
+    }
+    previous={};
     std::vector<double> recent;
     recent.reserve(5);
     std::size_t framesSinceBoundary = minSceneFrames_;
     for (std::size_t i = 1; i < samples.size(); ++i) {
+        if(cancelled && cancelled())return {};
         // A cut is an outlier, not the normal motion level of the next shot.
         // A rolling mean containing the previous cut hid nearby real cuts.
         auto sortedRecent = recent;
@@ -234,7 +255,7 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
                 samples[i].timestampSeconds, deltas[i], localMean,
                 followingCount ? following[followingCount / 2] : 0.0,
                 adaptivePass ? 1 : 0, lowContrastCut ? 1 : 0, stableMotionCut ? 1 : 0, framesSinceBoundary);
-        if (validTimestamp && !frames[i].pixels.empty()
+        if (validTimestamp && validFrames[i]
             && (deltas[i] >= threshold_ || lowContrastCut)
             && adaptivePass && framesSinceBoundary >= minSceneFrames_) {
             boundaries.push_back({samples[i].timestampSeconds,
@@ -256,8 +277,12 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
     double softAccumulated = 0.0;
     double softDirection = 0.0;
     bool softBoundaryEmitted = false;
+    std::size_t cachedFrom=std::numeric_limits<std::size_t>::max();
+    CompactFrame fadeFrom;
     for (std::size_t i = 1; i < samples.size(); ++i) {
-        const double brightnessDelta = frames[i].meanValue - frames[i - 1].meanValue;
+        if(cancelled && cancelled())return {};
+        if(progress && i%64==0)progress(samples.size()+i,samples.size()*2);
+        const double brightnessDelta = brightness[i] - brightness[i - 1];
         const double direction = std::abs(brightnessDelta) < 1.0 ? 0.0
             : (brightnessDelta > 0.0 ? 1.0 : -1.0);
         const bool softFrame = deltas[i] < threshold_
@@ -276,14 +301,15 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
         softDirection = direction;
         softAccumulated += deltas[i];
         const std::size_t length = i - softStart + 1;
-        const double brightnessChange = std::abs(frames[i].meanValue
-                                                  - frames[softStart].meanValue);
+        const double brightnessChange = std::abs(brightness[i] - brightness[softStart]);
         // Summing small deltas alone splits a continuous talking head or
         // moving camera into fake shots. A fade needs an actual sustained
         // whole-frame brightness change, not accumulated local motion.
         std::size_t eligible = 0, changing = 0;
-        const auto& from = frames[softStart].pixels;
-        const auto& to = frames[i].pixels;
+        if(cachedFrom!=softStart) {fadeFrom=compact(samples[softStart]);cachedFrom=softStart;}
+        const auto fadeTo=compact(samples[i]);
+        const auto& from=fadeFrom.pixels;
+        const auto& to=fadeTo.pixels;
         for (std::size_t p = 0; p < std::min(from.size(), to.size()); ++p) {
             if (from[p].value < 12 && to[p].value < 12) continue; // letterbox
             ++eligible;
@@ -325,6 +351,7 @@ std::vector<SceneBoundary> SceneDetector::detect(std::span<const SceneSample> sa
         [](const SceneBoundary& left, const SceneBoundary& right) {
             return std::abs(left.timestampSeconds - right.timestampSeconds) < 1e-9;
         }), boundaries.end());
+    if(progress)progress(samples.size()*2,samples.size()*2);
     return boundaries;
 }
 
@@ -357,6 +384,103 @@ std::vector<float> sceneViewDescriptor(const SceneSample& sample)
         mean += average / 3; variance += (squared[channel] / usefulCells - average * average) / 3;
     }
     if (mean < .035 || variance < .0004) return {};
+    return result;
+}
+
+std::vector<SceneViewObservation> sampleSceneViews(VideoDecoder& decoder,
+    std::span<const SceneViewRequest> requests, const std::function<bool()>& cancelled,
+    const std::function<void(std::size_t,std::size_t)>& progress)
+{
+    for(const auto& r:requests) if(!std::isfinite(r.target) || !std::isfinite(r.start)
+        || !std::isfinite(r.end) || r.start<0 || r.target<r.start || r.target>r.end)
+        throw std::invalid_argument("Scene views require finite, bounded timestamps");
+    std::vector<SceneViewObservation> result(requests.size());
+    std::vector<std::size_t> order(requests.size());
+    std::iota(order.begin(),order.end(),0);
+    std::stable_sort(order.begin(),order.end(),[&](auto a,auto b){return requests[a].target<requests[b].target;});
+    DecodedFrame frame; bool available=false;
+    const bool adaptiveSeek=decoder.diagnostics().backend=="cpu";
+    double seekCostSeconds=2.0;
+    const double fps=std::max(1.0,decoder.info().frameRate);
+    std::vector<float> currentPixels;
+    if(progress)progress(0,order.size());
+    std::size_t done=0;
+    for(const auto index:order) {
+        if(cancelled && cancelled())break;
+        const auto& r=requests[index];
+        // Avoid decoding the same long HEVC GOP again for neighbouring shots.
+        // Conversion and PTS admission stay identical to independent seeks.
+        const bool seeked=!available || r.target-frame.timestampSeconds>seekCostSeconds;
+        std::size_t traversed=0;
+        if(seeked) {
+            decoder.seek(r.target); available=false; currentPixels.clear();
+        }
+        while(!available || frame.timestampSeconds+1e-6<r.target) {
+            if(cancelled && cancelled())return result;
+            if(!decoder.readNext(frame,false)) {available=false;break;}
+            available=true;currentPixels.clear();++traversed;
+        }
+        // Learn actual keyframe-to-target work. A 10-second GOP should not
+        // be reconstructed for every target three seconds apart. PTS/pixel
+        // admission stays unchanged; sparse gaps still seek instead of scanning.
+        if(adaptiveSeek && seeked && available)seekCostSeconds=std::clamp(traversed/fps,2.0,30.0);
+        if(available && frame.timestampSeconds>=r.start && frame.timestampSeconds<=r.end+1e-6) {
+            if(currentPixels.empty() && decoder.convertCurrentFrameToRgba(frame))
+                currentPixels=sceneViewDescriptor({frame.timestampSeconds,frame.width,frame.height,frame.rgba});
+            result[index]={frame.timestampSeconds,currentPixels};
+        }
+        if(progress)progress(++done,order.size());
+    }
+    return result;
+}
+
+std::vector<SceneViewObservation> sampleSceneViewsParallel(const std::string& source,
+    std::span<const SceneViewRequest> requests,const std::function<bool()>& cancelled,
+    const std::function<void(std::size_t,std::size_t)>& progress,std::size_t threadBudget)
+{
+    if(threadBudget==0 || threadBudget>32)throw std::invalid_argument("Scene view thread budget must be 1..32");
+    for(const auto& r:requests) if(!std::isfinite(r.target) || !std::isfinite(r.start)
+        || !std::isfinite(r.end) || r.start<0 || r.target<r.start || r.target>r.end)
+        throw std::invalid_argument("Scene views require finite, bounded timestamps");
+    std::vector<SceneViewObservation> result(requests.size());
+    if(progress)progress(0,requests.size());
+    if(requests.empty() || (cancelled && cancelled()))return result;
+    std::vector<std::size_t> order(requests.size());std::iota(order.begin(),order.end(),0);
+    std::stable_sort(order.begin(),order.end(),[&](auto a,auto b){return requests[a].target<requests[b].target;});
+    const auto workers=std::min({std::size_t(4),std::max(std::size_t(1),threadBudget/2),
+        std::max(std::size_t(1),requests.size()/16)});
+    std::atomic_size_t completed{0};std::atomic_bool failed{false};
+    const auto stop=[&] {return failed.load(std::memory_order_relaxed) || (cancelled && cancelled());};
+    std::vector<std::future<void>> futures;futures.reserve(workers);
+    for(std::size_t worker=0;worker<workers;++worker) {
+        const auto begin=order.size()*worker/workers,end=order.size()*(worker+1)/workers;
+        futures.push_back(std::async(std::launch::async,[&,begin,end] {
+            try {
+                if(stop())return;
+                VideoDecoder decoder;VideoDecodeOptions options;
+                options.threads=static_cast<int>(std::max(std::size_t(1),threadBudget/workers));
+                decoder.open(source,options);decoder.setRgbaMaxDimensions(160,90);
+                std::vector<SceneViewRequest> subset;subset.reserve(end-begin);
+                for(auto i=begin;i<end;++i)subset.push_back(requests[order[i]]);
+                std::size_t localDone=0;
+                auto observations=sampleSceneViews(decoder,subset,stop,[&](auto done,auto) {
+                    completed.fetch_add(done-localDone,std::memory_order_relaxed);localDone=done;
+                });
+                for(auto i=begin;i<end;++i)result[order[i]]=std::move(observations[i-begin]);
+            } catch(...) {failed.store(true,std::memory_order_relaxed);throw;}
+        }));
+    }
+    std::exception_ptr error;
+    std::size_t reported=0;
+    for(auto& future:futures) {
+        while(future.wait_for(std::chrono::milliseconds(100))!=std::future_status::ready) {
+            const auto done=completed.load(std::memory_order_relaxed);
+            if(progress && done!=reported) {progress(done,requests.size());reported=done;}
+        }
+        try {future.get();}catch(...) {if(!error)error=std::current_exception();}
+    }
+    if(error)std::rethrow_exception(error);
+    if(progress)progress(completed.load(std::memory_order_relaxed),requests.size());
     return result;
 }
 

@@ -37,6 +37,7 @@ Item {
     signal playbackFinished()
     signal playbackFailed(string message)
     property bool videoMode: false
+    property bool mediaInitialized: false
     property bool playbackReady: false
     property bool pendingSinglePlayback: false
     readonly property var player: playerLoader.item
@@ -44,6 +45,7 @@ Item {
 
     onRecordChanged: {
         stopPlayback()
+        if (!record) mediaInitialized = false
         resetView()
         if (record && pairSignal && !Theme.reducedMotion) pairSignal.restart()
     }
@@ -69,7 +71,11 @@ Item {
     }
     function preparePlayback() {
         stopPlayback()
-        if (!root.previewPlayable || !player) return
+        if (!root.previewPlayable) return
+        // A still result must not load FFmpeg/audio backends on the GUI thread.
+        // Reuse each independent player after its first playback request.
+        mediaInitialized = true
+        if (!player) return
         videoMode = true
         player.source = Analysis.videoSourceUrl(root.sourcePath)
     }
@@ -104,7 +110,7 @@ Item {
     }
     Loader {
         id: playerLoader
-        active: !!root.record
+        active: root.mediaInitialized && !!root.record
         sourceComponent: Component {
             MediaPlayer {
                 objectName: "inlineMediaPlayer"
@@ -237,7 +243,7 @@ Item {
                         id: videoLoader
                         anchors.fill: parent
                         anchors.margins: 6 * root.zoom
-                        active: !!root.record
+                        active: root.mediaInitialized && !!root.record
                         sourceComponent: Component {
                             VideoOutput {
                                 objectName: "inlineVideoOutput"

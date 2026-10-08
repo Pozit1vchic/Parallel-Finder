@@ -81,6 +81,7 @@ private slots:
     void staticResultsShowPlaybackControls();
     void previewIsEmbeddedAndStopsOnRecordChange();
     void inlinePairActuallyDecodesAndStopsAtClipEnd();
+    void matcherStagesTranslateWithActualCounters();
     void resultLabelsFollowMatchTypeAndLanguage();
     void sourceStatisticsFollowSelectionAndInspectionScope();
 };
@@ -532,11 +533,19 @@ Window {
     auto* panel = root->findChild<QObject*>("animationPanel");
     auto* disclosure = root->findChild<QObject*>("animationDisclosure");
     QVERIFY(panel && disclosure);
+    auto* animationWindow = qobject_cast<QQuickWindow*>(root.get());
+    QVERIFY(animationWindow);
+    QTRY_VERIFY_WITH_TIMEOUT(animationWindow->isExposed(), 5000);
+    QSignalSpy animationFrames(animationWindow, &QQuickWindow::frameSwapped);
     QVERIFY(QMetaObject::invokeMethod(root.get(), "reduce", Q_ARG(QVariant, false)));
     QVERIFY(QMetaObject::invokeMethod(root.get(), "swap", Q_ARG(QVariant, 1)));
+    QVERIFY(!panel->findChild<QObject*>("inlineMediaPlayer"));
     QVERIFY(panel->property("transitionRunning").toBool());
     QEventLoop animationLoop;
     QTimer::singleShot(650, &animationLoop, &QEventLoop::quit); animationLoop.exec();
+    qInfo("Pair transition after 650 ms: frames=%lld phase=%g running=%d",
+        static_cast<long long>(animationFrames.count()), panel->property("pairSignalPhase").toDouble(),
+        panel->property("transitionRunning").toBool());
     QVERIFY(!panel->property("transitionRunning").toBool());
     QCOMPARE(panel->property("pairSignalPhase").toDouble(), 0.0);
     disclosure->setProperty("expanded", true);
@@ -706,7 +715,7 @@ void UiSmokeTests::settingsDragAndScrollKeepRendering()
     QTest::mousePress(window,Qt::LeftButton,Qt::NoModifier,start);
     int step=0;
     QTimer input; input.setTimerType(Qt::PreciseTimer); input.setInterval(8);
-    connect(&input,&QTimer::timeout,&loop,[&] { QTest::mouseMove(window,start+QPoint(++step,step/3),0); });
+    connect(&input,&QTimer::timeout,&loop,[&] { ++step; QTest::mouseMove(window,start+QPoint(step,step/3),0); });
     input.start(); wait(600); input.stop();
     QTest::mouseRelease(window,Qt::LeftButton,Qt::NoModifier,start+QPoint(step,step/3));
     wait(50);
@@ -1126,6 +1135,27 @@ void UiSmokeTests::advancedOpensOnFirstClickAndStatusTranslates()
     QTRY_VERIFY(label->property("text").toString().contains(QString::fromUtf8("Готов")));
 }
 
+void UiSmokeTests::matcherStagesTranslateWithActualCounters()
+{
+    pfui::AppInfo::registerQmlTypes();QQmlEngine engine;engine.addImportPath("qrc:/qt/qml");
+    QQmlComponent component(&engine);
+    component.setData(R"(import QtQuick
+import PfUi
+Item {
+    property string stage: "Матчер: Сравниваем найденные движения · 125 / 1000"
+    property string translated: L10n.status(stage)
+    function setLanguage(value) { L10n.language = value }
+})",QUrl());
+    std::unique_ptr<QObject> root(component.create());QVERIFY2(root,qPrintable(component.errorString()));
+    QVERIFY(QMetaObject::invokeMethod(root.get(),"setLanguage",Q_ARG(QVariant,"ru")));
+    QCOMPARE(root->property("translated").toString(),QString::fromUtf8("Матчер: Сравниваем найденные движения · 125 / 1000"));
+    QVERIFY(QMetaObject::invokeMethod(root.get(),"setLanguage",Q_ARG(QVariant,"en")));
+    QCOMPARE(root->property("translated").toString(),QStringLiteral("Matcher: Comparing candidate movements · 125 / 1000"));
+    root->setProperty("stage",QString::fromUtf8("Подготавливаем кадры для матчера · 40 / 90"));
+    QCOMPARE(root->property("translated").toString(),QStringLiteral("Preparing footage for matching · 40 / 90"));
+    QVERIFY(QMetaObject::invokeMethod(root.get(),"setLanguage",Q_ARG(QVariant,"ru")));
+}
+
 void UiSmokeTests::resultLabelsFollowMatchTypeAndLanguage()
 {
     pfui::AppInfo::registerQmlTypes();
@@ -1229,8 +1259,8 @@ void UiSmokeTests::previewIsEmbeddedAndStopsOnRecordChange()
     QVERIFY(!view->findChild<QObject*>("inlineMediaPlayer"));
     view->setProperty("videoMode", true);
     view->setProperty("record", QVariantMap{{"matchType", "motion"}, {"leftStart", 1}, {"leftEnd", 2}});
-    QVERIFY(view->findChild<QObject*>("inlineMediaPlayer"));
-    QVERIFY(view->findChild<QObject*>("inlineVideoOutput"));
+    QVERIFY(!view->findChild<QObject*>("inlineMediaPlayer"));
+    QVERIFY(!view->findChild<QObject*>("inlineVideoOutput"));
     QVERIFY(!view->property("videoMode").toBool());
     view->setProperty("record", QVariantMap{{"matchType", "motion"}, {"leftStart", 1},
         {"leftEnd", 3}, {"leftSceneEnd", 2}});
@@ -1268,12 +1298,8 @@ void UiSmokeTests::inlinePairActuallyDecodesAndStopsAtClipEnd()
     auto* left = center->findChild<QObject*>("leftComparison");
     auto* right = center->findChild<QObject*>("rightComparison");
     QVERIFY(left && right);
-    auto* leftPlayer = left->findChild<QMediaPlayer*>("inlineMediaPlayer");
-    auto* rightPlayer = right->findChild<QMediaPlayer*>("inlineMediaPlayer");
-    QVERIFY(leftPlayer && rightPlayer);
-    QVERIFY(leftPlayer->videoSink() && rightPlayer->videoSink());
-    QSignalSpy leftFrames(leftPlayer->videoSink(), &QVideoSink::videoFrameChanged);
-    QSignalSpy rightFrames(rightPlayer->videoSink(), &QVideoSink::videoFrameChanged);
+    QVERIFY(!left->findChild<QMediaPlayer*>("inlineMediaPlayer"));
+    QVERIFY(!right->findChild<QMediaPlayer*>("inlineMediaPlayer"));
     // Per-panel buttons must not be aliases for the shared A/B control.
     for (auto* panel : {right, left}) {
         auto* other = panel == right ? left : right;
@@ -1289,8 +1315,12 @@ void UiSmokeTests::inlinePairActuallyDecodesAndStopsAtClipEnd()
         QTRY_VERIFY_WITH_TIMEOUT(!panel->property("videoMode").toBool(), 10000);
         QVERIFY(!other->property("videoMode").toBool());
     }
-    leftFrames.clear();
-    rightFrames.clear();
+    auto* leftPlayer = left->findChild<QMediaPlayer*>("inlineMediaPlayer");
+    auto* rightPlayer = right->findChild<QMediaPlayer*>("inlineMediaPlayer");
+    QVERIFY(leftPlayer && rightPlayer);
+    QVERIFY(leftPlayer->videoSink() && rightPlayer->videoSink());
+    QSignalSpy leftFrames(leftPlayer->videoSink(), &QVideoSink::videoFrameChanged);
+    QSignalSpy rightFrames(rightPlayer->videoSink(), &QVideoSink::videoFrameChanged);
     QVERIFY(QMetaObject::invokeMethod(center.get(), "startPair"));
     QTRY_VERIFY_WITH_TIMEOUT(leftFrames.count() > 0 && rightFrames.count() > 0, 15000);
     QVERIFY(center->property("playbackError").toString().isEmpty());

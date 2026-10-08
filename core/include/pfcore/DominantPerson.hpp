@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <functional>
 #include <vector>
 
 #include "pfcore/MotionMatcher.hpp"
@@ -92,7 +93,13 @@ struct IdentitySummary {
 // Select the longest identity, without allowing a body-only intermediate
 // track to join two groups whose observed faces disagree. A single face
 // sample can veto a clothing link without establishing a positive face link.
-std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities);
+enum class DominantSelectionStage {Link,Cluster,Recovery};
+struct DominantSelectionControl {
+    std::function<bool()> cancelled;
+    std::function<void(DominantSelectionStage,std::size_t,std::size_t)> progress;
+};
+std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities,
+    const DominantSelectionControl& control={});
 
 struct DominantVideoSelection {
     std::vector<bool> windows;
@@ -125,7 +132,8 @@ struct DominantSourceSelection {
 // majority agreement with original face anchors plus body evidence. Recovered
 // ranges end at actual face samples; no extrapolation into unsampled tails.
 DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack>& tracks,
-    const std::vector<PersonTrack>* rc16Tracks = nullptr);
+    const std::vector<PersonTrack>* rc16Tracks = nullptr,
+    const DominantSelectionControl& control={});
 
 // Select the main identity within [startSeconds, endSeconds), using only
 // evidence observed in that shot. A poor profile/outfit match elsewhere in

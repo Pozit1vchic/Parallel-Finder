@@ -284,6 +284,15 @@ int main(int argc, char* argv[])
         QObject::connect(analysis, &pfui::AnalysisController::busyChanged, &loop, [&] {
             if (!analysis->busy()) loop.quit();
         });
+        QString previousPhase;QElapsedTimer progressClock;progressClock.start();
+        QObject::connect(analysis,&pfui::AnalysisController::progressChanged,&loop,[&] {
+            if(!qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))return;
+            const auto phase=analysis->progressStage().section(QStringLiteral(" · "),0,0);
+            if(phase==previousPhase && progressClock.elapsed()<1000)return;
+            previousPhase=phase;progressClock.restart();
+            std::fprintf(stderr,"PF_DEBUG_PROGRESS elapsed_ms=%lld progress=%.4f scenes=%d stage=%s\n",
+                static_cast<long long>(elapsed.elapsed()),analysis->progress(),analysis->sceneCount(),analysis->progressStage().toUtf8().constData());
+        });
         QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
         timeout.start();
         analysis->analyzeFiles(paths);

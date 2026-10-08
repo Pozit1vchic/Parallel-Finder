@@ -16,6 +16,21 @@ ColumnLayout {
     property string selectedSource: ""
     property var selectedRecord: null
     property bool analysisCompleted: Analysis.analysisCompleted && !Analysis.busy
+    property double analysisStartedMs: Date.now()
+    property int analysisElapsedSeconds: 0
+    Timer {
+        interval: 1000; repeat: true; running: Analysis.busy && root.visible
+        onTriggered: root.analysisElapsedSeconds = Math.max(0, Math.floor((Date.now() - root.analysisStartedMs) / 1000))
+    }
+    Connections {
+        target: Analysis
+        function onBusyChanged() {
+            if (Analysis.busy) { root.analysisStartedMs = Date.now(); root.analysisElapsedSeconds = 0 }
+        }
+    }
+    function elapsedLabel() {
+        return Math.floor(analysisElapsedSeconds / 60) + ":" + String(analysisElapsedSeconds % 60).padStart(2, "0")
+    }
     property bool pendingPlayback: false
     property bool pairedPlayback: false
     property string playbackError: ""
@@ -252,8 +267,9 @@ ColumnLayout {
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
+                            width: parent.width
                             text: Analysis.busy
-                                ? L10n.t("center.analyzingTitle")
+                                ? L10n.status(Analysis.progressStage)
                                 : root.sourceFiles.length === 0
                                     ? L10n.t("center.emptyTitle")
                                     : root.analysisCompleted
@@ -294,7 +310,7 @@ ColumnLayout {
                         Text { font.family: Theme.fontFamily;
                             anchors.horizontalCenter: parent.horizontalCenter
                             visible: Analysis.busy
-                            text: L10n.status(Analysis.progressStage) + " · " + Math.round(Analysis.progress * 100) + "%"
+                            text: Math.round(Analysis.progress * 100) + "% · " + root.elapsedLabel()
                             color: Theme.accent
                             font.pixelSize: 11
                         }

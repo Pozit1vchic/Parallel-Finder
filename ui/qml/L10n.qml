@@ -627,12 +627,26 @@ QtObject {
     function status(value) {
         const text = String(value || "")
         if (language !== "en") return text
+        if (text.indexOf("Матчер: ") === 0) return "Matcher: " + status(text.substring(8))
         const exact = {
+            "Определяем границы сцен": "Detecting scene boundaries",
+            "Разделяем треки по сценам": "Splitting tracks by scene",
+            "Сопоставляем лица персонажей": "Comparing character identities",
+            "Объединяем подтверждённые треки": "Grouping verified tracks",
+            "Проверяем дополнительные появления персонажа": "Verifying additional character appearances",
+            "Выбираем основного персонажа": "Selecting the main character",
+            "Подготавливаем движения для матчера": "Preparing movements for matching",
+            "Проверяем ракурсы сцен": "Checking scene camera views",
+            "Подготавливаем проверку лиц": "Preparing face verification",
+            "Подготавливаем кадры для матчера": "Preparing footage for matching",
+            "Сохраняем кеш анализа": "Saving analysis cache",
+            "Проверяем общего персонажа в видео": "Verifying the shared character across videos",
             "Подготавливаем поиск параллелей": "Preparing parallel search",
             "Исключаем одинаковые фрагменты": "Removing copied footage",
             "Ищем похожие движения": "Finding similar movements",
             "Сравниваем найденные движения": "Comparing candidate movements",
             "Выбираем уникальные параллели": "Selecting unique parallels",
+            "Исключаем повторяющиеся ракурсы": "Removing recurring camera views",
             "Ищем дополнительные параллели": "Finding additional parallels",
             "Подготавливаем результаты": "Preparing results",
 
@@ -647,6 +661,7 @@ QtObject {
             "Подготавливаем повторный поиск": "Preparing repeat search",
             "Повторный поиск: проверяем больше кандидатов…": "Repeat search: checking more candidates…",
             "Повторный поиск завершён": "Repeat search complete",
+            "Читаем готовый анализ из кеша": "Reading cached analysis",
             "Читаем кадры": "Reading frames",
             "Анализируем движение": "Analyzing motion",
             "Декодируем кадры и ищем смены сцен…": "Decoding frames and detecting scenes…",

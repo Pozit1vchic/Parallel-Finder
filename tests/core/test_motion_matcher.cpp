@@ -2017,3 +2017,18 @@ TEST(MotionMatcher, RecordedTrimmedColourAndLetterboxCopiesRejectWhileDifferentS
 }
 
 } // namespace
+
+TEST(MotionMatcher, RecurringCameraStageReportsCandidatesAndCanBeCancelled)
+{
+    auto windows=soldierHeadPoseFixture();
+    pfcore::MotionMatcherParams params;params.individualPairs=true;params.recoverUnusedShots=false;
+    params.allowStaticFrames=true;params.minRepeatGapSec=1;params.requireAppearance=false;
+    bool reached=false,cancelled=false;pfcore::MotionSearchControl control;
+    control.cancelled=[&] {return cancelled;};
+    control.progress=[&](auto stage,std::size_t done,std::size_t total) {
+        EXPECT_LE(done,total);
+        if(stage==pfcore::MotionSearchStage::Camera) {EXPECT_GT(total,0U);reached=true;cancelled=true;}
+    };
+    const auto results=pfcore::MotionMatcher(params).findAllPairs(windows,control);
+    EXPECT_TRUE(reached);EXPECT_TRUE(results.empty());
+}

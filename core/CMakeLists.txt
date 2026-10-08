@@ -1,4 +1,5 @@
 add_library(pfcore STATIC
+    src/SceneSequenceCache.cpp
     src/SceneDetector.cpp
     src/VideoDecoder.cpp
     src/VideoSampleReader.cpp
@@ -17,6 +18,8 @@ target_compile_features(pfcore PUBLIC cxx_std_23)
 
 # Guard: pfcore must not include Qt headers (spec section 2: "ядро без Qt").
 set(PF_CORE_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/SceneSequenceCache.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/SceneSequenceCache.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/SceneDetector.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/VideoDecoder.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/SceneDetector.cpp

@@ -2,6 +2,7 @@
 
 #include <pfcore/VideoDecoder.hpp>
 #include <pfcore/VideoSampleReader.hpp>
+#include <pfcore/SceneDetector.hpp>
 
 #include <filesystem>
 #include <QProcess>
@@ -16,20 +17,48 @@
 
 namespace {
 
-QString h264Fixture(QTemporaryDir& directory, const QStringList& extra = {})
+QString h264Fixture(QTemporaryDir& directory, const QStringList& extra = {}, double duration=2)
 {
     const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
     if (ffmpeg.isEmpty()) return {};
     const auto path = directory.filePath("h264.mp4");
     QProcess generator;
     QStringList arguments{"-hide_banner", "-loglevel", "error", "-y",
-        "-f", "lavfi", "-i", "testsrc2=size=160x96:rate=24:duration=2",
+        "-f", "lavfi", "-i", QStringLiteral("testsrc2=size=160x96:rate=24:duration=%1").arg(duration),
         "-c:v", "libx264", "-preset", "veryfast", "-g", "24"};
     arguments.append(extra);
     arguments.append(path);
     generator.start(ffmpeg, arguments);
     if (!generator.waitForFinished(30000) || generator.exitCode() != 0) return {};
     return path;
+}
+
+TEST(VideoDecoder, SceneViewBatchMatchesIndependentSeeksAndHonorsBounds)
+{
+    QTemporaryDir directory;
+    const auto path=h264Fixture(directory,{"-bf","3"});
+    if(path.isEmpty())GTEST_SKIP()<<"FFmpeg H264 unavailable";
+    pfcore::VideoDecoder batch,reference;batch.open(path.toStdString());reference.open(path.toStdString());
+    batch.setRgbaMaxDimensions(160,90);reference.setRgbaMaxDimensions(160,90);
+    const std::vector<pfcore::SceneViewRequest> requests={{1.1,1,1.5},{.2,0,.5},{.2,0,.5},{.41,.4,.4101},{1.8,1.5,2}};
+    std::size_t done=0,total=0;
+    const auto actual=pfcore::sampleSceneViews(batch,requests,{},[&](auto d,auto t){done=d;total=t;});
+    ASSERT_EQ(actual.size(),requests.size());EXPECT_EQ(done,total);EXPECT_EQ(total,requests.size());
+    for(std::size_t i=0;i<requests.size();++i) {
+        const auto& r=requests[i];reference.seek(r.target);pfcore::DecodedFrame f;std::vector<float> expected;
+        while(reference.readNext(f,false)) {
+            if(f.timestampSeconds+1e-6<r.target)continue;
+            if(f.timestampSeconds<=r.end+1e-6 && reference.convertCurrentFrameToRgba(f))
+                expected=pfcore::sceneViewDescriptor({f.timestampSeconds,f.width,f.height,f.rgba});
+            break;
+        }
+        EXPECT_EQ(actual[i].pixels,expected)<<"request="<<i;
+    }
+    EXPECT_LT(batch.diagnostics().decodedFrames,reference.diagnostics().decodedFrames);
+    bool cancelled=true;done=999;
+    const auto stopped=pfcore::sampleSceneViews(batch,requests,[&]{return cancelled;},[&](auto d,auto){done=d;});
+    EXPECT_EQ(done,0U);for(const auto& s:stopped)EXPECT_TRUE(s.pixels.empty());
+    EXPECT_THROW(pfcore::sampleSceneViews(batch,std::vector<pfcore::SceneViewRequest>{{2,0,1}}),std::invalid_argument);
 }
 
 TEST(VideoDecoder, OpensFixtureReadsFramesAndSeeks)
@@ -494,3 +523,49 @@ TEST(VideoDecoder, NativeNvidiaDecodePreservesCpuWorkingPixelsIncludingFullRange
 }
 
 } // namespace
+
+TEST(VideoDecoder, ParallelSceneViewsMatchSerialPixelsAndKeepCallbacksOnCaller)
+{
+    QTemporaryDir directory;const auto path=h264Fixture(directory,{"-bf","3"});
+    if(path.isEmpty())GTEST_SKIP()<<"FFmpeg H264 unavailable";
+    std::vector<pfcore::SceneViewRequest> requests;
+    for(int i=0;i<96;++i)requests.push_back({(95-i)*.018,0,2});
+    pfcore::VideoDecoder decoder;decoder.open(path.toStdString());decoder.setRgbaMaxDimensions(160,90);
+    const auto serial=pfcore::sampleSceneViews(decoder,requests);
+    const auto caller=std::this_thread::get_id();std::size_t previous=0;
+    const auto parallel=pfcore::sampleSceneViewsParallel(path.toStdString(),requests,{},[&](auto done,auto total) {
+        EXPECT_EQ(std::this_thread::get_id(),caller);EXPECT_GE(done,previous);EXPECT_LE(done,total);previous=done;
+    },6);
+    ASSERT_EQ(serial.size(),parallel.size());EXPECT_EQ(previous,requests.size());
+    for(std::size_t i=0;i<serial.size();++i) {
+        EXPECT_DOUBLE_EQ(serial[i].timestampSeconds,parallel[i].timestampSeconds);
+        EXPECT_EQ(serial[i].pixels,parallel[i].pixels)<<i;
+    }
+    bool stop=false;
+    const auto cancelled=pfcore::sampleSceneViewsParallel(path.toStdString(),requests,[&] {return stop;},
+        [&](auto done,auto) {if(done==0)stop=true;},8);
+    for(const auto& s:cancelled)EXPECT_TRUE(s.pixels.empty());
+    EXPECT_THROW(pfcore::sampleSceneViewsParallel(path.toStdString(),requests,{}, {},0),std::invalid_argument);
+    EXPECT_THROW(pfcore::sampleSceneViewsParallel("missing-source.mp4",requests),std::runtime_error);
+}
+
+TEST(VideoDecoder, LongGopViewsAvoidRepeatedSeeksWithoutChangingPixels)
+{
+    QTemporaryDir directory;const auto path=h264Fixture(directory,{"-g","240","-bf","3"},12);
+    if(path.isEmpty())GTEST_SKIP()<<"FFmpeg H264 unavailable";
+    pfcore::VideoDecoder batch,reference;batch.open(path.toStdString());reference.open(path.toStdString());
+    batch.setRgbaMaxDimensions(160,90);reference.setRgbaMaxDimensions(160,90);
+    const std::vector<pfcore::SceneViewRequest> requests={{1,0,12},{4,0,12},{7,0,12},{10,0,12}};
+    const auto actual=pfcore::sampleSceneViews(batch,requests);
+    for(std::size_t i=0;i<requests.size();++i) {
+        reference.seek(requests[i].target);pfcore::DecodedFrame frame;std::vector<float> expected;
+        while(reference.readNext(frame,false)) {
+            if(frame.timestampSeconds+1e-6<requests[i].target)continue;
+            ASSERT_TRUE(reference.convertCurrentFrameToRgba(frame));
+            expected=pfcore::sceneViewDescriptor({frame.timestampSeconds,frame.width,frame.height,frame.rgba});break;
+        }
+        EXPECT_EQ(actual[i].pixels,expected)<<i;
+    }
+    EXPECT_LT(batch.diagnostics().decodedFrames,reference.diagnostics().decodedFrames);
+    EXPECT_LT(batch.diagnostics().decodedFrames,400U);
+}
