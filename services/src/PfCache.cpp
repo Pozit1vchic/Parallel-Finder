@@ -75,6 +75,15 @@ bool PfCache::readEntry(const std::filesystem::path& path, const std::string& ke
     std::string storedKey(keySize, '\0');
     if (!stream.read(storedKey.data(), static_cast<std::streamsize>(storedKey.size()))
         || storedKey != key) return false;
+    // Validate actual bytes before allocating from an untrusted cache header.
+    // A tiny truncated file claiming hundreds of MiB must remain a cache miss.
+    const auto begin=stream.tellg();
+    if(begin<0)return false;
+    stream.seekg(0,std::ios::end);
+    const auto end=stream.tellg();
+    if(end<begin || static_cast<std::uint64_t>(end-begin)!=payloadSize)return false;
+    stream.seekg(begin);
+    if(!stream)return false;
     payload.resize(static_cast<std::size_t>(payloadSize));
     return payload.empty() || static_cast<bool>(stream.read(
         reinterpret_cast<char*>(payload.data()), static_cast<std::streamsize>(payload.size())));

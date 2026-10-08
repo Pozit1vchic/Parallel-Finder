@@ -39,7 +39,8 @@ std::vector<SceneViewObservation> sampleSceneViews(VideoDecoder& decoder,
 // only on the caller, and output order matches the supplied requests.
 std::vector<SceneViewObservation> sampleSceneViewsParallel(const std::string& source,
     std::span<const SceneViewRequest> requests, const std::function<bool()>& cancelled={},
-    const std::function<void(std::size_t,std::size_t)>& progress={}, std::size_t threadBudget=8);
+    const std::function<void(std::size_t,std::size_t)>& progress={}, std::size_t threadBudget=8,
+    bool preferNvidia=false);
 
 // Compact spatial colour layout. Rejects malformed, flat or nearly black
 // images, which cannot independently establish a recurring camera view.

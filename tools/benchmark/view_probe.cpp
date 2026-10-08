@@ -9,8 +9,10 @@
 int main(int argc,char** argv) {
     if(argc!=5 && argc!=6)return 2;
     const std::string mode=argv[1],source=argv[2];const int count=std::atoi(argv[3]);
-    if((mode!="serial" && mode!="batched" && mode!="parallel") || count<1 || count>10000)return 2;
+    const bool nvidia=mode=="batched-nvdec" || mode=="parallel-nvdec";
+    if((mode!="serial" && mode!="batched" && mode!="parallel" && !nvidia) || count<1 || count>10000)return 2;
     pfcore::VideoDecoder decoder;pfcore::VideoDecodeOptions options;options.threads=8;
+    options.preferNvidia=nvidia;
     decoder.open(source,options);decoder.setRgbaMaxDimensions(160,90);
     const auto duration=decoder.info().durationSeconds;
     std::vector<pfcore::SceneViewRequest> requests;
@@ -21,8 +23,8 @@ int main(int argc,char** argv) {
     } else for(int i=0;i<count;++i)requests.push_back({duration*(i+.5)/count,0,duration});
     const auto start=std::chrono::steady_clock::now();
     std::vector<pfcore::SceneViewObservation> observations(count);
-    if(mode=="parallel")observations=pfcore::sampleSceneViewsParallel(source,requests);
-    else if(mode=="batched")observations=pfcore::sampleSceneViews(decoder,requests);
+    if(mode=="parallel" || mode=="parallel-nvdec")observations=pfcore::sampleSceneViewsParallel(source,requests,{}, {},8,nvidia);
+    else if(mode=="batched" || mode=="batched-nvdec")observations=pfcore::sampleSceneViews(decoder,requests);
     else for(int i=0;i<count;++i) {
         decoder.seek(requests[i].target);pfcore::DecodedFrame frame;
         while(decoder.readNext(frame,false)) {

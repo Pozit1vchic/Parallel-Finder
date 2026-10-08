@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <algorithm>
+#include <atomic>
 #include <thread>
 
 #include <pfcore/DominantPerson.hpp>
@@ -562,4 +563,48 @@ TEST(DominantPerson, IdentitySelectionReportsCallerProgressAndCancelsWithoutPart
     EXPECT_EQ(std::count(expected.begin(),expected.end(),true),100);
     const auto clustered=pfcore::selectDominantIdentities(people,control);
     EXPECT_EQ(std::count(clustered.begin(),clustered.end(),true),0);
+}
+
+TEST(DominantPerson, ParallelExactGraphPreservesMixedEvidenceAndCovisibility)
+{
+    std::vector<pfcore::IdentitySummary> people(384);
+    for(std::size_t i=0;i<people.size();++i) {
+        auto& p=people[i];p.face={float(i%4==0),float(i%4==1),float(i%4==2),float(i%4==3)};
+        p.body=p.face;p.faceEvidence=i%7==0 ? .2 : 1.;p.bodyEvidence=1.;
+        if(i%11==0)p.face.clear();
+        p.duration=1.+(i%4==0);p.area=1.;p.observationTimes={double(i/2)*2.,double(i/2)*2.+.5};
+    }
+    pfcore::DominantSelectionControl serial,parallel;serial.maxThreads=1;parallel.maxThreads=8;
+    const auto expected=pfcore::selectDominantIdentities(people,serial);
+    EXPECT_EQ(pfcore::selectDominantIdentities(people,parallel),expected);
+    const auto caller=std::this_thread::get_id();bool cancelled=false;
+    parallel.cancelled=[&] {return cancelled;};
+    // This callback is on the caller; its cancellation flag is read by workers
+    // only after the graph has completed, at Cluster stage in this test.
+    parallel.progress=[&](auto stage,auto done,auto total) {
+        EXPECT_EQ(std::this_thread::get_id(),caller);EXPECT_LE(done,total);
+        if(stage==pfcore::DominantSelectionStage::Cluster)cancelled=true;
+    };
+    const auto stopped=pfcore::selectDominantIdentities(people,parallel);
+    EXPECT_EQ(std::count(stopped.begin(),stopped.end(),true),0);
+}
+
+TEST(DominantPerson, ParallelLinkCancellationDoesNotAdmitPartialIdentity)
+{
+    std::vector<pfcore::IdentitySummary> people(1024);
+    for(std::size_t i=0;i<people.size();++i) {
+        auto& p=people[i];p.face={1,0};p.faceEvidence=1;p.duration=1;p.area=1;
+        p.observationTimes={double(i*2)};
+    }
+    std::atomic_bool cancelled=false;
+    const auto caller=std::this_thread::get_id();
+    pfcore::DominantSelectionControl control;control.maxThreads=4;
+    control.cancelled=[&]{return cancelled.load();};
+    control.progress=[&](auto stage,std::size_t done,std::size_t total) {
+        EXPECT_EQ(std::this_thread::get_id(),caller);EXPECT_LE(done,total);
+        if(stage==pfcore::DominantSelectionStage::Link && done>0)cancelled=true;
+    };
+    const auto stopped=pfcore::selectDominantIdentities(people,control);
+    EXPECT_TRUE(cancelled.load());
+    EXPECT_EQ(std::count(stopped.begin(),stopped.end(),true),0);
 }

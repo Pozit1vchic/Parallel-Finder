@@ -24,6 +24,14 @@
 #include <QVariantMap>
 #include <QVersionNumber>
 #include <QColor>
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#undef near
+#undef far
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -567,7 +575,7 @@ bool deserializeMotionWindows(const std::vector<std::uint8_t>& input,
         for (float& value : window.faceEmbedding)
             if (!readBytes(input, offset, value) || !std::isfinite(value)) return false;
         std::uint32_t frameCount = 0;
-        if (!readBytes(input, offset, frameCount) || frameCount > 100'000U
+        if (!readBytes(input, offset, frameCount) || frameCount > pfcore::MotionMatcherParams::maximumWindowFrames
             || totalFrames > 2'000'000ULL - frameCount) return false;
         totalFrames += frameCount;
         window.frames.reserve(frameCount);
@@ -614,11 +622,11 @@ std::size_t ensureSceneViews(std::vector<pfcore::MotionWindow>& windows,
         requests.push_back({target,w.sceneStartSeconds,w.sceneEndSeconds});shotOrder.push_back(scene);
     }
     const auto diagnostics=decoder.diagnostics();
-    // Preserve the hardware path exactly. Independent CPU readers share the
-    // original thread budget rather than multiplying eight threads per job.
-    auto observations=diagnostics.backend=="cpu" && requests.size()>=32
+    // Independent readers share the CPU budget. Native NVDEC readers retain
+    // CPU-equivalent pixels and are capped at two contexts by the sampler.
+    auto observations=requests.size()>=32
         ? pfcore::sampleSceneViewsParallel(windows[representatives.begin()->second].sourceId,
-            requests,cancelled,progress,std::clamp(diagnostics.threads,1,8))
+            requests,cancelled,progress,std::clamp(diagnostics.threads,1,8),diagnostics.backend=="nvdec")
         : pfcore::sampleSceneViews(decoder,requests,cancelled,progress);
     if(!cancelled()) for(std::size_t i=0;i<observations.size();++i) {
         if(!observations[i].pixels.empty())++decodedViews;
@@ -2338,6 +2346,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         };
         std::unordered_map<std::string,std::string> sourceGenerations;
         QJsonObject frozenWindowKeys;
+        // Controlled whole-input matcher replay must preserve the repeat-search
+        // candidate policy without spending another hour recognizing identical
+        // source pixels. This opt-in exists only in the diagnostic CLI; the
+        // normal repeat-analysis button always invalidates its video caches.
+        const bool reuseAuditObservations = QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
+            && qEnvironmentVariableIntValue("PF_AUDIT_REUSE_OBSERVATIONS") == 1;
         if (QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))) {
             QFile file(qEnvironmentVariable("PF_AUDIT_FROZEN_WINDOW_KEYS"));
             if (!file.fileName().isEmpty() && file.open(QIODevice::ReadOnly))
@@ -2348,7 +2362,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             if (isCancelled()) { markCancelled(); break; }
             try {
                 if (analysisCache) {
-                    if (expandedSearch) {
+                    if (expandedSearch && !reuseAuditObservations) {
                         std::string cacheError;
                         // Migrate identifiable legacy face entries before the
                         // primary observations that describe their owner go.
@@ -2429,7 +2443,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     if (resolved == pfgpu::Provider::TensorRt)
                         cacheKey += "|trt-v2-fp16-v1|ort=" + pfgpu::ortRuntimeVersion();
                 }
-                if (const auto frozen=frozenWindowKeys.value(path).toString();!expandedSearch && !frozen.isEmpty()) {
+                if (const auto frozen=frozenWindowKeys.value(path).toString();(!expandedSearch || reuseAuditObservations) && !frozen.isEmpty()) {
                     const auto original=frozen.toStdString();
                     const auto suffix=cacheFileFingerprint(path.toStdString());
                     if (!original.starts_with("motion-v43|") || !original.ends_with(suffix))
@@ -2441,7 +2455,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 const auto generation = sourceGenerations[path.toStdString()];
                 if (!generation.empty()) cacheKey += "|generation=" + generation;
                 sequenceCacheKeys[path.toStdString()]=cacheKey;
-                if (analysisCache && !expandedSearch) {
+                if (analysisCache && (!expandedSearch || reuseAuditObservations)) {
                     if (const auto cached = analysisCache->get(cacheKey))
                         cacheHit = deserializeMotionWindows(*cached, cachedWindows, cachedSceneCount);
                 }
@@ -2760,6 +2774,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
                 reportPreparation(QStringLiteral("Выбираем основного персонажа"));
                 pfcore::DominantSelectionControl identityControl;identityControl.cancelled=isCancelled;
+                identityControl.maxThreads=settings.processingThreads;
                 QElapsedTimer identityUpdates;identityUpdates.start();
                 identityControl.progress=[&](pfcore::DominantSelectionStage stage,std::size_t done,std::size_t total) {
                     if(done!=0 && done!=total && identityUpdates.elapsed()<150)return;
@@ -3233,7 +3248,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.similarityThreshold = similarityThreshold;
             params.candidateThreshold = candidateThreshold;
             params.minRepeatGapSec = repeatGap;
-            params.sameSourceGapFloorSec = 12.0;
+            params.sameSourceGapFloorSec = sameFileGap;
             params.sameFileGapSec = sameFileGap;
             params.crossFileGapSec = crossFileGap;
             params.duplicateWindowSec = duplicateWindow;
@@ -3266,8 +3281,16 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 providerChoice==QStringLiteral("cuda") || providerChoice==QStringLiteral("tensorrt"),isCancelled);
             QElapsedTimer resultTimer;
             resultTimer.start();
+            std::size_t searchReuseBudget=64U*1024U*1024U;
+#ifdef Q_OS_WIN
+            MEMORYSTATUSEX memory{};memory.dwLength=sizeof(memory);
+            if(GlobalMemoryStatusEx(&memory))searchReuseBudget=std::min<std::uint64_t>(
+                256U*1024U*1024U,memory.ullAvailPhys/64);
+#endif
+            pfcore::MotionSearchReuse searchReuse(searchReuseBudget);
             pfcore::MotionSearchControl searchControl;
             searchControl.cancelled=isCancelled;
+            searchControl.reuse=&searchReuse;
             QElapsedTimer searchUpdates;searchUpdates.start();
             auto lastStage=pfcore::MotionSearchStage::Recovery;
             searchControl.progress=[&,this](pfcore::MotionSearchStage stage,std::size_t done,std::size_t total) {

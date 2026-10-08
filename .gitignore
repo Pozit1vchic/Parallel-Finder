@@ -7,6 +7,7 @@
 /cmake-build-*/
 **/CMakeFiles/
 **/CMakeCache.txt
+CMakeUserPresets.json
 **/cmake_install.cmake
 **/CTestTestfile.cmake
 **/build.ninja
@@ -166,6 +167,7 @@ $RECYCLE.BIN/
 /update-staging/
 /.update-backup/
 /benchmark-output/
+/profiling/
 # Source videos belong in external test folders; keep small test fixtures.
 *.mp4
 *.mkv

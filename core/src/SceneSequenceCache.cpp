@@ -51,7 +51,10 @@ std::vector<std::uint8_t> encodeSceneSequences(std::span<const CachedSceneSequen
 }
 std::optional<std::vector<CachedSceneSequence>> decodeSceneSequences(std::span<const std::uint8_t> bytes) {
     std::size_t offset=0;std::uint64_t header=0,count=0;
-    if(!read(bytes,offset,header) || header!=magic || !read(bytes,offset,count) || count>(bytes.size()-offset)/32)return {};
+    // Match the desktop's bounded window cache. A forged count must not reserve
+    // millions of vector objects before any individual record is validated.
+    if(!read(bytes,offset,header) || header!=magic || !read(bytes,offset,count)
+        || count>100000 || count>(bytes.size()-offset)/32)return {};
     std::vector<CachedSceneSequence> scenes;scenes.reserve(count);std::set<std::uint64_t> ids;
     for(std::uint64_t i=0;i<count;++i) {
         CachedSceneSequence s;std::uint64_t frames=0;

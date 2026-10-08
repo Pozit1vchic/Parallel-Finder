@@ -197,12 +197,16 @@ PfReveal {
 }
 )",QUrl());
     QScopedPointer<QObject> testWindow(component.create());QVERIFY2(testWindow,qPrintable(component.errorString()));
+    auto* window=qobject_cast<QQuickWindow*>(testWindow.data());QVERIFY(window);
+    QVERIFY(QTest::qWaitForWindowExposed(window));
     auto* item=testWindow->findChild<QObject*>("revealTest"); QVERIFY(item);
     const auto original=item->property("originalMotion").toBool();
     QVERIFY(QMetaObject::invokeMethod(item,"reduce",Q_ARG(QVariant,false)));
     item->setProperty("active",true);QCOMPARE(item->property("reveal").toDouble(),0.0);
-    QEventLoop loop; QTimer::singleShot(650,&loop,&QEventLoop::quit); loop.exec();
-    QCOMPARE(item->property("reveal").toDouble(),1.0);
+    // Native rendering starts after exposure; wait for the actual final frame
+    // rather than sampling a nearly-finished easing curve at a fixed instant.
+    QTRY_COMPARE_WITH_TIMEOUT(item->property("reveal").toDouble(),1.0,1500);
+    QEventLoop loop;
     QTimer::singleShot(80,&loop,&QEventLoop::quit); loop.exec(); QCOMPARE(item->property("reveal").toDouble(),1.0);
     item->setProperty("active",false);item->setProperty("active",true);
     QVERIFY(QMetaObject::invokeMethod(item,"reduce",Q_ARG(QVariant,true)));QCOMPARE(item->property("reveal").toDouble(),1.0);

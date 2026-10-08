@@ -436,7 +436,7 @@ std::vector<SceneViewObservation> sampleSceneViews(VideoDecoder& decoder,
 
 std::vector<SceneViewObservation> sampleSceneViewsParallel(const std::string& source,
     std::span<const SceneViewRequest> requests,const std::function<bool()>& cancelled,
-    const std::function<void(std::size_t,std::size_t)>& progress,std::size_t threadBudget)
+    const std::function<void(std::size_t,std::size_t)>& progress,std::size_t threadBudget,bool preferNvidia)
 {
     if(threadBudget==0 || threadBudget>32)throw std::invalid_argument("Scene view thread budget must be 1..32");
     for(const auto& r:requests) if(!std::isfinite(r.target) || !std::isfinite(r.start)
@@ -447,7 +447,8 @@ std::vector<SceneViewObservation> sampleSceneViewsParallel(const std::string& so
     if(requests.empty() || (cancelled && cancelled()))return result;
     std::vector<std::size_t> order(requests.size());std::iota(order.begin(),order.end(),0);
     std::stable_sort(order.begin(),order.end(),[&](auto a,auto b){return requests[a].target<requests[b].target;});
-    const auto workers=std::min({std::size_t(4),std::max(std::size_t(1),threadBudget/2),
+    // Two native NVDEC contexts keep VRAM bounded while overlapping seeks.
+    const auto workers=std::min({preferNvidia ? std::size_t(2) : std::size_t(4),std::max(std::size_t(1),threadBudget/2),
         std::max(std::size_t(1),requests.size()/16)});
     std::atomic_size_t completed{0};std::atomic_bool failed{false};
     const auto stop=[&] {return failed.load(std::memory_order_relaxed) || (cancelled && cancelled());};
@@ -459,6 +460,7 @@ std::vector<SceneViewObservation> sampleSceneViewsParallel(const std::string& so
                 if(stop())return;
                 VideoDecoder decoder;VideoDecodeOptions options;
                 options.threads=static_cast<int>(std::max(std::size_t(1),threadBudget/workers));
+                options.preferNvidia=preferNvidia;
                 decoder.open(source,options);decoder.setRgbaMaxDimensions(160,90);
                 std::vector<SceneViewRequest> subset;subset.reserve(end-begin);
                 for(auto i=begin;i<end;++i)subset.push_back(requests[order[i]]);

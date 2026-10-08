@@ -7,6 +7,37 @@
 #include <QTemporaryDir>
 #include <fstream>
 
+TEST(PfCache, ForgedPayloadLengthAndTrailingBytesAreCacheMisses)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    pfservices::PfCache cache(directory.path().toStdString(), 512U * 1024U * 1024U);
+    const std::string key="malformed-payload";
+    const auto name=QCryptographicHash::hash(QByteArray::fromStdString(key),
+        QCryptographicHash::Sha256).toHex().toStdString()+".pfc";
+    const auto path=std::filesystem::path(directory.path().toStdString())/name;
+    std::string error;
+    ASSERT_TRUE(cache.put(key,{1,2,3},error)) << error;
+    {
+        std::fstream file(path,std::ios::binary|std::ios::in|std::ios::out);
+        ASSERT_TRUE(file);
+        const std::uint64_t forged=128U*1024U*1024U;
+        file.seekp(16);
+        file.write(reinterpret_cast<const char*>(&forged),sizeof(forged));
+    }
+    EXPECT_FALSE(cache.get(key));
+    ASSERT_TRUE(cache.put(key,{1,2,3},error)) << error;
+    {
+        std::ofstream file(path,std::ios::binary|std::ios::app);
+        file.put('x');
+    }
+    EXPECT_FALSE(cache.get(key));
+    ASSERT_TRUE(cache.put(key,{1,2,3},error)) << error;
+    const auto valid=cache.get(key);
+    ASSERT_TRUE(valid);
+    EXPECT_EQ(*valid,(std::vector<std::uint8_t>{1,2,3}));
+}
+
 TEST(PfCache, FailedPhysicalPurgeReportsErrorAndStillInvalidatesTheOldGeneration)
 {
     QTemporaryDir directory;ASSERT_TRUE(directory.isValid());

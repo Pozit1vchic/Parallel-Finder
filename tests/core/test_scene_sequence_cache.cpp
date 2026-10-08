@@ -35,3 +35,11 @@ TEST(SceneSequenceCache, RejectsInvalidMeasurementsAndDuplicateShots) {
     a.times.clear();
     EXPECT_THROW(pfcore::encodeSceneSequences(std::vector{a}),std::invalid_argument);
 }
+
+TEST(SceneSequenceCache, RejectsForgedRecordCountBeforeReservingVectors) {
+    auto bytes=pfcore::encodeSceneSequences({});
+    constexpr std::uint64_t count=100001;
+    for(std::size_t i=0;i<8;++i)bytes[8+i]=static_cast<std::uint8_t>(count>>(8*i));
+    bytes.resize(16+count*32);
+    EXPECT_FALSE(pfcore::decodeSceneSequences(bytes));
+}

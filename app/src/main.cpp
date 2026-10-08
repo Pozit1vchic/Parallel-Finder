@@ -278,7 +278,7 @@ int main(int argc, char* argv[])
         QTimer timeout;
         timeout.setSingleShot(true);
         const int requestedTimeout = qEnvironmentVariableIntValue("PF_ANALYSIS_TIMEOUT_SEC");
-        timeout.setInterval((requestedTimeout > 0 ? std::min(requestedTimeout, 3600) : 120) * 1000);
+        timeout.setInterval((requestedTimeout > 0 ? std::min(requestedTimeout, 43200) : 120) * 1000);
         QElapsedTimer elapsed;
         elapsed.start();
         QObject::connect(analysis, &pfui::AnalysisController::busyChanged, &loop, [&] {

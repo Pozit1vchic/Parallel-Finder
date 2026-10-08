@@ -10,8 +10,8 @@
 int main(int argc, char** argv)
 {
     try {
-        if (argc < 3 || argc > 5) {
-            std::cerr << "Usage: pf_decode_probe VIDEO cpu|nvdec|nvdec-resize [THREADS=0] [SAMPLE_FPS=6]\n";
+        if (argc < 3 || argc > 6) {
+            std::cerr << "Usage: pf_decode_probe VIDEO cpu|nvdec|nvdec-resize [THREADS=0] [SAMPLE_FPS=6] [DURATION_SECONDS=0]\n";
             return 2;
         }
         const std::string mode = argv[2];
@@ -24,6 +24,8 @@ int main(int argc, char** argv)
         options.maxHeight = 720;
         const double fps = argc > 4 ? std::stod(argv[4]) : 6.0;
         if (!std::isfinite(fps) || fps <= 0 || fps > 240) throw std::invalid_argument("invalid sample FPS");
+        const double durationLimit=argc>5 ? std::stod(argv[5]) : 0.;
+        if(!std::isfinite(durationLimit) || durationLimit<0)throw std::invalid_argument("invalid duration limit");
         const auto start = std::chrono::steady_clock::now();
         pfcore::VideoDecoder decoder;
         decoder.open(argv[1], options);
@@ -31,6 +33,7 @@ int main(int argc, char** argv)
         std::uint64_t frames = 0, samples = 0, pixels = 0;
         double next = -std::numeric_limits<double>::infinity();
         while (decoder.readNext(frame, false)) {
+            if(durationLimit>0 && frame.timestampSeconds>=durationLimit)break;
             ++frames;
             if (frame.timestampSeconds + 1e-9 < next) continue;
             if (!decoder.convertCurrentFrameToRgba(frame)) throw std::runtime_error("missing retained frame");

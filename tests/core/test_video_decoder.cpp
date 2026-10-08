@@ -522,6 +522,68 @@ TEST(VideoDecoder, NativeNvidiaDecodePreservesCpuWorkingPixelsIncludingFullRange
     }
 }
 
+TEST(VideoDecoder, TenBitNvidiaDecodeAndRandomSeeksPreserveCpuPixels)
+{
+    if (!qEnvironmentVariableIsSet("PF_TEST_REQUIRE_NVDEC"))
+        GTEST_SKIP() << "Opt-in NVIDIA 10-bit integration";
+    QTemporaryDir directory;
+    const auto path = directory.filePath("ten-bit.mp4");
+    QProcess generator;
+    generator.start(QStandardPaths::findExecutable("ffmpeg"), {"-hide_banner", "-loglevel", "error",
+        "-y", "-f", "lavfi", "-i", "testsrc2=size=384x216:rate=24:duration=2",
+        "-pix_fmt", "yuv420p10le", "-c:v", "libx265", "-preset", "ultrafast",
+        "-x265-params", "pools=2:frame-threads=2:log-level=error:keyint=24", path});
+    ASSERT_TRUE(generator.waitForFinished(30000));
+    ASSERT_EQ(generator.exitCode(), 0);
+    pfcore::VideoDecodeOptions options;
+    options.maxWidth = 160; options.maxHeight = 90;
+    pfcore::VideoDecoder cpu, gpu;
+    cpu.open(path.toStdString(), options);
+    options.preferNvidia = true;
+    gpu.open(path.toStdString(), options);
+    ASSERT_EQ(gpu.diagnostics().backend, "nvdec") << gpu.diagnostics().fallbackReason;
+    pfcore::DecodedFrame a, b;
+    std::size_t count = 0;
+    while (cpu.readNext(a)) {
+        ASSERT_TRUE(gpu.readNext(b));
+        EXPECT_EQ(a.timestampSeconds, b.timestampSeconds);
+        EXPECT_EQ(a.rgba, b.rgba) << "frame=" << count;
+        ++count;
+    }
+    EXPECT_EQ(count, 48U); EXPECT_FALSE(gpu.readNext(b));
+    for (const double time : {1.2, .25, 1.65, .6}) {
+        cpu.seek(time); gpu.seek(time);
+        do { ASSERT_TRUE(cpu.readNext(a)); } while(a.timestampSeconds + 1e-6 < time);
+        do { ASSERT_TRUE(gpu.readNext(b)); } while(b.timestampSeconds + 1e-6 < time);
+        EXPECT_EQ(a.timestampSeconds, b.timestampSeconds);
+        EXPECT_EQ(a.rgba, b.rgba);
+    }
+}
+
+TEST(VideoDecoder, RealTenBitNvidiaSeeksPreserveCpuPixels)
+{
+    const auto path=qEnvironmentVariable("PF_TEST_10BIT_SOURCE");
+    if(path.isEmpty())GTEST_SKIP()<<"Opt-in real 10-bit NVIDIA source";
+    pfcore::VideoDecodeOptions options; options.maxWidth=1280; options.maxHeight=720;
+    pfcore::VideoDecoder cpu,gpu; cpu.open(path.toStdString(),options);
+    options.preferNvidia=true; gpu.open(path.toStdString(),options);
+    ASSERT_EQ(gpu.diagnostics().backend,"nvdec")<<gpu.diagnostics().fallbackReason;
+    pfcore::DecodedFrame a,b;
+    for(const auto fraction:{0.,.05,.20,.45,.70,.95}) {
+        const auto target=fraction*cpu.info().durationSeconds;
+        cpu.seek(target);gpu.seek(target);
+        do {ASSERT_TRUE(cpu.readNext(a,false));}while(a.timestampSeconds+1e-6<target);
+        do {ASSERT_TRUE(gpu.readNext(b,false));}while(b.timestampSeconds+1e-6<target);
+        for(int sample=0;sample<12;++sample) {
+            ASSERT_EQ(a.timestampSeconds,b.timestampSeconds);
+            ASSERT_TRUE(cpu.convertCurrentFrameToRgba(a));
+            ASSERT_TRUE(gpu.convertCurrentFrameToRgba(b));
+            ASSERT_EQ(a.rgba,b.rgba)<<"target="<<target<<" sample="<<sample;
+            ASSERT_TRUE(cpu.readNext(a,false));ASSERT_TRUE(gpu.readNext(b,false));
+        }
+    }
+}
+
 } // namespace
 
 TEST(VideoDecoder, ParallelSceneViewsMatchSerialPixelsAndKeepCallbacksOnCaller)
@@ -547,6 +609,35 @@ TEST(VideoDecoder, ParallelSceneViewsMatchSerialPixelsAndKeepCallbacksOnCaller)
     for(const auto& s:cancelled)EXPECT_TRUE(s.pixels.empty());
     EXPECT_THROW(pfcore::sampleSceneViewsParallel(path.toStdString(),requests,{}, {},0),std::invalid_argument);
     EXPECT_THROW(pfcore::sampleSceneViewsParallel("missing-source.mp4",requests),std::runtime_error);
+}
+
+TEST(VideoDecoder, RealTenBitParallelNvidiaSceneViewsPreserveCpuPixelsAndPts)
+{
+    const auto path=qEnvironmentVariable("PF_TEST_10BIT_SOURCE");
+    if(path.isEmpty())GTEST_SKIP()<<"Opt-in real 10-bit NVIDIA source";
+    pfcore::VideoDecoder cpu,gpu;
+    cpu.open(path.toStdString());cpu.setRgbaMaxDimensions(160,90);
+    pfcore::VideoDecodeOptions options;options.preferNvidia=true;
+    gpu.open(path.toStdString(),options);
+    ASSERT_EQ(gpu.diagnostics().backend,"nvdec")<<gpu.diagnostics().fallbackReason;
+    std::vector<pfcore::SceneViewRequest> requests;
+    const auto duration=cpu.info().durationSeconds;
+    for(int i=0;i<32;++i)requests.push_back({duration*(31-i+.5)/32,0,duration});
+    const auto expected=pfcore::sampleSceneViews(cpu,requests);
+    const auto caller=std::this_thread::get_id();std::size_t previous=0;
+    const auto actual=pfcore::sampleSceneViewsParallel(path.toStdString(),requests,{},
+        [&](auto done,auto total) {
+            EXPECT_EQ(std::this_thread::get_id(),caller);
+            EXPECT_GE(done,previous);EXPECT_LE(done,total);previous=done;
+        },8,true);
+    ASSERT_EQ(expected.size(),actual.size());
+    EXPECT_EQ(previous,requests.size());
+    EXPECT_GT(std::count_if(expected.begin(),expected.end(),
+        [](const auto& observation){return !observation.pixels.empty();}),16);
+    for(std::size_t i=0;i<expected.size();++i) {
+        EXPECT_DOUBLE_EQ(expected[i].timestampSeconds,actual[i].timestampSeconds)<<i;
+        EXPECT_EQ(expected[i].pixels,actual[i].pixels)<<i;
+    }
 }
 
 TEST(VideoDecoder, LongGopViewsAvoidRepeatedSeeksWithoutChangingPixels)

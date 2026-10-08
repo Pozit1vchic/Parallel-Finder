@@ -8,7 +8,7 @@ param(
     [string[]]$AdditionalVideos = @(),
     [ValidateSet('offscreen','windows')][string]$QpaPlatform = 'windows',
     [ValidateSet('cpu','cuda','tensorrt','dml')][string]$Provider = 'cpu',
-    [ValidateRange(1, 3600)][int]$TimeoutSec = 120,
+    [ValidateRange(1, 43200)][int]$TimeoutSec = 120,
     [ValidateRange(0, 10000)][int]$MinimumPairs = 0,
     [double]$ExpectedOffsetSec = -1,
     [string]$ReportPath = "",

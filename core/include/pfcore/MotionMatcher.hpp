@@ -4,14 +4,33 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <memory>
 
 namespace pfcore {
 
 enum class MotionSearchStage { Prepare, Footage, Retrieval, Compare, Select, Camera, Recovery };
+class MotionSearchReuse {
+public:
+    // Main cache is capped at 256 MiB; an optional unused-shot recovery cache
+    // has half that budget. Both are released with this analysis session.
+    explicit MotionSearchReuse(std::size_t byteBudget=64U*1024U*1024U);
+    ~MotionSearchReuse();
+    MotionSearchReuse(const MotionSearchReuse&)=delete;
+    MotionSearchReuse& operator=(const MotionSearchReuse&)=delete;
+private:
+    struct Data;
+    std::unique_ptr<Data> data_;
+    friend class MotionMatcher;
+};
 struct MotionSearchControl {
     std::function<bool()> cancelled;
     // Called only on the search thread, never concurrently from comparison workers.
     std::function<void(MotionSearchStage, std::size_t, std::size_t)> progress;
+    // Optional search-local reuse across source-frame face verification.
+    // Fingerprints every input except measuredFaces and checks every parameter.
+    // Selection and measured-face vetoes always run again. Caller owns lifetime;
+    // do not share an instance between concurrent searches.
+    MotionSearchReuse* reuse = nullptr;
 };
 
 struct Keypoint {
@@ -74,6 +93,10 @@ struct MotionWindow {
 bool observedIdentityAllows(const MotionWindow& window,double start,double end,bool portrait);
 
 struct MotionMatcherParams {
+    bool operator==(const MotionMatcherParams&) const = default;
+    // Windows are short sampled gestures, not complete films. Bound quadratic
+    // alignment storage even for corrupt or externally constructed input.
+    static constexpr std::size_t maximumWindowFrames = 512;
     // A short held pose needs repeated observations, not the longer trajectory
     // required to establish motion. Shared with scene-window extraction.
     static constexpr std::size_t minimumStaticSamples = 3;
@@ -109,9 +132,9 @@ struct MotionMatcherParams {
     // Additional discovery may require observable body motion. Existing
     // admitted head movements keep the ordinary policy in the primary pass.
     bool bodyMotionOnly = false;
-    // Zero: use available CPU workers on large exact-comparison sets. One forces
-    // serial execution for reproducible A/B checks. Retrieval and selection
-    // stay serial; no candidate or sample is dropped by this setting.
+    // Zero: bounded CPU workers for retrieval and large exact-comparison sets.
+    // One forces serial A/B replay. Selection remains deterministic and serial;
+    // no candidate or sample is dropped by this setting.
     std::size_t maxComparisonThreads = 0;
     // Independent, wider tier even when individualPairs already broadens
     // default retrieval. The desktop also derives short supported
@@ -163,6 +186,9 @@ struct MotionMatcherParams {
     // Independently verified, sustained limb articulation tolerates view
     // changes separately from generic pose geometry and head-only matches.
     double staticArticulationSimilarityThreshold = 0.86;
+    // Additional measured torso-length normalization for full-body views.
+    // Shoulder width alone changes dramatically in profile/back views.
+    bool bodyScaleInvariant = true;
     // At least ten observations are sampled for a window, but a valid
     // alignment may be a shorter, six-frame gesture. Half a second is long
     // enough to rule out a copied still frame while retaining real edits

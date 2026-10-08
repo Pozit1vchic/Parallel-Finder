@@ -11,6 +11,10 @@
 #include <set>
 #include <array>
 #include <map>
+#include <atomic>
+#include <future>
+#include <thread>
+#include <chrono>
 
 namespace pfcore {
 
@@ -417,17 +421,48 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
         }
         return false;
     };
+    // Cluster merges used to recompute the same face distances repeatedly.
+    // One bit per pair records the exact veto, with a fixed 32 MiB ceiling.
+    // Each row belongs to one worker, so packed writes never race.
+    const auto wordsPerRow=(count+63)/64;
+    constexpr std::size_t conflictBudget=32U*1024U*1024U;
+    const bool memoConflicts=count<=conflictBudget/(sizeof(std::uint64_t)*wordsPerRow);
+    std::vector<std::uint64_t> conflicts(memoConflicts ? count*wordsPerRow : 0);
+    std::atomic_size_t nextRow{0}, completedRows{0};
+    const auto scan=[&](bool serial) {
+        std::vector<Edge> found;
+        for (;;) {
+            const auto a=nextRow.fetch_add(1);
+            if(a>=count || cancelled())break;
+            if(serial && control.progress)control.progress(DominantSelectionStage::Link,a,count);
+            for(std::size_t b=a+1;b<count;++b) {
+                if(b%256==0 && cancelled())break;
+                const bool visible=coVisible(a,b);
+                const bool observed=faceObserved(a) && faceObserved(b);
+                const bool face=faceReady(a) && faceReady(b);
+                const double faceScore=(face || (memoConflicts && observed)) ? prototypeScore(a,b,true) : -1.;
+                if(memoConflicts && (visible || (observed && faceScore<.363)))
+                    conflicts[a*wordsPerRow+b/64]|=std::uint64_t{1}<<(b%64);
+                if(visible || (!face && !(bodyReady(a) && bodyReady(b))))continue;
+                const double score=face ? faceScore : prototypeScore(a,b,false);
+                if(score >= (face ? .363 : .76))found.push_back({a,b,score,face});
+            }
+            ++completedRows;
+        }
+        return found;
+    };
     std::vector<Edge> edges;
-    for (std::size_t a = 0; a < count; ++a) {
-      if(cancelled())return selected;
-      if(control.progress)control.progress(DominantSelectionStage::Link,a,count);
-      for (std::size_t b = a + 1; b < count; ++b) {
-        if (coVisible(a,b)) continue;
-        const bool face = faceReady(a) && faceReady(b);
-        if (!face && !(bodyReady(a) && bodyReady(b))) continue;
-        const double score = prototypeScore(a,b,face);
-        if (score >= (face ? 0.363 : 0.76)) edges.push_back({a, b, score, face});
-    }
+    const auto workerCount=count<256 ? 1U : std::clamp<std::size_t>(control.maxThreads
+        ? control.maxThreads : std::thread::hardware_concurrency(),1,24);
+    if(workerCount==1)edges=scan(true);
+    else {
+        std::vector<std::future<std::vector<Edge>>> jobs;
+        for(std::size_t i=0;i<workerCount;++i)jobs.push_back(std::async(std::launch::async,[&]{return scan(false);}));
+        for(auto& job:jobs) {
+            while(job.wait_for(std::chrono::milliseconds(100))!=std::future_status::ready)
+                if(control.progress)control.progress(DominantSelectionStage::Link,completedRows.load(),count);
+            auto found=job.get();edges.insert(edges.end(),std::make_move_iterator(found.begin()),std::make_move_iterator(found.end()));
+        }
     }
     if(control.progress)control.progress(DominantSelectionStage::Link,count,count);
     if(cancelled())return selected;
@@ -458,8 +493,12 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
                 // link, but contradictory facial evidence must still veto a
                 // clothing bridge. Otherwise a short extra joins the lead
                 // simply because its face has not reached two samples yet.
-                if (coVisible(left,right) || (faceObserved(left) && faceObserved(right)
-                    && prototypeScore(left,right,true) < 0.363)) {
+                const auto lo=std::min(left,right),hi=std::max(left,right);
+                const bool incompatible=memoConflicts
+                    ? (conflicts[lo*wordsPerRow+hi/64] & (std::uint64_t{1}<<(hi%64)))!=0
+                    : coVisible(left,right) || (faceObserved(left) && faceObserved(right)
+                        && prototypeScore(left,right,true)<.363);
+                if (incompatible) {
                     conflict = true; break;
                 }
             }

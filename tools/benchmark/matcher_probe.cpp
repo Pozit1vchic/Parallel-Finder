@@ -1,4 +1,5 @@
 #include <pfcore/MotionMatcher.hpp>
+#include <algorithm>
 #include <pfcore/MotionRanker.hpp>
 #include <pfcore/DominantPerson.hpp>
 #include <QCoreApplication>
@@ -82,12 +83,14 @@ int main(int argc, char** argv)
     params.maxUniqueResults = 50;
     const bool all = args[2] == "--all", batch = args[2] == "--batch";
     const int configIndex = all ? 3 : batch ? 4 : 4;
+    QJsonObject configuration;
     if (args.size() > configIndex) {
         QFile config(args[configIndex]);
         if (!config.open(QIODevice::ReadOnly)) return 2;
         const auto doc = QJsonDocument::fromJson(config.readAll(), &error);
         if (error.error != QJsonParseError::NoError || !doc.isObject()) return 2;
         const auto c = doc.object();
+        configuration=c;
 #define PF_NUMBER(name) if (c.contains(#name)) params.name = c[#name].toDouble()
 #define PF_BOOL(name) if (c.contains(#name)) params.name = c[#name].toBool()
         PF_NUMBER(similarityThreshold); PF_NUMBER(candidateThreshold); PF_NUMBER(minRepeatGapSec);
@@ -105,6 +108,7 @@ int main(int argc, char** argv)
         PF_BOOL(individualPairs);
         PF_BOOL(recoverUnusedShots);
         PF_BOOL(bodyMotionOnly);
+        PF_BOOL(bodyScaleInvariant);
 #undef PF_NUMBER
 #undef PF_BOOL
     }
@@ -121,8 +125,17 @@ int main(int argc, char** argv)
             {"headOnlyComparison",m.headOnlyComparison},{"rankScore",m.rankScore}};
     };
     if (all) {
+        const int passes=std::clamp(configuration.value("reusePasses").toInt(1),1,10);
+        pfcore::MotionSearchReuse reuse(256U*1024U*1024U);
+        pfcore::MotionSearchControl control;if(passes>1)control.reuse=&reuse;
         const auto start = std::chrono::steady_clock::now();
-        auto matches = pfcore::MotionMatcher(params).findAllPairs(windows);
+        std::vector<pfcore::MotionMatch> matches;
+        QJsonArray passTimes;
+        for(int pass=0;pass<passes;++pass) {
+            const auto passStart=std::chrono::steady_clock::now();
+            matches=pfcore::MotionMatcher(params).findAllPairs(windows,control);
+            passTimes.append(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-passStart).count());
+        }
         const auto matcherMs = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
         pfcore::MotionRanker::rank(matches,windows);
         QJsonArray results, inputs;
@@ -131,6 +144,7 @@ int main(int argc, char** argv)
         for (const auto& s : sources) inputs.append(QString::fromStdString(s));
         for (const auto& match : matches) results.append(resultJson(match));
         const QJsonObject report{{"inputVideos",inputs},{"results",results},{"elapsedMs",matcherMs},
+            {"passTimesMs",passTimes},
             {"matcherOnly",true},{"windowCount",static_cast<qint64>(windows.size())}};
         std::cout << QJsonDocument(report).toJson(QJsonDocument::Compact).constData() << "\n";
         return 0;

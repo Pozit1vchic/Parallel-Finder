@@ -95,8 +95,12 @@ struct IdentitySummary {
 // sample can veto a clothing link without establishing a positive face link.
 enum class DominantSelectionStage {Link,Cluster,Recovery};
 struct DominantSelectionControl {
+    // May be called by graph workers; use an atomic cancellation flag.
     std::function<bool()> cancelled;
+    // Called only on the invoking thread.
     std::function<void(DominantSelectionStage,std::size_t,std::size_t)> progress;
+    // Zero selects bounded CPU parallelism. One enables exact serial replay.
+    std::size_t maxThreads = 0;
 };
 std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities,
     const DominantSelectionControl& control={});

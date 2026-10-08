@@ -16,6 +16,7 @@ extern "C" {
 #include <libavutil/error.h>
 #include <libavutil/mathematics.h>
 #include <libavutil/hwcontext.h>
+#include <libavutil/intreadwrite.h>
 #include <libswscale/swscale.h>
 }
 
@@ -64,7 +65,7 @@ struct VideoDecoder::Impl {
     AVPacket* packet = nullptr;
     AVFrame* decoded = nullptr;
     AVFrame* downloaded = nullptr;
-    std::vector<std::uint8_t> chromaU, chromaV;
+    std::vector<std::uint8_t> chromaU, chromaV, luma10;
     SwsContext* scaler = nullptr;
     int scalerSourceWidth = 0;
     int scalerSourceHeight = 0;
@@ -111,6 +112,7 @@ struct VideoDecoder::Impl {
         hardware = false;
         std::vector<std::uint8_t>().swap(chromaU);
         std::vector<std::uint8_t>().swap(chromaV);
+        std::vector<std::uint8_t>().swap(luma10);
         lastDelivered = recoveryTarget = -std::numeric_limits<double>::infinity();
         recoveryIncludeTarget = false;
     }
@@ -215,6 +217,40 @@ struct VideoDecoder::Impl {
             planarView.data[2] = chromaV.data();
             planarView.linesize[1] = planarView.linesize[2] = chromaWidth;
             source = &planarView; // borrowed pointers are used only in this call
+        }
+        else if (decoded->format == AV_PIX_FMT_CUDA && source->format == AV_PIX_FMT_P010LE) {
+            // P010 stores 10-bit samples in the high bits of 16-bit words.
+            // Reconstruct the CPU decoder's planar, low-bit YUV420P10LE
+            // representation before swscale. Using P010 directly changes
+            // rounding and can move scene/pose decisions across thresholds.
+            const int cw = (source->width + 1) / 2, ch = (source->height + 1) / 2;
+            luma10.resize(static_cast<std::size_t>(source->width) * source->height * 2U);
+            chromaU.resize(static_cast<std::size_t>(cw) * ch * 2U);
+            chromaV.resize(chromaU.size());
+            for (int y = 0; y < source->height; ++y) {
+                const auto* row = source->data[0] + static_cast<std::ptrdiff_t>(y) * source->linesize[0];
+                auto* out = luma10.data() + static_cast<std::size_t>(y) * source->width * 2U;
+                for (int x = 0; x < source->width; ++x)
+                    AV_WL16(out + x * 2, AV_RL16(row + x * 2) >> 6);
+            }
+            for (int y = 0; y < ch; ++y) {
+                const auto* row = source->data[1] + static_cast<std::ptrdiff_t>(y) * source->linesize[1];
+                auto* u = chromaU.data() + static_cast<std::size_t>(y) * cw * 2U;
+                auto* v = chromaV.data() + static_cast<std::size_t>(y) * cw * 2U;
+                for (int x = 0; x < cw; ++x) {
+                    AV_WL16(u + x * 2, AV_RL16(row + x * 4) >> 6);
+                    AV_WL16(v + x * 2, AV_RL16(row + x * 4 + 2) >> 6);
+                }
+            }
+            planarView.width = source->width;
+            planarView.height = source->height;
+            planarView.format = AV_PIX_FMT_YUV420P10LE;
+            planarView.data[0] = luma10.data();
+            planarView.data[1] = chromaU.data();
+            planarView.data[2] = chromaV.data();
+            planarView.linesize[0] = source->width * 2;
+            planarView.linesize[1] = planarView.linesize[2] = cw * 2;
+            source = &planarView;
         }
         const auto pixelFormat = static_cast<AVPixelFormat>(source->format);
 
@@ -401,6 +437,7 @@ void VideoDecoder::open(const std::string& path, VideoDecodeOptions options)
             impl_->diagnostics.fallbackReason = "source below hardware size threshold";
         else if (stream->codecpar->color_range == AVCOL_RANGE_JPEG
                  || (stream->codecpar->format != AV_PIX_FMT_YUV420P
+                     && stream->codecpar->format != AV_PIX_FMT_YUV420P10LE
                      && stream->codecpar->format != AV_PIX_FMT_NONE))
             impl_->diagnostics.fallbackReason = "non-standard color format uses validated CPU path";
         else if (stream->codecpar->field_order != AV_FIELD_UNKNOWN
