@@ -1,3 +1,4 @@
+#include <pfcore/VideoDecoder.hpp>
 #include <BackendProbeProcess.h>
 #include <cstring>
 // QTest smoke for the static QML module PfUi: Main.qml loads from resources,
@@ -30,6 +31,12 @@
 #include <atomic>
 #include <QElapsedTimer>
 #include <QTimer>
+#include <DiscordPresence.h>
+#include <pfgpu/SessionCache.hpp>
+#if defined(Q_OS_WIN)
+#include <windows.h>
+#include <psapi.h>
+#endif
 
 class UiSmokeTests : public QObject {
     Q_OBJECT
@@ -48,6 +55,10 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!pfui::AppInfo::instance()->backendInitializing(), 30000);
     }
     void mainQmlLoadsFromResources();
+    void realSoldierDefaultDiscoveryColdAndWarm();
+    void reviewShortcutsAndMultiSelection();
+    void realReviewAdjustAndFindings();
+    void idleWindowAndDiscordMemoryPlateau();
     void isolatedBackendProbeHandlesFailureTimeoutAndCancellation();
     void updateDialogDragsWithinWindow();
     void revealSettlesAndReducedMotionStops();
@@ -85,6 +96,284 @@ private slots:
     void resultLabelsFollowMatchTypeAndLanguage();
     void sourceStatisticsFollowSelectionAndInspectionScope();
 };
+
+void UiSmokeTests::realSoldierDefaultDiscoveryColdAndWarm()
+{
+    const auto source = qEnvironmentVariable("PF_REAL_SOLDIER_SOURCE");
+    if (source.isEmpty()) QSKIP("Opt-in real-video CUDA regression");
+    QVERIFY(QFileInfo::exists(source));
+    QVERIFY(qEnvironmentVariableIsEmpty("PF_MODEL_ROOT"));
+    QVERIFY(qEnvironmentVariableIsEmpty("PF_REID_MODEL_PATH"));
+    auto* analysis = pfui::AnalysisController::instance();
+    analysis->setModelPath(qEnvironmentVariable("PF_MODEL_PATH"));
+    analysis->setProviderChoice("cuda"); analysis->setQualityProfile("fast");
+    analysis->setAnalysisMode("combined"); analysis->setAccuracyPreset("fast");
+    analysis->setExpandedSearch(true);
+    analysis->analyzeFiles({source});
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(), 300000);
+    QVERIFY2(analysis->analysisCompleted(), qPrintable(analysis->status()));
+    QVERIFY2(analysis->matchCount() >= 5, qPrintable(analysis->status()));
+    const auto cold = analysis->results();
+    qInfo("PF_REAL_SOLDIER cold_pairs=%d", analysis->matchCount());
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto* window = engine.rootObjects().constFirst();
+    const int firstId = cold.constFirst().toMap().value("id").toInt();
+    QTRY_COMPARE(window->property("selectedResultIndex").toInt(), firstId);
+    qputenv("PF_AUDIT_REUSE_OBSERVATIONS", "1");
+    analysis->analyzeFiles({source});
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(), 300000);
+    QVERIFY2(analysis->analysisCompleted(), qPrintable(analysis->status()));
+    QCOMPARE(analysis->matchCount(), cold.size());
+    auto stripPreviews = [](QVariantList values) {
+        for (auto& value : values) {
+            auto row = value.toMap(); row.remove("leftPreview"); row.remove("rightPreview"); value = row;
+        }
+        return values;
+    };
+    QCOMPARE(stripPreviews(analysis->results()), stripPreviews(cold));
+    QTRY_COMPARE(window->property("selectedResultIndex").toInt(), firstId);
+    auto* center = window->findChild<QObject*>("motionCenter");
+    QVERIFY(center);
+    QCOMPARE(center->property("availableResultCount").toInt(), cold.size());
+    qInfo("PF_REAL_SOLDIER warm_pairs=%d", analysis->matchCount());
+    qunsetenv("PF_AUDIT_REUSE_OBSERVATIONS");
+}
+
+void UiSmokeTests::reviewShortcutsAndMultiSelection()
+{
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto* review = engine.singletonInstance<QObject*>(qmlTypeId("PfUi", 1, 0, "Review"));
+    QVERIFY(review);
+    const auto variant = [](const QVariant& value) { return value.metaType() == QMetaType::fromType<QJSValue>() ? value.value<QJSValue>().toVariant() : value; };
+    QVERIFY(QMetaObject::invokeMethod(review, "reset"));
+    QCOMPARE(variant(review->property("bindings")).toMap().value("hide").toStringList(), (QStringList{"Del", "Backspace"}));
+    QVariant result;
+    QVERIFY(QMetaObject::invokeMethod(review, "assign", Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, "next"), Q_ARG(QVariant, 0), Q_ARG(QVariant, "Ctrl+J")));
+    QVERIFY(result.toString().isEmpty());
+    QVERIFY(QMetaObject::invokeMethod(review, "assign", Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, "previous"), Q_ARG(QVariant, 0), Q_ARG(QVariant, "Ctrl+J")));
+    QVERIFY(!result.toString().isEmpty());
+    QCOMPARE(pfui::AppInfo::instance()->keySequence(Qt::Key_Delete, Qt::NoModifier), QString("Del"));
+    QCOMPARE(pfui::AppInfo::instance()->keySequence(Qt::Key_D, Qt::ControlModifier), QString("Ctrl+D"));
+    const auto prefs = pfui::AppInfo::instance()->loadPreferences();
+    QCOMPARE(prefs.value("review").toMap().value("bindings").toMap().value("next").toStringList(), (QStringList{"Ctrl+J"}));
+    auto* settings = engine.rootObjects().constFirst()->findChild<QObject*>("settingsDialog");
+    QVERIFY(settings); QVERIFY(QMetaObject::invokeMethod(settings, "open"));
+    auto* tabs = settings->findChild<QObject*>("settingsTabs"); QVERIFY(tabs); QCOMPARE(tabs->property("count").toInt(), 3);
+    tabs->setProperty("currentIndex", 2);
+    QVERIFY(settings->findChild<QObject*>("settingsHotkeysFlick"));
+    QTest::qWait(100);
+    auto* mainWindow = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst()); QVERIFY(mainWindow);
+    const auto findKey = [&](const QString& name) {
+        std::function<QQuickItem*(QQuickItem*)> visit = [&](QQuickItem* item) -> QQuickItem* {
+            if (item->objectName() == name) return item;
+            for (auto* child : item->childItems()) if (auto* result = visit(child)) return result;
+            return nullptr;
+        };
+        return visit(mainWindow->contentItem());
+    };
+    auto* primary = findKey("hotkey_next_0"), *secondary = findKey("hotkey_favorite_1"); QVERIFY(primary && secondary);
+    QCOMPARE(primary->height(), 28.0); QCOMPARE(secondary->height(), 28.0);
+    auto* primaryFavorite = findKey("hotkey_favorite_0"); QVERIFY(primaryFavorite);
+    const auto primaryPosition = primary->mapToItem(mainWindow->contentItem(), QPointF());
+    const auto favoritePosition = primaryFavorite->mapToItem(mainWindow->contentItem(), QPointF());
+    const auto secondaryPosition = secondary->mapToItem(mainWindow->contentItem(), QPointF());
+    QVERIFY(qAbs(primaryPosition.x() - favoritePosition.x()) < 1.0);
+    QVERIFY(secondaryPosition.x() >= favoritePosition.x() + primaryFavorite->width());
+    QVERIFY(secondaryPosition.x() + secondary->width() <= mainWindow->width());
+
+    QVERIFY(QMetaObject::invokeMethod(secondary, "clicked"));
+    QTest::keyClick(mainWindow, Qt::Key_F, Qt::ControlModifier);
+    QTRY_COMPARE(variant(review->property("bindings")).toMap().value("favorite").toStringList(), (QStringList{"F", "Ctrl+F"}));
+    auto* clear = findKey("clear_hotkey_favorite_1"); QVERIFY(clear);
+    QVERIFY(QMetaObject::invokeMethod(clear, "clicked"));
+    QTRY_COMPARE(variant(review->property("bindings")).toMap().value("favorite").toStringList(), (QStringList{"F", ""}));
+    QQmlComponent component(&engine);
+    component.setData(R"(import QtQuick
+import PfUi
+ResultsRail { width: 300; height: 600; results: [{id:0, similarity:0.9}, {id:1, similarity:0.8}, {id:2, similarity:0.7}, {id:3, similarity:0.6}, {id:4, similarity:0.5}]
+onExportSelectionChanged: function(rows) { selectedRows = rows }
+onResultSelected: function(id) { selectedIndex = id }
+})", QUrl());
+    std::unique_ptr<QObject> rail(component.create()); QVERIFY2(rail != nullptr, qPrintable(component.errorString()));
+    QVERIFY(QMetaObject::invokeMethod(review, "setMulti", Q_ARG(QVariant, true)));
+    const auto select = [&](int id, int modifiers) { return QMetaObject::invokeMethod(rail.get(), "selectCard", Q_ARG(QVariant, id), Q_ARG(QVariant, modifiers)); };
+    QVERIFY(select(0, 0)); QVERIFY(select(2, Qt::ControlModifier));
+    QCOMPARE(variant(rail->property("selectedRows")).toMap().size(), 2);
+    QVERIFY(select(4, Qt::ShiftModifier));
+    const auto selected = variant(rail->property("selectedRows")).toMap();
+    QCOMPARE(selected.size(), 3); QVERIFY(selected.contains("2") && selected.contains("3") && selected.contains("4"));
+    QVERIFY(select(3, Qt::ControlModifier)); QCOMPARE(variant(rail->property("selectedRows")).toMap().size(), 2);
+    rail->setProperty("results", QVariantList{QVariantMap{{"id",0},{"favorite",true}}, QVariantMap{{"id",1},{"hidden",true}}, QVariantMap{{"id",2}}});
+    QCOMPARE(variant(rail->property("visibleResults")).toList().size(), 2);
+    rail->setProperty("reviewFilter", "favorites"); QCOMPARE(variant(rail->property("visibleResults")).toList().size(), 1);
+    rail->setProperty("reviewFilter", "hidden"); QCOMPARE(variant(rail->property("visibleResults")).toList().size(), 1);
+    const auto capture = qEnvironmentVariable("PF_UI_CAPTURE_DIR");
+    if (!capture.isEmpty()) { QDir().mkpath(capture); QTest::qWait(450); QVERIFY(qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst())->grabWindow().save(capture + "/hotkeys.png")); }
+    QVERIFY(QMetaObject::invokeMethod(review, "reset")); QVERIFY(QMetaObject::invokeMethod(review, "setMulti", Q_ARG(QVariant, false)));
+}
+
+void UiSmokeTests::realReviewAdjustAndFindings()
+{
+    if (qEnvironmentVariableIsEmpty("PF_REAL_SOLDIER_SOURCE")) QSKIP("Opt-in real-video review/export integration");
+    auto* analysis = pfui::AnalysisController::instance();
+    if (analysis->results().size() < 2) {
+        analysis->setModelPath(qEnvironmentVariable("PF_MODEL_PATH"));
+        analysis->setProviderChoice("cuda"); analysis->setQualityProfile("fast");
+        analysis->setAnalysisMode("combined"); analysis->setAccuracyPreset("fast");
+        analysis->setExpandedSearch(false); analysis->analyzeFiles({qEnvironmentVariable("PF_REAL_SOLDIER_SOURCE")});
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(), 300000);
+    }
+    QVERIFY(analysis->results().size() >= 2);
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml")); QVERIFY(!engine.rootObjects().isEmpty());
+    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst()); QVERIFY(window);
+    window->show(); window->requestActivate(); QTest::qWait(450);
+    const int first = window->property("selectedResultIndex").toInt(); QVERIFY(first >= 0);
+    QTest::keyClick(window, Qt::Key_Delete);
+    QTRY_VERIFY(analysis->results()[first].toMap().value("hidden").toBool());
+    QTRY_VERIFY(window->property("selectedResultIndex").toInt() != first);
+    auto* rail = window->findChild<QObject*>("resultsRail"); QVERIFY(rail);
+    rail->setProperty("reviewFilter", "hidden"); QTRY_COMPARE(window->property("selectedResultIndex").toInt(), first);
+    QTest::keyClick(window, Qt::Key_Backspace); QTRY_VERIFY(!analysis->results()[first].toMap().value("hidden").toBool());
+    rail->setProperty("reviewFilter", "all");
+    QVERIFY(QMetaObject::invokeMethod(window, "selectResult", Q_ARG(QVariant, first)));
+    QTest::keyClick(window, Qt::Key_F); QTRY_VERIFY(analysis->results()[first].toMap().value("favorite").toBool());
+    QTest::qWait(500);
+    const auto findVisual = [](QQuickItem* root, const QString& name) {
+        std::function<QQuickItem*(QQuickItem*)> visit = [&](QQuickItem* item) -> QQuickItem* {
+            if (item->objectName() == name) return item;
+            for (auto* child : item->childItems()) if (auto* found = visit(child)) return found;
+            return nullptr;
+        };
+        return visit(root);
+    };
+    auto* card = findVisual(window->contentItem(), "resultCard" + QString::number(first)); QVERIFY(card);
+    QCOMPARE(card->z(), 2.0);
+    const auto variantRows = rail->property("visibleResults").value<QJSValue>().toVariant().toList();
+    if (variantRows.size() > 1) {
+        const auto nextId = variantRows[1].toMap().value("id").toInt();
+        auto* next = findVisual(window->contentItem(), "resultCard" + QString::number(nextId)); QVERIFY(next);
+        QVERIFY2(next->y() >= card->y() + card->height() + 4, qPrintable(QString("Card overlap: first y=%1 h=%2, next y=%3").arg(card->y()).arg(card->height()).arg(next->y())));
+    }
+    const auto row = analysis->results()[first].toMap();
+    const double start = row.value("leftClipStart").toDouble(), end = row.value("leftClipEnd").toDouble();
+    const double rightStart = row.value("rightClipStart").toDouble(), rightEnd = row.value("rightClipEnd").toDouble();
+    QVERIFY(!analysis->setResultRange(first, -1, end, rightStart, rightEnd));
+    QVERIFY(analysis->setResultRange(first, start + 0.04, end, rightStart, rightEnd));
+    const auto reviewSnapshot = analysis->results();
+    analysis->inspectFiles({}); analysis->analyzeFiles({});
+    QCOMPARE(analysis->results(), reviewSnapshot);
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->reviewBusy(), 20000);
+    QCOMPARE(analysis->results()[first].toMap().value("leftClipStart").toDouble(), start + 0.04);
+    QVERIFY(QFileInfo::exists(QUrl(analysis->results()[first].toMap().value("leftPreview").toString()).toLocalFile()));
+    QTemporaryDir output; QVERIFY(output.isValid()); QSignalSpy finished(analysis, &pfui::AnalysisController::exportFinished);
+    QVERIFY(analysis->exportFindings(output.path(), QVariantList{first, first, 1, -1}, 3));
+    const auto exportSnapshot = analysis->results();
+    analysis->inspectFiles({}); analysis->analyzeFiles({});
+    QCOMPARE(analysis->results(), exportSnapshot);
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->exportBusy(), 45000);
+    QCOMPARE(finished.size(), 1); QVERIFY2(finished[0][0].toBool(), qPrintable(finished[0][1].toString()));
+    const auto files = QDir(output.path()).entryList({"*.png"}, QDir::Files); QCOMPARE(files.size(), 1);
+    const QImage image(output.path() + '/' + files[0]); QVERIFY(!image.isNull()); QCOMPARE(image.width(), 1920); QVERIFY(image.height() >= 744);
+    const auto capture = qEnvironmentVariable("PF_UI_CAPTURE_DIR");
+    if (!capture.isEmpty()) {
+        QDir().mkpath(capture); QFile::remove(capture + "/findings.png"); QVERIFY(QFile::copy(output.path() + '/' + files[0], capture + "/findings.png"));
+        QVERIFY(window->grabWindow().save(capture + "/results.png"));
+        auto* adjust = window->findChild<QObject*>("pairAdjustDialog"); QVERIFY(adjust); adjust->setProperty("record", analysis->results()[first]);
+        QVERIFY(QMetaObject::invokeMethod(adjust, "open")); QTest::qWait(450); QVERIFY(window->grabWindow().save(capture + "/adjust.png"));
+        QVERIFY(QMetaObject::invokeMethod(adjust, "close"));
+    }
+    auto* adjust = window->findChild<QObject*>("pairAdjustDialog"); QVERIFY(adjust);
+    adjust->setProperty("record", analysis->results()[first]);
+    QVERIFY(QMetaObject::invokeMethod(adjust, "open"));
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->reviewBusy() && !adjust->property("previewLeft").toString().isEmpty(), 20000);
+    const double draftStart = adjust->property("leftStart").toDouble();
+    QSignalSpy previews(analysis, &pfui::AnalysisController::reviewPreviewsReady);
+    QVERIFY(QMetaObject::invokeMethod(adjust, "step", Q_ARG(QVariant, "left"), Q_ARG(QVariant, 1)));
+    QTRY_VERIFY_WITH_TIMEOUT(previews.size() > 0 && !analysis->reviewBusy(), 20000);
+    QVERIFY(adjust->property("leftStart").toDouble() > draftStart);
+    QVERIFY(!adjust->property("previewLeft").toString().isEmpty());
+    QCOMPARE(analysis->results()[first].toMap().value("leftClipStart").toDouble(), start + 0.04);
+    for (const auto* side : {"adjustLeftView", "adjustRightView"}) {
+        auto* panel = adjust->findChild<QObject*>(side); QVERIFY(panel);
+        auto* image = panel->findChild<QObject*>("comparisonFrameImage"); QVERIFY(image);
+        QTRY_COMPARE_WITH_TIMEOUT(image->property("status").toInt(), 1, 10000);
+    }
+    QTest::qWait(250);
+    if (!capture.isEmpty()) QVERIFY(window->grabWindow().save(capture + "/adjust-timeline.png"));
+    QVERIFY(QMetaObject::invokeMethod(adjust, "close")); QTest::qWait(300);
+    auto* exportDialog = window->findChild<QObject*>("exportDialog"); QVERIFY(exportDialog);
+    exportDialog->setProperty("selectedRows", QVariantMap{{QString::number(first), true}});
+    QVERIFY(QMetaObject::invokeMethod(exportDialog, "open")); QTest::qWait(350);
+    auto* quality = exportDialog->findChild<QObject*>("exportQualityMode"); QVERIFY(quality);
+    QCOMPARE(quality->property("currentIndex").toInt(), 1);
+    QCOMPARE(exportDialog->property("encodingQuality").toInt(), 18);
+    quality->setProperty("currentIndex", 3);
+    QVERIFY(QMetaObject::invokeMethod(quality, "activated", Q_ARG(int, 3)));
+    auto* bitrate = exportDialog->findChild<QObject*>("exportBitrateField"); QVERIFY(bitrate);
+    bitrate->setProperty("text", "40"); QCOMPARE(exportDialog->property("videoBitrateKbps").toInt(), 40000);
+    bitrate->setProperty("text", "0"); QVERIFY(!exportDialog->property("qualityValid").toBool());
+    bitrate->setProperty("text", "40"); QVERIFY(exportDialog->property("qualityValid").toBool());
+    if (!capture.isEmpty()) QVERIFY(window->grabWindow().save(capture + "/export-quality.png"));
+    QVERIFY(QMetaObject::invokeMethod(exportDialog, "close")); QTest::qWait(300);
+    QVERIFY(analysis->setResultRange(first, start + 0.04, start + 7.54, rightStart, rightEnd));
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->reviewBusy(), 20000);
+    QTemporaryDir clips; finished.clear();
+    QVERIFY(analysis->exportResults("FFMPEG", 0, 0, clips.path(), "review", QVariantList{first}, false, {}, 14, 0));
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->exportBusy(), 45000);
+    QCOMPARE(finished.size(), 1); QVERIFY2(finished[0][0].toBool(), qPrintable(finished[0][1].toString()));
+    const auto mp4s = QDir(clips.path()).entryList({"*.mp4"}, QDir::Files); QCOMPARE(mp4s.size(), 2);
+    pfcore::VideoDecoder decoded; decoded.open((clips.path() + '/' + mp4s[0]).toStdString());
+    QVERIFY(std::abs(decoded.info().durationSeconds - 7.5) < 0.1);
+    QVERIFY(analysis->resetResultRange(first)); QTRY_VERIFY_WITH_TIMEOUT(!analysis->reviewBusy(), 20000);
+    QCOMPARE(analysis->results()[first].toMap().value("leftClipStart").toDouble(), start);
+    const auto ownedPreview = QUrl(analysis->results()[first].toMap().value("leftPreview").toString()).toLocalFile();
+    QVERIFY(QFileInfo::exists(ownedPreview));
+    analysis->inspectFiles({});
+    QVERIFY(analysis->results().isEmpty());
+    QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(QFileInfo(ownedPreview).absolutePath()), 4000);
+}
+
+void UiSmokeTests::idleWindowAndDiscordMemoryPlateau()
+{
+#if defined(Q_OS_WIN)
+    const int seconds = qEnvironmentVariableIntValue("PF_IDLE_MEMORY_SECONDS");
+    if (seconds < 90) QSKIP("Opt-in long idle-memory test");
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto* discord = engine.singletonInstance<pfui::DiscordPresence*>(qmlTypeId("PfUiBridge", 1, 0, "Discord"));
+    discord->setActivity(false, false, 0, pfui::AnalysisController::instance()->matchCount(), {}, "ru");
+    discord->start();
+    QFile log(qEnvironmentVariable("PF_IDLE_MEMORY_LOG"));
+    QVERIFY(log.open(QIODevice::WriteOnly | QIODevice::Text));
+    qint64 settled = 0, maximumAfterSettling = 0;
+    for (int elapsed = 0; elapsed <= seconds; elapsed += 2) {
+        PROCESS_MEMORY_COUNTERS_EX memory{}; memory.cb = sizeof(memory);
+        QVERIFY(K32GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory), sizeof(memory)));
+        const auto bytes = static_cast<qint64>(memory.PrivateUsage);
+        log.write(QByteArray::number(elapsed) + "," + QByteArray::number(bytes) + "," + QByteArray::number(pfgpu::processSessionCache().stats().live) + "\n");
+        log.flush();
+        // First minute includes renderer warmup and deferred model teardown.
+        if (elapsed == 90) settled = bytes;
+        if (elapsed >= 90) maximumAfterSettling = std::max(maximumAfterSettling, bytes);
+        QTest::qWait(2000);
+    }
+    discord->stop();
+    QVERIFY2(maximumAfterSettling - settled < 64 * 1024 * 1024, "Idle private-memory growth exceeds 64 MiB");
+    QCOMPARE(pfgpu::processSessionCache().stats().live, 0u);
+    qInfo("PF_IDLE_MEMORY settled_bytes=%lld maximum_bytes=%lld", settled, maximumAfterSettling);
+#else
+    QSKIP("Windows process-private-memory audit");
+#endif
+}
 
 void UiSmokeTests::isolatedBackendProbeHandlesFailureTimeoutAndCancellation()
 {
@@ -1033,6 +1322,7 @@ void UiSmokeTests::resultArrowKeysWorkAfterSourceButtonFocus()
 
 void UiSmokeTests::selectsAllResultsWithoutDisplayLimit()
 {
+    pfui::AppInfo::registerQmlTypes();
     QQmlApplicationEngine engine;
     engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
     QQmlComponent component(&engine);
@@ -1110,6 +1400,10 @@ void UiSmokeTests::exportModesAreSelectable()
 void UiSmokeTests::advancedOpensOnFirstClickAndStatusTranslates()
 {
     pfui::AppInfo::registerQmlTypes();
+    auto* analysis = pfui::AnalysisController::instance();
+    const auto originalProvider = analysis->providerChoice();
+    analysis->setProviderChoice("cpu");
+    const auto restoreProvider = qScopeGuard([&] { analysis->setProviderChoice(originalProvider); });
     QQmlApplicationEngine engine;
     auto* window = loadWindow(engine);
     QVERIFY(window);

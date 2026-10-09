@@ -9,6 +9,7 @@ namespace pfservices {
 class RuntimeScratch {
 public:
     explicit RuntimeScratch(const QString& root, int retentionSeconds = 86400);
+    ~RuntimeScratch();
     [[nodiscard]] QString path() const;
 private:
     std::unique_ptr<QTemporaryDir> directory_;

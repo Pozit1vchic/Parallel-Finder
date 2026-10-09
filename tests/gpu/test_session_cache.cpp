@@ -17,6 +17,11 @@
 
 namespace {
 
+TEST(SessionCachePolicy, ProcessCacheHoldsOneModelConfiguration)
+{
+    EXPECT_EQ(pfgpu::processSessionCache().maxEntries(), 4u);
+}
+
 // Runs the probe model (Identity on float32 [1,2]) and returns the output.
 // Everything goes through the dynamically loaded api pointer, so the test has
 // no link-time dependency on ONNX Runtime either.
@@ -107,6 +112,24 @@ TEST_F(SessionCacheTest, CreatesASessionFromAnInMemoryModel)
     EXPECT_EQ(stats.misses, 1u);
     EXPECT_EQ(stats.hits, 0u);
     EXPECT_EQ(stats.live, 1u);
+}
+
+TEST_F(SessionCacheTest, IdleCleanupReleasesOnlyUnownedSessions)
+{
+    pfgpu::SessionCache cache(4);
+    auto held = cache.getOrCreate(probeModel());
+    ASSERT_TRUE(held.ok) << held.error;
+    std::weak_ptr<const void> lifetime = held.handle.owner;
+    EXPECT_EQ(cache.releaseUnused(), 0u);
+    EXPECT_EQ(cache.stats().live, 1u);
+    std::vector<float> data{3.5f, -1.25f};
+    std::string error;
+    ASSERT_TRUE(runIdentity(*api_, held.handle.session, data, error)) << error;
+    held.handle = {};
+    EXPECT_EQ(cache.releaseUnused(), 1u);
+    EXPECT_TRUE(lifetime.expired());
+    EXPECT_EQ(cache.stats().live, 0u);
+    EXPECT_EQ(cache.releaseUnused(), 0u);
 }
 
 TEST_F(SessionCacheTest, CachedSessionActuallyRunsTheGraph)

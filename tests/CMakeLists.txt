@@ -1,5 +1,10 @@
 enable_testing()
 
+add_executable(pf_discord_tests ui/test_discord_presence.cpp)
+target_link_libraries(pf_discord_tests PRIVATE pfui pfui_module_import Qt6::Test)
+add_test(NAME pf_discord_tests COMMAND pf_discord_tests)
+set_tests_properties(pf_discord_tests PROPERTIES TIMEOUT 60)
+
 find_package(GTest CONFIG REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Test)
 add_executable(pf_update_tests updates/test_updates.cpp)
@@ -24,6 +29,7 @@ set_target_properties(pf_ffmpeg_stall_stub PROPERTIES AUTOMOC OFF AUTOUIC OFF AU
 
 # ── Core tests (Google Test): pfcore + pfservices + pfgpu ──────────────────
 add_executable(pf_tests
+    core/test_estimator_cache.cpp
     core/test_scene_sequence_cache.cpp
     core/test_scene_detector.cpp
     core/test_video_decoder.cpp
@@ -45,6 +51,7 @@ add_executable(pf_tests
     gpu/test_device_info.cpp
     gpu/test_provider.cpp
     gpu/test_provider_factory.cpp
+    gpu/test_inference_failures.cpp
     gpu/test_session_cache.cpp
     gpu/test_pose_estimator.cpp
     gpu/test_pose_input.cpp
@@ -62,6 +69,7 @@ target_link_libraries(pf_tests PRIVATE
     GTest::gtest_main
 )
 add_test(NAME pf_tests COMMAND pf_tests)
+set_tests_properties(pf_tests PROPERTIES TIMEOUT 180)
 
 # ── UI smoke (QTest): static QML module PfUi loads, singletons resolve ─────
 add_executable(pfui_tests
@@ -74,12 +82,14 @@ target_link_libraries(pfui_tests PRIVATE
 )
 add_test(NAME pfui_tests COMMAND pfui_tests)
 set_tests_properties(pfui_tests PROPERTIES
+    TIMEOUT 180
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
 
 # ── App smoke: binary runs and reports the init path ───────────────────────
 add_test(NAME app_smoke COMMAND ParallelFinder --pf-smoke)
 set_tests_properties(app_smoke PROPERTIES
+    TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
 

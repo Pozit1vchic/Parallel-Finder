@@ -17,6 +17,12 @@ Rectangle {
     signal resultSelected(int index)
     signal exportRequested(var rows)
     signal pairColorRequested(int index, string name, string color)
+    signal pairReviewRequested(int index, string field, bool value)
+    signal findingsRequested()
+    property string reviewFilter: "all"
+    property int selectionAnchorId: -1
+    property var revealedCards: ({})
+    ListModel { id: displayModel; dynamicRoles: true }
     readonly property var groupColors: ["", "#D56565", "#638EDB", "#7C9885", "#AA83D4", "#D5AD63"]
     readonly property var colorLabels: ["colors.none", "colors.orange", "colors.blue", "colors.green", "colors.purple", "colors.gold"]
     property int colorTargetId: -1
@@ -30,6 +36,8 @@ Rectangle {
         objectName: "resultColorPicker"
         parent: Overlay.overlay
         padding: 8
+        enter: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
+        exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.motionDuration; easing.type: Easing.InCubic } }
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusButton; border.color: Theme.hairlineStrong }
         contentItem: Row {
@@ -102,12 +110,49 @@ Rectangle {
         return (Number(a.id) - Number(b.id))
     }
 
+    FontMetrics { id: resultTextMetrics; font.family: Theme.fontFamily; font.pixelSize: 11 }
+    function layoutResults() { resultList.forceLayout() }
     function rebuild() {
         const next = []
-        for (const item of (results || [])) next.push(item)
+        for (const item of (results || [])) {
+            if (reviewFilter === "hidden" ? !item.hidden : item.hidden) continue
+            if (reviewFilter === "favorites" && !item.favorite) continue
+            next.push(item)
+        }
         next.sort(compareValues)
+        const wanted = {}; for (const item of next) wanted[item.id] = true
+        for (let i = displayModel.count - 1; i >= 0; --i)
+            if (!wanted[displayModel.get(i).entry.id]) displayModel.remove(i)
+        for (let i = 0; i < next.length; ++i) {
+            let existing = -1
+            for (let j = i; j < displayModel.count; ++j)
+                if (Number(displayModel.get(j).entry.id) === Number(next[i].id)) { existing = j; break }
+            if (existing < 0) displayModel.insert(i, {entry: next[i]})
+            else {
+                if (existing !== i) displayModel.move(existing, i, 1)
+                displayModel.set(i, {entry: next[i]})
+            }
+        }
         visibleResults = next
         Qt.callLater(revealSelection)
+    }
+    function selectCard(id, modifiers) {
+        if (Review.multiSelect) {
+            let next = (modifiers & Qt.ControlModifier) ? Object.assign({}, selectedRows) : {}
+            if (modifiers & Qt.ShiftModifier) {
+                const from = visibleResults.findIndex(function(row) { return Number(row.id) === root.selectionAnchorId })
+                const to = visibleResults.findIndex(function(row) { return Number(row.id) === id })
+                if (from >= 0 && to >= 0) {
+                    if (modifiers & Qt.ControlModifier) next = Object.assign({}, selectedRows)
+                    for (let i = Math.min(from, to); i <= Math.max(from, to); ++i) next[visibleResults[i].id] = true
+                } else next[id] = true
+            } else {
+                if (next[id] === true) delete next[id]; else next[id] = true
+                selectionAnchorId = id
+            }
+            exportSelectionChanged(next)
+        }
+        resultSelected(id)
     }
 
     function revealSelection() {
@@ -137,6 +182,8 @@ Rectangle {
     onResultsChanged: rebuild()
     onSortDescendingChanged: rebuild()
     onSortCriterionChanged: rebuild()
+    onReviewFilterChanged: { rebuild(); if (selectedIndex >= 0 && currentVisibleIndex < 0) resultSelected(visibleResults.length ? Number(visibleResults[0].id) : -1) }
+    Connections { target: Analysis; function onResultsChanged() { root.revealedCards = ({}) } }
     Component.onCompleted: rebuild()
 
     ColumnLayout {
@@ -154,6 +201,17 @@ Rectangle {
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             ColumnLayout {
                 id: controlsColumn; width: parent.width; spacing: 8
+        RowLayout {
+            Layout.fillWidth: true; spacing: 3; visible: root.results.length > 0
+            Repeater {
+                model: ["all", "favorites", "hidden"]
+                delegate: PfButton {
+                    required property string modelData
+                    Layout.fillWidth: true; compact: true; selected: root.reviewFilter === modelData
+                    text: Review.t(modelData); onClicked: root.reviewFilter = modelData
+                }
+            }
+        }
         RowLayout {
             Layout.fillWidth: true
             visible: root.results.length > 0
@@ -178,7 +236,7 @@ Rectangle {
             Text {
                 font.family: Theme.fontFamily
                 Layout.fillWidth: true
-                text: root.results.length > 0 ? root.results.length + " " + L10n.t("results.found") : L10n.t("results.emptyHint")
+                text: root.results.length > 0 ? root.visibleResults.length + " " + L10n.t("results.found") : L10n.t("results.emptyHint")
                 color: Theme.textSecondary
                 font.pixelSize: 11
                 elide: Text.ElideRight
@@ -258,10 +316,11 @@ Rectangle {
             Layout.fillWidth: true
             visible: root.results.length > 0
             text: L10n.t("results.export") + (root.selectedCount > 0 ? " · " + root.selectedCount : "")
-            enabled: root.selectedCount > 0
+            enabled: root.selectedCount > 0 && root.reviewFilter !== "hidden"
             primary: enabled
             onClicked: root.exportRequested(root.exportRows())
         }
+        PfButton { Layout.fillWidth: true; compact: true; quiet: true; visible: root.visibleResults.length > 0 && root.reviewFilter !== "hidden"; text: Review.t("sheet"); onClicked: root.findingsRequested() }
 
             }
         }
@@ -278,23 +337,41 @@ Rectangle {
             keyNavigationWraps: false
             clip: true
             spacing: 5
-            model: root.visibleResults
+            model: displayModel
+            add: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionChangeDuration } }
+            remove: Transition {
+                SequentialAnimation {
+                    PropertyAction { property: "ListView.delayRemove"; value: true }
+                    ParallelAnimation {
+                        NumberAnimation { property: "opacity"; to: 0; duration: Theme.motionChangeDuration }
+                        NumberAnimation { property: "scale"; to: 0.95; duration: Theme.motionChangeDuration; easing.type: Easing.InCubic }
+                    }
+                    PropertyAction { property: "ListView.delayRemove"; value: false }
+                }
+            }
+            displaced: Transition { NumberAnimation { property: "reflowOffset"; from: 4; to: 0; duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
             focus: true
             activeFocusOnTab: true
             Accessible.name: L10n.t("results.title")
-            Keys.onUpPressed: { root.selectPrevious(); event.accepted = true }
-            Keys.onDownPressed: { root.selectNext(); event.accepted = true }
             Keys.onReturnPressed: if (root.visibleResults.length > 0) root.resultSelected(root.selectedIndex < 0 ? Number(root.visibleResults[0].id) : root.selectedIndex)
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
             delegate: Rectangle {
                 id: resultCard
+                objectName: "resultCard" + Number(modelData.id)
+                z: Number(modelData.id) === root.selectedIndex ? 2 : 0
+                onHeightChanged: Qt.callLater(root.layoutResults)
+                property var modelData: model.entry
                 property real entranceOffset: 0
-                transform: Translate { y: resultCard.entranceOffset }
+                property real reflowOffset: 0
+                transform: Translate { y: resultCard.entranceOffset + resultCard.reflowOffset }
                 Component.onCompleted: {
                     // Only six first-visible cards, never thousands of rows.
                     if (index < 6 && !Theme.reducedMotion) {
-                        opacity = 0; entranceOffset = 6; cardReveal.start()
+                        if (!root.revealedCards[modelData.id]) {
+                            root.revealedCards[modelData.id] = true
+                            opacity = 0; entranceOffset = 6; cardReveal.start()
+                        }
                     }
                 }
                 SequentialAnimation {
@@ -313,11 +390,13 @@ Rectangle {
                     }
                 }
                 width: Math.max(0, resultList.width - 8)
-                height: Math.max(96, rowContent.implicitHeight + 16)
+                height: Math.max(104, Math.ceil(resultTextMetrics.height) * 5 + 32)
+                    + (modelData && modelData.category ? Math.ceil(resultTextMetrics.height) + 4 : 0)
                 radius: 7
                 color: root.selectedRows[modelData.id] ? Theme.accentMuted : Theme.surfaceRaised
                 border.color: Number(modelData.id) === root.selectedIndex ? Theme.accent : Theme.border
                 Behavior on border.color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
+                Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
                 Rectangle {
                     x: 0; y: 14; width: 2; height: parent.height - 28; radius: 1
                     color: modelData.categoryColor || Theme.accent
@@ -330,7 +409,7 @@ Rectangle {
                 MouseArea {
                     anchors.fill: parent
                     hoverEnabled: true
-                    onClicked: { resultList.forceActiveFocus(); root.resultSelected(modelData.id) }
+                    onClicked: function(mouse) { resultList.forceActiveFocus(); root.selectCard(Number(modelData.id), mouse.modifiers) }
                 }
 
                 Row {
@@ -374,7 +453,7 @@ Rectangle {
                     }
                     Column {
                         id: rowContent
-                        width: Math.max(0, parent.width - 60)
+                        width: Math.max(0, parent.width - 84)
                         spacing: 4
 
                         Text {
@@ -420,6 +499,25 @@ Rectangle {
                             elide: Text.ElideRight
                         }
                     }
+                    Column {
+                        width: 24; spacing: 8
+                        PfIconButton {
+                            objectName: "removePairButton" + modelData.id
+                            width: 24; height: 26; iconSize: 14
+                            iconSource: modelData.hidden ? "qrc:/qt/qml/PfUi/qml/assets/chevron-left.svg" : "qrc:/qt/qml/PfUi/qml/assets/x.svg"
+                            accessibleName: Review.t(modelData.hidden ? "restore" : "remove")
+                            enabled: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
+                            onClicked: root.pairReviewRequested(Number(modelData.id), "hidden", !modelData.hidden)
+                        }
+                        PfButton {
+                            objectName: "favoritePairButton" + modelData.id
+                            width: 24; height: 26; implicitHeight: 26; compact: true; quiet: true
+                            text: modelData.favorite ? "★" : "☆"; selected: !!modelData.favorite
+                            Accessible.name: Review.t("favorite"); ToolTip.visible: hovered; ToolTip.text: Accessible.name
+                            enabled: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
+                            onClicked: root.pairReviewRequested(Number(modelData.id), "favorite", !modelData.favorite)
+                        }
+                    }
                 }
             }
 
@@ -428,7 +526,7 @@ Rectangle {
                 anchors.centerIn: parent
                 visible: root.visibleResults.length === 0
                 width: parent.width - 28
-                text: root.results.length === 0 ? L10n.t("results.emptyBody") : L10n.t("results.emptyHint")
+                text: root.results.length === 0 ? L10n.t("results.emptyBody") : Review.t("empty")
                 color: Theme.textDisabled
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter

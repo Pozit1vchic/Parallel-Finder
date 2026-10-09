@@ -6,6 +6,12 @@ target_compile_features(pfui PUBLIC cxx_std_23)
 set(PFUI_QML_FILES
     qml/Theme.qml
     qml/L10n.qml
+    qml/Review.qml
+    qml/ReviewDialog.qml
+    qml/HotkeysPage.qml
+    qml/PairAdjustDialog.qml
+    qml/PairTimeline.qml
+    qml/FindingsDialog.qml
     qml/Main.qml
     qml/PfSlider.qml
     qml/PfSliderField.qml
@@ -26,7 +32,7 @@ set(PFUI_QML_FILES
     qml/ExportDialog.qml
     qml/UpdateDialog.qml
 )
-set_source_files_properties(qml/Theme.qml qml/L10n.qml
+set_source_files_properties(qml/Theme.qml qml/L10n.qml qml/Review.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE
 )
 
@@ -59,7 +65,9 @@ qt_add_qml_module(pfui
 target_sources(pfui PRIVATE
     src/BackendProbeProcess.cpp
     src/AppInfo.cpp
+    src/DiscordPresence.cpp
     src/AnalysisController.cpp
+    src/ReviewActions.cpp
 )
 target_link_libraries(pfui PUBLIC pf::core pf::gpu pf::services pf::exporters pfupdate)
 

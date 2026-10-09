@@ -10,6 +10,10 @@
 #include <vector>
 #include <stop_token>
 #include <thread>
+#include <map>
+
+class QTemporaryDir;
+namespace pfservices { class RuntimeScratch; }
 
 #include "pfcore/MotionMatcher.hpp"
 
@@ -33,6 +37,7 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool exportBusy READ exportBusy NOTIFY exportBusyChanged)
+    Q_PROPERTY(bool reviewBusy READ reviewBusy NOTIFY reviewBusyChanged)
     Q_PROPERTY(int exportCompleted READ exportCompleted NOTIFY exportProgressChanged)
     Q_PROPERTY(int exportTotal READ exportTotal NOTIFY exportProgressChanged)
     Q_PROPERTY(int exportClipProgress READ exportClipProgress NOTIFY exportProgressChanged)
@@ -83,6 +88,7 @@ public:
     qlonglong totalFrames() const noexcept { return totalFrames_; }
     QString status() const { return status_; }
     bool exportBusy() const noexcept { return exportBusy_; }
+    bool reviewBusy() const noexcept { return reviewBusy_; }
     int exportCompleted() const noexcept { return exportCompleted_; }
     int exportTotal() const noexcept { return exportTotal_; }
     int exportClipProgress() const noexcept { return exportClipProgress_; }
@@ -148,7 +154,8 @@ public:
                                    const QString& prefix,
                                    const QVariantList& selectedIndexes,
                                    bool mergeChronological = false,
-                                   const QStringList& colorOrder = {});
+                                   const QStringList& colorOrder = {},
+                                   int encodingQuality = 18, int videoBitrateKbps = 0);
     Q_INVOKABLE bool exportTheme(const QString& path, const QVariantMap& theme) const;
     Q_INVOKABLE QVariantMap importTheme(const QString& path) const;
     Q_INVOKABLE QString videoSourceUrl(const QString& sourcePath) const;
@@ -158,6 +165,11 @@ public:
     Q_INVOKABLE void analyzeFiles(const QStringList& paths);
     Q_INVOKABLE void stopAnalysis();
     Q_INVOKABLE void setResultCategory(int id, const QString& name, const QString& color);
+    Q_INVOKABLE void setResultReview(const QVariantList& ids, const QString& field, bool value);
+    Q_INVOKABLE bool setResultRange(int id, double leftStart, double leftEnd, double rightStart, double rightEnd);
+    Q_INVOKABLE bool resetResultRange(int id);
+    Q_INVOKABLE bool previewResultRange(int id, double leftStart, double rightStart);
+    Q_INVOKABLE bool exportFindings(const QString& folder, const QVariantList& ids, int framesPerSide);
 
 signals:
     void summaryChanged();
@@ -174,9 +186,19 @@ signals:
     void modelCatalogChanged();
     void exportFinished(bool success, const QString& message);
     void exportBusyChanged();
+    void reviewBusyChanged();
+    void reviewPreviewsReady(int id, double leftStart, double rightStart, const QString& left, const QString& right);
     void exportProgressChanged();
 
 private:
+    std::atomic_bool idleCacheCleanupRunning_{false};
+    std::jthread idleCacheCleanup_;
+    std::jthread reviewWorker_;
+    bool reviewBusy_ = false;
+    std::map<int, std::shared_ptr<QTemporaryDir>> reviewPreviewDirectories_;
+    std::shared_ptr<QTemporaryDir> reviewDraftDirectory_;
+    std::shared_ptr<pfservices::RuntimeScratch> analysisPreviewDirectory_;
+    bool startReviewPreview(int id, const QVariantMap& row, bool publish);
     explicit AnalysisController(QObject* parent = nullptr);
     void setStatus(const QString& status);
     void saveMatcherSettings() const;

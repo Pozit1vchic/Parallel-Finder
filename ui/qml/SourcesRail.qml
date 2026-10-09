@@ -101,9 +101,11 @@ Rectangle {
                 objectName: "sourceDropArea"
                 Layout.fillWidth: true
                 width: parent.width; height: root.sourceFiles.length > 0 ? Math.min(160, Math.max(78, root.sourceFiles.length * 32 + 16)) : 102
+                Behavior on height { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
                 Accessible.name: L10n.t("sources.dropTitle")
                 onDropped: if (drop.hasUrls) root.filesRequested(drop.urls)
                 Rectangle { anchors.fill: parent; radius: Theme.radiusButton; color: parent.containsDrag ? Theme.accentMuted : Theme.well
+                    Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
                     Shape { anchors.fill: parent; ShapePath { strokeColor: rootDrop.containsDrag ? Theme.accent : Theme.hairlineStrong; strokeWidth: 1; strokeStyle: ShapePath.DashLine; dashPattern: [4, 4]; fillColor: "transparent"; PathRectangle { x: 0.5; y: 0.5; width: rootDrop.width - 1; height: rootDrop.height - 1; radius: Theme.radiusButton } } }
                     Column { visible: root.sourceFiles.length === 0; anchors.centerIn: parent; width: parent.width - 24; spacing: 7
                         Text { font.family: Theme.fontFamily; width: parent.width; horizontalAlignment: Text.AlignHCenter; text: L10n.t("sources.dropTitle"); color: Theme.textPrimary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap; maximumLineCount: 2; clip: true }
@@ -130,6 +132,7 @@ Rectangle {
                 Keys.onReturnPressed: if (root.selectedSourceIndex >= 0) root.removeRequested(root.selectedSourceIndex)
                 delegate: Rectangle {
                     id: sourceCard
+                    Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
                     property var identitySummary: { Analysis.sourceSummaries; return Analysis.summaryForSource(String(modelData)) }
                     readonly property bool identityExcluded: Analysis.analysisCompleted && identitySummary.identityAdmitted === false
                     width: ListView.view.width; height: 30; radius: 5; color: index === root.selectedSourceIndex ? Theme.accentMuted : (index % 2 === 0 ? Theme.surfaceRaised : "transparent"); Accessible.name: root.sourceName(modelData); Accessible.role: Accessible.ListItem

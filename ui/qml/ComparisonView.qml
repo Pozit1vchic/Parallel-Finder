@@ -224,6 +224,7 @@ Item {
 
                     Image {
                         id: frameImage
+                        objectName: "comparisonFrameImage"
                         anchors.fill: parent
                         anchors.margins: 6 * root.zoom
                         source: root.previewSource

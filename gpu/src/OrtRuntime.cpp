@@ -315,9 +315,12 @@ bool checkStatus(const OrtApi& api, OrtStatus* status, std::string& error)
     if (!status) {
         return true;
     }
+    struct StatusOwner {
+        const OrtApi& api; OrtStatus* value;
+        ~StatusOwner() { api.ReleaseStatus(value); }
+    } owner{api, status};
     const char* message = api.GetErrorMessage(status);
     error = message ? message : "unknown ONNX Runtime error";
-    api.ReleaseStatus(status);
     return false;
 }
 

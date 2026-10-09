@@ -1,6 +1,8 @@
 #include "BackendProbeProcess.h"
 #include "AppInfo.h"
+#include <QKeySequence>
 #include "AnalysisController.h"
+#include "DiscordPresence.h"
 #include <pfupdate/UpdateService.hpp>
 #include <pfgpu/DeviceInfo.hpp>
 #include <pfgpu/Provider.hpp>
@@ -56,6 +58,8 @@ void AppInfo::registerQmlTypes()
         QString::fromStdString(pfservices::SettingsStore::defaultDirectory())+"/updates",QCoreApplication::applicationDirPath()});
     updates.setCanInstall([]{const auto* analysis=AnalysisController::instance();return !analysis->busy() && !analysis->exportBusy();});
     qmlRegisterSingletonInstance("PfUiBridge",1,0,"Updates",&updates);
+    static DiscordPresence discord;
+    qmlRegisterSingletonInstance("PfUiBridge", 1, 0, "Discord", &discord);
 }
 
 AppInfo::AppInfo(QObject* parent)
@@ -175,10 +179,19 @@ QVariantMap AppInfo::loadPreferences() const
     return result;
 }
 
+QString AppInfo::keySequence(int key, int modifiers) const
+{
+    if (key == Qt::Key_unknown || key == Qt::Key_Control || key == Qt::Key_Shift
+        || key == Qt::Key_Alt || key == Qt::Key_Meta) return {};
+    const auto flags = Qt::KeyboardModifiers(modifiers) & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+    return QKeySequence(QKeyCombination(flags, static_cast<Qt::Key>(key))).toString(QKeySequence::PortableText);
+}
+
 bool AppInfo::savePreferences(const QVariantMap& preferences)
 {
     if (preferences_ && *preferences_ == preferences) return true;
     preferences_ = preferences;
+    emit preferencesChanged();
     const QPointer<AppInfo> guard(this);
     pfservices::SettingsStore().updateAsync("appearance", [preferences](auto& settings) {
         settings.language = preferences.value(QStringLiteral("language")).toString() == QStringLiteral("ru") ? "ru" : "en";

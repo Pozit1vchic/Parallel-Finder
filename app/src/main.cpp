@@ -25,6 +25,7 @@
 
 #include <AppInfo.h>
 #include <AnalysisController.h>
+#include <DiscordPresence.h>
 #include <cstdio>
 #include <cmath>
 #include <cstring>
@@ -446,6 +447,25 @@ int main(int argc, char* argv[])
         });
     }
     if (!diagnostic) {
+        const auto discordType = qmlTypeId("PfUiBridge", 1, 0, "Discord");
+        auto* discord = engine.singletonInstance<pfui::DiscordPresence*>(discordType);
+        auto* analysis = pfui::AnalysisController::instance();
+        const auto language = std::make_shared<QString>(pfui::AppInfo::instance()->loadPreferences().value("language", "en").toString());
+        auto refreshPresence = [discord, analysis, language] {
+            discord->setActivity(analysis->busy(), analysis->exportBusy(), analysis->progress(),
+                analysis->matchCount(), analysis->progressStage(), *language);
+        };
+        QObject::connect(pfui::AppInfo::instance(), &pfui::AppInfo::preferencesChanged, discord, [language, refreshPresence] {
+            *language = pfui::AppInfo::instance()->loadPreferences().value("language", "en").toString();
+            refreshPresence();
+        });
+        QObject::connect(analysis, &pfui::AnalysisController::busyChanged, discord, refreshPresence);
+        QObject::connect(analysis, &pfui::AnalysisController::exportBusyChanged, discord, refreshPresence);
+        QObject::connect(analysis, &pfui::AnalysisController::progressChanged, discord, refreshPresence);
+        QObject::connect(analysis, &pfui::AnalysisController::summaryChanged, discord, refreshPresence);
+        QObject::connect(&app, &QCoreApplication::aboutToQuit, discord, &pfui::DiscordPresence::stop);
+        refreshPresence();
+        QTimer::singleShot(2000, discord, &pfui::DiscordPresence::start);
         const auto type=qmlTypeId("PfUiBridge",1,0,"Updates");
         auto* updates=engine.singletonInstance<pfupdate::UpdateService*>(type);
         QObject::connect(updates,&pfupdate::UpdateService::quitRequested,&app,&QCoreApplication::quit);

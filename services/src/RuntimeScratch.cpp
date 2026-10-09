@@ -4,8 +4,23 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QCoreApplication>
+#include <QTimer>
 
 namespace pfservices {
+namespace {
+void removeOwnedDirectory(const QString& path, int retries)
+{
+    if (!QFileInfo::exists(path) || QDir(path).removeRecursively()) return;
+    // Windows readers can hold a PNG open briefly during an asynchronous
+    // image replacement. Bound retries; abandoned sessions retain startup cleanup.
+    if (retries > 0 && QCoreApplication::instance() && !QCoreApplication::closingDown())
+        QTimer::singleShot(250, QCoreApplication::instance(), [path, retries] {
+            removeOwnedDirectory(path, retries - 1);
+        });
+}
+}
+
 RuntimeScratch::RuntimeScratch(const QString& root, int retentionSeconds)
 {
     if (QFileInfo(root).isSymLink() || !QDir().mkpath(root)) return;
@@ -32,6 +47,15 @@ RuntimeScratch::RuntimeScratch(const QString& root, int retentionSeconds)
     owner_ = std::make_unique<QLockFile>(directory_->filePath(".owner.lock"));
     owner_->setStaleLockTime(0);
     if (!owner_->tryLock(0)) { owner_.reset(); directory_.reset(); }
+}
+RuntimeScratch::~RuntimeScratch()
+{
+    owner_.reset();
+    if (!directory_) return;
+    const auto ownedPath = directory_->path();
+    directory_->setAutoRemove(false);
+    directory_.reset();
+    if (!ownedPath.isEmpty()) removeOwnedDirectory(ownedPath, 8);
 }
 QString RuntimeScratch::path() const { return directory_ ? directory_->path() : QString{}; }
 }

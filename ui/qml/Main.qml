@@ -3,6 +3,7 @@ import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import QtQuick.Effects
 import QtQuick.Layouts
+import QtQml
 import PfUi
 import PfUiBridge
 
@@ -52,9 +53,55 @@ ApplicationWindow {
     }
     function syncResultsSelection() {
         root.selectedExportRows = ({})
-        if (Analysis.results.length > 0) root.selectResult(Number(Analysis.results[0].id))
+        const first = Analysis.results.find(function(row) { return !row.hidden && (resultsRail.reviewFilter !== "favorites" || row.favorite) })
+        if (first) root.selectResult(Number(first.id))
         else root.selectResult(-1)
     }
+    function actionIds(id) {
+        if (Review.multiSelect && selectedExportRows[id] === true)
+            return resultsRail.visibleResults.filter(function(row) { return selectedExportRows[row.id] === true }).map(function(row) { return Number(row.id) })
+        return id >= 0 ? [id] : []
+    }
+    function reviewPairs(id, field, value) {
+        const ids = actionIds(id), rows = Object.assign({}, selectedExportRows)
+        Analysis.setResultReview(ids, field, value)
+        if (field === "hidden" && value) {
+            for (const target of ids) delete rows[target]
+            selectedExportRows = rows
+        }
+    }
+    function ensureVisibleSelection() {
+        if (!resultsRail.visibleResults.some(function(row) { return Number(row.id) === root.selectedResultIndex }))
+            root.selectResult(resultsRail.visibleResults.length ? Number(resultsRail.visibleResults[0].id) : -1)
+        else root.selectResult(root.selectedResultIndex)
+    }
+    function openFindings() {
+        findingsDialog.rows = resultsRail.visibleResults.slice()
+        findingsDialog.markedRows = selectedExportRows
+        findingsDialog.statusText = ""
+        findingsDialog.open()
+    }
+    function runReviewAction(action) {
+        const row = selectedRecord, id = row ? Number(row.id) : -1
+        if (action === "next") resultsRail.selectNext()
+        else if (action === "previous") resultsRail.selectPrevious()
+        else if (action === "hide" && row) reviewPairs(id, "hidden", !row.hidden)
+        else if (action === "favorite" && row) reviewPairs(id, "favorite", !row.favorite)
+        else if (action === "all") resultsRail.selectAll()
+        else if (action === "clear") resultsRail.clearSelection()
+        else if (action === "play" && row) motionCenter.togglePair()
+        else if (action === "adjust" && row) { adjustDialog.record = row; adjustDialog.open() }
+        else if (action === "sheet") openFindings()
+        else if (action === "export" && resultsRail.selectedCount > 0) {
+            exportDialog.selectionOrder = resultsRail.visibleResults.map(function(item) { return Number(item.id) })
+            exportDialog.selectedRows = resultsRail.exportRows(); exportDialog.open()
+        } else if (action === "mark" && row) {
+            const rows = Object.assign({}, selectedExportRows), value = rows[id] !== true
+            for (const target of actionIds(id)) { if (value) rows[target] = true; else delete rows[target] }
+            selectedExportRows = rows
+        } else if (action.startsWith("color") && row) resultsRail.choosePairColor(id, Number(action.slice(5)))
+    }
+    Component.onCompleted: root.syncResultsSelection()
 
     FileDialog { id: fileDialog; title: L10n.t("dialog.chooseVideos"); fileMode: FileDialog.OpenFiles; nameFilters: [L10n.t("dialog.videoFilter"), L10n.t("dialog.allFiles")]; onAccepted: root.addFiles(selectedFiles) }
     FolderDialog { id: folderDialog; title: L10n.t("dialog.chooseFolder"); onAccepted: root.addFolder(selectedFolder) }
@@ -63,17 +110,24 @@ ApplicationWindow {
         rootWindow: root
     }
     ExportDialog { id: exportDialog; rootWindow: root; selectedRows: root.selectedExportRows }
-    UpdateDialog { id: updateDialog; rootWindow: root; presentationBlocked: settingsDialog.visible || exportDialog.visible }
+    PairAdjustDialog { id: adjustDialog; rootWindow: root }
+    FindingsDialog { id: findingsDialog; rootWindow: root }
+    UpdateDialog { id: updateDialog; rootWindow: root; presentationBlocked: settingsDialog.visible || exportDialog.visible || adjustDialog.visible || findingsDialog.visible }
 
     Connections {
         target: Analysis
         function onResultsChanged() { root.syncResultsSelection() }
-        function onResultCategoriesChanged() { root.selectResult(root.selectedResultIndex) }
+        function onBusyChanged() {
+            if (!Analysis.busy && root.selectedRecord === null && Analysis.results.length > 0)
+                root.syncResultsSelection()
+        }
+        function onResultCategoriesChanged() { root.selectResult(root.selectedResultIndex); Qt.callLater(root.ensureVisibleSelection) }
     }
 
     function resultKeysEnabled() {
         if (settingsDialog.visible || exportDialog.visible || updateDialog.visible || fileDialog.visible
-                || folderDialog.visible || root.selectedRecord === null) return false
+                || folderDialog.visible || adjustDialog.visible || findingsDialog.visible
+                || Analysis.busy || Analysis.exportBusy || Analysis.reviewBusy || root.selectedRecord === null) return false
         for (let item = root.activeFocusItem; item; item = item.parent) {
             // Analyze/add buttons retain focus after a run. Do not disable
             // result navigation for the entire source panel because of that.
@@ -81,8 +135,16 @@ ApplicationWindow {
         }
         return true
     }
-    Shortcut { sequence: "Up"; enabled: root.resultKeysEnabled(); onActivated: resultsRail.selectPrevious() }
-    Shortcut { sequence: "Down"; enabled: root.resultKeysEnabled(); onActivated: resultsRail.selectNext() }
+    Instantiator {
+        model: Review.actions
+        delegate: Shortcut {
+            required property var modelData
+            sequences: Review.keys(modelData.id).filter(function(key) { return !!key })
+            enabled: root.resultKeysEnabled()
+            autoRepeat: modelData.id === "next" || modelData.id === "previous"
+            onActivated: root.runReviewAction(modelData.id)
+        }
+    }
 
     Rectangle { id: workspaceSurface; objectName: "workspaceSurface"; anchors.fill: parent; color: Theme.canvas
         PfReveal { id: workspaceReveal; objectName: "workspaceReveal"; anchors.fill: parent; active: root.startupPresented; distance: 24
@@ -117,6 +179,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     sourceFiles: root.sourceFiles; selectedRecord: root.selectedRecord
+                    onAdjustRequested: root.runReviewAction("adjust")
                     selectedSource: sourcesRail.selectedSourceIndex >= 0 ? String(root.sourceFiles[sourcesRail.selectedSourceIndex] || "") : ""
                     onAddRequested: fileDialog.open(); onAnalyzeRequested: Analysis.analyzeFiles(root.sourceFiles)
                 }
@@ -130,7 +193,9 @@ ApplicationWindow {
                     selectedRows: root.selectedExportRows; selectedIndex: root.selectedResultIndex
                     onExportSelectionChanged: function(rows) { root.selectedExportRows = rows }
                     onResultSelected: function(index) { root.selectResult(index) }
-                    onPairColorRequested: function(index, name, color) { Analysis.setResultCategory(index, name, color) }
+                    onPairColorRequested: function(index, name, color) { for (const id of root.actionIds(index)) Analysis.setResultCategory(id, name, color) }
+                    onPairReviewRequested: function(index, field, value) { root.reviewPairs(index, field, value) }
+                    onFindingsRequested: root.openFindings()
                     onExportRequested: function(rows) { exportDialog.selectionOrder = resultsRail.visibleResults.map(function(item) { return Number(item.id) }); exportDialog.selectedRows = rows; exportDialog.open() }
                 }
                 }
@@ -188,6 +253,8 @@ ApplicationWindow {
         property bool active: (settingsDialog.visible && !settingsDialog.backdropClosing)
             || (exportDialog.visible && !exportDialog.backdropClosing)
             || (updateDialog.visible && !updateDialog.backdropClosing)
+            || (adjustDialog.visible && !adjustDialog.backdropClosing)
+            || (findingsDialog.visible && !findingsDialog.backdropClosing)
         property bool warming: !root.startupPresented
         property bool prepared: true
         source: backdropSnapshot

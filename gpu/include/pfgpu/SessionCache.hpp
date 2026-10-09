@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include <onnxruntime_c_api.h>
@@ -39,6 +40,7 @@ struct SessionKey {
 struct SessionHandle {
     OrtSession* session = nullptr;
     std::shared_ptr<const void> owner;
+    std::shared_ptr<std::mutex> runMutex;
     Provider provider = Provider::Cpu; // effective provider (Auto resolved)
     std::string cacheKey;             // diagnostics for logs and tests
     bool createdNow = false;
@@ -82,6 +84,9 @@ public:
 
     Stats stats();
     void clear();
+    // Drops only entries with no live inference handle. Teardown is performed
+    // outside the lock; callers should run this off the GUI thread.
+    std::size_t releaseUnused();
     static void recordProfilingRun(const SessionHandle& handle);
 
     std::size_t maxEntries() const;

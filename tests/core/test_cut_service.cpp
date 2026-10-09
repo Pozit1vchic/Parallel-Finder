@@ -682,3 +682,66 @@ TEST(CutService, FastModeCannotResize)
     EXPECT_FALSE(result.success);
     EXPECT_EQ(result.error, "resolution cap requires exact cut mode");
 }
+
+TEST(CutService, ExplicitQualityAndBitrateAreAppliedToEveryEncoder)
+{
+    const auto has = [](const std::vector<std::string>& args, const std::string& flag, const std::string& value) {
+        const auto it = std::find(args.begin(), args.end(), flag);
+        return it != args.end() && std::next(it) != args.end() && *std::next(it) == value;
+    };
+    for (const std::string encoder : {"libx264", "h264_nvenc", "h264_amf", "h264_qsv"}) {
+        const auto quality = pfservices::CutService::videoEncodingArguments(encoder, 14, 0, 8);
+        const auto bitrate = pfservices::CutService::videoEncodingArguments(encoder, 14, 30000, 8);
+        EXPECT_TRUE(has(bitrate, "-b:v", "30000k")) << encoder;
+        if (encoder == "libx264") { EXPECT_TRUE(has(quality, "-crf", "14")); }
+        if (encoder == "h264_nvenc") {
+            EXPECT_TRUE(has(quality, "-cq", "14"));
+            EXPECT_TRUE(has(quality, "-b:v", "0"));
+            EXPECT_FALSE(has(bitrate, "-cq", "14"));
+        }
+        if (encoder == "h264_amf") {
+            EXPECT_TRUE(has(quality, "-rc", "cqp"));
+            EXPECT_TRUE(has(quality, "-qp_i", "14"));
+            EXPECT_TRUE(has(quality, "-qp_p", "14"));
+            EXPECT_TRUE(has(quality, "-qp_b", "14"));
+        }
+        if (encoder == "h264_qsv") { EXPECT_TRUE(has(quality, "-global_quality", "14")); }
+        EXPECT_EQ(std::count(bitrate.begin(), bitrate.end(), "-b:v"), 1);
+    }
+}
+
+TEST(CutService, SelectedQualityAndBitrateProduceDecodableClipsWithoutResizing)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    if (ffmpeg.isEmpty()) GTEST_SKIP();
+    QTemporaryDir folder;
+    pfservices::CutRequest request;
+    request.inputPath = std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4";
+    request.outputPath = folder.filePath("quality.mp4").toStdWString();
+    request.endSeconds = 0.5;
+    request.quality = 14;
+    pfservices::CutService cutter(ffmpeg.toStdString());
+    const auto quality = cutter.cut(request);
+    ASSERT_TRUE(quality.success) << quality.error;
+    pfcore::VideoDecoder original; original.open(request.inputPath.string());
+    pfcore::VideoDecoder high; high.open(request.outputPath.string());
+    EXPECT_EQ(high.info().width, original.info().width);
+    EXPECT_EQ(high.info().height, original.info().height);
+    pfcore::DecodedFrame frame;
+    EXPECT_TRUE(high.readNext(frame));
+    request.outputPath = folder.filePath("bitrate.mp4").toStdWString();
+    request.videoBitrateKbps = 30000;
+    const auto bitrate = cutter.cut(request);
+    ASSERT_TRUE(bitrate.success) << bitrate.error;
+    const auto flag = std::find(bitrate.arguments.begin(), bitrate.arguments.end(), "-b:v");
+    ASSERT_NE(flag, bitrate.arguments.end()); EXPECT_EQ(*std::next(flag), "30000k");
+    pfcore::VideoDecoder custom; custom.open(request.outputPath.string());
+    EXPECT_EQ(custom.info().width, original.info().width);
+    EXPECT_TRUE(custom.readNext(frame));
+    request.outputPath = folder.filePath("copy.mp4").toStdWString(); request.mode = pfservices::CutMode::Fast;
+    const auto copied = cutter.cut(request);
+    ASSERT_TRUE(copied.success) << copied.error;
+    EXPECT_EQ(std::find(copied.arguments.begin(), copied.arguments.end(), "-b:v"), copied.arguments.end());
+    request.quality = 52; EXPECT_FALSE(cutter.cut(request).success);
+    request.quality = 18; request.videoBitrateKbps = 500001; EXPECT_FALSE(cutter.cut(request).success);
+}

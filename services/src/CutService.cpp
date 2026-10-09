@@ -74,6 +74,28 @@ CutService::CutService(std::string ffmpegExecutable)
 {
 }
 
+std::vector<std::string> CutService::videoEncodingArguments(
+    const std::string& encoder, int quality, int bitrateKbps, unsigned threads)
+{
+    std::vector<std::string> args;
+    const auto q = std::to_string(quality);
+    if (encoder == "libx264") {
+        args = {"-preset", "veryfast", "-threads:v", std::to_string(threads)};
+        if (bitrateKbps == 0) args.insert(args.end(), {"-crf", q});
+    } else if (encoder == "h264_nvenc") {
+        args = {"-preset", "p5", "-rc", "vbr"};
+        if (bitrateKbps == 0) args.insert(args.end(), {"-cq", q, "-b:v", "0"});
+    } else if (encoder == "h264_amf") {
+        args = {"-quality", "quality", "-rc", bitrateKbps > 0 ? "vbr_peak" : "cqp"};
+        if (bitrateKbps == 0) args.insert(args.end(), {"-qp_i", q, "-qp_p", q, "-qp_b", q});
+    } else if (encoder == "h264_qsv") {
+        args = {"-preset", "medium"};
+        if (bitrateKbps == 0) args.insert(args.end(), {"-global_quality", q});
+    }
+    if (bitrateKbps > 0) args.insert(args.end(), {"-b:v", std::to_string(bitrateKbps) + "k"});
+    return args;
+}
+
 CutResult CutService::cut(const CutRequest& request) const
 {
     CutResult result;
@@ -93,6 +115,10 @@ CutResult CutService::cut(const CutRequest& request) const
     if (!std::isfinite(request.startSeconds) || !std::isfinite(request.endSeconds)
         || request.startSeconds < 0.0 || request.endSeconds <= request.startSeconds) {
         result.error = "invalid cut time range";
+        return result;
+    }
+    if (request.quality < 1 || request.quality > 51 || request.videoBitrateKbps < 0 || request.videoBitrateKbps > 500000) {
+        result.error = "invalid encoding quality or bitrate";
         return result;
     }
     if (request.maxWidth < 0 || request.maxHeight < 0) {
@@ -207,10 +233,9 @@ CutResult CutService::cut(const CutRequest& request) const
             arguments << QStringLiteral("-c:v") << QString::fromStdString(encoder)
                       << QStringLiteral("-c:a") << QStringLiteral("aac")
                       << QStringLiteral("-movflags") << QStringLiteral("+faststart");
-            if (encoder == "libx264")
-                arguments << QStringLiteral("-crf") << QStringLiteral("18")
-                          << QStringLiteral("-preset") << QStringLiteral("veryfast")
-                          << QStringLiteral("-threads:v") << QString::number(threads);
+            arguments << "-b:a" << "256k";
+            for (const auto& option : videoEncodingArguments(encoder, request.quality, request.videoBitrateKbps, threads))
+                arguments << QString::fromStdString(option);
             if (montage) {
                 arguments << "-vf" << QString("scale=%1:%2:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=%1:%2:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=%3,format=yuv420p")
                     .arg(request.canvasWidth).arg(request.canvasHeight).arg(request.outputFrameRate, 0, 'g', 12);

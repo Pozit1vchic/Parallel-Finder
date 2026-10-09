@@ -83,9 +83,9 @@ Popup {
         property bool reducedMotion: false
         function persist() {
             if (!loaded) return
-            if (!AppInfo.savePreferences({language: language, fontFamily: fontFamily,
+            if (!AppInfo.savePreferences(Object.assign({}, AppInfo.loadPreferences(), {language: language, fontFamily: fontFamily,
                 customFontPath: customFontPath, surfaceOpacity: surfaceOpacity,
-                accentColor: accentColor, reducedMotion: reducedMotion}))
+                accentColor: accentColor, reducedMotion: reducedMotion})))
                 root.themeStatus = L10n.t("settings.saveFailed")
         }
         onLanguageChanged: persist()
@@ -294,8 +294,8 @@ Popup {
                 Rectangle {
                     objectName: "settingsTabIndicator"
                     y: 4
-                    x: 4 + tabs.currentIndex * (tabs.width - 8) / 2
-                    width: (tabs.width - 8) / 2; height: tabs.height - 8
+                    x: 4 + tabs.currentIndex * (tabs.width - 8) / 3
+                    width: (tabs.width - 8) / 3; height: tabs.height - 8
                     radius: Theme.radiusButton
                     color: Theme.surfaceMuted
                     border.color: Theme.hairlineStrong
@@ -305,7 +305,7 @@ Popup {
             TabButton {
                 id: analysisTab
                 objectName: "settingsAnalysisTab"
-                width: (tabs.width - 8) / 2
+                width: (tabs.width - 8) / 3
                 height: tabs.height - 8
                 implicitHeight: tabs.height - 8
                 padding: 0
@@ -318,7 +318,7 @@ Popup {
             TabButton {
                 id: customizationTab
                 objectName: "settingsAppearanceTab"
-                width: (tabs.width - 8) / 2
+                width: (tabs.width - 8) / 3
                 height: tabs.height - 8
                 implicitHeight: tabs.height - 8
                 padding: 0
@@ -326,6 +326,14 @@ Popup {
                 focusPolicy: Qt.StrongFocus
                 activeFocusOnTab: true
                 contentItem: Text { text: customizationTab.text; color: customizationTab.checked ? Theme.textPrimary : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: customizationTab.checked ? Font.DemiBold : Font.Normal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                background: Item {}
+            }
+            TabButton {
+                id: hotkeysTab
+                objectName: "settingsHotkeysTab"
+                width: (tabs.width - 8) / 3; height: tabs.height - 8
+                padding: 0; text: Review.t("hotkeys")
+                contentItem: Text { text: hotkeysTab.text; color: hotkeysTab.checked ? Theme.textPrimary : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 background: Item {}
             }
         }
@@ -449,6 +457,11 @@ Popup {
                         Text { width: parent.width; text: root.themeStatus || L10n.t("settings.profileSaved"); color: root.themeStatus ? Theme.accent : Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }
                     }
                 }
+            }
+            PfReveal {
+                active: root.visible && tabs.currentIndex === 2
+                distance: 18
+                HotkeysPage { anchors.fill: parent; anchors.margins: 22 }
             }
         }
         }

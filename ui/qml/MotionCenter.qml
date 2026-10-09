@@ -10,12 +10,15 @@ import PfUiBridge
 // was removed because it duplicated result timestamps and stole preview area.
 ColumnLayout {
     id: root
+    objectName: "motionCenter"
     focus: true
     activeFocusOnTab: true
     property var sourceFiles: []
     property string selectedSource: ""
     property var selectedRecord: null
+    signal adjustRequested()
     property bool analysisCompleted: Analysis.analysisCompleted && !Analysis.busy
+    readonly property int availableResultCount: Analysis.results.length
     property double analysisStartedMs: Date.now()
     property int analysisElapsedSeconds: 0
     Timer {
@@ -122,7 +125,7 @@ ColumnLayout {
                             ? (L10n.matchLabel(root.selectedRecord) + " · " + Math.round(Number(root.selectedRecord.similarity || 0) * 100) + "%"
                                 + "  •  " + L10n.t("results.sceneSimilarity") + " · " + Math.round(Number(root.selectedRecord.sceneSimilarity || 0) * 100) + "%")
                             : root.analysisCompleted
-                                ? (Analysis.matchCount > 0 ? L10n.t("center.completedTitle") : L10n.t("center.noMatchesStatus"))
+                                ? (root.availableResultCount > 0 ? L10n.t("center.completedTitle") : L10n.t("center.noMatchesStatus"))
                                 : root.sourceFiles.length > 0 ? L10n.t("center.readyStatus") : L10n.t("center.waiting")
                     color: Analysis.busy ? Theme.accent : Theme.textSecondary
                     font.pixelSize: 10
@@ -204,7 +207,8 @@ ColumnLayout {
                                      && leftView.previewPlayable && rightView.previewPlayable
                             onClicked: root.togglePair()
                         }
-                        Text { text: root.playbackError; color: Theme.textSecondary; width: Math.max(0, stage.width - 330); elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
+                        PfButton { compact: true; quiet: true; text: Review.t("adjust"); enabled: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy; onClicked: root.adjustRequested() }
+                        Text { text: root.playbackError; color: Theme.textSecondary; width: Math.max(0, stage.width - 440); elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
                     }
                     Row {
                         anchors.left: parent.left
@@ -273,7 +277,7 @@ ColumnLayout {
                                 : root.sourceFiles.length === 0
                                     ? L10n.t("center.emptyTitle")
                                     : root.analysisCompleted
-                                        ? (Analysis.matchCount > 0 ? L10n.t("center.completedTitle") : L10n.t("center.noMatchesTitle"))
+                                        ? (root.availableResultCount > 0 ? L10n.t("center.completedTitle") : L10n.t("center.noMatchesTitle"))
                                         : L10n.t("center.readyTitle")
                             color: Theme.textPrimary
                             font.family: Theme.displayFont
@@ -288,7 +292,7 @@ ColumnLayout {
                                 : root.sourceFiles.length === 0
                                     ? L10n.t("center.emptyHint")
                                     : root.analysisCompleted
-                                        ? (Analysis.matchCount > 0 ? L10n.t("center.completedHint") : L10n.t("center.noMatchesHint"))
+                                        ? (root.availableResultCount > 0 ? L10n.t("center.completedHint") : L10n.t("center.noMatchesHint"))
                                         : L10n.t("center.readyHint")
                             color: Theme.textSecondary
                             font.pixelSize: 12

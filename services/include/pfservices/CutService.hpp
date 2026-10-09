@@ -21,6 +21,9 @@ struct CutRequest {
     double startSeconds = 0.0;
     double endSeconds = 0.0;
     CutMode mode = CutMode::Exact;
+    // Constant quality by default; a positive bitrate selects target kb/s instead.
+    int quality = 18;
+    int videoBitrateKbps = 0;
     // Optional output ceiling. Zero leaves the source dimensions unchanged.
     // Resizing requires Exact mode because Fast mode stream-copies frames.
     int maxWidth = 0;
@@ -58,6 +61,9 @@ public:
     // Runs ffmpeg without a shell. Output is written to a sibling temporary
     // file that keeps the media extension (for example clip.part.mp4) and is
     // moved into place only after a successful process exit.
+    [[nodiscard]] static std::vector<std::string> videoEncodingArguments(
+        const std::string& encoder, int quality, int bitrateKbps, unsigned threads);
+
     [[nodiscard]] CutResult cut(const CutRequest& request) const;
 
 private:

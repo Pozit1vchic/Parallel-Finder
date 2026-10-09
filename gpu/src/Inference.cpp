@@ -5,6 +5,9 @@
 #include <cstdlib>
 #include <cstdio>
 #include <unordered_map>
+#include <memory>
+#include <mutex>
+#include "InferenceInternal.hpp"
 
 #include "pfgpu/OrtRuntime.hpp"
 
@@ -42,9 +45,11 @@ SessionSpec describeSession(const SessionHandle& session)
     const OrtApi* api = ortApi();
     if (!api || !session.session) { result.error = "ONNX Runtime session is not available"; return result; }
     OrtTypeInfo* inputInfo = nullptr;
-    if (!checkStatus(*api, api->SessionGetInputTypeInfo(session.session, 0, &inputInfo), result.error)) return result;
+    auto* inputStatus = api->SessionGetInputTypeInfo(session.session, 0, &inputInfo);
+    const auto releaseType = [api](OrtTypeInfo* info) { if (info) api->ReleaseTypeInfo(info); };
+    std::unique_ptr<OrtTypeInfo, decltype(releaseType)> inputOwner(inputInfo, releaseType);
+    if (!checkStatus(*api, inputStatus, result.error)) return result;
     const bool inputOk = readTensorSpec(*api, inputInfo, result.input, result.error);
-    api->ReleaseTypeInfo(inputInfo);
     if (!inputOk) return result;
     std::size_t outputCount = 0;
     if (!checkStatus(*api, api->SessionGetOutputCount(session.session, &outputCount), result.error)) return result;
@@ -55,16 +60,17 @@ SessionSpec describeSession(const SessionHandle& session)
     result.outputs.resize(outputCount);
     for (std::size_t i = 0; i < outputCount; ++i) {
         OrtTypeInfo* outputInfo = nullptr;
-        if (!checkStatus(*api, api->SessionGetOutputTypeInfo(session.session, i, &outputInfo), result.error)) return result;
+        auto* outputStatus = api->SessionGetOutputTypeInfo(session.session, i, &outputInfo);
+        std::unique_ptr<OrtTypeInfo, decltype(releaseType)> outputOwner(outputInfo, releaseType);
+        if (!checkStatus(*api, outputStatus, result.error)) return result;
         const bool outputOk = readTensorSpec(*api, outputInfo, result.outputs[i], result.error);
-        api->ReleaseTypeInfo(outputInfo);
         if (!outputOk) return result;
     }
     result.ok = true;
     return result;
 }
 
-InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
+InferenceResult detail::runFloatWithApi(const OrtApi& runtimeApi, const SessionHandle& session, const FloatTensor& input)
 {
     const auto* profileFlag = std::getenv("PF_DEBUG_INFERENCE");
     const bool profile = profileFlag && *profileFlag;
@@ -73,7 +79,7 @@ InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
     };
     InferenceResult result;
-    const OrtApi* api = ortApi();
+    const OrtApi* api = &runtimeApi;
     if (!api || !session.session) { result.error = "ONNX Runtime session is not available"; return result; }
     if (input.shape.empty() || input.values.empty()) { result.error = "inference input tensor is empty"; return result; }
     std::size_t elements = 1;
@@ -89,107 +95,87 @@ InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
     }
     if (elements != input.values.size()) { result.error = "input shape does not match value count"; return result; }
 
-    OrtAllocator* allocator = nullptr;
-    if (!checkStatus(*api, api->GetAllocatorWithDefaultOptions(&allocator), result.error)) return result;
-    const auto freeAllocated = [&](void* pointer) {
-        if (pointer) {
-            if (OrtStatus* status = api->AllocatorFree(allocator, pointer)) {
-                api->ReleaseStatus(status);
-            }
+    struct Resources {
+        explicit Resources(const OrtApi* runtime) : api(runtime) {}
+        const OrtApi* api;
+        OrtAllocator* allocator = nullptr;
+        char* inputName = nullptr;
+        OrtMemoryInfo* memory = nullptr;
+        OrtValue* inputValue = nullptr;
+        std::vector<char*> names;
+        std::vector<OrtValue*> outputs;
+        ~Resources() {
+            for (auto* value : outputs) if (value) api->ReleaseValue(value);
+            if (inputValue) api->ReleaseValue(inputValue);
+            if (memory) api->ReleaseMemoryInfo(memory);
+            for (auto* name : names) freeName(name);
+            freeName(inputName);
         }
-    };
-    char* inputName = nullptr;
-    if (!checkStatus(*api, api->SessionGetInputName(session.session, 0, allocator, &inputName), result.error)) return result;
-    OrtMemoryInfo* memory = nullptr;
-    if (!checkStatus(*api, api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory), result.error)) {
-        freeAllocated(inputName); return result;
-    }
-    OrtValue* inputValue = nullptr;
-    if (!checkStatus(*api, api->CreateTensorWithDataAsOrtValue(memory, const_cast<float*>(input.values.data()),
-        input.values.size() * sizeof(float), input.shape.data(), input.shape.size(), ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &inputValue), result.error)) {
-        api->ReleaseMemoryInfo(memory); freeAllocated(inputName); return result;
-    }
-    const char* inputNames[] = {inputName};
+        void freeName(void* name) {
+            if (name && allocator) if (auto* status = api->AllocatorFree(allocator, name)) api->ReleaseStatus(status);
+        }
+    } resources{api};
+    if (!checkStatus(*api, api->GetAllocatorWithDefaultOptions(&resources.allocator), result.error)) return result;
+    if (!checkStatus(*api, api->SessionGetInputName(session.session, 0, resources.allocator, &resources.inputName), result.error)) return result;
+    if (!checkStatus(*api, api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &resources.memory), result.error)) return result;
+    if (!checkStatus(*api, api->CreateTensorWithDataAsOrtValue(resources.memory, const_cast<float*>(input.values.data()),
+        input.values.size() * sizeof(float), input.shape.data(), input.shape.size(), ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &resources.inputValue), result.error)) return result;
     std::size_t outputCount = 0;
-    if (!checkStatus(*api, api->SessionGetOutputCount(session.session, &outputCount), result.error)) {
-        api->ReleaseValue(inputValue); api->ReleaseMemoryInfo(memory); freeAllocated(inputName); return result;
-    }
+    if (!checkStatus(*api, api->SessionGetOutputCount(session.session, &outputCount), result.error)) return result;
+    if (outputCount == 0 || outputCount > 64) { result.error = "model output count is outside the supported range"; return result; }
+    resources.names.resize(outputCount);
+    resources.outputs.resize(outputCount);
     std::vector<const char*> outputNames(outputCount);
-    std::vector<char*> ownedNames(outputCount);
     for (std::size_t i = 0; i < outputCount; ++i) {
-        if (!checkStatus(*api, api->SessionGetOutputName(session.session, i, allocator, &ownedNames[i]), result.error)) {
-            for (char* name : ownedNames) freeAllocated(name);
-            api->ReleaseValue(inputValue); api->ReleaseMemoryInfo(memory); freeAllocated(inputName); return result;
-        }
-        outputNames[i] = ownedNames[i];
+        if (!checkStatus(*api, api->SessionGetOutputName(session.session, i, resources.allocator, &resources.names[i]), result.error)) return result;
+        outputNames[i] = resources.names[i];
     }
-    std::vector<OrtValue*> outputs(outputCount);
-    const OrtValue* inputValues[] = {inputValue};
+    const char* inputNames[] = {resources.inputName};
+    const OrtValue* inputValues[] = {resources.inputValue};
     const double setupMs = profile ? elapsed() : 0;
-    const OrtStatus* runStatus = api->Run(session.session, nullptr, inputNames, inputValues, 1,
-                                           outputNames.data(), outputNames.size(), outputs.data());
+    // DirectML sessions share mutable execution resources; serialize only this provider.
+    std::unique_lock<std::mutex> runLock;
+    if (session.provider == Provider::Dml && session.runMutex) runLock = std::unique_lock(*session.runMutex);
+    const bool ran = checkStatus(*api, api->Run(session.session, nullptr, inputNames, inputValues, 1,
+        outputNames.data(), outputNames.size(), resources.outputs.data()), result.error);
+    if (runLock.owns_lock()) runLock.unlock();
     const double runMs = profile ? elapsed() - setupMs : 0;
-    const bool ran = checkStatus(*api, const_cast<OrtStatus*>(runStatus), result.error);
+    if (!ran) return result;
     for (const char* name : outputNames) result.outputNames.emplace_back(name);
-    for (char* name : ownedNames) freeAllocated(name);
-    freeAllocated(inputName);
-    api->ReleaseValue(inputValue);
-    api->ReleaseMemoryInfo(memory);
-    if (!ran) { for (auto* value : outputs) if (value) api->ReleaseValue(value); return result; }
-    for (OrtValue* value : outputs) {
-        if (!value) { result.error = "ONNX Runtime returned a null output"; continue; }
+    for (OrtValue*& value : resources.outputs) {
+        if (!value) { result.error = "ONNX Runtime returned a null output"; return result; }
         OrtTensorTypeAndShapeInfo* shapeInfo = nullptr;
-        if (!checkStatus(*api, api->GetTensorTypeAndShape(value, &shapeInfo), result.error)) { api->ReleaseValue(value); continue; }
+        const auto releaseShape = [api](OrtTensorTypeAndShapeInfo* shape) { if (shape) api->ReleaseTensorTypeAndShapeInfo(shape); };
+        const bool shapeOk = checkStatus(*api, api->GetTensorTypeAndShape(value, &shapeInfo), result.error);
+        std::unique_ptr<OrtTensorTypeAndShapeInfo, decltype(releaseShape)> shapeOwner(shapeInfo, releaseShape);
+        if (!shapeOk) return result;
         ONNXTensorElementDataType type;
-        if (!checkStatus(*api, api->GetTensorElementType(shapeInfo, &type), result.error)) {
-            api->ReleaseTensorTypeAndShapeInfo(shapeInfo);
-            api->ReleaseValue(value);
-            continue;
-        }
-        if (type != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) { result.error = "model output is not float32"; api->ReleaseTensorTypeAndShapeInfo(shapeInfo); api->ReleaseValue(value); continue; }
+        if (!checkStatus(*api, api->GetTensorElementType(shapeInfo, &type), result.error)) return result;
+        if (type != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) { result.error = "model output is not float32"; return result; }
         std::size_t rank = 0;
-        if (!checkStatus(*api, api->GetDimensionsCount(shapeInfo, &rank), result.error)) {
-            api->ReleaseTensorTypeAndShapeInfo(shapeInfo);
-            api->ReleaseValue(value);
-            continue;
-        }
+        if (!checkStatus(*api, api->GetDimensionsCount(shapeInfo, &rank), result.error)) return result;
+        if (rank > 8) { result.error = "model output rank is outside the supported range"; return result; }
         FloatTensor tensor;
         tensor.shape.resize(rank);
-        if (!checkStatus(*api, api->GetDimensions(shapeInfo, tensor.shape.data(), rank), result.error)) {
-            api->ReleaseTensorTypeAndShapeInfo(shapeInfo);
-            api->ReleaseValue(value);
-            continue;
-        }
+        if (!checkStatus(*api, api->GetDimensions(shapeInfo, tensor.shape.data(), rank), result.error)) return result;
         std::size_t count = 0;
-        if (!checkStatus(*api, api->GetTensorShapeElementCount(shapeInfo, &count), result.error)) { api->ReleaseTensorTypeAndShapeInfo(shapeInfo); api->ReleaseValue(value); continue; }
-        if (count > kMaxTensorElements) {
-            result.error = "model output tensor is too large";
-            api->ReleaseTensorTypeAndShapeInfo(shapeInfo);
-            api->ReleaseValue(value);
-            continue;
-        }
-        // GetTensorMutableData returns a pointer owned by ORT.  Passing a
-        // pointer to our vector here does not make ORT write into that vector;
-        // the API overwrites the pointer argument.  Copy the returned buffer
-        // before releasing the OrtValue, otherwise every inference would
-        // silently return a zero-filled tensor.
+        if (!checkStatus(*api, api->GetTensorShapeElementCount(shapeInfo, &count), result.error)) return result;
+        if (count > kMaxTensorElements) { result.error = "model output tensor is too large"; return result; }
         void* data = nullptr;
-        if (!checkStatus(*api, api->GetTensorMutableData(value, &data), result.error)) { api->ReleaseTensorTypeAndShapeInfo(shapeInfo); api->ReleaseValue(value); continue; }
-        if (count > 0 && !data) {
-            result.error = "ONNX Runtime returned a null tensor buffer";
-            api->ReleaseTensorTypeAndShapeInfo(shapeInfo);
-            api->ReleaseValue(value);
-            continue;
+        if (!checkStatus(*api, api->GetTensorMutableData(value, &data), result.error)) return result;
+        if (count > 0 && !data) { result.error = "ONNX Runtime returned a null tensor buffer"; return result; }
+        if (count) {
+            const auto* source = static_cast<const float*>(data);
+            tensor.values.assign(source, source + count);
         }
-        const auto* source = static_cast<const float*>(data);
-        tensor.values.assign(source, source + count);
         result.outputs.push_back(std::move(tensor));
-        api->ReleaseTensorTypeAndShapeInfo(shapeInfo); api->ReleaseValue(value);
+        api->ReleaseValue(value); value = nullptr;
     }
     result.ok = result.error.empty() && !result.outputs.empty();
     if (session.profiling) SessionCache::recordProfilingRun(session);
     if (profile) {
         static thread_local std::unordered_map<std::string, RunProfile> profiles;
+        if (profiles.size() >= 64 && !profiles.contains(session.cacheKey)) profiles.clear();
         auto& totals = profiles[session.cacheKey];
         ++totals.calls;
         totals.setup += setupMs; totals.run += runMs;
@@ -199,6 +185,13 @@ InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
                 session.cacheKey.c_str(), totals.calls, totals.setup, totals.run, totals.output);
     }
     return result;
+}
+
+InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
+{
+    const auto* api = ortApi();
+    if (!api) { InferenceResult result; result.error = "ONNX Runtime session is not available"; return result; }
+    return detail::runFloatWithApi(*api, session, input);
 }
 
 } // namespace pfgpu

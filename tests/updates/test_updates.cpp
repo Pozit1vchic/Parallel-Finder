@@ -211,16 +211,16 @@ void UpdateTests::settingsRemainInteractiveWhileUpdateArrives(){
     QVERIFY(!window->grabWindow().isNull());
     // Move the native pointer from the drag handle to the tab before clicking,
     // just as a user does; a wheel event alone does not move that pointer.
-    QTest::mouseMove(window,tabs->mapToScene(QPointF(tabs->width()*0.75,tabs->height()/2)).toPoint(),25);
+    QTest::mouseMove(window,tabs->mapToScene(QPointF(tabs->width()*1.5/tabs->property("count").toInt(),tabs->height()/2)).toPoint(),25);
     QTest::qWait(25); // deliver the native move/release before the next press
     const auto inputCapture=qEnvironmentVariable("PF_UI_CAPTURE_DIR");
     if(!inputCapture.isEmpty()) { QDir().mkpath(inputCapture); QVERIFY(window->grabWindow().save(inputCapture+"/settings-before-tab-click.png")); }
-    QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,tabs->mapToScene(QPointF(tabs->width()*0.75,tabs->height()/2)).toPoint());QTRY_COMPARE(tabs->property("currentIndex").toInt(),1);
+    QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,tabs->mapToScene(QPointF(tabs->width()*1.5/tabs->property("count").toInt(),tabs->height()/2)).toPoint());QTRY_COMPARE(tabs->property("currentIndex").toInt(),1);
     auto* close=settings->findChild<QQuickItem*>("settingsCloseButton");QVERIFY(close);
     QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,close->mapToScene(QPointF(close->width()/2,close->height()/2)).toPoint());
     QTRY_VERIFY(!settings->property("visible").toBool());QTRY_VERIFY(update->property("opened").toBool());service.later();QTRY_VERIFY(!update->property("visible").toBool());
     QVERIFY(QMetaObject::invokeMethod(settings,"open"));QTRY_VERIFY(settings->property("opened").toBool());
-    QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,tabs->mapToScene(QPointF(tabs->width()*0.25,tabs->height()/2)).toPoint());QTRY_COMPARE(tabs->property("currentIndex").toInt(),0);
+    QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,tabs->mapToScene(QPointF(tabs->width()*0.5/tabs->property("count").toInt(),tabs->height()/2)).toPoint());QTRY_COMPARE(tabs->property("currentIndex").toInt(),0);
     QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,close->mapToScene(QPointF(close->width()/2,close->height()/2)).toPoint());QTRY_VERIFY(!settings->property("visible").toBool());
 }
 void UpdateTests::networkError(){Fixture f;Server server;pfupdate::UpdateService service(options(f,server));service.check();QTRY_COMPARE(service.state(),QString("error"));QVERIFY(!service.error().isEmpty());}

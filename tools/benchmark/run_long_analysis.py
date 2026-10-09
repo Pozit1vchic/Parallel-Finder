@@ -23,11 +23,19 @@ class MemoryCounters(ctypes.Structure):
         'QuotaNonPagedPoolUsage', 'PagefileUsage', 'PeakPagefileUsage', 'PrivateUsage')]
 
 
+class MemoryStatus(ctypes.Structure):
+    _fields_ = [('length', wintypes.DWORD), ('load', wintypes.DWORD)] + [
+        (name, ctypes.c_ulonglong) for name in ('totalPhysical', 'availablePhysical',
+        'totalPageFile', 'availablePageFile', 'totalVirtual', 'availableVirtual', 'extendedVirtual')]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('exe', 'video', 'model', 'reid', 'model-root', 'ort', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--timeout', type=int, default=14400)
+    parser.add_argument('--max-private-mib', type=int, default=16384)
+    parser.add_argument('--min-available-mib', type=int, default=2048)
     parser.add_argument('--decode', choices=('cpu', 'nvdec'))
     parser.add_argument('--provider', default='cuda', choices=('cpu', 'cuda', 'tensorrt', 'dml'))
     parser.add_argument('--warm', action='store_true')
@@ -36,10 +44,14 @@ def main():
     parser.add_argument('--profile-inference', action='store_true', help='Capture pose, face and ReID inference timings')
     parser.add_argument('--gpu-telemetry', action='store_true', help='Sample whole-device NVIDIA utilization (includes other applications)')
     parser.add_argument('--cache',type=Path,help='Existing cache for an explicit warm replay; no video copies')
+    parser.add_argument('--default-auxiliary-discovery', action='store_true',
+        help='Use application discovery for face/ReID models instead of overriding model roots')
     parser.add_argument('--additional-video',type=Path,action='append',default=[])
     args = parser.parse_args()
     if not 1 <= args.timeout <= 43200:
         parser.error('Timeout outside 1..43200 seconds')
+    if args.max_private_mib <= 0 or args.min_available_mib <= 0:
+        parser.error('Memory limits must be positive')
     for name in ('exe', 'video', 'model', 'reid', 'ort'):
         if not getattr(args, name).is_file():
             parser.error('Missing ' + name)
@@ -67,6 +79,14 @@ def main():
         PF_DEBUG_ANALYSIS='1', QT_QPA_PLATFORM='windows',
         PF_BENCHMARK_CACHE_ROOT=str(args.cache.resolve() if args.cache else out/'cache'))
     if args.warm_expanded:env['PF_AUDIT_REUSE_OBSERVATIONS']='1'
+    if args.default_auxiliary_discovery:
+        env.pop('PF_MODEL_ROOT', None)
+        env.pop('PF_REID_MODEL_PATH', None)
+    # cuDNN loads its graph DLL dynamically after ORT initialization. Include
+    # the explicitly selected bundle for this child, without changing the
+    # user's system PATH or copying GPU DLLs into the build directory.
+    env['PATH'] = os.pathsep.join((str(args.ort.resolve().parent),
+                                  str(args.exe.resolve().parent), env.get('PATH', '')))
     if args.profile_inference:env['PF_DEBUG_INFERENCE']='1'
     if args.decode:
         env['PF_VIDEO_DECODE'] = args.decode
@@ -81,6 +101,7 @@ def main():
     psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(MemoryCounters), wintypes.DWORD]
     kernel = ctypes.WinDLL('kernel32', use_last_error=True)
     kernel.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    kernel.GlobalMemoryStatusEx.argtypes = [ctypes.POINTER(MemoryStatus)]
     clock = time.perf_counter()
     peak = private_peak = samples = 0
     failure = None
@@ -99,6 +120,9 @@ def main():
             disk = shutil.disk_usage(out)
             times = [wintypes.FILETIME() for _ in range(4)]
             time_ok = kernel.GetProcessTimes(int(proc._handle), *[ctypes.byref(t) for t in times])
+            memory_status = MemoryStatus()
+            memory_status.length = ctypes.sizeof(memory_status)
+            memory_ok = kernel.GlobalMemoryStatusEx(ctypes.byref(memory_status))
             cpu = sum((t.dwHighDateTime << 32) | t.dwLowDateTime for t in times[2:]) / 1e7 if time_ok else None
             core_usage = (cpu - previous_cpu) / max(elapsed - previous_seconds, .001) if time_ok else None
             if time_ok:
@@ -122,9 +146,18 @@ def main():
             telemetry.write(json.dumps(dict(seconds=round(elapsed, 3),
                 rssBytes=counters.WorkingSetSize if ok else None,
                 privateBytes=counters.PrivateUsage if ok else None, diskFreeBytes=disk.free,
+                availablePhysicalBytes=memory_status.availablePhysical if memory_ok else None,
+                availableCommitBytes=memory_status.availablePageFile if memory_ok else None,
                 cpuSeconds=cpu, cpuCoresUsed=core_usage, gpu=gpu))+'\n')
-            if elapsed > args.timeout+45 or disk.free < 2*1024**3:
-                failure = 'timeout' if elapsed > args.timeout+45 else 'disk reserve reached'
+            if elapsed > args.timeout+45:
+                failure = 'timeout'
+            elif disk.free < 2*1024**3:
+                failure = 'disk reserve reached'
+            elif ok and counters.PrivateUsage > args.max_private_mib * 1024**2:
+                failure = 'test process private-memory limit reached'
+            elif memory_ok and min(memory_status.availablePhysical, memory_status.availablePageFile) < args.min_available_mib * 1024**2:
+                failure = 'system memory reserve reached'
+            if failure:
                 proc.kill()
                 break
             time.sleep(2)

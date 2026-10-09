@@ -9,8 +9,13 @@ Popup {
     id: root
     objectName: "exportDialog"
     property bool backdropClosing: false
-    onAboutToShow: backdropClosing = false
+    onAboutToShow: { backdropClosing = false; centerInWindow(); Qt.callLater(restoreQualityChoice) }
     onAboutToHide: backdropClosing = true
+    property int qualityChoice: 1
+    function restoreQualityChoice() { qualityMode.currentIndex = qualityChoice }
+    readonly property int encodingQuality: [14, 18, 22, 18][qualityChoice]
+    readonly property int videoBitrateKbps: qualityChoice === 3 ? Math.round(Number(bitrateField.text.replace(",", ".")) * 1000) : 0
+    readonly property bool qualityValid: qualityChoice !== 3 || (isFinite(videoBitrateKbps) && videoBitrateKbps >= 1000 && videoBitrateKbps <= 500000)
     readonly property int selectedNumbering: exportNumbering.currentIndex
     readonly property int selectedCutMode: mergeChronological ? 0 : cutMode.currentIndex
     readonly property bool mergeChronological: selectedFormat === "FFMPEG" && mergeCheck.checked
@@ -177,6 +182,30 @@ Popup {
             PfButton { width: (parent.width - 8) / 2; objectName: "fastCutButton"; text: L10n.t("export.fast"); selected: cutMode.currentIndex === 1; onClicked: cutMode.currentIndex = 1 }
         }
         ComboBox { id: cutMode; visible: false; model: [0, 1]; currentIndex: 0 }
+        Column {
+            width: parent.width; spacing: 8; visible: root.selectedFormat === "FFMPEG"
+            enabled: !Analysis.exportBusy
+            Text { text: L10n.language === "ru" ? "Качество видео" : "Video quality"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
+            PfComboBox {
+                id: qualityMode; objectName: "exportQualityMode"; width: parent.width; currentIndex: 1
+                Component.onCompleted: Qt.callLater(root.restoreQualityChoice)
+                onModelChanged: Qt.callLater(root.restoreQualityChoice)
+                onActivated: function(index) { root.qualityChoice = index }
+                enabled: root.selectedCutMode === 0
+                model: L10n.language === "ru" ? ["Максимальное", "Высокое · рекомендуется", "Баланс качества и размера", "Свой битрейт"] : ["Maximum", "High · recommended", "Balance quality and size", "Custom bitrate"]
+            }
+            Row {
+                width: parent.width; spacing: 8; visible: root.selectedCutMode === 0 && qualityChoice === 3
+                PfTextField { id: bitrateField; objectName: "exportBitrateField"; width: parent.width - 60; text: "30"; validator: DoubleValidator { bottom: 1; top: 500; decimals: 3; locale: "en_US" } Accessible.name: L10n.language === "ru" ? "Битрейт видео" : "Video bitrate" }
+                Text { width: 52; height: bitrateField.height; verticalAlignment: Text.AlignVCenter; text: L10n.language === "ru" ? "Мбит/с" : "Mbps"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+            }
+            Text {
+                width: parent.width; wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11
+                text: root.selectedCutMode === 1
+                    ? (L10n.language === "ru" ? "Быстрый режим копирует исходное видео без перекодирования и потери качества; границы зависят от ключевых кадров." : "Fast mode copies the original video without re-encoding or quality loss; boundaries depend on keyframes.")
+                    : (L10n.language === "ru" ? "Разрешение сохраняется. Высокое качество — по умолчанию; максимальное увеличивает размер файла. Битрейт — целевой, итоговый зависит от сцены. При перекодировании возможны потери." : "Source resolution is preserved. High quality is the default; maximum increases file size. Bitrate is a target and varies with the scene. Re-encoding can introduce loss.")
+            }
+        }
         Row { width: parent.width; spacing: 8
             PfTextField { id: folderField; width: parent.width - 110; text: root.outputFolder; placeholderText: L10n.t("export.folder"); Accessible.name: L10n.t("export.folder"); onEditingFinished: root.outputFolder = text }
             PfButton { width: 102; text: L10n.t("export.chooseFolder"); quiet: true; onClicked: root.chooseFolder() }
@@ -191,7 +220,7 @@ Popup {
             font.pixelSize: 11
             wrapMode: Text.WordWrap
         }
-        PfButton { width: parent.width; primary: true; text: Analysis.exportBusy ? L10n.t("export.running") + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal + " · " + Analysis.exportClipProgress + "%" : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological, root.colorOrder) }
+        PfButton { width: parent.width; primary: true; text: Analysis.exportBusy ? L10n.t("export.running") + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal + " · " + Analysis.exportClipProgress + "%" : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && (root.selectedFormat !== "FFMPEG" || root.selectedCutMode === 1 || root.qualityValid) && Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological, root.colorOrder, root.encodingQuality, root.selectedFormat === "FFMPEG" && root.selectedCutMode === 0 ? root.videoBitrateKbps : 0) }
         PfButton { width: parent.width; visible: Analysis.exportBusy; text: L10n.t("export.cancel"); onClicked: Analysis.cancelExport() }
         }
     }

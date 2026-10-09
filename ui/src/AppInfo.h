@@ -66,6 +66,7 @@ public:
     bool providersScanning() const { return providersScanning_; }
     Q_INVOKABLE QVariantMap loadPreferences() const;
     Q_INVOKABLE bool savePreferences(const QVariantMap& preferences);
+    Q_INVOKABLE QString keySequence(int key, int modifiers) const;
     bool providerDownloading() const noexcept { return providerDownloading_; }
     double providerDownloadProgress() const noexcept { return providerDownloadProgress_; }
     QString providerDownloadStatus() const { return providerDownloadStatus_; }
@@ -84,6 +85,7 @@ signals:
     void providerDownloadChanged();
     void providersChanged();
     void preferencesSaveFailed(const QString& error);
+    void preferencesChanged();
 
 private:
     void startBackendProbe(std::function<pfgpu::BackendProbe(std::stop_token)> probe);

@@ -85,11 +85,14 @@ ModelRef ModelRef::fromBytes(std::string bytes, std::string tag)
 }
 
 struct SessionCache::Entry {
-    Entry(OrtSession* value, Provider ep, const std::string& key)
-        : session(value), provider(ep), cacheKey(key) {}
+    Entry(const OrtApi* runtime, OrtSession* value, Provider ep, const std::string& key)
+        : api(runtime), session(value), provider(ep), cacheKey(key) {}
+    ~Entry() { if (session) api->ReleaseSession(session); }
+    const OrtApi* api;
     OrtSession* session = nullptr;
     Provider provider = Provider::Cpu;
     std::string cacheKey;
+    std::shared_ptr<std::mutex> runMutex = std::make_shared<std::mutex>();
     mutable std::mutex profileMutex;
     mutable std::size_t profileRuns = 0;
     mutable std::atomic_bool profiling{false};
@@ -159,6 +162,7 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
             result.ok = true;
             result.handle.session = it->second.entry->session;
             result.handle.owner = it->second.entry;
+            result.handle.runMutex = it->second.entry->runMutex;
             result.handle.provider = it->second.entry->provider;
             result.handle.cacheKey = cacheKey;
             result.handle.createdNow = false;
@@ -244,6 +248,10 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
     }
 
     OrtSession* session = nullptr;
+    struct SessionCleanup {
+        const OrtApi* api; OrtSession*& session;
+        ~SessionCleanup() { if (session) api->ReleaseSession(session); }
+    } sessionCleanup{api, session};
     if (model.isPath()) {
 #if defined(_WIN32)
         const std::wstring widePath = std::filesystem::path(model.path).wstring();
@@ -265,13 +273,8 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
         }
     }
 
-    auto entry = std::shared_ptr<Entry>(new Entry { session, resolved, cacheKey },
-                                        [api](Entry* raw) {
-                                            if (raw->session) {
-                                                api->ReleaseSession(raw->session);
-                                            }
-                                            delete raw;
-                                        });
+    auto entry = std::make_shared<Entry>(api, session, resolved, cacheKey);
+    session = nullptr; // Entry now owns the session; allocation failures were guarded above.
     entry->profiling = profiling;
 
     {
@@ -303,8 +306,9 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
     }
 
     result.ok = true;
-    result.handle.session = session;
+    result.handle.session = entry->session;
     result.handle.owner = entry;
+    result.handle.runMutex = entry->runMutex;
     result.handle.provider = resolved;
     result.handle.cacheKey = cacheKey;
     result.handle.createdNow = true;
@@ -355,11 +359,26 @@ void SessionCache::clear()
 
 SessionCache& processSessionCache()
 {
-    // Pose + ReID + two face sessions across a couple of provider/model
-    // combinations fit comfortably here. LRU eviction still bounds resources
-    // when the user switches models/providers repeatedly.
-    static SessionCache cache(16);
+    // One active configuration is pose + ReID + two face sessions. Keeping
+    // sixteen GPU arenas can consume many GiB after switching configurations.
+    // Active handles stay alive independently of LRU eviction.
+    static SessionCache cache(4);
     return cache;
+}
+
+std::size_t SessionCache::releaseUnused()
+{
+    std::vector<std::shared_ptr<Entry>> dropped;
+    {
+        const std::lock_guard lock(impl_->mutex);
+        for (auto it = impl_->sessions.begin(); it != impl_->sessions.end();) {
+            if (it->second.entry.use_count() == 1) {
+                dropped.push_back(std::move(it->second.entry));
+                it = impl_->sessions.erase(it);
+            } else ++it;
+        }
+    }
+    return dropped.size();
 }
 
 std::size_t SessionCache::maxEntries() const
