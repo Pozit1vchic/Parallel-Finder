@@ -27,6 +27,8 @@ add_executable(pf_tests
     core/test_scene_sequence_cache.cpp
     core/test_scene_detector.cpp
     core/test_video_decoder.cpp
+    core/test_ordered_pipeline.cpp
+    core/test_camera_view.cpp
     core/test_motion_matcher.cpp
     core/test_motion_index.cpp
     core/test_job_manager.cpp
@@ -46,6 +48,7 @@ add_executable(pf_tests
     gpu/test_session_cache.cpp
     gpu/test_pose_estimator.cpp
     gpu/test_pose_input.cpp
+    gpu/test_rgba_sampling.cpp
 )
 set_target_properties(pf_tests PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_compile_definitions(pf_tests PRIVATE PF_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")

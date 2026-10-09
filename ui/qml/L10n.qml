@@ -644,6 +644,8 @@ QtObject {
             "Подготавливаем поиск параллелей": "Preparing parallel search",
             "Исключаем одинаковые фрагменты": "Removing copied footage",
             "Ищем похожие движения": "Finding similar movements",
+            "Ищем совпадения персонажа": "Finding character matches",
+            "Подготавливаем найденные кандидаты": "Preparing retrieved candidates",
             "Сравниваем найденные движения": "Comparing candidate movements",
             "Выбираем уникальные параллели": "Selecting unique parallels",
             "Исключаем повторяющиеся ракурсы": "Removing recurring camera views",

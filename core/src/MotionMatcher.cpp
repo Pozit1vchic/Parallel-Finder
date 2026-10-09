@@ -2,6 +2,7 @@
 #include "pfcore/MotionIndex.hpp"
 #include "pfcore/MovementClassifier.hpp"
 #include "pfcore/PoseSupport.hpp"
+#include "pfcore/detail/CameraView.hpp"
 
 #include <algorithm>
 #include <array>
@@ -176,30 +177,10 @@ bool sameCameraView(const MotionWindow& left, const MotionWindow& right)
         || right.sceneView.size() != left.sceneView.size()) return false;
     if (!left.sceneContext.empty() && !right.sceneContext.empty()
         && sceneContextSimilarity(left, right) < .90) return false;
-    for (std::size_t i = 0; i < left.sceneView.size(); ++i) {
-        const double a = left.sceneView[i], b = right.sceneView[i];
-        if (!std::isfinite(a) || !std::isfinite(b) || a < 0 || b < 0 || a > 1 || b > 1) return false;
-    }
     // A returning camera can reframe a portrait slightly. Align by at most
     // one measured grid column (6.25% of frame width), without widening the
     // colour-error threshold or accepting a different background layout.
-    for (int shift = -1; shift <= 1; ++shift) {
-        double difference = 0, weight = 0;
-        for (int row = 0; row < 9; ++row) for (int column = std::max(0, -shift);
-             column < std::min(16, 16 - shift); ++column) {
-            // Weight both aligned columns so exchanging A/B cannot change
-            // camera equality at the threshold after a small reframe.
-            const double cellWeight = ((column < 5 || column >= 11 ? 2.0 : 1.0)
-                + (column + shift < 5 || column + shift >= 11 ? 2.0 : 1.0)) / 2.0;
-            for (int channel = 0; channel < 3; ++channel) {
-                difference += cellWeight * std::abs(left.sceneView[(row*16+column)*3+channel]
-                    - right.sceneView[(row*16+column+shift)*3+channel]);
-                weight += cellWeight;
-            }
-        }
-        if (difference / weight <= .035) return true;
-    }
-    return false;
+    return detail::sameCameraPixels(left.sceneView, right.sceneView);
 }
 
 struct FootageFrameStats {
@@ -1617,7 +1598,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
                             const PreparedWindow& rightPrepared,
                             const MotionMatcherParams& params,
                             std::size_t leftIndex, std::size_t rightIndex, bool mirrorRight = false,
-                            const IdentityEvidence* knownIdentity = nullptr)
+                            const IdentityEvidence* knownIdentity = nullptr, bool copySourceIds = true)
 {
     const auto& a = leftPrepared.descriptors;
     const auto& b = mirrorRight ? rightPrepared.mirroredDescriptors : rightPrepared.descriptors;
@@ -1626,8 +1607,10 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     MotionMatch result;
     result.leftIndex = leftIndex;
     result.rightIndex = rightIndex;
-    result.leftSourceId = left.sourceId;
-    result.rightSourceId = right.sourceId;
+    if (copySourceIds) {
+        result.leftSourceId = left.sourceId;
+        result.rightSourceId = right.sourceId;
+    }
     result.dtwDistance = std::numeric_limits<double>::infinity();
     result.durationSeconds = std::min(duration(left), duration(right));
     result.leftStartSeconds = left.frames.empty() ? 0.0 : left.frames.front().timestampSeconds;
@@ -1695,11 +1678,11 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         // hidden, potentially contradictory arm pose in the other shot.
         if ((leftPrepared.closeup || rightPrepared.closeup) && leftPrepared.head && rightPrepared.head) {
             auto headMatch = comparePrepared(leftPrepared.headSource, rightPrepared.headSource,
-                *leftPrepared.head, *rightPrepared.head, params, leftIndex, rightIndex, false, &identity);
+                *leftPrepared.head, *rightPrepared.head, params, leftIndex, rightIndex, false, &identity, copySourceIds);
             const double directScore = headMatch.similarity;
             if (params.mirrorInvariant) {
                 const auto mirrored = comparePrepared(leftPrepared.headSource, rightPrepared.headSource,
-                    *leftPrepared.head, *rightPrepared.head, params, leftIndex, rightIndex, true, &identity);
+                    *leftPrepared.head, *rightPrepared.head, params, leftIndex, rightIndex, true, &identity, copySourceIds);
                 if (mirrored.similarity > headMatch.similarity) headMatch = mirrored;
             }
             headMatch.headOnlyComparison = true;
@@ -1982,7 +1965,7 @@ void MotionMatcher::setParams(MotionMatcherParams params)
     if (!(params.staticArticulationSimilarityThreshold > 0.0 && params.staticArticulationSimilarityThreshold <= 1.0)
         || !(params.similarityThreshold >= 0.0 && params.similarityThreshold <= 1.0)
         || !(params.candidateThreshold >= 0.0 && params.candidateThreshold <= 1.0)
-        || params.maxUniqueResults == 0 || params.maxComparisonThreads > 32
+        || params.maxUniqueResults == 0 || params.maxComparisonThreads > 256
         || params.dtwBand == 0 || params.noiseFactor < 0.0)
         throw std::invalid_argument("MotionMatcher: invalid parameters");
     if (!(params.sakoeChibaRatio >= 0.0 && params.sakoeChibaRatio <= 1.0)
@@ -2099,9 +2082,16 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     const auto elapsed = [&] {
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     };
-    const auto cancelled = [&] { return control.cancelled && control.cancelled(); };
+    const auto searchThread = std::this_thread::get_id();
+    std::atomic_bool searchCancelled{false};
+    const auto cancelled = [&] {
+        if (std::this_thread::get_id() == searchThread && control.cancelled && control.cancelled())
+            searchCancelled.store(true, std::memory_order_relaxed);
+        return searchCancelled.load(std::memory_order_relaxed);
+    };
     const auto report = [&](MotionSearchStage stage,std::size_t done,std::size_t total) {
         if(control.progress)control.progress(stage,done,total);
+        cancelled(); // publish caller-owned cancellation to the workers
     };
     if(cancelled())return {};
     report(MotionSearchStage::Prepare,0,windows.size());
@@ -2270,7 +2260,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 if(entry>=footageCandidates.size() || cancelled())break;
                 const auto key=footageCandidates[entry];
                 const auto a=static_cast<std::size_t>(key>>32U),b=static_cast<std::size_t>(key&0xffffffffULL);
-                if(copiedScene(windows[representatives[a]],windows[representatives[b]],false,control.cancelled))
+                if(copiedScene(windows[representatives[a]],windows[representatives[b]],false,cancelled))
                     copies.push_back(key);
                 ++completedRows;
             }
@@ -2278,7 +2268,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         };
         const auto cpu=std::max(1U,std::thread::hardware_concurrency());
         const auto workers=std::min<std::size_t>(footageCandidates.size(),representatives.size()<64 ? 1U
-            : std::min<std::size_t>(params_.maxComparisonThreads ? params_.maxComparisonThreads : cpu,32));
+            : std::min<std::size_t>(params_.maxComparisonThreads ? params_.maxComparisonThreads : cpu,256));
         std::vector<std::future<std::vector<std::uint64_t>>> scans;
         for(std::size_t worker=0;worker<workers;++worker)scans.push_back(std::async(std::launch::async,scanCopies));
         for(auto& scan:scans) {
@@ -2325,7 +2315,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if(a==b || copiedShotPairs.contains(key) || !checkedHeadPairs.insert(key).second)return false;
         const auto i=cameraRepresentatives[a],j=cameraRepresentatives[b];
         if(i!=windows.size() && j!=windows.size()
-            && copiedScene(windows[i],windows[j],true,control.cancelled,&cameraStatistics)) {
+            && copiedScene(windows[i],windows[j],true,cancelled,&cameraStatistics)) {
             if(!cancelled() && reuse && reuse->cameras.size()<reuse->budget/(4*64))reuse->cameras.emplace(key,true);
             returningHeadViews.insert(key);return true;
         }
@@ -2474,7 +2464,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
           return foundPairs;
         };
         const auto retrievalThreads=group.size()<128 ? 1U : std::clamp<std::size_t>(
-            params_.maxComparisonThreads ? params_.maxComparisonThreads : std::thread::hardware_concurrency(),1,24);
+            params_.maxComparisonThreads ? params_.maxComparisonThreads : std::thread::hardware_concurrency(),1,256);
         if(retrievalThreads==1) {
             auto pairs=retrieveRange(0,group.size(),true);
             candidatePairs.insert(pairs.begin(),pairs.end());
@@ -2502,6 +2492,12 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     // L2-normalized by their estimators, so Euclidean ANN preserves cosine
     // neighbourhood ordering without an O(N^2) scan.
     const std::size_t maxAppearanceNeighbours = identityNeighbourBudget;
+    std::atomic_size_t identityRequestsDone{0};
+    std::size_t identityRequestsTotal = 0;
+    for (std::size_t i = 0; i < prepared.size(); ++i) if (!prepared[i].descriptors.empty()) {
+        if (!windows[i].appearanceEmbedding.empty() && !(windows[i].appearanceConfidence < params_.minAppearanceEvidence)) ++identityRequestsTotal;
+        if (!windows[i].faceEmbedding.empty() && !(windows[i].faceConfidence < params_.minAppearanceEvidence)) ++identityRequestsTotal;
+    }
     auto addAppearanceCandidates = [&](bool useFace, bool staticWindow) {
         MotionIndex identityIndex;
         std::vector<std::size_t> group;
@@ -2514,7 +2510,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             identityIndex.add(i, std::move(vector));
             group.push_back(i);
         }
-        if (group.size() < 2) return;
+        if (group.size() < 2) { identityRequestsDone.fetch_add(group.size()); return; }
         auto stageStart = profile ? elapsed() : 0;
         identityIndex.build();
         if (profile) appearanceBuildMs += elapsed() - stageStart;
@@ -2524,64 +2520,142 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         // results. Cache that raw traversal, then apply every window's own
         // shot/identity filters. Never cache a filtered candidate list.
         // Both caches are bounded, independently of source duration.
-        const std::size_t maxPrototypeWorkspaces = (2U * 1024U * 1024U) / identityIndex.size();
-        std::unordered_map<std::size_t, MotionIndex::QueryWorkspace> prototypeWorkspaces;
-        std::unordered_map<std::uint64_t,std::vector<MotionIndex::Neighbor>> queryMemo;
-        std::size_t queryMemoBytes=0;
-        constexpr std::size_t queryMemoLimit=16U*1024U*1024U;
-        for (const std::size_t i : group) {
-            if(cancelled())return;
+        const auto identityThreads = group.size() < 128 ? 1U : std::min<std::size_t>((group.size()+31)/32,
+            std::clamp<std::size_t>(params_.maxComparisonThreads ? params_.maxComparisonThreads : std::thread::hardware_concurrency(),1,256));
+        const std::size_t maxPrototypeWorkspaces = (2U * 1024U * 1024U) / identityIndex.size() / identityThreads;
+        const std::size_t queryMemoLimit = 16U*1024U*1024U / identityThreads;
+        struct IdentityQueryState {
+            std::unordered_map<std::size_t, MotionIndex::QueryWorkspace> prototypeWorkspaces;
+            std::unordered_map<std::uint64_t,std::vector<MotionIndex::Neighbor>> queryMemo;
+            std::unordered_map<std::uint64_t,IdentityEvidence> missingEvidence;
+            std::size_t queryMemoBytes = 0;
+        };
+        std::vector<IdentityQueryState> states(identityThreads);
+        report(MotionSearchStage::Identity,identityRequestsDone.load(),identityRequestsTotal);
+        const auto queryOne = [&](std::size_t i, IdentityQueryState& state, const auto& lookupEvidence) {
+            std::vector<std::uint64_t> foundPairs;
             const auto& source = useFace ? windows[i].faceEmbedding : windows[i].appearanceEmbedding;
             std::vector<double> query(source.begin(), source.end());
             const auto limit = std::min(group.size(), count * 8);
             MotionIndex::QueryWorkspace localWorkspace;
-            auto foundWorkspace = prototypeWorkspaces.find(identityPrototypes[i]);
-            if (foundWorkspace == prototypeWorkspaces.end()
-                && prototypeWorkspaces.size() < maxPrototypeWorkspaces)
-                foundWorkspace = prototypeWorkspaces.try_emplace(identityPrototypes[i]).first;
-            auto& queryWorkspace = foundWorkspace == prototypeWorkspaces.end()
+            auto foundWorkspace = state.prototypeWorkspaces.find(identityPrototypes[i]);
+            if (foundWorkspace == state.prototypeWorkspaces.end()
+                && state.prototypeWorkspaces.size() < maxPrototypeWorkspaces)
+                foundWorkspace = state.prototypeWorkspaces.try_emplace(identityPrototypes[i]).first;
+            auto& queryWorkspace = foundWorkspace == state.prototypeWorkspaces.end()
                 ? localWorkspace : foundWorkspace->second;
             for (auto requested = count;; requested = std::min(limit, requested * 2)) {
                 std::size_t usable = 0;
                 std::unordered_map<std::size_t, std::size_t> shotSlots;
-                if(cancelled())return;
+                if(cancelled())return foundPairs;
                 const auto key=(static_cast<std::uint64_t>(identityPrototypes[i])<<32U)|requested;
-                const auto memo=queryMemo.find(key);
+                const auto memo=state.queryMemo.find(key);
                 std::vector<MotionIndex::Neighbor> queried;
-                if(memo==queryMemo.end())queried=identityIndex.query(query,requested,requested*2,queryWorkspace);
-                const auto& neighbours=memo==queryMemo.end() ? queried : memo->second;
+                if(memo==state.queryMemo.end())queried=identityIndex.query(query,requested,requested*2,queryWorkspace);
+                const auto& neighbours=memo==state.queryMemo.end() ? queried : memo->second;
                 for (const auto neighbour : neighbours) {
                     const std::size_t j = neighbour.id;
                     if (i == j || j >= windows.size() || sameKnownShot(i, j)) continue;
-                    if (!evidence(i,j).verified) continue;
+                    if (!lookupEvidence(i,j).verified) continue;
                     if (windows[j].hasSceneIndex && shotSlots[shotOf[j]]++ >= neighboursPerShot) continue;
                     const auto left = std::min(i, j);
                     const auto right = std::max(i, j);
-                    if (candidatePairs.insert((static_cast<std::uint64_t>(left) << 32U)
-                                              | static_cast<std::uint64_t>(right)).second)
-                        ++appearanceCandidatePairs;
+                    foundPairs.push_back((static_cast<std::uint64_t>(left) << 32U) | static_cast<std::uint64_t>(right));
                     if (++usable >= maxAppearanceNeighbours) break;
                 }
-                if(memo==queryMemo.end() && queryMemoBytes+queried.size()*sizeof(MotionIndex::Neighbor)<=queryMemoLimit) {
-                    queryMemoBytes+=queried.size()*sizeof(MotionIndex::Neighbor);
-                    queryMemo.emplace(key,std::move(queried));
+                if(memo==state.queryMemo.end() && state.queryMemoBytes+queried.size()*sizeof(MotionIndex::Neighbor)<=queryMemoLimit) {
+                    state.queryMemoBytes+=queried.size()*sizeof(MotionIndex::Neighbor);
+                    state.queryMemo.emplace(key,std::move(queried));
                 }
                 if (usable >= maxAppearanceNeighbours || requested >= limit) break;
             }
+            ++identityRequestsDone;
+            return foundPairs;
+        };
+        const auto insertPairs = [&](const auto& pairs) {
+            for (auto key : pairs) if (candidatePairs.insert(key).second) ++appearanceCandidatePairs;
+        };
+        if (identityThreads == 1) for (auto i : group) {
+            if(cancelled())return;
+            insertPairs(queryOne(i,states.front(),evidence));
+            if (identityRequestsDone.load()%64 == 0) report(MotionSearchStage::Identity,identityRequestsDone.load(),identityRequestsTotal);
+        } else {
+            // Bound transient ordered results independently of input duration.
+            // Workers keep their bounded ANN workspaces/memos across waves.
+            constexpr std::size_t waveSize = 512;
+            for (std::size_t begin=0; begin<group.size() && !cancelled(); begin+=waveSize) {
+                const auto size=std::min(waveSize,group.size()-begin);
+                std::vector<std::vector<std::uint64_t>> results(size);
+                std::vector<std::future<void>> workers;
+                for(std::size_t worker=0;worker<std::min(identityThreads,size);++worker) workers.push_back(std::async(std::launch::async,[&,worker] {
+                    auto& state=states[worker];
+                    const auto lookup=[&](std::size_t i,std::size_t j) {
+                        const auto a=identityPrototypes[i],b=identityPrototypes[j];
+                        const auto key=(static_cast<std::uint64_t>(std::min(a,b))<<32U)|std::max(a,b);
+                        const auto& memo=identityMemo;
+                        if(const auto f=memo.find(key);f!=memo.end())return f->second;
+                        if(const auto f=state.missingEvidence.find(key);f!=state.missingEvidence.end())return f->second;
+                        const auto value=identityEvidence(windows[i],windows[j],params_);
+                        if(state.missingEvidence.size()<identityMemoLimit/identityThreads)state.missingEvidence.emplace(key,value);
+                        return value;
+                    };
+                    for(auto position=worker;position<size && !cancelled();position+=identityThreads)
+                        results[position]=queryOne(group[begin+position],state,lookup);
+                }));
+                for(auto& worker:workers) {
+                    while(worker.wait_for(std::chrono::milliseconds(100))!=std::future_status::ready)
+                        report(MotionSearchStage::Identity,identityRequestsDone.load(),identityRequestsTotal);
+                    worker.get();
+                }
+                if(cancelled())return;
+                // Original window and neighbor insertion order preserves the
+                // hash iteration order and all later score ties.
+                for(const auto& pairs:results)insertPairs(pairs);
+                // No worker reads the shared memo while these bounded facts
+                // are merged. Cache residency never changes evidence values.
+                for(const auto& state:states) for(const auto& [key,value]:state.missingEvidence)
+                    if(identityMemo.size()<identityMemoLimit)identityMemo.try_emplace(key,value);
+                report(MotionSearchStage::Identity,identityRequestsDone.load(),identityRequestsTotal);
+            }
         }
+        report(MotionSearchStage::Identity,identityRequestsDone.load(),identityRequestsTotal);
         if (profile) appearanceQueryMs += elapsed() - stageStart;
     };
     for (const bool staticWindow : {false, true}) {
         addAppearanceCandidates(false, staticWindow);
         addAppearanceCandidates(true, staticWindow);
     }
+    if(cancelled())return {};
 
     const double compareStart = profile ? elapsed() : 0;
     struct ComparisonTask { std::size_t i, j; IdentityEvidence identity; };
+    std::vector<std::uint64_t> candidateKeys(candidatePairs.begin(), candidatePairs.end());
+    candidateSummary = candidateKeys.size();
+    std::unordered_set<std::uint64_t>().swap(candidatePairs);
     std::vector<ComparisonTask> comparisonTasks;
-    comparisonTasks.reserve(candidatePairs.size());
-    for (const std::uint64_t key : candidatePairs) {
-        if(cancelled())return {};
+    struct FilterBlock {
+        std::size_t begin;
+        std::vector<ComparisonTask> tasks;
+        std::size_t gap = 0, coarse = 0, trackRejected = 0, sceneRejected = 0, staticRejected = 0;
+    };
+    std::atomic_size_t filteredCount{0};
+    report(MotionSearchStage::Filter, 0, candidateKeys.size());
+    const auto filterRange = [&](std::size_t begin, std::size_t end, const auto& lookupEvidence) {
+        FilterBlock block{begin, {}};
+        auto& comparisonTasks = block.tasks;
+        auto& gapPassed = block.gap; auto& coarsePassed = block.coarse;
+        auto& trackRejected = block.trackRejected; auto& sceneRejected = block.sceneRejected;
+        auto& staticRejected = block.staticRejected;
+        std::size_t localDone = 0;
+        for (auto position = begin; position < end; ++position) {
+        if(cancelled())break;
+        struct Done {
+            std::size_t& local; std::atomic_size_t& total;
+            ~Done() { if (++local % 64 == 0) total.fetch_add(64, std::memory_order_relaxed); }
+        } done{localDone, filteredCount};
+        if (std::this_thread::get_id() == searchThread && localDone % 64 == 0)
+            report(MotionSearchStage::Filter, filteredCount.load() + localDone % 64, candidateKeys.size());
+        const auto key = candidateKeys[position];
         const std::size_t i = static_cast<std::size_t>(key >> 32U);
         const std::size_t j = static_cast<std::size_t>(key & 0xffffffffULL);
         if (i >= windows.size() || j >= windows.size() || i >= j) continue;
@@ -2591,7 +2665,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if (sameSource && params_.requireSameTrackWithinSource
             && windows[i].trackId != 0 && windows[j].trackId != 0
             && differentTrackSegment(windows[i], windows[j])) {
-            const bool sameAppearance = evidence(i,j).verified;
+            const bool sameAppearance = lookupEvidence(i,j).verified;
             if (!sameAppearance) {
                 if (std::getenv("PF_DEBUG_MATCHER") != nullptr && !windows[i].staticFrameSet) {
                     std::fprintf(stderr,
@@ -2615,7 +2689,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         const double leftStart = windows[i].frames.front().timestampSeconds;
         const double rightStart = windows[j].frames.front().timestampSeconds;
         const double gap = std::abs(leftStart - rightStart);
-        const auto pairIdentity = evidence(i,j);
+        const auto pairIdentity = lookupEvidence(i,j);
         const double requiredGap = sameSource
             ? (separateVerifiedShots(windows[i], windows[j], params_, &pairIdentity) ? params_.sameSourceGapFloorSec
                : std::max({params_.sameSourceGapFloorSec, params_.sameFileGapSec,
@@ -2635,14 +2709,64 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             if (coarse < params_.candidateThreshold * 0.65) continue;
         }
         ++coarsePassed;
-        ++compared;
         comparisonTasks.push_back({i, j, pairIdentity});
+        }
+        filteredCount.fetch_add(localDone % 64, std::memory_order_relaxed);
+        return block;
+    };
+    const auto filterThreads = candidateKeys.size() < 4096 ? 1U
+        : std::min<std::size_t>((candidateKeys.size() + 2047) / 2048,
+            std::clamp<std::size_t>(params_.maxComparisonThreads ? params_.maxComparisonThreads : std::thread::hardware_concurrency(), 1, 256));
+    std::vector<FilterBlock> filtered;
+    if (filterThreads == 1) filtered.push_back(filterRange(0, candidateKeys.size(), evidence));
+    else {
+        constexpr std::size_t filterBlockSize = 2048;
+        std::atomic_size_t nextFilter{0};
+        const auto prepareBlocks = [&] {
+            std::vector<FilterBlock> blocks;
+            std::unordered_map<std::uint64_t, IdentityEvidence> localEvidence;
+            const auto lookup = [&](std::size_t i, std::size_t j) {
+                const auto a = identityPrototypes[i], b = identityPrototypes[j];
+                const auto key = (static_cast<std::uint64_t>(std::min(a,b)) << 32U) | std::max(a,b);
+                const auto& immutableMemo = identityMemo;
+                if (const auto known = immutableMemo.find(key); known != immutableMemo.end()) return known->second;
+                if (const auto known = localEvidence.find(key); known != localEvidence.end()) return known->second;
+                const auto value = identityEvidence(windows[i], windows[j], params_);
+                if (localEvidence.size() < identityMemoLimit / filterThreads) localEvidence.emplace(key, value);
+                return value;
+            };
+            while (!cancelled()) {
+                const auto begin = nextFilter.fetch_add(filterBlockSize, std::memory_order_relaxed);
+                if (begin >= candidateKeys.size()) break;
+                blocks.push_back(filterRange(begin, std::min(begin + filterBlockSize, candidateKeys.size()), lookup));
+            }
+            return blocks;
+        };
+        std::vector<std::future<std::vector<FilterBlock>>> workers;
+        for (std::size_t worker = 0; worker < filterThreads; ++worker)
+            workers.push_back(std::async(std::launch::async, prepareBlocks));
+        for (auto& worker : workers) {
+            while (worker.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready)
+                report(MotionSearchStage::Filter, filteredCount.load(), candidateKeys.size());
+            auto blocks = worker.get();
+            filtered.insert(filtered.end(), std::make_move_iterator(blocks.begin()), std::make_move_iterator(blocks.end()));
+        }
     }
-    candidateSummary=candidatePairs.size();
-    // The ordered work list now owns every candidate and identity fact.
-    // A long input can have millions of hash nodes: release that duplicate
-    // storage before allocating the workers' accepted results.
-    std::unordered_set<std::uint64_t>().swap(candidatePairs);
+    if (cancelled()) return {};
+    std::sort(filtered.begin(), filtered.end(), [](const auto& a, const auto& b) { return a.begin < b.begin; });
+    std::size_t taskCount = 0;
+    for (const auto& block : filtered) taskCount += block.tasks.size();
+    comparisonTasks.reserve(taskCount);
+    for (auto& block : filtered) {
+        gapPassed += block.gap; coarsePassed += block.coarse; trackRejected += block.trackRejected;
+        sceneRejected += block.sceneRejected; staticRejected += block.staticRejected;
+        comparisonTasks.insert(comparisonTasks.end(), std::make_move_iterator(block.tasks.begin()), std::make_move_iterator(block.tasks.end()));
+        std::vector<ComparisonTask>().swap(block.tasks);
+    }
+    compared += comparisonTasks.size();
+    report(MotionSearchStage::Filter, filteredCount.load(), candidateKeys.size());
+    std::vector<std::uint64_t>().swap(candidateKeys);
+    std::vector<FilterBlock>().swap(filtered);
     // Identity memo insertions and filtering finish before workers start.
     // Prepared geometry, model outputs and identity facts are immutable;
     // workers own their DTW scratch and accepted-result vectors. Merge in
@@ -2651,10 +2775,14 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     report(MotionSearchStage::Compare,0,comparisonTasks.size());
     const auto compareRange = [&](std::size_t begin, std::size_t end) {
         std::vector<MotionMatch> accepted;
+        std::size_t localCompleted = 0;
         for (std::size_t taskIndex = begin; taskIndex < end; ++taskIndex) {
         if(cancelled())break;
-        const auto done=completedComparisons.load();
-        struct Completed {std::atomic_size_t& count;~Completed(){++count;}} completion{completedComparisons};
+        const auto done=completedComparisons.load(std::memory_order_relaxed) + localCompleted % 64;
+        struct Completed {
+            std::size_t& local; std::atomic_size_t& count;
+            ~Completed() { if (++local % 64 == 0) count.fetch_add(64, std::memory_order_relaxed); }
+        } completion{localCompleted, completedComparisons};
         // Serial searches have no future-polling loop to publish progress.
         if(comparisonTasks.size()<4096 || params_.maxComparisonThreads==1)
             if(done%64==0)report(MotionSearchStage::Compare,done,comparisonTasks.size());
@@ -2665,23 +2793,23 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         const double gap = std::abs(windows[i].frames.front().timestampSeconds
                                      - windows[j].frames.front().timestampSeconds);
         MotionMatch candidate = comparePrepared(windows[i], windows[j], prepared[i], prepared[j],
-                                                params_, i, j, false, &pairIdentity);
+                                                params_, i, j, false, &pairIdentity, false);
         double directScore = candidate.unmirroredSimilarity >= 0
             ? candidate.unmirroredSimilarity : candidate.similarity;
         const bool headMirrorsAlreadyChecked = windows[i].staticFrameSet && candidate.headOnlyComparison
             && (prepared[i].closeup || prepared[j].closeup);
         if (params_.mirrorInvariant && !headMirrorsAlreadyChecked && !prepared[j].mirroredDescriptors.empty()) {
             const MotionMatch mirroredCandidate = comparePrepared(windows[i], windows[j],
-                                                                  prepared[i], prepared[j], params_, i, j, true, &pairIdentity);
+                                                                  prepared[i], prepared[j], params_, i, j, true, &pairIdentity, false);
             if (mirroredCandidate.similarity > candidate.similarity) candidate = mirroredCandidate;
         }
         if(candidate.similarity<params_.similarityThreshold && prepared[i].torso && prepared[j].torso) {
             auto alternative=comparePrepared(windows[i],windows[j],*prepared[i].torso,*prepared[j].torso,
-                params_,i,j,false,&pairIdentity);
+                params_,i,j,false,&pairIdentity,false);
             const double alternativeDirect=alternative.similarity;
             if(params_.mirrorInvariant) {
                 auto mirrored=comparePrepared(windows[i],windows[j],*prepared[i].torso,*prepared[j].torso,
-                    params_,i,j,true,&pairIdentity);
+                    params_,i,j,true,&pairIdentity,false);
                 if(mirrored.similarity>alternative.similarity)alternative=mirrored;
             }
             if(alternative.similarity>candidate.similarity) {
@@ -2713,29 +2841,54 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             && gap <= 180.0 && candidate.sceneSimilarity >= 0.97
             && shapeSimilarity(prepared[i].poses, prepared[j].poses)
                 >= ((!prepared[i].bodyObserved && !prepared[j].bodyObserved) ? 0.98 : 0.86);
-        if (!repeatedView && candidate.similarity >= params_.similarityThreshold)
+        if (!repeatedView && candidate.similarity >= params_.similarityThreshold) {
+            // Rejected and mirror/torso alternatives need only numeric facts.
+            // Copy long source paths once, for the surviving hypothesis.
+            candidate.leftSourceId = windows[i].sourceId;
+            candidate.rightSourceId = windows[j].sourceId;
             accepted.push_back(std::move(candidate));
         }
+        }
+        completedComparisons.fetch_add(localCompleted % 64, std::memory_order_relaxed);
         return accepted;
     };
-    const auto automaticThreads = std::clamp<std::size_t>(std::thread::hardware_concurrency(), 1, 32);
+    const auto automaticThreads = std::clamp<std::size_t>(std::thread::hardware_concurrency(), 1, 256);
     const auto comparisonThreads = comparisonTasks.size() < 4096 ? 1U
-        : std::clamp<std::size_t>(params_.maxComparisonThreads ? params_.maxComparisonThreads : automaticThreads, 1, 32);
+        : std::min<std::size_t>((comparisonTasks.size() + 1023) / 1024,
+            std::clamp<std::size_t>(params_.maxComparisonThreads ? params_.maxComparisonThreads : automaticThreads, 1, 256));
     if (comparisonThreads == 1) matches = compareRange(0, comparisonTasks.size());
     else {
-        std::vector<std::future<std::vector<MotionMatch>>> workers;
+        // Short dynamically claimed blocks keep expensive motions from leaving
+        // most cores idle behind one slow static partition. Merge blocks back
+        // in original task order, preserving every tie before selection.
+        struct Block { std::size_t begin; std::vector<MotionMatch> accepted; };
+        constexpr std::size_t blockSize = 1024;
+        std::atomic_size_t nextBlock{0};
+        const auto compareBlocks = [&] {
+            std::vector<Block> blocks;
+            while (!cancelled()) {
+                const auto begin = nextBlock.fetch_add(blockSize, std::memory_order_relaxed);
+                if (begin >= comparisonTasks.size()) break;
+                blocks.push_back({begin, compareRange(begin, std::min(begin + blockSize, comparisonTasks.size()))});
+            }
+            return blocks;
+        };
+        std::vector<std::future<std::vector<Block>>> workers;
         workers.reserve(comparisonThreads);
         for (std::size_t worker = 0; worker < comparisonThreads; ++worker) {
-            const auto begin = comparisonTasks.size() * worker / comparisonThreads;
-            const auto end = comparisonTasks.size() * (worker + 1) / comparisonThreads;
-            workers.push_back(std::async(std::launch::async, compareRange, begin, end));
+            workers.push_back(std::async(std::launch::async, compareBlocks));
         }
+        std::vector<Block> blocks;
         for (auto& worker : workers) {
             while(worker.wait_for(std::chrono::milliseconds(100))!=std::future_status::ready)
                 report(MotionSearchStage::Compare,completedComparisons.load(),comparisonTasks.size());
-            auto accepted = worker.get();
-            matches.insert(matches.end(), std::make_move_iterator(accepted.begin()),
-                            std::make_move_iterator(accepted.end()));
+            auto result = worker.get();
+            blocks.insert(blocks.end(), std::make_move_iterator(result.begin()), std::make_move_iterator(result.end()));
+        }
+        std::sort(blocks.begin(), blocks.end(), [](const auto& a, const auto& b) { return a.begin < b.begin; });
+        for (auto& block : blocks) {
+            matches.insert(matches.end(), std::make_move_iterator(block.accepted.begin()), std::make_move_iterator(block.accepted.end()));
+            std::vector<MotionMatch>().swap(block.accepted);
         }
     }
     report(MotionSearchStage::Compare,completedComparisons.load(),comparisonTasks.size());
@@ -3246,7 +3399,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 const auto a=shotOf[match.leftIndex],b=shotOf[match.rightIndex];
                 auto& count=windows[match.leftIndex].staticFrameSet ? staticResults : motionResults;
                 if (a==b || shotUseCounts[a] || shotUseCounts[b] || count>=params_.maxUniqueResults) continue;
-                if (portrait(match) && (sameCameraView(windows[match.leftIndex],windows[match.rightIndex])
+                if (portrait(match) && (sameCameraView(windows[match.leftIndex], windows[match.rightIndex])
                     || cheapViewConflict(match)
                     || returningHeadView(originalShotOf[match.leftIndex],originalShotOf[match.rightIndex])
                     || measuredViewConflict(match))) continue;

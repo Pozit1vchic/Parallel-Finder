@@ -1065,7 +1065,7 @@ TEST(MotionMatcher, ParallelExactComparisonPreservesAllFieldsAndSelectionOrder)
     params.maxResultsPerShot = 0;
     params.requireAppearance = params.mirrorInvariant = true;
     std::vector<pfcore::MotionWindow> windows;
-    for (std::size_t i = 0; i < 144; ++i) {
+    for (std::size_t i = 0; i < 520; ++i) {
         const auto source = "independent-shot-" + std::to_string(i);
         auto item = window(source.c_str(), i * 8.0);
         item.faceEmbedding = {1,0}; item.faceConfidence = 1;
@@ -1148,13 +1148,18 @@ TEST(MotionMatcher, ParallelRetrievalCancelsOnCallerWithoutPublishingPartialResu
 TEST(MotionMatcher, ProgressCallbacksStayOnCallerThreadAndPreserveResults)
 {
     std::vector<pfcore::MotionWindow> windows;
-    for(std::size_t i=0;i<144;++i)windows.push_back(window(("shot-"+std::to_string(i)).c_str(),i*8.0));
+    for(std::size_t i=0;i<144;++i) {
+        auto w=window(("shot-"+std::to_string(i)).c_str(),i*8.0);
+        w.faceEmbedding={1,0};w.faceConfidence=1;
+        windows.push_back(std::move(w));
+    }
     pfcore::MotionMatcherParams params;params.candidateThreshold=0;params.similarityThreshold=.1;
     params.maxComparisonThreads=4;params.maxUniqueResults=10000;params.maxResultsPerShot=0;
     const auto expected=pfcore::MotionMatcher(params).findAllPairs(windows);
     const auto caller=std::this_thread::get_id();
     std::set<pfcore::MotionSearchStage> stages;
     pfcore::MotionSearchControl control;
+    control.cancelled=[&] { EXPECT_EQ(std::this_thread::get_id(),caller); return false; };
     control.progress=[&](pfcore::MotionSearchStage stage,std::size_t done,std::size_t total) {
         EXPECT_EQ(std::this_thread::get_id(),caller);EXPECT_LE(done,total);stages.insert(stage);
     };
@@ -1165,14 +1170,61 @@ TEST(MotionMatcher, ProgressCallbacksStayOnCallerThreadAndPreserveResults)
         EXPECT_DOUBLE_EQ(actual[i].similarity,expected[i].similarity);
     }
     EXPECT_TRUE(stages.contains(pfcore::MotionSearchStage::Retrieval));
+    EXPECT_TRUE(stages.contains(pfcore::MotionSearchStage::Identity));
+    EXPECT_TRUE(stages.contains(pfcore::MotionSearchStage::Filter));
     EXPECT_TRUE(stages.contains(pfcore::MotionSearchStage::Compare));
     EXPECT_TRUE(stages.contains(pfcore::MotionSearchStage::Select));
+}
+
+TEST(MotionMatcher, CancellationDuringCandidatePreparationJoinsWorkersWithoutPartialResults)
+{
+    std::vector<pfcore::MotionWindow> windows;
+    for (std::size_t i = 0; i < 144; ++i) windows.push_back(window(("shot-"+std::to_string(i)).c_str(),i*8.0));
+    pfcore::MotionMatcherParams params;
+    params.candidateThreshold=0; params.similarityThreshold=.1; params.maxComparisonThreads=4;
+    const auto caller = std::this_thread::get_id();
+    bool cancelled = false, reached = false;
+    pfcore::MotionSearchControl control;
+    control.cancelled = [&] { EXPECT_EQ(std::this_thread::get_id(),caller); return cancelled; };
+    control.progress = [&](auto stage, std::size_t, std::size_t total) {
+        EXPECT_EQ(std::this_thread::get_id(),caller);
+        if (stage == pfcore::MotionSearchStage::Filter) { EXPECT_GT(total,4096U); reached = cancelled = true; }
+    };
+    EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs(windows,control).empty());
+    EXPECT_TRUE(reached); EXPECT_TRUE(cancelled);
+}
+
+TEST(MotionMatcher, CancellationDuringParallelIdentityRetrievalJoinsWithoutPartialResults)
+{
+    std::vector<pfcore::MotionWindow> windows;
+    for(std::size_t i=0;i<600;++i) {
+        auto w=window(("identity-shot-"+std::to_string(i)).c_str(),i*8.0);
+        w.faceEmbedding=w.appearanceEmbedding={1,0};w.faceConfidence=w.appearanceConfidence=1;
+        windows.push_back(std::move(w));
+    }
+    pfcore::MotionMatcherParams params;params.candidateThreshold=0;params.similarityThreshold=.1;params.maxComparisonThreads=4;
+    const auto caller=std::this_thread::get_id();
+    bool cancelled=false,reached=false;
+    std::size_t previous=0;
+    pfcore::MotionSearchControl control;
+    control.cancelled=[&]{EXPECT_EQ(std::this_thread::get_id(),caller);return cancelled;};
+    control.progress=[&](auto stage,std::size_t done,std::size_t total) {
+        EXPECT_EQ(std::this_thread::get_id(),caller);EXPECT_LE(done,total);
+        if(stage==pfcore::MotionSearchStage::Identity) {
+            EXPECT_GE(done,previous);previous=done;
+            if(done>=512)reached=cancelled=true;
+        }
+    };
+    EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs(windows,control).empty());
+    EXPECT_TRUE(reached);EXPECT_TRUE(cancelled);
 }
 
 TEST(MotionMatcher, RejectsUnboundedComparisonWorkers)
 {
     pfcore::MotionMatcherParams params;
-    params.maxComparisonThreads = 33;
+    params.maxComparisonThreads = 256;
+    EXPECT_NO_THROW(pfcore::MotionMatcher{params});
+    params.maxComparisonThreads = 257;
     EXPECT_THROW(pfcore::MotionMatcher{params}, std::invalid_argument);
 }
 
@@ -2103,6 +2155,8 @@ TEST(MotionMatcher, SearchReuseRechecksFacesAndInvalidatesEveryChangedInput)
     windows[0].sourceId="new-source";check();
     params.sameSourceGapFloorSec=1000;check();
     windows[0].sceneSequence.assign(3*432,.5);check();
+    windows[0].sceneView.assign(432,.2F);check();
+    windows[0].sceneContext.assign(32,.1F);check();
     pfcore::MotionSearchReuse bounded(0);control.reuse=&bounded;check();check();
 }
 

@@ -33,6 +33,8 @@ def main():
     parser.add_argument('--warm', action='store_true')
     parser.add_argument('--warm-expanded',action='store_true',help='Diagnostic cache reuse with the same expanded candidate policy as a cold run')
     parser.add_argument('--dump-windows', action='store_true')
+    parser.add_argument('--profile-inference', action='store_true', help='Capture pose, face and ReID inference timings')
+    parser.add_argument('--gpu-telemetry', action='store_true', help='Sample whole-device NVIDIA utilization (includes other applications)')
     parser.add_argument('--cache',type=Path,help='Existing cache for an explicit warm replay; no video copies')
     parser.add_argument('--additional-video',type=Path,action='append',default=[])
     args = parser.parse_args()
@@ -65,6 +67,7 @@ def main():
         PF_DEBUG_ANALYSIS='1', QT_QPA_PLATFORM='windows',
         PF_BENCHMARK_CACHE_ROOT=str(args.cache.resolve() if args.cache else out/'cache'))
     if args.warm_expanded:env['PF_AUDIT_REUSE_OBSERVATIONS']='1'
+    if args.profile_inference:env['PF_DEBUG_INFERENCE']='1'
     if args.decode:
         env['PF_VIDEO_DECODE'] = args.decode
     if args.dump_windows:
@@ -82,6 +85,7 @@ def main():
     peak = private_peak = samples = 0
     failure = None
     previous_cpu = previous_seconds = 0.
+    smi = shutil.which('nvidia-smi') if args.gpu_telemetry else None
     with (out/'stdout.log').open('wb') as stdout, (out/'stderr.log').open('wb') as stderr, \
             (out/'resources.jsonl').open('w', encoding='utf-8', buffering=1) as telemetry:
         proc = subprocess.Popen([str(args.exe.resolve()), '--pf-analysis-smoke', *[str(v.resolve()) for v in [args.video,*args.additional_video]]],
@@ -103,10 +107,22 @@ def main():
                 samples += 1
                 peak = max(peak, counters.PeakWorkingSetSize)
                 private_peak = max(private_peak, counters.PrivateUsage)
+            gpu = None
+            if smi:
+                try:
+                    query = subprocess.run([smi, '--query-gpu=utilization.gpu,memory.used,memory.total',
+                        '--format=csv,noheader,nounits'], capture_output=True, text=True, timeout=1,
+                        creationflags=subprocess.CREATE_NO_WINDOW)
+                    if query.returncode == 0:
+                        gpu = [dict(utilizationPercent=float(values[0]), memoryUsedMiB=float(values[1]),
+                            memoryTotalMiB=float(values[2]), scope='whole-device')
+                            for values in (line.split(',') for line in query.stdout.strip().splitlines())]
+                except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+                    pass
             telemetry.write(json.dumps(dict(seconds=round(elapsed, 3),
                 rssBytes=counters.WorkingSetSize if ok else None,
                 privateBytes=counters.PrivateUsage if ok else None, diskFreeBytes=disk.free,
-                cpuSeconds=cpu, cpuCoresUsed=core_usage))+'\n')
+                cpuSeconds=cpu, cpuCoresUsed=core_usage, gpu=gpu))+'\n')
             if elapsed > args.timeout+45 or disk.free < 2*1024**3:
                 failure = 'timeout' if elapsed > args.timeout+45 else 'disk reserve reached'
                 proc.kill()

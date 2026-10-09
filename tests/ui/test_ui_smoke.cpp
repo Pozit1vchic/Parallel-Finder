@@ -1155,6 +1155,10 @@ Item {
     QCOMPARE(root->property("translated").toString(),QString::fromUtf8("Матчер: Сравниваем найденные движения · 125 / 1000"));
     QVERIFY(QMetaObject::invokeMethod(root.get(),"setLanguage",Q_ARG(QVariant,"en")));
     QCOMPARE(root->property("translated").toString(),QStringLiteral("Matcher: Comparing candidate movements · 125 / 1000"));
+    root->setProperty("stage",QString::fromUtf8("Матчер: Ищем совпадения персонажа · 512 / 1200"));
+    QCOMPARE(root->property("translated").toString(),QStringLiteral("Matcher: Finding character matches · 512 / 1200"));
+    root->setProperty("stage",QString::fromUtf8("Матчер: Подготавливаем найденные кандидаты · 2048 / 9000"));
+    QCOMPARE(root->property("translated").toString(),QStringLiteral("Matcher: Preparing retrieved candidates · 2048 / 9000"));
     root->setProperty("stage",QString::fromUtf8("Подготавливаем кадры для матчера · 40 / 90"));
     QCOMPARE(root->property("translated").toString(),QStringLiteral("Preparing footage for matching · 40 / 90"));
     QVERIFY(QMetaObject::invokeMethod(root.get(),"setLanguage",Q_ARG(QVariant,"ru")));

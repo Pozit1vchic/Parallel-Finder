@@ -8,7 +8,7 @@
 
 namespace pfcore {
 
-enum class MotionSearchStage { Prepare, Footage, Retrieval, Compare, Select, Camera, Recovery };
+enum class MotionSearchStage { Prepare, Footage, Retrieval, Identity, Filter, Compare, Select, Camera, Recovery };
 class MotionSearchReuse {
 public:
     // Main cache is capped at 256 MiB; an optional unused-shot recovery cache
@@ -24,7 +24,8 @@ private:
 };
 struct MotionSearchControl {
     std::function<bool()> cancelled;
-    // Called only on the search thread, never concurrently from comparison workers.
+    // Cancellation and progress callbacks run only on the search thread;
+    // workers read the search's atomic cancellation state.
     std::function<void(MotionSearchStage, std::size_t, std::size_t)> progress;
     // Optional search-local reuse across source-frame face verification.
     // Fingerprints every input except measuredFaces and checks every parameter.

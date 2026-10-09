@@ -50,6 +50,7 @@
 
 #include "pfcore/VideoDecoder.hpp"
 #include "pfcore/VideoSampleReader.hpp"
+#include "pfcore/OrderedPipeline.hpp"
 #include "pfcore/SceneDetector.hpp"
 #include <unordered_set>
 #include "pfcore/MotionMatcher.hpp"
@@ -2402,8 +2403,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
                 decoder.open(path.toStdString(), decodeOptions);
                 // Decode only the working resolution needed by pose/ReID.
-                // The separate preview decoder below remains full-resolution
-                // when the user opens an A/B result.
+                // The separate preview decoder below keeps its original
+                // 1920x1080 working size and validated CPU resize.
                 decoder.setRgbaMaxDimensions(1280, 720);
                 const auto info = decoder.info();
                 std::vector<pfcore::MotionWindow> cachedWindows;
@@ -2644,8 +2645,48 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     trackerNs += stageNow() - trackerStart;
                     previousPoseTimestamp = sample.timestamp;
                 };
+                struct PoseBatchOutput {
+                    std::vector<std::vector<pfgpu::PoseDetection>> detections;
+                    qint64 inferenceNs = 0;
+                };
+                using PosePipeline = pfcore::OrderedPipeline<std::vector<PendingPoseSample>, PoseBatchOutput>;
+                std::unique_ptr<PosePipeline> posePipeline;
+                const auto batchBytes = frameBytes * poseBatchSize;
+                const auto maxResidentBatches = kPoseBatchMemoryBudget / batchBytes;
+                const QString overlapOverride = qEnvironmentVariable("PF_ANALYSIS_POSE_OVERLAP");
+                const bool overlapPose = pose && !cpuOnly && settings.processingThreads != 1 && overlapOverride != QStringLiteral("0")
+                    && maxResidentBatches >= 3;
+                if (overlapPose) {
+                    const auto pipelineCapacity = static_cast<std::size_t>(std::min<std::uint64_t>(3, maxResidentBatches - 2));
+                    posePipeline = std::make_unique<PosePipeline>(pipelineCapacity, [&](const auto& batch) {
+                        std::vector<pfgpu::PoseImage> images; images.reserve(batch.size());
+                        for (const auto& sample : batch) images.push_back({sample.width, sample.height, sample.pixels()});
+                        const auto before = stageNow();
+                        auto detections = pose->inferBatch(images);
+                        return PoseBatchOutput{std::move(detections), stageNow() - before};
+                    }, isCancelled);
+                }
+                const auto receivePoseBatch = [&](bool wait) {
+                    if (!posePipeline) return false;
+                    PosePipeline::Result result;
+                    if (!posePipeline->receive(result, wait)) return false;
+                    poseNs += result.output.inferenceNs;
+                    for (std::size_t index = 0; index < std::min(result.input.size(), result.output.detections.size()); ++index) {
+                        if (isCancelled()) break;
+                        processPose(result.input[index], result.output.detections[index]);
+                    }
+                    return true;
+                };
                 const auto flushPoseBatch = [&] {
                     if (pendingPose.empty() || !pose) return;
+                    if (posePipeline) {
+                        while (!posePipeline->trySubmit(pendingPose)) {
+                            if (isCancelled() || !receivePoseBatch(true)) return;
+                        }
+                        pendingPose.clear();
+                        while (!isCancelled() && receivePoseBatch(false)) {}
+                        return;
+                    }
                     std::vector<pfgpu::PoseImage> images;
                     images.reserve(pendingPose.size());
                     for (const auto& sample : pendingPose)
@@ -2699,10 +2740,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     }
                     if (samplePose && !frame.rgba.empty()) {
                         const auto before = stageNow();
-                        InferenceSample inference = makeInferenceSample(frame, poseBatchSize <= 1);
+                        InferenceSample inference = makeInferenceSample(frame, poseBatchSize <= 1 && !posePipeline);
                         inferenceSampleNs += stageNow() - before;
                         if (!inference.pixels()) continue;
-                        if (poseBatchSize <= 1) {
+                        if (poseBatchSize <= 1 && !posePipeline) {
                             PendingPoseSample sample{frame.timestampSeconds, inference.width,
                                                      inference.height, poseSampleIndex,
                                                      std::move(inference.rgba), inference.borrowed};
@@ -2730,6 +2771,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         inferenceSampleNs / 1e6, sceneThumbnailNs / 1e6, requestedPoseBatch);
                 }
                 if (!isCancelled()) flushPoseBatch();
+                if (posePipeline) {
+                    posePipeline->close();
+                    while (!isCancelled() && receivePoseBatch(true)) {}
+                    posePipeline->finish();
+                    if (profilePipeline) std::fprintf(stderr, "PF_DEBUG_TIMING pose_overlap=1 peak_pose_batches=%zu\n", posePipeline->peakOutstanding());
+                }
                 const auto decodeAndInferNs = stageNow();
                 if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
                     const auto stats = decoder.diagnostics();
@@ -3255,7 +3302,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.noiseFactor = noiseFactor;
             params.maxUniqueResults = static_cast<std::size_t>(maxUniqueResults);
             params.maxComparisonThreads = settings.processingThreads == 0 ? 0
-                : std::min<std::size_t>(settings.processingThreads, 32);
+                : std::min<std::size_t>(settings.processingThreads, 256);
             params.expandedSearch = expandedSearch;
             params.timeWeight = timeWeight;
             params.minTemporalFrames = qualityProfile == QStringLiteral("fast") ? 6U
@@ -3298,6 +3345,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 lastStage=stage;searchUpdates.restart();
                 const QStringList stages={QStringLiteral("Подготавливаем поиск параллелей"),
                     QStringLiteral("Исключаем одинаковые фрагменты"),QStringLiteral("Ищем похожие движения"),
+                    QStringLiteral("Ищем совпадения персонажа"),
+                    QStringLiteral("Подготавливаем найденные кандидаты"),
                     QStringLiteral("Сравниваем найденные движения"),QStringLiteral("Выбираем уникальные параллели"),
                     QStringLiteral("Исключаем повторяющиеся ракурсы"),QStringLiteral("Ищем дополнительные параллели")};
                 const auto index=static_cast<int>(stage);
@@ -3402,7 +3451,21 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     auto& decoder = previewDecoders[request.source];
                     if (!decoder) {
                         decoder = std::make_unique<pfcore::VideoDecoder>();
-                        decoder->open(request.source);
+                        pfcore::VideoDecodeOptions options;
+                        options.threads = static_cast<int>(std::min<std::size_t>(settings.processingThreads, 8));
+                        options.maxWidth = 1920; options.maxHeight = 1080;
+                        options.minimumNvidiaPixels = 1920ULL * 1080ULL + 1;
+                        options.preferNvidia = providerChoice == QStringLiteral("cuda")
+                            || providerChoice == QStringLiteral("tensorrt")
+                            || (providerChoice == QStringLiteral("auto") && !cpuOnly && requestedProvider
+                                && (pfgpu::resolveProvider(*requestedProvider) == pfgpu::Provider::Cuda
+                                    || pfgpu::resolveProvider(*requestedProvider) == pfgpu::Provider::TensorRt));
+                        const auto override = qEnvironmentVariable("PF_VIDEO_DECODE").toLower();
+                        if (override == QStringLiteral("cpu")) options.preferNvidia = false;
+                        else if (override == QStringLiteral("nvdec")) {
+                            options.preferNvidia = true; options.minimumNvidiaPixels = 0;
+                        }
+                        decoder->open(request.source, options);
                         decoder->setRgbaMaxDimensions(1920, 1080);
                     }
                     savePreviewAt(*decoder, request.seconds,
@@ -3423,6 +3486,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 } catch (...) { previewDecoders.erase(request.source); }
             }
             if (previewWriter) previewWriter->finish(); // All PNG/cache writes complete before publication.
+            if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) for (const auto& [source, decoder] : previewDecoders) {
+                const auto stats = decoder->diagnostics();
+                std::fprintf(stderr, "PF_PREVIEW_DECODE backend=%s decoded=%llu downloads=%llu read_ms=%.1f conversion_ms=%.1f source=%s\n",
+                    stats.backend.c_str(), static_cast<unsigned long long>(stats.decodedFrames),
+                    static_cast<unsigned long long>(stats.hardwareDownloads), stats.readMilliseconds,
+                    stats.conversionMilliseconds, source.c_str());
+            }
             for (auto& request : requests)
                 if (request.encoded.valid()) request.url = request.encoded.get();
             if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))

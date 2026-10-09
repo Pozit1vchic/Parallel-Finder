@@ -584,6 +584,29 @@ TEST(VideoDecoder, RealTenBitNvidiaSeeksPreserveCpuPixels)
     }
 }
 
+TEST(VideoDecoder, RealTenBitNvidiaPreviewsPreserveFullHdPixelsAndPts)
+{
+    const auto path=qEnvironmentVariable("PF_TEST_10BIT_SOURCE");
+    if(path.isEmpty())GTEST_SKIP()<<"Opt-in real 10-bit NVIDIA preview source";
+    pfcore::VideoDecodeOptions options;options.maxWidth=1920;options.maxHeight=1080;
+    pfcore::VideoDecoder cpu,gpu;cpu.open(path.toStdString(),options);
+    options.preferNvidia=true;gpu.open(path.toStdString(),options);
+    ASSERT_EQ(gpu.diagnostics().backend,"nvdec")<<gpu.diagnostics().fallbackReason;
+    pfcore::DecodedFrame a,b;
+    // Reversed seeks reproduce the nonchronological result preview ordering.
+    for(const auto fraction:{.95,.70,.45,.20,.05,0.}) {
+        const auto target=fraction*cpu.info().durationSeconds;
+        cpu.seek(target);gpu.seek(target);
+        do {ASSERT_TRUE(cpu.readNext(a,false));}while(a.timestampSeconds+1e-3<target);
+        do {ASSERT_TRUE(gpu.readNext(b,false));}while(b.timestampSeconds+1e-3<target);
+        ASSERT_EQ(a.timestampSeconds,b.timestampSeconds);
+        ASSERT_TRUE(cpu.convertCurrentFrameToRgba(a));
+        ASSERT_TRUE(gpu.convertCurrentFrameToRgba(b));
+        ASSERT_EQ(a.width,1920);ASSERT_EQ(a.height,1080);
+        ASSERT_EQ(a.rgba,b.rgba)<<"preview target="<<target;
+    }
+}
+
 } // namespace
 
 TEST(VideoDecoder, ParallelSceneViewsMatchSerialPixelsAndKeepCallbacksOnCaller)
