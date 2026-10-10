@@ -300,6 +300,75 @@ TEST(MontageExport, CancellationPreservesDestinationAndRemovesStaging)
     EXPECT_TRUE(QDir(temporary.path()).entryList({".parallelfinder-montage-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
 }
 
+TEST(MontageExport, LosslessClipsAndCombinedVideoKeepOriginalVideoAndAudioPackets)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    const auto ffprobe = QStandardPaths::findExecutable("ffprobe");
+    ASSERT_FALSE(ffmpeg.isEmpty()); ASSERT_FALSE(ffprobe.isEmpty());
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    const auto source = directory.filePath("original.mp4");
+    QProcess generator;
+    generator.start(ffmpeg, {"-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=24:d=4",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-f", "lavfi", "-i", "sine=frequency=660:duration=4",
+        "-map", "0:v", "-map", "1:a", "-map", "2:a", "-c:v", "libx264", "-g", "24", "-threads", "2",
+        "-c:a", "aac", "-shortest", source});
+    ASSERT_TRUE(generator.waitForFinished(30000)); ASSERT_EQ(generator.exitCode(), 0);
+    const auto packets = [&](const QString& path) {
+        QProcess probe;
+        probe.start(ffprobe, {"-v", "error", "-show_packets", "-show_data_hash", "sha256",
+            "-show_entries", "packet=stream_index,data_hash", "-of", "json", path});
+        if (!probe.waitForFinished(30000) || probe.exitCode() != 0) return QJsonArray{};
+        return QJsonDocument::fromJson(probe.readAllStandardOutput()).object().value("packets").toArray();
+    };
+    const auto original = packets(source); ASSERT_FALSE(original.isEmpty());
+    const auto checkOriginalPackets = [&](const QString& path) {
+        const auto copied = packets(path); ASSERT_FALSE(copied.isEmpty());
+        std::set<int> streams;
+        for (const auto& packet : copied) {
+            const auto value = packet.toObject();
+            streams.insert(value.value("stream_index").toInt());
+            EXPECT_TRUE(std::any_of(original.begin(), original.end(), [&](const auto& candidate) {
+                const auto encoded = candidate.toObject();
+                return encoded.value("stream_index") == value.value("stream_index")
+                    && encoded.value("data_hash") == value.value("data_hash");
+            })) << "Export modified an encoded video/audio packet";
+        }
+        EXPECT_EQ(streams.size(), 3u); // video and both original audio tracks
+        pfcore::VideoDecoder decoder; decoder.open(path.toStdString());
+        pfcore::DecodedFrame frame; EXPECT_TRUE(decoder.readNext(frame));
+        EXPECT_EQ(decoder.info().width, 640); EXPECT_EQ(decoder.info().height, 360);
+    };
+    pfservices::CutRequest a, b;
+    a.inputPath = b.inputPath = source.toStdWString();
+    a.startSeconds = .5; a.endSeconds = 1.2; a.mode = pfservices::CutMode::Fast;
+    b.startSeconds = 2.5; b.endSeconds = 3.2; b.mode = pfservices::CutMode::Fast;
+    const auto clip = directory.filePath("clip.mp4"); a.outputPath = clip.toStdWString();
+    const auto cut = pfservices::CutService(ffmpeg.toStdString()).cut(a);
+    ASSERT_TRUE(cut.success) << cut.error; EXPECT_EQ(cut.encoder, "copy"); checkOriginalPackets(clip);
+    const auto combined = directory.filePath("combined.mp4");
+    const auto montage = pfservices::exportChronologicalMontage({b, a, b}, combined.toStdWString(), {}, {}, ffmpeg.toStdString());
+    ASSERT_TRUE(montage.success) << montage.error; checkOriginalPackets(combined);
+}
+
+TEST(MontageExport, LosslessRejectsIncompatibleSourcesWithoutReplacingDestination)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg"); ASSERT_FALSE(ffmpeg.isEmpty());
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    const auto other = directory.filePath("other.mp4");
+    QProcess generator;
+    generator.start(ffmpeg, {"-v", "error", "-f", "lavfi", "-i", "color=s=160x90:r=24:d=1", "-c:v", "libx264", other});
+    ASSERT_TRUE(generator.waitForFinished(30000)); ASSERT_EQ(generator.exitCode(), 0);
+    pfservices::CutRequest a, b;
+    a.inputPath = std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4";
+    b.inputPath = other.toStdWString(); a.endSeconds = b.endSeconds = .2;
+    a.mode = b.mode = pfservices::CutMode::Fast;
+    const auto output = directory.filePath("keep.mp4");
+    { QFile file(output); ASSERT_TRUE(file.open(QIODevice::WriteOnly)); file.write("previous"); }
+    const auto result = pfservices::exportChronologicalMontage({a, b}, output.toStdWString(), {}, {}, ffmpeg.toStdString());
+    EXPECT_FALSE(result.success); EXPECT_NE(result.error.find("compatible"), std::string::npos);
+    QFile file(output); ASSERT_TRUE(file.open(QIODevice::ReadOnly)); EXPECT_EQ(file.readAll(), "previous");
+}
+
 TEST(MontageExport, RejectsEmptyRequestsAndSourceReplacement)
 {
     QTemporaryDir temporary;
@@ -532,6 +601,69 @@ TEST(ExportQueue, CancellationLeavesRemainingJobsUnstarted)
         [&](std::size_t, std::size_t) { stop.request_stop(); }, "nonexistent-ffmpeg");
     EXPECT_EQ(result.completed.size(), 1u);
     EXPECT_TRUE(result.cancelled);
+}
+
+TEST(ExportQueue, PreparesEachClipOnlyAfterThePreviousClipIsWritten)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    ASSERT_FALSE(ffmpeg.isEmpty());
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    std::vector<pfservices::CutRequest> jobs(3);
+    int prepared = 0;
+    for (std::size_t i = 0; i < jobs.size(); ++i) {
+        auto& request = jobs[i];
+        request.inputPath = std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4";
+        request.outputPath = directory.filePath(QString::number(i) + ".mp4").toStdWString();
+        request.endSeconds = 1;
+        request.prepare = [&, i](pfservices::CutRequest& clip) {
+            EXPECT_EQ(prepared++, static_cast<int>(i));
+            if (i) { EXPECT_TRUE(std::filesystem::exists(jobs[i - 1].outputPath)); }
+            EXPECT_FALSE(std::filesystem::exists(jobs.back().outputPath));
+            clip.endSeconds = .2;
+            clip.progress = [](double seconds) { EXPECT_LE(seconds, .2); };
+        };
+    }
+    const auto result = pfservices::runExportQueue(jobs, {}, {}, ffmpeg.toStdString());
+    ASSERT_EQ(result.completed.size(), jobs.size());
+    for (const auto& clip : result.completed) ASSERT_TRUE(clip.success) << clip.error;
+    EXPECT_EQ(prepared, 3);
+}
+
+TEST(CutService, CancellationDuringPreparationNeverStartsEncoder)
+{
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    std::stop_source stop;
+    pfservices::CutRequest request;
+    request.inputPath = std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4";
+    request.outputPath = directory.filePath("cancelled.mp4").toStdWString();
+    request.endSeconds = 1;
+    request.stopToken = stop.get_token();
+    request.prepare = [&](pfservices::CutRequest&) { stop.request_stop(); };
+    const auto result = pfservices::CutService("nonexistent-ffmpeg").cut(request);
+    EXPECT_TRUE(result.cancelled);
+    EXPECT_TRUE(result.executable.empty());
+    EXPECT_FALSE(std::filesystem::exists(request.outputPath));
+}
+
+TEST(ExportQueue, ReusesIdenticalCutsButKeepsSeparateNumberedFiles)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg"); ASSERT_FALSE(ffmpeg.isEmpty());
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    std::vector<pfservices::CutRequest> jobs(3);
+    for (std::size_t i = 0; i < jobs.size(); ++i) {
+        jobs[i].inputPath = std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4";
+        jobs[i].outputPath = directory.filePath(QString::number(i) + ".mp4").toStdWString();
+        jobs[i].endSeconds = .2;
+    }
+    jobs[2].quality = 22;
+    const auto result = pfservices::runExportQueue(jobs, {}, {}, ffmpeg.toStdString());
+    ASSERT_EQ(result.completed.size(), 3u);
+    for (const auto& cut : result.completed) ASSERT_TRUE(cut.success) << cut.error;
+    EXPECT_FALSE(result.completed[0].reused); EXPECT_TRUE(result.completed[1].reused); EXPECT_FALSE(result.completed[2].reused);
+    QFile first(QString::fromStdWString(jobs[0].outputPath.wstring()));
+    QFile second(QString::fromStdWString(jobs[1].outputPath.wstring()));
+    ASSERT_TRUE(first.open(QIODevice::ReadOnly)); ASSERT_TRUE(second.open(QIODevice::ReadOnly));
+    EXPECT_EQ(first.readAll(), second.readAll());
 }
 
 TEST(CutService, CancellationStopsAnActiveEncoderAndCleansTemporaryOutput)

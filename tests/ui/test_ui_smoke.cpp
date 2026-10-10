@@ -91,6 +91,9 @@ private slots:
     void resultArrowKeysWorkAfterSourceButtonFocus();
     void selectsAllResultsWithoutDisplayLimit();
     void exportModesAreSelectable();
+    void exportReopenClearsCancelledStatus();
+    void clearColorsRespectsSelectionAndVisibleRows();
+    void largeExportBackdropKeepsWorkspaceGeometry();
     void advancedOpensOnFirstClickAndStatusTranslates();
     void directMlDownloadIntegration();
     void cacheFolderAcceptsLocalFileUrls();
@@ -1156,7 +1159,7 @@ void UiSmokeTests::appearanceRefreshesBackdropBeforeClosing()
     auto* window=loadWindow(engine); QVERIFY(window);
     auto* popup=window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
     auto* button=window->findChild<QQuickItem*>("sourcePrimaryAction"); QVERIFY(button);
-    auto* refresh=window->findChild<QObject*>("modalBackdropRefresh"); QVERIFY(refresh);
+    QVERIFY(!window->findChild<QObject*>("modalBackdropSnapshot"));
     QEventLoop loop;
     const auto wait=[&](int milliseconds) { QTimer::singleShot(milliseconds,&loop,&QEventLoop::quit); loop.exec(); };
     wait(1500);
@@ -1172,7 +1175,6 @@ void UiSmokeTests::appearanceRefreshesBackdropBeforeClosing()
     QVERIFY(QMetaObject::invokeMethod(popup,"applyAccent",Q_ARG(QVariant,"blue")));
     wait(250);
     QVERIFY(popup->property("visible").toBool());
-    QVERIFY(!refresh->property("running").toBool());
     const auto after=sample();
     qInfo()<<"Backdrop color while settings remain open:"<<before<<after;
     QVERIFY2(after.blue()>after.red(),"Background must show the newly selected blue accent before closing settings");
@@ -1579,6 +1581,84 @@ void UiSmokeTests::exportModesAreSelectable()
     const auto capture = qEnvironmentVariable("PF_UI_CAPTURE_DIR");
     if (!capture.isEmpty()) { QDir().mkpath(capture); QTest::qWait(150); QVERIFY(window->grabWindow().save(capture + "/montage-export.png")); }
     merge->setProperty("checked", false);
+    auto* quality = popup->findChild<QObject*>("exportQualityMode"); QVERIFY(quality);
+    quality->setProperty("currentIndex", 4);
+    QVERIFY(QMetaObject::invokeMethod(quality, "activated", Q_ARG(int, 4)));
+    QVERIFY(popup->property("losslessExport").toBool());
+    QCOMPARE(popup->property("selectedCutMode").toInt(), 1);
+    merge->setProperty("checked", true);
+    QCOMPARE(popup->property("selectedCutMode").toInt(), 1);
+    QVERIFY(quality->property("enabled").toBool()); // Can switch back from lossless.
+    QVERIFY(QMetaObject::invokeMethod(quality, "activated", Q_ARG(int, 1)));
+    QCOMPARE(popup->property("selectedCutMode").toInt(), 0);
+}
+
+void UiSmokeTests::exportReopenClearsCancelledStatus()
+{
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    auto* window = loadWindow(engine); QVERIFY(window);
+    auto* popup = window->findChild<QObject*>("exportDialog"); QVERIFY(popup);
+    QVERIFY(QMetaObject::invokeMethod(popup, "open"));
+    QTRY_VERIFY(popup->property("opened").toBool());
+    pfui::AnalysisController::instance()->exportFinished(false, "export cancelled");
+    QCOMPARE(popup->property("exportStatus").toString(), QString("export cancelled"));
+    QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+    QTRY_VERIFY(!popup->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(popup, "open"));
+    QTRY_VERIFY(popup->property("opened").toBool());
+    QVERIFY(popup->property("exportStatus").toString().isEmpty());
+}
+
+void UiSmokeTests::clearColorsRespectsSelectionAndVisibleRows()
+{
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    auto* window = loadWindow(engine); QVERIFY(window);
+    auto* rail = window->findChild<QObject*>("resultsRail"); QVERIFY(rail);
+    rail->setProperty("results", QVariantList{
+        QVariantMap{{"id", 0}, {"categoryColor", "#d56565"}},
+        QVariantMap{{"id", 1}, {"categoryColor", "#638edb"}},
+        QVariantMap{{"id", 2}},
+        QVariantMap{{"id", 3}, {"categoryColor", "#d56565"}, {"hidden", true}}});
+    QSignalSpy requested(rail, SIGNAL(clearColorsRequested(QVariant))); QVERIFY(requested.isValid());
+    rail->setProperty("selectedRows", QVariantMap{{"0", true}, {"2", true}});
+    QVERIFY(QMetaObject::invokeMethod(rail, "clearColors"));
+    QCOMPARE(requested.takeFirst().at(0).value<QJSValue>().toVariant().toList(), QVariantList{0});
+    rail->setProperty("selectedRows", QVariantMap{});
+    QVERIFY(QMetaObject::invokeMethod(rail, "clearColors"));
+    const auto ids = requested.takeFirst().at(0).value<QJSValue>().toVariant().toList();
+    QCOMPARE(ids.size(), 2); QVERIFY(ids.contains(0)); QVERIFY(ids.contains(1));
+}
+
+void UiSmokeTests::largeExportBackdropKeepsWorkspaceGeometry()
+{
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    auto* window = loadWindow(engine); QVERIFY(window);
+    auto* rail = window->findChild<QQuickItem*>("resultsRail"); QVERIFY(rail);
+    auto* sources = window->findChild<QQuickItem*>("sourcesRail"); QVERIFY(sources);
+    auto* popup = window->findChild<QObject*>("exportDialog"); QVERIFY(popup);
+    auto* backdrop = window->findChild<QQuickItem*>("modalBackdrop"); QVERIFY(backdrop);
+    QVERIFY(!window->findChild<QObject*>("modalBackdropSnapshot"));
+    QVariantList records; QVariantMap selected;
+    for (int i = 0; i < 600; ++i) {
+        records.push_back(QVariantMap{{"id", i}, {"similarity", .8}, {"categoryColor", "#d56565"}});
+        selected.insert(QString::number(i), true);
+    }
+    rail->setProperty("results", records);
+    popup->setProperty("results", records); popup->setProperty("selectedRows", selected);
+    QVERIFY(QMetaObject::invokeMethod(popup, "open"));
+    QTRY_VERIFY(popup->property("opened").toBool());
+    window->resize(3440, 1440); QTest::qWait(400);
+    QCOMPARE(backdrop->width(), window->contentItem()->width());
+    QCOMPARE(backdrop->height(), window->contentItem()->height());
+    QVERIFY(!QQmlProperty(backdrop, "layer.enabled").read().toBool());
+    QVERIFY(sources->width() <= 310); QVERIFY(rail->width() <= 310);
+    const auto before = sources->mapToScene(QPointF());
+    const auto capture = qEnvironmentVariable("PF_UI_CAPTURE_DIR");
+    if (!capture.isEmpty()) { QDir().mkpath(capture); QVERIFY(window->grabWindow().save(capture + "/export-ultrawide-600.png")); }
+    QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+    QTRY_VERIFY(!popup->property("visible").toBool());
+    QCOMPARE(sources->mapToScene(QPointF()), before);
+    if (!capture.isEmpty()) QVERIFY(window->grabWindow().save(capture + "/workspace-ultrawide-600.png"));
 }
 
 void UiSmokeTests::advancedOpensOnFirstClickAndStatusTranslates()

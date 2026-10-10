@@ -45,6 +45,7 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(int exportCompleted READ exportCompleted NOTIFY exportProgressChanged)
     Q_PROPERTY(int exportTotal READ exportTotal NOTIFY exportProgressChanged)
     Q_PROPERTY(int exportClipProgress READ exportClipProgress NOTIFY exportProgressChanged)
+    Q_PROPERTY(QString exportStage READ exportStage NOTIFY exportProgressChanged)
     Q_PROPERTY(bool analysisCompleted READ analysisCompleted NOTIFY analysisStateChanged)
     Q_PROPERTY(QString providerChoice READ providerChoice WRITE setProviderChoice NOTIFY settingsChanged)
     Q_PROPERTY(QString qualityProfile READ qualityProfile WRITE setQualityProfile NOTIFY settingsChanged)
@@ -100,6 +101,7 @@ public:
     int exportCompleted() const noexcept { return exportCompleted_; }
     int exportTotal() const noexcept { return exportTotal_; }
     int exportClipProgress() const noexcept { return exportClipProgress_; }
+    QString exportStage() const { return exportStage_; }
     Q_INVOKABLE void cancelExport() { exportWorker_.request_stop(); }
     bool busy() const noexcept { return busy_; }
     bool analysisCompleted() const noexcept { return analysisCompleted_; }
@@ -239,6 +241,7 @@ private:
     bool exportBusy_ = false;
     int exportCompleted_ = 0;
     int exportClipProgress_ = 0;
+    QString exportStage_;
     int exportTotal_ = 0;
     // Declared after the state it accesses: stops/joins before state destruction.
     std::jthread exportWorker_;

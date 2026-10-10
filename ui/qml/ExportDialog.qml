@@ -9,15 +9,16 @@ Popup {
     id: root
     objectName: "exportDialog"
     property bool backdropClosing: false
-    onAboutToShow: { backdropClosing = false; centerInWindow(); Qt.callLater(restoreQualityChoice) }
+    onAboutToShow: { backdropClosing = false; if (!Analysis.exportBusy) exportStatus = ""; centerInWindow(); Qt.callLater(restoreQualityChoice) }
     onAboutToHide: backdropClosing = true
     property int qualityChoice: 1
     function restoreQualityChoice() { qualityMode.currentIndex = qualityChoice }
-    readonly property int encodingQuality: [14, 18, 22, 18][qualityChoice]
+    readonly property int encodingQuality: [14, 18, 22, 18, 18][qualityChoice]
+    readonly property bool losslessExport: qualityChoice === 4
     readonly property int videoBitrateKbps: qualityChoice === 3 ? Math.round(Number(bitrateField.text.replace(",", ".")) * 1000) : 0
     readonly property bool qualityValid: qualityChoice !== 3 || (isFinite(videoBitrateKbps) && videoBitrateKbps >= 1000 && videoBitrateKbps <= 500000)
     readonly property int selectedNumbering: exportNumbering.currentIndex
-    readonly property int selectedCutMode: mergeChronological ? 0 : cutMode.currentIndex
+    readonly property int selectedCutMode: losslessExport ? 1 : mergeChronological ? 0 : cutMode.currentIndex
     readonly property bool mergeChronological: selectedFormat === "FFMPEG" && mergeCheck.checked
     readonly property string selectedFormat: ["FFMPEG", "JSON", "CSV", "TXT"][exportFormat.currentIndex] || "FFMPEG"
     readonly property string fileBaseName: prefixField.text
@@ -83,7 +84,20 @@ Popup {
             root.outputFolder = root.localFolderPath(selectedFolder)
         }
     }
-    Connections { target: Analysis; function onExportFinished(success, message) { root.exportStatus = message; if (success) root.close() } }
+    Connections {
+        target: Analysis
+        function onExportBusyChanged() { if (Analysis.exportBusy) root.exportStatus = "" }
+        function onExportFinished(success, message) { root.exportStatus = message; if (success) root.close() }
+    }
+    function startExport() {
+        root.exportStatus = ""
+        Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological, root.colorOrder, root.encodingQuality, root.selectedFormat === "FFMPEG" && root.selectedCutMode === 0 ? root.videoBitrateKbps : 0)
+    }
+    readonly property string runningLabel: Analysis.exportStage === "preparing"
+        ? (L10n.language === "ru" ? "Подготовка клипа…" : "Preparing clip…")
+        : Analysis.exportStage === "finalizing"
+            ? (L10n.language === "ru" ? "Сборка ролика…" : "Assembling video…")
+            : L10n.t("export.running")
     function selectedIndexes() {
         const selected = root.results.filter(function(row) { return root.selectedRows[row.id] === true && !row.hidden }).map(function(row) { return Number(row.id) })
         const ordered = selectionOrder.filter(function(id) { return selected.indexOf(Number(id)) >= 0 }).map(Number)
@@ -177,9 +191,9 @@ Popup {
             }
         ComboBox { id: exportNumbering; visible: false; model: [0, 1]; currentIndex: 0 }
         Text { font.family: Theme.fontFamily; text: L10n.t("export.cutMode"); color: Theme.textSecondary; font.pixelSize: 11 }
-        Row { width: parent.width; spacing: 8; enabled: !root.mergeChronological
-            PfButton { width: (parent.width - 8) / 2; objectName: "exactCutButton"; text: L10n.t("export.exact"); selected: cutMode.currentIndex === 0; onClicked: cutMode.currentIndex = 0 }
-            PfButton { width: (parent.width - 8) / 2; objectName: "fastCutButton"; text: L10n.t("export.fast"); selected: cutMode.currentIndex === 1; onClicked: cutMode.currentIndex = 1 }
+        Row { width: parent.width; spacing: 8; enabled: !root.mergeChronological && !root.losslessExport && !Analysis.exportBusy
+            PfButton { width: (parent.width - 8) / 2; objectName: "exactCutButton"; text: L10n.t("export.exact"); selected: root.selectedCutMode === 0; onClicked: cutMode.currentIndex = 0 }
+            PfButton { width: (parent.width - 8) / 2; objectName: "fastCutButton"; text: L10n.t("export.fast"); selected: root.selectedCutMode === 1; onClicked: cutMode.currentIndex = 1 }
         }
         ComboBox { id: cutMode; visible: false; model: [0, 1]; currentIndex: 0 }
         Column {
@@ -191,8 +205,8 @@ Popup {
                 Component.onCompleted: Qt.callLater(root.restoreQualityChoice)
                 onModelChanged: Qt.callLater(root.restoreQualityChoice)
                 onActivated: function(index) { root.qualityChoice = index }
-                enabled: root.selectedCutMode === 0
-                model: L10n.language === "ru" ? ["Максимальное", "Высокое · рекомендуется", "Баланс качества и размера", "Свой битрейт"] : ["Maximum", "High · recommended", "Balance quality and size", "Custom bitrate"]
+                enabled: root.selectedCutMode === 0 || root.losslessExport
+                model: L10n.language === "ru" ? ["Максимальное", "Высокое · рекомендуется", "Баланс качества и размера", "Свой битрейт", "Без потери качества · без перекодирования"] : ["Maximum", "High · recommended", "Balance quality and size", "Custom bitrate", "No quality loss · no re-encoding"]
             }
             Row {
                 width: parent.width; spacing: 8; visible: root.selectedCutMode === 0 && qualityChoice === 3
@@ -202,7 +216,7 @@ Popup {
             Text {
                 width: parent.width; wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11
                 text: root.selectedCutMode === 1
-                    ? (L10n.language === "ru" ? "Быстрый режим копирует исходное видео без перекодирования и потери качества; границы зависят от ключевых кадров." : "Fast mode copies the original video without re-encoding or quality loss; boundaries depend on keyframes.")
+                    ? (L10n.language === "ru" ? "Исходные видео и звук копируются без перекодирования и потери качества; границы зависят от ключевых кадров. Для общего ролика параметры исходников должны совпадать." : "Original video and audio are copied without re-encoding or quality loss; boundaries depend on keyframes. A combined video requires compatible source streams.")
                     : (L10n.language === "ru" ? "Разрешение сохраняется. Высокое качество — по умолчанию; максимальное увеличивает размер файла. Битрейт — целевой, итоговый зависит от сцены. При перекодировании возможны потери." : "Source resolution is preserved. High quality is the default; maximum increases file size. Bitrate is a target and varies with the scene. Re-encoding can introduce loss.")
             }
         }
@@ -214,13 +228,15 @@ Popup {
         Text { font.family: Theme.fontFamily;
             width: parent.width
             text: root.exportStatus || (root.selectedFormat === "FFMPEG"
-                ? L10n.t(root.mergeChronological ? "export.mergeHint" : "export.ffmpegHint")
+                ? (root.mergeChronological && root.selectedCutMode === 1
+                    ? (L10n.language === "ru" ? "Один MP4 по таймкодам без перекодирования видео и звука. Точные дубликаты исключаются. Несовместимые исходники не перекодируются автоматически." : "One chronological MP4 without re-encoding video or audio. Exact duplicates are excluded. Incompatible sources are never automatically re-encoded.")
+                    : L10n.t(root.mergeChronological ? "export.mergeHint" : "export.ffmpegHint"))
                 : L10n.t("export.hint"))
             color: root.exportStatus ? Theme.accent : Theme.textSecondary
             font.pixelSize: 11
             wrapMode: Text.WordWrap
         }
-        PfButton { width: parent.width; primary: true; text: Analysis.exportBusy ? L10n.t("export.running") + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal + " · " + Analysis.exportClipProgress + "%" : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && (root.selectedFormat !== "FFMPEG" || root.selectedCutMode === 1 || root.qualityValid) && root.selectedIndexes().length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological, root.colorOrder, root.encodingQuality, root.selectedFormat === "FFMPEG" && root.selectedCutMode === 0 ? root.videoBitrateKbps : 0) }
+        PfButton { objectName: "startExportButton"; width: parent.width; primary: true; text: Analysis.exportBusy ? root.runningLabel + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal + (Analysis.exportStage === "preparing" ? "" : " · " + Analysis.exportClipProgress + "%") : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && (root.selectedFormat !== "FFMPEG" || root.selectedCutMode === 1 || root.qualityValid) && root.selectedIndexes().length > 0 && root.outputFolder.length > 0; onClicked: root.startExport() }
         PfButton { width: parent.width; visible: Analysis.exportBusy; text: L10n.t("export.cancel"); onClicked: Analysis.cancelExport() }
         }
     }
@@ -231,4 +247,9 @@ Popup {
         root.y = Math.round((rootWindow.height - root.height) / 2)
     }
     onOpened: { refreshColors(); centerInWindow() }
+    Connections {
+        target: root.rootWindow
+        function onWidthChanged() { if (root.visible) Qt.callLater(root.centerInWindow) }
+        function onHeightChanged() { if (root.visible) Qt.callLater(root.centerInWindow) }
+    }
 }

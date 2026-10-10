@@ -17,6 +17,7 @@ Rectangle {
     signal resultSelected(int index)
     signal exportRequested(var rows)
     signal pairColorRequested(int index, string name, string color)
+    signal clearColorsRequested(var ids)
     signal pairReviewRequested(int index, string field, bool value)
     signal findingsRequested()
     signal undoRequested()
@@ -117,6 +118,10 @@ Rectangle {
     }
 
     function clearSelection() { exportSelectionChanged({}) }
+    readonly property var coloredSelectionIds: visibleResults.filter(function(row) {
+        return !!row.categoryColor && (selectedCount === 0 || selectedRows[row.id] === true)
+    }).map(function(row) { return Number(row.id) })
+    function clearColors() { clearColorsRequested(coloredSelectionIds) }
 
     function sceneSimilarity(item) {
         return Number(item.sceneSimilarity !== undefined ? item.sceneSimilarity : 0)
@@ -266,6 +271,17 @@ Rectangle {
             spacing: 6
             PfButton { objectName: "selectAllResultsButton"; Layout.fillWidth: true; quiet: true; enabled: root.selectedCount < root.visibleResults.length; text: L10n.t("results.selectAll"); onClicked: root.selectAll() }
             PfButton { objectName: "clearResultsSelectionButton"; Layout.fillWidth: true; quiet: true; enabled: root.selectedCount > 0; text: L10n.t("results.clearSelection"); onClicked: root.clearSelection() }
+        }
+        PfButton {
+            objectName: "clearResultsColorsButton"; Layout.fillWidth: true; quiet: true; compact: true
+            visible: root.results.length > 0
+            enabled: root.coloredSelectionIds.length > 0 && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
+            text: L10n.language === "ru" ? "Снять цвет" : "Clear color"
+            ToolTip.visible: hovered
+            ToolTip.text: root.selectedCount > 0
+                ? (L10n.language === "ru" ? "Снять цвет с выбранных пар" : "Clear color from selected pairs")
+                : (L10n.language === "ru" ? "Снять цвет со всех видимых пар" : "Clear color from all visible pairs")
+            onClicked: root.clearColors()
         }
 
         TextField {

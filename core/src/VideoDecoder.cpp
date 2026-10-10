@@ -425,6 +425,36 @@ void VideoDecoder::open(const std::string& path, VideoDecodeOptions options)
         try { impl_->metadata.rotationDegrees = std::stod(rotate->value); }
         catch (const std::exception&) { /* malformed metadata: keep zero */ }
     }
+    auto& signature = impl_->metadata.streamCopySignature;
+    const auto appendNumber = [&](auto value) { signature += std::to_string(value) + ";"; };
+    const auto appendStream = [&](const AVStream* candidate) {
+        const auto* parameters = candidate->codecpar;
+        for (const auto value : {int(parameters->codec_type), int(parameters->codec_id),
+             parameters->format, parameters->profile, parameters->level,
+             parameters->width, parameters->height, parameters->sample_rate,
+             parameters->ch_layout.nb_channels, int(parameters->field_order),
+             int(parameters->color_range), int(parameters->color_primaries),
+             int(parameters->color_trc), int(parameters->color_space),
+             candidate->time_base.num, candidate->time_base.den}) appendNumber(value);
+        char layout[256]{};
+        av_channel_layout_describe(&parameters->ch_layout, layout, sizeof(layout));
+        signature += std::string(layout) + ";";
+        appendNumber(parameters->extradata_size);
+        if (parameters->extradata_size > 0)
+            signature.append(reinterpret_cast<const char*>(parameters->extradata), parameters->extradata_size);
+        appendNumber(parameters->nb_coded_side_data);
+        for (int i = 0; i < parameters->nb_coded_side_data; ++i) {
+            const auto& side = parameters->coded_side_data[i];
+            appendNumber(int(side.type)); appendNumber(side.size);
+            signature.append(reinterpret_cast<const char*>(side.data), side.size);
+        }
+    };
+    appendNumber(impl_->metadata.frameRate);
+    appendNumber(impl_->metadata.sampleAspectRatio);
+    appendNumber(impl_->metadata.rotationDegrees);
+    appendStream(stream);
+    for (unsigned i = 0; i < format->nb_streams; ++i)
+        if (format->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) appendStream(format->streams[i]);
     // Keep source metadata intact: export/preview still refer to the original.
     // Rotated/anamorphic and unvalidated color formats retain the CPU path.
     bool openedHardware = false;

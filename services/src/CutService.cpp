@@ -96,8 +96,9 @@ std::vector<std::string> CutService::videoEncodingArguments(
     return args;
 }
 
-CutResult CutService::cut(const CutRequest& request) const
+CutResult CutService::cut(const CutRequest& inputRequest) const
 {
+    auto request = inputRequest;
     CutResult result;
     if (ffmpegExecutable_.empty()) {
         result.error = "ffmpeg executable is empty";
@@ -107,6 +108,15 @@ CutResult CutService::cut(const CutRequest& request) const
         result.cancelled = true;
         result.error = "export cancelled";
         return result;
+    }
+    if (request.prepare) {
+        auto prepare = std::move(request.prepare);
+        prepare(request);
+        if (request.stopToken.stop_requested()) {
+            result.cancelled = true;
+            result.error = "export cancelled";
+            return result;
+        }
     }
     if (request.inputPath.empty() || request.outputPath.empty()) {
         result.error = "input and output paths are required";

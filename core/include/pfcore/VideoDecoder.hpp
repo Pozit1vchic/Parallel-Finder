@@ -16,6 +16,9 @@ struct VideoInfo {
     double rotationDegrees = 0.0;
     bool variableFrameRate = false;
     bool hasAudio = false;
+    // Primary video and all audio codec parameters, including initialization
+    // data. Equal signatures allow conservative stream-copy concatenation.
+    std::string streamCopySignature;
 };
 
 struct DecodedFrame {

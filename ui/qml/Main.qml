@@ -203,6 +203,7 @@ ApplicationWindow {
                     onExportSelectionChanged: function(rows) { root.selectedExportRows = rows }
                     onResultSelected: function(index) { root.selectResult(index) }
                     onPairColorRequested: function(index, name, color) { Analysis.setResultCategories(root.actionIds(index), name, color) }
+                    onClearColorsRequested: function(ids) { Analysis.setResultCategories(ids, "", "") }
                     onPairReviewRequested: function(index, field, value) { root.reviewPairs(index, field, value) }
                     onUndoRequested: root.runReviewAction("undo")
                     onFindingsRequested: root.openFindings()
@@ -213,53 +214,13 @@ ApplicationWindow {
         }
         }
     }
-    // Keep the live workspace at its native resolution. Only the cached
-    // backdrop fades, so hairlines never switch between two rasterizations.
-    ShaderEffectSource {
-        id: backdropSnapshot
-        objectName: "modalBackdropSnapshot"
-        anchors.fill: parent
-        // Capture the contents rather than their entrance transform/opacity.
-        sourceItem: modalBackdrop.visible ? workspaceContents : null
-        live: false
-        hideSource: false
-        visible: false
-        textureSize: Qt.size(root.width, root.height)
-    }
-    // Theme controls animate their colors for a short, finite period. Refresh
-    // through that period, then leave the backdrop cached while the dialog idles.
-    Timer {
-        id: backdropRefresh
-        objectName: "modalBackdropRefresh"
-        property int framesRemaining: 0
-        interval: 16
-        repeat: true
-        function refreshAppearance() {
-            if (!modalBackdrop.visible) return
-            framesRemaining = Math.ceil(Theme.motionDuration / interval) + 2
-            restart()
-            backdropSnapshot.scheduleUpdate()
-        }
-        onTriggered: {
-            if (!modalBackdrop.visible || --framesRemaining <= 0) stop()
-            else backdropSnapshot.scheduleUpdate()
-        }
-    }
-    Connections {
-        target: Theme
-        function onAccentChanged() { backdropRefresh.refreshAppearance() }
-        function onFontFamilyChanged() { backdropRefresh.refreshAppearance() }
-        function onSurfaceOpacityChanged() { backdropRefresh.refreshAppearance() }
-        function onReducedMotionChanged() { backdropRefresh.refreshAppearance() }
-    }
-    Connections {
-        target: L10n
-        function onLanguageChanged() { backdropRefresh.refreshAppearance() }
-    }
-    MultiEffect {
+    // Dim the live workspace without capturing or scaling it. Cached blur
+    // textures stretch after maximization and waste GPU memory on large screens.
+    Rectangle {
         id: modalBackdrop
         objectName: "modalBackdrop"
         anchors.fill: parent
+        color: "#99000000"
         property bool active: (settingsDialog.visible && !settingsDialog.backdropClosing)
             || (exportDialog.visible && !exportDialog.backdropClosing)
             || (updateDialog.visible && !updateDialog.backdropClosing)
@@ -267,23 +228,10 @@ ApplicationWindow {
             || (findingsDialog.visible && !findingsDialog.backdropClosing)
         property bool warming: !root.startupPresented
         property bool prepared: true
-        source: backdropSnapshot
-        blurEnabled: true
-        blurMax: 12
-        blur: 1
-        colorization: 0.6
-        colorizationColor: "black"
         opacity: warming ? 1 : active ? 1 : 0
         visible: opacity > 0 && GraphicsInfo.api !== GraphicsInfo.Software
-        // Cache the finished blur; transition frames composite one texture.
-        layer.enabled: visible
-        onVisibleChanged: {
-            if (visible) Qt.callLater(function() { backdropSnapshot.scheduleUpdate() })
-            else backdropRefresh.stop()
-        }
-        onActiveChanged: if (active) backdropSnapshot.scheduleUpdate()
         onWarmingChanged: {
-            if (warming) { prepared = false; backdropSnapshot.scheduleUpdate() }
+            if (warming) prepared = false
             else Qt.callLater(function() { modalBackdrop.prepared = true })
         }
         Behavior on opacity {
@@ -291,10 +239,4 @@ ApplicationWindow {
             NumberAnimation { duration: modalBackdrop.active ? Theme.motionRevealDuration : Theme.motionChangeDuration; easing.type: Easing.OutCubic }
         }
     }
-    Connections {
-        target: root
-        function onWidthChanged() { if (modalBackdrop.active) backdropSnapshot.scheduleUpdate() }
-        function onHeightChanged() { if (modalBackdrop.active) backdropSnapshot.scheduleUpdate() }
-    }
-
 }

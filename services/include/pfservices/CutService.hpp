@@ -42,10 +42,14 @@ struct CutRequest {
     int stallTimeoutMs = 120000;
     // Called on the export worker, with encoded seconds relative to this clip.
     std::function<void(double)> progress;
+    // Optional worker-side preparation, performed just before this clip is cut.
+    // Large batches must not decode every scene boundary before writing clip 1.
+    std::function<void(CutRequest&)> prepare;
 };
 
 struct CutResult {
     bool success = false;
+    bool reused = false;
     int exitCode = -1;
     std::string encoder;
     std::string error;

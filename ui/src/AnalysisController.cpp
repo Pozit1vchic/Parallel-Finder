@@ -1739,6 +1739,7 @@ bool AnalysisController::exportResults(const QString& format,
         exportBusy_ = true;
         exportCompleted_ = 0;
         exportClipProgress_ = 0;
+        exportStage_ = QStringLiteral("preparing");
         exportTotal_ = static_cast<int>(selected.size() * 2 + (mergeChronological ? 1 : 0));
         emit exportProgressChanged();
         emit exportBusyChanged();
@@ -1747,6 +1748,8 @@ bool AnalysisController::exportResults(const QString& format,
         const auto finish = [this](bool success, const QString& message) {
             QMetaObject::invokeMethod(this, [this, success, message] {
                 exportBusy_ = false;
+                exportStage_.clear();
+                emit exportProgressChanged();
                 emit exportBusyChanged();
                 emit exportFinished(success, message);
             }, Qt::QueuedConnection);
@@ -1757,6 +1760,7 @@ bool AnalysisController::exportResults(const QString& format,
         std::unordered_map<std::string, std::unique_ptr<pfcore::VideoDecoder>> edgeDecoders;
         std::unordered_map<std::string, double> refinedEnds;
         for (std::size_t index = 0; index < selected.size(); ++index) {
+            if (stop.stop_requested()) break;
             const auto& match = selected[index];
             const QString ordinal = QString::number(static_cast<int>(index + 1)).rightJustified(4, QLatin1Char('0'));
             const auto enqueue = [&](const std::string& source,
@@ -1770,40 +1774,53 @@ bool AnalysisController::exportResults(const QString& format,
                     requestedPrefix + ordinal + "_" + side + ".mp4")).toStdWString());
                 request.startSeconds = std::max(0.0, start);
                 request.endSeconds = end;
-                if (!manuallyAdjusted[index] && (mode == pfservices::CutMode::Exact || mergeChronological)
-                    && sceneEnd > start && sceneEnd <= end + 0.35) {
-                    const auto key = source + "|" + std::to_string(std::llround(sceneEnd * 1000000));
-                    const auto [position, inserted] = refinedEnds.try_emplace(key, sceneEnd);
-                    if (inserted && !stop.stop_requested()) {
-                        try {
-                            auto& decoder = edgeDecoders[source];
-                            if (!decoder) {
-                                decoder = std::make_unique<pfcore::VideoDecoder>();
-                                pfcore::VideoDecodeOptions options; options.threads = 2;
-                                decoder->open(source, options);
-                            }
-                            if (const auto edge = pfcore::SceneDetector(sceneThreshold).refineHardCut(*decoder, sceneEnd, stop))
-                                position->second = *edge;
-                        } catch (...) { /* retain the known edge on an unreadable preview */ }
-                    }
-                    if (position->second > request.startSeconds)
-                        request.endSeconds = std::min(request.endSeconds, position->second);
-                }
+                const bool refineEdge = !manuallyAdjusted[index] && mode == pfservices::CutMode::Exact
+                    && sceneEnd > start && sceneEnd <= end + 0.35;
                 request.mode = mode;
                 request.quality = encodingQuality;
                 request.videoBitrateKbps = videoBitrateKbps;
                 const auto jobIndex = jobs.size();
-                const double duration = request.endSeconds - request.startSeconds;
-                request.progress = [this, jobIndex, duration, lastPercent = -1](double seconds) mutable {
-                    const int percent = duration > 0.0
-                        ? static_cast<int>(std::clamp(seconds / duration, 0.0, 1.0) * 100.0) : 0;
-                    if (percent == lastPercent) return;
-                    lastPercent = percent;
-                    QMetaObject::invokeMethod(this, [this, jobIndex, percent] {
-                        exportCompleted_ = static_cast<int>(jobIndex);
-                        exportClipProgress_ = percent;
+                request.prepare = [&, source, sceneEnd, refineEdge, jobIndex](pfservices::CutRequest& request) {
+                    QMetaObject::invokeMethod(this, [this, jobIndex, mergeChronological] {
+                        if (!mergeChronological) exportCompleted_ = static_cast<int>(jobIndex);
+                        exportClipProgress_ = 0;
+                        exportStage_ = QStringLiteral("preparing");
                         emit exportProgressChanged();
                     }, Qt::QueuedConnection);
+                    if (refineEdge) {
+                        const auto key = source + "|" + std::to_string(std::llround(sceneEnd * 1000000));
+                        const auto [position, inserted] = refinedEnds.try_emplace(key, sceneEnd);
+                        if (inserted && !stop.stop_requested()) {
+                            try {
+                                auto& decoder = edgeDecoders[source];
+                                if (!decoder) {
+                                    decoder = std::make_unique<pfcore::VideoDecoder>();
+                                    pfcore::VideoDecodeOptions options; options.threads = 2;
+                                    decoder->open(source, options);
+                                }
+                                if (const auto edge = pfcore::SceneDetector(sceneThreshold).refineHardCut(*decoder, sceneEnd, stop))
+                                    position->second = *edge;
+                            } catch (...) { /* retain the known edge on an unreadable preview */ }
+                        }
+                        if (position->second > request.startSeconds)
+                            request.endSeconds = std::min(request.endSeconds, position->second);
+                    }
+                    QMetaObject::invokeMethod(this, [this] {
+                        exportStage_ = QStringLiteral("encoding");
+                        emit exportProgressChanged();
+                    }, Qt::QueuedConnection);
+                    const double duration = request.endSeconds - request.startSeconds;
+                    request.progress = [this, jobIndex, duration, lastPercent = -1](double seconds) mutable {
+                        const int percent = duration > 0.0
+                            ? static_cast<int>(std::clamp(seconds / duration, 0.0, 1.0) * 100.0) : 0;
+                        if (percent == lastPercent) return;
+                        lastPercent = percent;
+                        QMetaObject::invokeMethod(this, [this, jobIndex, percent] {
+                            exportCompleted_ = static_cast<int>(jobIndex);
+                            exportClipProgress_ = percent;
+                            emit exportProgressChanged();
+                        }, Qt::QueuedConnection);
+                    };
                 };
                 jobs.push_back(std::move(request));
             };
@@ -1822,6 +1839,7 @@ bool AnalysisController::exportResults(const QString& format,
                         exportCompleted_ = static_cast<int>(done);
                         exportTotal_ = static_cast<int>(total);
                         exportClipProgress_ = percent;
+                        exportStage_ = done + 1 == total ? QStringLiteral("finalizing") : QStringLiteral("encoding");
                         emit exportProgressChanged();
                     }, Qt::QueuedConnection);
                 });

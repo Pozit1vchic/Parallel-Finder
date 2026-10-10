@@ -5,7 +5,9 @@
 namespace pfservices {
 using MontageProgress = std::function<void(std::size_t completed, std::size_t total, int clipPercent)>;
 // Sorts A/B segments by source time, then source path; removes identical
-// source/range duplicates. Encodes sequentially, normalizes to the first
+// source/range duplicates. Fast mode preserves original video/audio streams
+// and rejects incompatible sources without falling back to re-encoding.
+// Exact mode encodes sequentially, normalizes to the first
 // clip's display size/FPS, preserves audio (silence for silent sources),
 // concatenates by stream copy, and atomically installs only a complete MP4.
 CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
