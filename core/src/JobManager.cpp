@@ -47,7 +47,7 @@ struct JobManager::Impl {
             {
                 std::unique_lock lock(mutex);
                 ready.wait(lock, [this] {
-                    if (stopping) return true;
+                    if (stopping && queue.empty()) return true;
                     return std::any_of(queue.begin(), queue.end(), [&](const auto& candidate) {
                         return !activePaths.contains(candidate->path);
                     });

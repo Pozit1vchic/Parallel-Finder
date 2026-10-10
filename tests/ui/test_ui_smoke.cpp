@@ -70,9 +70,12 @@ private slots:
     void settingsAndNumericTypography();
     void repeatSearchTogglesFromTheActualSidebar();
     void appearancePersistsAndRejectsMissingFonts();
+    void customAccentPaletteUpdatesImmediatelyAndPersists();
     void slowSettingsWritesDoNotBlockUiAndKeepOtherSections();
     void appearanceAndVideoInspectionKeepUiResponsive();
     void resultNavigationStopsAtEnds();
+    void reviewRemovalKeepsNeighborAndColorsRefresh();
+    void sourceSearchAndUnreviewedNavigation();
     void sourcesLiveInsideDropAreaAboveActions();
     void sourceWheelDoesNotMoveSettingsRail();
     void pairColorsAndExportOrder();
@@ -235,6 +238,19 @@ void UiSmokeTests::realReviewAdjustAndFindings()
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst()); QVERIFY(window);
     window->show(); window->requestActivate(); QTest::qWait(450);
     const int first = window->property("selectedResultIndex").toInt(); QVERIFY(first >= 0);
+    const auto beforeBulk = analysis->results();
+    const int other = first == 0 ? 1 : 0;
+    analysis->setResultCategories({first,other}, "Blue", "#638edb");
+    QCOMPARE(analysis->undoResultEdit().size(),2); QCOMPARE(analysis->results(),beforeBulk);
+    analysis->setResultReview({first,other}, "reviewed",true);
+    QVERIFY(analysis->results()[first].toMap().value("reviewed").toBool());
+    QCOMPARE(analysis->undoResultEdit().size(),2); QCOMPARE(analysis->results(),beforeBulk);
+    QVariantList allIds; for (const auto& item : beforeBulk) allIds.push_back(item.toMap().value("id"));
+    analysis->setResultReview(allIds,"hidden",true);
+    QTRY_COMPARE(window->property("selectedResultIndex").toInt(),-1);
+    QTest::keyClick(window,Qt::Key_Z,Qt::ControlModifier);
+    QTRY_COMPARE(analysis->results(),beforeBulk); QTRY_VERIFY(window->property("selectedResultIndex").toInt() >= 0);
+    QVERIFY(QMetaObject::invokeMethod(window,"selectResult",Q_ARG(QVariant,first)));
     QTest::keyClick(window, Qt::Key_Delete);
     QTRY_VERIFY(analysis->results()[first].toMap().value("hidden").toBool());
     QTRY_VERIFY(window->property("selectedResultIndex").toInt() != first);
@@ -253,6 +269,24 @@ void UiSmokeTests::realReviewAdjustAndFindings()
         };
         return visit(root);
     };
+    // Exercise both deletion paths from the middle, where a reset to row one is visible.
+    const auto visibleBefore = rail->property("visibleResults").value<QJSValue>().toVariant().toList();
+    if (visibleBefore.size() >= 4) {
+        const int middle = visibleBefore[1].toMap().value("id").toInt();
+        const int neighbor = visibleBefore[2].toMap().value("id").toInt();
+        QVERIFY(QMetaObject::invokeMethod(window, "selectResult", Q_ARG(QVariant, middle)));
+        QTest::keyClick(window, Qt::Key_Backspace);
+        QTRY_COMPARE(window->property("selectedResultIndex").toInt(), neighbor);
+        analysis->setResultReview({middle}, "hidden", false);
+        QVERIFY(QMetaObject::invokeMethod(window, "selectResult", Q_ARG(QVariant, middle)));
+        QTest::qWait(250);
+        auto* remove = findVisual(window->contentItem(), "removePairButton" + QString::number(middle)); QVERIFY(remove);
+        QVERIFY(QMetaObject::invokeMethod(remove, "clicked"));
+        QTRY_COMPARE(window->property("selectedResultIndex").toInt(), neighbor);
+        analysis->setResultReview({middle}, "hidden", false);
+    }
+    QVERIFY(QMetaObject::invokeMethod(window, "selectResult", Q_ARG(QVariant, first)));
+    QTest::qWait(250);
     auto* card = findVisual(window->contentItem(), "resultCard" + QString::number(first)); QVERIFY(card);
     QCOMPARE(card->z(), 2.0);
     const auto variantRows = rail->property("visibleResults").value<QJSValue>().toVariant().toList();
@@ -271,6 +305,10 @@ void UiSmokeTests::realReviewAdjustAndFindings()
     QCOMPARE(analysis->results(), reviewSnapshot);
     QTRY_VERIFY_WITH_TIMEOUT(!analysis->reviewBusy(), 20000);
     QCOMPARE(analysis->results()[first].toMap().value("leftClipStart").toDouble(), start + 0.04);
+    QVERIFY(!analysis->undoResultEdit().isEmpty());
+    QCOMPARE(analysis->results()[first].toMap().value("leftClipStart").toDouble(),start);
+    QVERIFY(analysis->setResultRange(first,start + 0.04,end,rightStart,rightEnd));
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->reviewBusy(),20000);
     QVERIFY(QFileInfo::exists(QUrl(analysis->results()[first].toMap().value("leftPreview").toString()).toLocalFile()));
     QTemporaryDir output; QVERIFY(output.isValid()); QSignalSpy finished(analysis, &pfui::AnalysisController::exportFinished);
     QVERIFY(analysis->exportFindings(output.path(), QVariantList{first, first, 1, -1}, 3));
@@ -335,6 +373,9 @@ void UiSmokeTests::realReviewAdjustAndFindings()
     QCOMPARE(analysis->results()[first].toMap().value("leftClipStart").toDouble(), start);
     const auto ownedPreview = QUrl(analysis->results()[first].toMap().value("leftPreview").toString()).toLocalFile();
     QVERIFY(QFileInfo::exists(ownedPreview));
+    for (int i = 0; i < 20; ++i) analysis->setResultReview({first}, "reviewed", i % 2 == 0);
+    int undone = 0; while (analysis->canUndoReview()) { QVERIFY(!analysis->undoResultEdit().isEmpty()); ++undone; }
+    QCOMPARE(undone,16);
     analysis->inspectFiles({});
     QVERIFY(analysis->results().isEmpty());
     QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(QFileInfo(ownedPreview).absolutePath()), 4000);
@@ -787,6 +828,46 @@ void UiSmokeTests::appearancePersistsAndRejectsMissingFonts()
             const auto preferences = pfui::AppInfo::instance()->loadPreferences();
             QVERIFY(!preferences.value("reducedMotion").toBool());
             QVERIFY(preferences.value("customFontPath").toString().isEmpty());
+        }
+    }
+}
+
+void UiSmokeTests::customAccentPaletteUpdatesImmediatelyAndPersists()
+{
+    pfui::AppInfo::registerQmlTypes();
+    const auto saved = pfui::AppInfo::instance()->loadPreferences();
+    struct Restore { QVariantMap value; ~Restore() { pfui::AppInfo::instance()->savePreferences(value); } } restore{saved};
+    for (int pass = 0; pass < 2; ++pass) {
+        QQmlApplicationEngine engine;
+        auto* window = loadWindow(engine); QVERIFY(window);
+        auto* popup = window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nimport PfUi\nItem { property color accent: Theme.accent }",QUrl());
+        std::unique_ptr<QObject> probe(component.create()); QVERIFY(probe);
+        if (!pass) {
+            QVERIFY(QMetaObject::invokeMethod(popup,"open"));
+            QTRY_VERIFY(popup->property("opened").toBool());
+            auto* tabs = popup->findChild<QObject*>("settingsTabs"); QVERIFY(tabs); tabs->setProperty("currentIndex",1);
+            QTest::qWait(250);
+            auto* button = popup->findChild<QObject*>("accentPaletteButton"); QVERIFY(button);
+            QVERIFY(QMetaObject::invokeMethod(button,"clicked"));
+            auto* picker = popup->findChild<QObject*>("accentColorPicker"); QVERIFY(picker);
+            QTRY_VERIFY(picker->property("opened").toBool());
+            auto* hex = picker->findChild<QObject*>("accentPaletteHex"); QVERIFY(hex);
+            hex->setProperty("text","#12ABCD");
+            QVERIFY(QMetaObject::invokeMethod(hex,"textEdited"));
+            QCOMPARE(probe->property("accent").value<QColor>().name(),QString("#12abcd"));
+            QVERIFY(picker->property("opened").toBool());
+            QCOMPARE(popup->findChild<QObject*>("appearanceAccentChoice")->property("currentIndex").toInt(),4);
+            QVariant accepted;
+            QVERIFY(QMetaObject::invokeMethod(popup,"applyCustomAccent",Q_RETURN_ARG(QVariant,accepted),Q_ARG(QVariant,"invalid")));
+            QVERIFY(!accepted.toBool()); QCOMPARE(probe->property("accent").value<QColor>().name(),QString("#12abcd"));
+            const auto capture = qEnvironmentVariable("PF_UI_CAPTURE_DIR");
+            if (!capture.isEmpty()) { QDir().mkpath(capture); QTest::qWait(250); QVERIFY(window->grabWindow().save(capture+"/accent-palette.png")); }
+            QVERIFY(QMetaObject::invokeMethod(picker,"close")); QVERIFY(QMetaObject::invokeMethod(popup,"close"));
+        } else {
+            QCOMPARE(probe->property("accent").value<QColor>().name(),QString("#12abcd"));
+            QCOMPARE(popup->findChild<QObject*>("appearanceAccentChoice")->property("currentIndex").toInt(),4);
         }
     }
 }
@@ -1253,6 +1334,68 @@ void UiSmokeTests::resultNavigationStopsAtEnds()
     QCOMPARE(rail->property("selectedIndex").toInt(), 2);
 }
 
+
+void UiSmokeTests::reviewRemovalKeepsNeighborAndColorsRefresh()
+{
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick\nimport PfUi\nResultsRail { width: 280; height: 500; onResultSelected: function(id) { selectedIndex = id } }", QUrl());
+    std::unique_ptr<QObject> rail(component.create());
+    QVERIFY2(rail != nullptr, qPrintable(component.errorString()));
+    auto record = [](int id, bool hidden = false) { return QVariantMap{{"id",id},{"similarity",1.0-id*.01},{"hidden",hidden},{"category","Red"},{"categoryColor","#638edb"}}; };
+    rail->setProperty("results", QVariantList{record(0),record(1),record(2),record(3),record(4)});
+    rail->setProperty("selectedIndex",2);
+    rail->setProperty("results", QVariantList{record(0),record(1),record(2,true),record(3),record(4)});
+    QCOMPARE(rail->property("selectedIndex").toInt(),3);
+    rail->setProperty("results", QVariantList{record(0),record(1),record(2,true),record(3,true),record(4,true)});
+    QCOMPARE(rail->property("selectedIndex").toInt(),1);
+    rail->setProperty("results", QVariantList{record(0),record(1),record(2),record(3),record(4)});
+    rail->setProperty("selectedIndex",2);
+    rail->setProperty("results", QVariantList{record(0,true),record(1,true),record(2,true),record(3),record(4)});
+    QCOMPARE(rail->property("selectedIndex").toInt(),3);
+    rail->setProperty("results", QVariantList{record(0),record(1)});
+    rail->setProperty("selectedIndex",1);
+    rail->setProperty("sortDescending",false);
+    QCOMPARE(rail->property("selectedIndex").toInt(),1);
+    auto* l10n = engine.singletonInstance<QObject*>(qmlTypeId("PfUi",1,0,"L10n")); QVERIFY(l10n);
+    QVariant label;
+    l10n->setProperty("language","en");
+    QVERIFY(QMetaObject::invokeMethod(l10n,"colorLabel",Q_RETURN_ARG(QVariant,label),Q_ARG(QVariant,"#638edb")));
+    QCOMPARE(label.toString(),QString("Blue"));
+    l10n->setProperty("language","ru");
+    QVERIFY(QMetaObject::invokeMethod(l10n,"colorLabel",Q_RETURN_ARG(QVariant,label),Q_ARG(QVariant,"#7c9885")));
+    QCOMPARE(label.toString(),QString::fromUtf8("Зелёный"));
+
+}
+
+void UiSmokeTests::sourceSearchAndUnreviewedNavigation()
+{
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine; QQmlComponent component(&engine);
+    component.setData("import QtQuick\nimport PfUi\nResultsRail { width: 286; height: 800; onResultSelected: function(id) { selectedIndex = id } }",QUrl());
+    std::unique_ptr<QObject> rail(component.create()); QVERIFY2(rail,qPrintable(component.errorString()));
+    const auto values = [](const QVariant& value) { return value.metaType() == QMetaType::fromType<QJSValue>() ? value.value<QJSValue>().toVariant() : value; };
+    QVariantList rows{
+        QVariantMap{{"id",0},{"similarity",.9},{"reviewed",true},{"leftSource","D:/clips/Alpha.mp4"},{"rightSource","D:/clips/Beta.mp4"}},
+        QVariantMap{{"id",1},{"similarity",.8},{"leftSource","D:/clips/Gamma.mp4"},{"rightSource","D:/clips/Alpha.mp4"}},
+        QVariantMap{{"id",2},{"similarity",.7},{"leftSource","D:/clips/Beta.mp4"},{"rightSource","D:/clips/Gamma.mp4"}}};
+    rail->setProperty("results",rows); rail->setProperty("selectedIndex",0);
+    QVERIFY(QMetaObject::invokeMethod(rail.get(),"selectNextUnreviewed")); QCOMPARE(rail->property("selectedIndex").toInt(),1);
+    QVERIFY(QMetaObject::invokeMethod(rail.get(),"selectNextUnreviewed")); QCOMPARE(rail->property("selectedIndex").toInt(),2);
+    QVERIFY(QMetaObject::invokeMethod(rail.get(),"selectNextUnreviewed")); QCOMPARE(rail->property("selectedIndex").toInt(),1);
+    rail->setProperty("sourceQuery","ALPHA");
+    QCOMPARE(values(rail->property("visibleResults")).toList().size(),2);
+    QSignalSpy selected(rail.get(),SIGNAL(exportSelectionChanged(QVariant))); QVERIFY(selected.isValid());
+    QVERIFY(QMetaObject::invokeMethod(rail.get(),"selectAll"));
+    const auto selection = values(selected.last()[0]).toMap(); QCOMPARE(selection.size(),2); QVERIFY(selection.contains("0") && selection.contains("1"));
+    rail->setProperty("sourceQuery",""); rail->setProperty("sourceFilter","D:/clips/Gamma.mp4");
+    const auto filtered = values(rail->property("visibleResults")).toList(); QCOMPARE(filtered.size(),2);
+    QCOMPARE(filtered[0].toMap().value("id").toInt(),1); QCOMPARE(filtered[1].toMap().value("id").toInt(),2);
+    for (auto& row : rows) { auto record = row.toMap(); record.insert("reviewed",true); row = record; }
+    rail->setProperty("results",rows); const int current = rail->property("selectedIndex").toInt();
+    QVERIFY(QMetaObject::invokeMethod(rail.get(),"selectNextUnreviewed")); QCOMPARE(rail->property("selectedIndex").toInt(),current);
+    QVERIFY(!rail->property("reviewNotice").toString().isEmpty());
+}
 
 void UiSmokeTests::resultArrowKeysWorkAfterSourceButtonFocus()
 {

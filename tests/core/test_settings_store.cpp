@@ -7,6 +7,8 @@
 #include <QUrl>
 
 #include <filesystem>
+#include <atomic>
+#include <stdexcept>
 
 namespace {
 
@@ -121,3 +123,18 @@ TEST(SettingsStore, SavesAndLoadsAtomically)
 }
 
 } // namespace
+
+TEST(SettingsStore, WriterSurvivesThrowingChangeAndCompletion) {
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    pfservices::SettingsStore store((directory.path() + "/settings.json").toStdString());
+    std::atomic_bool reported = false;
+    store.updateAsync("broken-change", [](auto&) { throw 42; },
+        [&](std::string error) { reported = !error.empty(); throw std::runtime_error("callback"); });
+    store.updateAsync("language", [](auto& settings) { settings.language = "ru"; });
+    pfservices::SettingsStore::flushPendingWrites();
+    EXPECT_TRUE(reported);
+    std::string error;
+    EXPECT_EQ(store.load(error).language, "ru");
+    EXPECT_TRUE(error.empty());
+}

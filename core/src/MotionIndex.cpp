@@ -117,12 +117,16 @@ void connect(MotionIndex::Node& node, std::size_t neighbour, std::size_t level,
     auto& links = node.neighbors[level];
     if (std::find(links.begin(), links.end(), neighbour) == links.end()) links.push_back(neighbour);
     if (links.size() <= maximumConnections) return;
-    std::sort(links.begin(), links.end(), [&](std::size_t left, std::size_t right) {
-        const double leftDistance = distance(node.embedding, nodes[left].embedding);
-        const double rightDistance = distance(node.embedding, nodes[right].embedding);
-        return leftDistance < rightDistance;
+    // Compute each exact distance once, rather than twice per sort comparison.
+    // Preserve the existing equal-distance comparator and initial link order.
+    std::vector<Candidate> ranked;
+    ranked.reserve(links.size());
+    for (const auto id : links) ranked.emplace_back(distance(node.embedding, nodes[id].embedding), id);
+    std::sort(ranked.begin(), ranked.end(), [](const auto& left, const auto& right) {
+        return left.first < right.first;
     });
     links.resize(maximumConnections);
+    for (std::size_t i = 0; i < links.size(); ++i) links[i] = ranked[i].second;
 }
 
 } // namespace

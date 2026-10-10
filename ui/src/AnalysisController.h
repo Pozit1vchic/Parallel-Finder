@@ -1,3 +1,4 @@
+#include "WorkerThreads.h"
 #pragma once
 
 #include <QObject>
@@ -34,10 +35,13 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(QString progressStage READ progressStage NOTIFY progressChanged)
     Q_PROPERTY(qlonglong processedFrames READ processedFrames NOTIFY progressChanged)
     Q_PROPERTY(qlonglong totalFrames READ totalFrames NOTIFY progressChanged)
+    Q_PROPERTY(qlonglong decodedFrames READ decodedFrames NOTIFY progressChanged)
+    Q_PROPERTY(qlonglong analyzedFrames READ analyzedFrames NOTIFY progressChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool exportBusy READ exportBusy NOTIFY exportBusyChanged)
     Q_PROPERTY(bool reviewBusy READ reviewBusy NOTIFY reviewBusyChanged)
+    Q_PROPERTY(bool canUndoReview READ canUndoReview NOTIFY resultCategoriesChanged)
     Q_PROPERTY(int exportCompleted READ exportCompleted NOTIFY exportProgressChanged)
     Q_PROPERTY(int exportTotal READ exportTotal NOTIFY exportProgressChanged)
     Q_PROPERTY(int exportClipProgress READ exportClipProgress NOTIFY exportProgressChanged)
@@ -70,6 +74,7 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(int maxUniqueResults READ maxUniqueResults WRITE setMaxUniqueResults NOTIFY matcherParamsChanged)
     Q_PROPERTY(double timeWeight READ timeWeight WRITE setTimeWeight NOTIFY matcherParamsChanged)
 public:
+    ~AnalysisController() override;
     static AnalysisController* instance();
     static void registerQmlTypes();
     int fileCount() const noexcept { return fileCount_; }
@@ -86,9 +91,12 @@ public:
     QString progressStage() const { return progressStage_; }
     qlonglong processedFrames() const noexcept { return processedFrames_; }
     qlonglong totalFrames() const noexcept { return totalFrames_; }
+    qlonglong decodedFrames() const noexcept { return decodedFrames_; }
+    qlonglong analyzedFrames() const noexcept { return analyzedFrames_; }
     QString status() const { return status_; }
     bool exportBusy() const noexcept { return exportBusy_; }
     bool reviewBusy() const noexcept { return reviewBusy_; }
+    bool canUndoReview() const noexcept { return !reviewUndo_.empty(); }
     int exportCompleted() const noexcept { return exportCompleted_; }
     int exportTotal() const noexcept { return exportTotal_; }
     int exportClipProgress() const noexcept { return exportClipProgress_; }
@@ -165,6 +173,8 @@ public:
     Q_INVOKABLE void analyzeFiles(const QStringList& paths);
     Q_INVOKABLE void stopAnalysis();
     Q_INVOKABLE void setResultCategory(int id, const QString& name, const QString& color);
+    Q_INVOKABLE void setResultCategories(const QVariantList& ids, const QString& name, const QString& color);
+    Q_INVOKABLE QVariantList undoResultEdit();
     Q_INVOKABLE void setResultReview(const QVariantList& ids, const QString& field, bool value);
     Q_INVOKABLE bool setResultRange(int id, double leftStart, double leftEnd, double rightStart, double rightEnd);
     Q_INVOKABLE bool resetResultRange(int id);
@@ -198,6 +208,14 @@ private:
     std::map<int, std::shared_ptr<QTemporaryDir>> reviewPreviewDirectories_;
     std::shared_ptr<QTemporaryDir> reviewDraftDirectory_;
     std::shared_ptr<pfservices::RuntimeScratch> analysisPreviewDirectory_;
+    struct ReviewUndoRow {
+        int id;
+        QVariantMap record;
+        std::optional<pfcore::MotionMatch> match;
+        std::shared_ptr<QTemporaryDir> preview;
+    };
+    std::vector<std::vector<ReviewUndoRow>> reviewUndo_;
+    void pushReviewUndo(const QVariantList& ids, bool includeMatch = false);
     bool startReviewPreview(int id, const QVariantMap& row, bool publish);
     explicit AnalysisController(QObject* parent = nullptr);
     void setStatus(const QString& status);
@@ -227,6 +245,8 @@ private:
     bool analysisCompleted_ = false;
     double progress_ = 0.0;
     QString progressStage_;
+    qlonglong decodedFrames_ = 0;
+    qlonglong analyzedFrames_ = 0;
     qlonglong processedFrames_ = 0;
     qlonglong totalFrames_ = 0;
     QString providerChoice_ = QStringLiteral("auto");
@@ -262,6 +282,8 @@ private:
     // Shared with the worker thread so Stop can request a cooperative
     // cancellation without touching QObject state from the worker.
     std::shared_ptr<std::atomic_bool> analysisCancel_;
+    WorkerThreads workerThreads_; // Destroy before any worker-captured state.
+
 };
 
 } // namespace pfui

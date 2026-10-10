@@ -1,3 +1,4 @@
+#include "NetworkOperation.hpp"
 #include <pfservices/ModelStore.hpp>
 
 #include <QCryptographicHash>
@@ -251,6 +252,9 @@ std::optional<ModelAsset> ModelStore::fetchManifest(const std::string& url,
                          QNetworkRequest::UserVerifiedRedirectPolicy);
     request.setTransferTimeout(30000);
     QNetworkReply* reply = manager.get(request);
+    QTimer interruption;
+    detail::watchInterruption(interruption, *reply, error);
+    detail::boundManifestReply(*reply, kMaxManifestBytes, error, "model manifest is too large");
     QEventLoop loop;
     QObject::connect(reply, &QNetworkReply::redirected, [&](const QUrl& target) {
         if (target.scheme() == QStringLiteral("https") && trustedHost(target))
@@ -371,6 +375,21 @@ bool ModelStore::download(const ModelAsset& asset,
         return false;
     }
 
+    // A previous publication may have failed after the complete download was
+    // verified (e.g. the destination was locked). Retry publication locally;
+    // requesting Range at EOF would otherwise get HTTP 416 forever.
+    if (asset.sizeBytes != 0 && static_cast<std::uint64_t>(offset) == asset.sizeBytes) {
+        part.close();
+        if (!verifySha256(partPath, asset.sha256, error)) return false;
+        filesystemError.clear();
+        std::filesystem::rename(partPath, destination, filesystemError);
+        if (filesystemError) {
+            error = "install downloaded model: " + filesystemError.message();
+            return false;
+        }
+        return true;
+    }
+
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("ParallelFinder/0.1"));
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
@@ -383,6 +402,8 @@ bool ModelStore::download(const ModelAsset& asset,
     }
     QNetworkAccessManager manager;
     QNetworkReply* reply = manager.get(request);
+    QTimer interruption;
+    detail::watchInterruption(interruption, *reply, error);
     QEventLoop loop;
     bool metadataSeen = false;
     qint64 expectedTotal = asset.sizeBytes == 0 ? -1 : static_cast<qint64>(asset.sizeBytes);
@@ -508,7 +529,8 @@ bool ModelStore::download(const ModelAsset& asset,
         return false;
     }
     if (!verifySha256(partPath, asset.sha256, error)) return false;
-    std::filesystem::remove(destination, filesystemError);
+    // rename replaces a regular destination atomically on the same filesystem.
+    // Removing it first loses the previous verified model if publication fails.
     filesystemError.clear();
     std::filesystem::rename(partPath, destination, filesystemError);
     if (filesystemError) {

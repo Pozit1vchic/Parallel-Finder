@@ -24,9 +24,18 @@ QtObject {
         {id: "color2", ru: "Синий цвет", en: "Blue color", keys: ["2"]},
         {id: "color3", ru: "Зелёный цвет", en: "Green color", keys: ["3"]},
         {id: "color4", ru: "Фиолетовый цвет", en: "Purple color", keys: ["4"]},
-        {id: "color5", ru: "Золотой цвет", en: "Gold color", keys: ["5"]}
+        {id: "color5", ru: "Золотой цвет", en: "Gold color", keys: ["5"]},
+        {id: "undo", ru: "Отменить последнее действие", en: "Undo last action", keys: ["Ctrl+Z"]},
+        {id: "nextUnreviewed", ru: "Следующая неразобранная пара", en: "Next unreviewed pair", keys: ["N"]},
+        {id: "reviewed", ru: "Разобрано / не разобрано", en: "Toggle reviewed", keys: ["R"]}
     ]
     readonly property var words: ({
+        undo: ["Отменить", "Undo"], nextUnreviewed: ["Следующая неразобранная", "Next unreviewed"],
+        reviewed: ["Разобрано", "Reviewed"], unreviewed: ["Не разобрано", "Unreviewed"],
+        reviewedHint: ["Отметить как разобранную; цвет и избранное не меняются", "Mark as reviewed; color and favorite stay unchanged"],
+        allReviewed: ["Все показанные пары разобраны", "All visible pairs are reviewed"],
+        sourceSearch: ["Поиск по имени сценпака…", "Search scene pack name…"],
+        allSources: ["Все сценпаки", "All scene packs"], sourceHint: ["Ищем по обеим сторонам A/B. «Выбрать все» выделяет только показанные пары.", "Search covers both A/B sources. Select all marks only visible pairs."],
         hotkeys: ["Горячие клавиши", "Keyboard shortcuts"],
         keysHint: ["Выбери сочетание и нажми новые клавиши. Esc отменяет ввод.", "Click a binding and press new keys. Esc cancels."],
         multi: ["Включить мультивыбор", "Enable multiple selection"],

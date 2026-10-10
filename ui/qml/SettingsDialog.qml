@@ -12,7 +12,7 @@ Popup {
     objectName: "settingsDialog"
     property bool backdropClosing: false
     onAboutToShow: backdropClosing = false
-    onAboutToHide: backdropClosing = true
+    onAboutToHide: { backdropClosing = true; accentPicker.close() }
     property real entranceOffset: 0
     property var rootWindow
     property bool userPositioned: false
@@ -38,7 +38,8 @@ Popup {
         L10n.t("settings.accentOrange"),
         L10n.t("settings.accentBlue"),
         L10n.t("settings.accentViolet"),
-        L10n.t("settings.accentTeal")
+        L10n.t("settings.accentTeal"),
+        L10n.language === "ru" ? "Свой цвет" : "Custom color"
     ]
     modal: true
     focus: true
@@ -149,7 +150,7 @@ Popup {
     onOpened: {
         centerInWindow()
         AppInfo.rescanProviders()
-        appearanceAccentChoice.currentIndex = Math.max(0, root.accentIds.indexOf(customizationStore.accentColor))
+        appearanceAccentChoice.currentIndex = root.accentIds.indexOf(customizationStore.accentColor) >= 0 ? root.accentIds.indexOf(customizationStore.accentColor) : 4
         // Prevent the close icon or first tab from receiving an orange focus
         // ring just because the popup was opened with the mouse.
         Qt.callLater(function() { root.forceActiveFocus() })
@@ -191,16 +192,118 @@ Popup {
         return true
     }
     function accentValue(id) {
+        if (/^#[0-9a-fA-F]{6}$/.test(String(id))) return id
         if (id === "blue") return "#5D8DDE"
         if (id === "violet") return "#A679D6"
         if (id === "teal") return "#54B7A5"
         return "#D97757"
     }
     function applyAccent(id) {
-        const normalized = root.accentIds.indexOf(id) >= 0 ? id : "orange"
+        const normalized = root.accentIds.indexOf(id) >= 0 ? id : /^#[0-9a-fA-F]{6}$/.test(String(id)) ? String(id).toUpperCase() : "orange"
         Theme.accent = root.accentValue(normalized)
         customizationStore.accentColor = normalized
-        appearanceAccentChoice.currentIndex = root.accentIds.indexOf(normalized)
+        appearanceAccentChoice.currentIndex = root.accentIds.indexOf(normalized) >= 0 ? root.accentIds.indexOf(normalized) : 4
+    }
+    function applyCustomAccent(value) {
+        if (!/^#[0-9a-fA-F]{6}$/.test(String(value))) return false
+        applyAccent(value)
+        return true
+    }
+    Popup {
+        id: accentPicker
+        objectName: "accentColorPicker"
+        parent: Overlay.overlay
+        padding: 8
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusButton; border.color: Theme.hairlineStrong }
+        enter: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionDuration } }
+        exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.motionDuration } }
+        contentItem: Column {
+            width: 246
+            spacing: 10
+            Row {
+            spacing: 6
+            Repeater {
+                model: ["#D97757", "#5D8DDE", "#A679D6", "#54B7A5"]
+                delegate: Button {
+                    required property int index
+                    required property string modelData
+                    objectName: "accentPaletteColor" + index
+                    width: 28; height: 28
+                    Accessible.name: modelData
+                    ToolTip.visible: hovered
+                    ToolTip.text: Accessible.name
+                    background: Rectangle { radius: 6; color: modelData || Theme.well; border.color: parent.hovered ? Theme.accent : Theme.hairlineStrong; border.width: 1 }
+                    contentItem: Text { text: ""; color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                    onClicked: { root.applyAccent(root.accentIds[index]); hexField.text = String(Theme.accent).toUpperCase(); hueSlider.value = Theme.accent.hsvHue; colorPlane.saturation = Theme.accent.hsvSaturation; colorPlane.brightness = Theme.accent.hsvValue }
+                }
+            }
+            }
+            Rectangle {
+                id: colorPlane
+                width: parent.width; height: 112; radius: 5
+                color: Qt.hsva(hueSlider.value, 1, 1, 1)
+                Rectangle { anchors.fill: parent; radius: 5; gradient: Gradient { orientation: Gradient.Horizontal; GradientStop { position: 0; color: "white" } GradientStop { position: 1; color: "transparent" } } }
+                Rectangle { anchors.fill: parent; radius: 5; gradient: Gradient { GradientStop { position: 0; color: "transparent" } GradientStop { position: 1; color: "black" } } }
+                property real saturation: 0.7
+                property real brightness: 0.85
+                Rectangle { x: colorPlane.saturation * (parent.width - 10); y: (1 - colorPlane.brightness) * (parent.height - 10); width: 10; height: 10; radius: 5; color: "transparent"; border.color: "white"; border.width: 2 }
+                MouseArea {
+                    anchors.fill: parent
+                    function pick(mouse) {
+                        colorPlane.saturation = Math.max(0, Math.min(1, mouse.x / width))
+                        colorPlane.brightness = Math.max(0, Math.min(1, 1 - mouse.y / height))
+                        hexField.text = String(Qt.hsva(hueSlider.value, colorPlane.saturation, colorPlane.brightness, 1)).toUpperCase()
+                        root.applyCustomAccent(hexField.text)
+                    }
+                    onPressed: function(mouse) { pick(mouse) }
+                    onPositionChanged: function(mouse) { if (pressed) pick(mouse) }
+                }
+            }
+            Slider {
+                id: hueSlider; objectName: "accentPaletteHue"; width: parent.width; from: 0; to: 1; value: 0.05
+                Accessible.name: L10n.language === "ru" ? "Оттенок" : "Hue"
+                handle: Rectangle {
+                    x: hueSlider.leftPadding + hueSlider.visualPosition * (hueSlider.availableWidth - width)
+                    y: (hueSlider.height - height) / 2; width: 16; height: 16; radius: 8
+                    color: Theme.textPrimary; border.color: Theme.heroPanel; border.width: 2
+                }
+                onMoved: { hexField.text = String(Qt.hsva(value, colorPlane.saturation, colorPlane.brightness, 1)).toUpperCase(); root.applyCustomAccent(hexField.text) }
+                background: Rectangle {
+                    x: hueSlider.leftPadding; y: (hueSlider.height - height) / 2; width: hueSlider.availableWidth; height: 8; radius: 4
+                    gradient: Gradient { orientation: Gradient.Horizontal
+                        GradientStop { position: 0; color: "#ff0000" } GradientStop { position: 0.167; color: "#ffff00" }
+                        GradientStop { position: 0.333; color: "#00ff00" } GradientStop { position: 0.5; color: "#00ffff" }
+                        GradientStop { position: 0.667; color: "#0000ff" } GradientStop { position: 0.833; color: "#ff00ff" } GradientStop { position: 1; color: "#ff0000" }
+                    }
+                }
+            }
+            Row {
+                spacing: 8
+                TextField {
+                    id: hexField; objectName: "accentPaletteHex"; width: 126; height: 32
+                    text: "#D56565"; maximumLength: 7; color: Theme.textPrimary; font.family: Theme.monoFont
+                    Accessible.name: "HEX"
+                    background: Rectangle { radius: 5; color: Theme.well; border.color: hexField.acceptableInput ? Theme.hairlineStrong : Theme.accent }
+                    validator: RegularExpressionValidator { regularExpression: /#[0-9a-fA-F]{6}/ }
+                    onTextEdited: if (root.applyCustomAccent(text)) root.refreshAccentPalette()
+                    onAccepted: if (root.applyCustomAccent(text)) accentPicker.close()
+                }
+                PfButton { objectName: "accentPaletteApply"; width: 112; height: 32; compact: true; text: Review.t("apply"); enabled: hexField.acceptableInput; onClicked: if (root.applyCustomAccent(hexField.text)) accentPicker.close() }
+            }
+        }
+        onAboutToShow: root.refreshAccentPalette()
+    }
+    function refreshAccentPalette() {
+        hexField.text = String(Theme.accent).toUpperCase()
+        hueSlider.value = Theme.accent.hsvHue < 0 ? 0 : Theme.accent.hsvHue
+        colorPlane.saturation = Theme.accent.hsvSaturation; colorPlane.brightness = Theme.accent.hsvValue
+    }
+    function openAccentPalette(item) {
+        const point = item.mapToItem(Overlay.overlay, 0, item.height)
+        accentPicker.x = Math.max(8, Math.min(point.x, Overlay.overlay.width - accentPicker.width - 8))
+        accentPicker.y = Math.max(8, Math.min(point.y, Overlay.overlay.height - accentPicker.height - 8))
+        accentPicker.open()
     }
     function providerStatusText(id) {
         const revision = AppInfo.providersRevision
@@ -450,7 +553,11 @@ Popup {
                         }
                         Text { visible: customFont.status === FontLoader.Ready; text: L10n.t("settings.fontLoaded") + ": " + customFont.name; color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
                         Text { text: L10n.t("settings.accentColor"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        PfComboBox { id: appearanceAccentChoice; objectName: "appearanceAccentChoice"; width: parent.width; model: root.accentLabels; currentIndex: Math.max(0, root.accentIds.indexOf(customizationStore.accentColor)); Accessible.name: L10n.t("settings.accentColor"); onActivated: root.applyAccent(root.accentIds[currentIndex]) }
+                        RowLayout {
+                            width: parent.width; spacing: 8
+                            PfComboBox { id: appearanceAccentChoice; objectName: "appearanceAccentChoice"; Layout.fillWidth: true; model: root.accentLabels; currentIndex: root.accentIds.indexOf(customizationStore.accentColor) >= 0 ? root.accentIds.indexOf(customizationStore.accentColor) : 4; Accessible.name: L10n.t("settings.accentColor"); onActivated: if (currentIndex < 4) root.applyAccent(root.accentIds[currentIndex]); else root.openAccentPalette(this) }
+                            PfButton { objectName: "accentPaletteButton"; compact: true; text: L10n.language === "ru" ? "Палитра" : "Palette"; onClicked: root.openAccentPalette(this) }
+                        }
                         PfSliderField { width: parent.width; label: L10n.t("settings.surfaceOpacity"); from: 0.25; to: 1.0; stepSize: 0.01; value: Theme.surfaceOpacity; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("settings.surfaceOpacityHint"); Accessible.name: L10n.t("settings.surfaceOpacity"); onValueEdited: { Theme.surfaceOpacity = nextValue; customizationStore.surfaceOpacity = nextValue } }
                         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
                         PfCheckBox { text: L10n.t("settings.reducedMotion"); checked: Theme.reducedMotion; onToggled: { Theme.reducedMotion = checked; customizationStore.reducedMotion = checked } }

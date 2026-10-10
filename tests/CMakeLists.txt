@@ -37,7 +37,9 @@ add_executable(pf_tests
     core/test_camera_view.cpp
     core/test_motion_matcher.cpp
     core/test_motion_index.cpp
+    core/test_motion_window_cache.cpp
     core/test_job_manager.cpp
+    core/test_worker_threads.cpp
     core/test_movement_classifier.cpp
     core/test_pf_cache.cpp
     core/test_thumbnail_cache.cpp
@@ -54,6 +56,7 @@ add_executable(pf_tests
     gpu/test_inference_failures.cpp
     gpu/test_session_cache.cpp
     gpu/test_pose_estimator.cpp
+    gpu/test_reid_estimator.cpp
     gpu/test_pose_input.cpp
     gpu/test_rgba_sampling.cpp
 )

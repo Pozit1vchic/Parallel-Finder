@@ -34,7 +34,7 @@ Popup {
     function refreshColors() {
         const present = []
         for (const item of root.results) {
-            if (root.selectedRows[item.id] !== true) continue
+            if (root.selectedRows[item.id] !== true || item.hidden) continue
             const color = String(item.categoryColor || "").toLowerCase()
             if (present.indexOf(color) < 0) present.push(color)
         }
@@ -85,7 +85,7 @@ Popup {
     }
     Connections { target: Analysis; function onExportFinished(success, message) { root.exportStatus = message; if (success) root.close() } }
     function selectedIndexes() {
-        const selected = Object.keys(root.selectedRows).filter(function(key) { return root.selectedRows[key] === true }).map(Number)
+        const selected = root.results.filter(function(row) { return root.selectedRows[row.id] === true && !row.hidden }).map(function(row) { return Number(row.id) })
         const ordered = selectionOrder.filter(function(id) { return selected.indexOf(Number(id)) >= 0 }).map(Number)
         for (const id of selected) if (ordered.indexOf(id) < 0) ordered.push(id)
         return ordered
@@ -118,7 +118,7 @@ Popup {
         Item { width: parent.width; height: 56
             Column { anchors.left: parent.left; anchors.top: parent.top; width: parent.width - 42; spacing: 4
                 Text { text: L10n.t("export.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 25 }
-                Text { font.family: Theme.fontFamily; text: Object.keys(root.selectedRows).length + " " + L10n.t("export.selected"); color: Theme.textSecondary; font.pixelSize: 12 }
+                Text { font.family: Theme.fontFamily; text: root.selectedIndexes().length + " " + L10n.t("export.selected"); color: Theme.textSecondary; font.pixelSize: 12 }
             }
             PfIconButton { anchors.right: parent.right; anchors.top: parent.top; iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); onClicked: root.close() }
             MouseArea {
@@ -162,7 +162,7 @@ Popup {
                     Row {
                         anchors.fill: parent; anchors.margins: 4; spacing: 8
                         Rectangle { width: 18; height: 18; y: 5; radius: 4; color: modelData || Theme.surfaceMuted; border.color: Theme.hairlineStrong }
-                        Text { width: parent.width - 106; height: 28; verticalAlignment: Text.AlignVCenter; text: root.palette.indexOf(modelData) >= 0 ? L10n.t(root.colorLabels[root.palette.indexOf(modelData)]) : modelData; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                        Text { width: parent.width - 106; height: 28; verticalAlignment: Text.AlignVCenter; text: root.palette.indexOf(modelData) >= 0 ? (modelData ? L10n.colorLabel(modelData) : L10n.t("colors.none")) : modelData; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12 }
                         PfButton { objectName: "exportColorUp" + index; width: 28; height: 28; text: "↑"; Accessible.name: L10n.t("export.moveUp"); enabled: index > 0; onClicked: root.moveColor(index, -1) }
                         PfButton { objectName: "exportColorDown" + index; width: 28; height: 28; text: "↓"; Accessible.name: L10n.t("export.moveDown"); enabled: index < root.colorOrder.length - 1; onClicked: root.moveColor(index, 1) }
                     }
@@ -220,7 +220,7 @@ Popup {
             font.pixelSize: 11
             wrapMode: Text.WordWrap
         }
-        PfButton { width: parent.width; primary: true; text: Analysis.exportBusy ? L10n.t("export.running") + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal + " · " + Analysis.exportClipProgress + "%" : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && (root.selectedFormat !== "FFMPEG" || root.selectedCutMode === 1 || root.qualityValid) && Object.keys(root.selectedRows).length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological, root.colorOrder, root.encodingQuality, root.selectedFormat === "FFMPEG" && root.selectedCutMode === 0 ? root.videoBitrateKbps : 0) }
+        PfButton { width: parent.width; primary: true; text: Analysis.exportBusy ? L10n.t("export.running") + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal + " · " + Analysis.exportClipProgress + "%" : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && (root.selectedFormat !== "FFMPEG" || root.selectedCutMode === 1 || root.qualityValid) && root.selectedIndexes().length > 0 && root.outputFolder.length > 0; onClicked: Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological, root.colorOrder, root.encodingQuality, root.selectedFormat === "FFMPEG" && root.selectedCutMode === 0 ? root.videoBitrateKbps : 0) }
         PfButton { width: parent.width; visible: Analysis.exportBusy; text: L10n.t("export.cancel"); onClicked: Analysis.cancelExport() }
         }
     }

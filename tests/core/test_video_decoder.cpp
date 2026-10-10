@@ -1,3 +1,4 @@
+#include "../../core/src/SampleClock.hpp"
 #include <gtest/gtest.h>
 
 #include <pfcore/VideoDecoder.hpp>
@@ -682,4 +683,29 @@ TEST(VideoDecoder, LongGopViewsAvoidRepeatedSeeksWithoutChangingPixels)
     }
     EXPECT_LT(batch.diagnostics().decodedFrames,reference.diagnostics().decodedFrames);
     EXPECT_LT(batch.diagnostics().decodedFrames,400U);
+}
+
+TEST(VideoSampleReader, SampleClockBoundsDiscontinuousAndUnrepresentableTimestamps) {
+    double next = 0;
+    EXPECT_TRUE(pfcore::detail::selectSampleTimestamp(1e12, 1.0 / 24.0, next));
+    EXPECT_GT(next, 1e12);
+    next = 1e20;
+    EXPECT_TRUE(pfcore::detail::selectSampleTimestamp(1e20, 1.0 / 24.0, next));
+    EXPECT_GT(next, 1e20);
+    EXPECT_THROW(pfcore::detail::selectSampleTimestamp(std::numeric_limits<double>::quiet_NaN(), 1, next), std::invalid_argument);
+}
+TEST(VideoSampleReader, SampleClockPreservesOrdinaryRepeatedAdditionCadence) {
+    for (const auto fps : {4.0, 6.0, 10.0, 15.0, 24.0}) {
+        double expected = -std::numeric_limits<double>::infinity(), actual = expected;
+        for (int frame = 0; frame < 10000; ++frame) {
+            const double timestamp = frame / 60.0;
+            bool selected = timestamp + 1e-9 >= expected;
+            if (selected) {
+                if (!std::isfinite(expected)) expected = timestamp + 1.0 / fps;
+                else do { expected += 1.0 / fps; } while (expected <= timestamp + 1e-9);
+            }
+            EXPECT_EQ(pfcore::detail::selectSampleTimestamp(timestamp, 1.0 / fps, actual), selected);
+            EXPECT_EQ(actual, expected);
+        }
+    }
 }

@@ -1,3 +1,4 @@
+#include "../../services/src/NetworkOperation.hpp"
 #include <gtest/gtest.h>
 
 #include <pfservices/ModelStore.hpp>
@@ -10,8 +11,11 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <QEventLoop>
 
 #include <filesystem>
+#include <atomic>
+#include <future>
 
 namespace {
 
@@ -145,3 +149,89 @@ TEST(ModelStore, DownloadsPublishedYoloAndRuntimeAssets)
 }
 
 } // namespace
+
+namespace {
+class BufferedTestReply final : public QNetworkReply {
+public:
+    BufferedTestReply() { open(QIODevice::ReadOnly); }
+    void abort() override { aborted = true; emit finished(); }
+    qint64 bytesAvailable() const override { return bytes + QNetworkReply::bytesAvailable(); }
+    void deliver(qint64 count) { bytes += count; emit readyRead(); }
+    bool aborted = false;
+protected:
+    qint64 readData(char*, qint64) override { return -1; }
+private:
+    qint64 bytes = 0;
+};
+}
+TEST(ModelStore, BufferedManifestStopsAtLimitBeforeTransferFinishes) {
+    BufferedTestReply reply;
+    std::string error;
+    pfservices::detail::boundManifestReply(reply, 1024, error, "too large");
+    EXPECT_EQ(reply.readBufferSize(), 1025);
+    reply.deliver(1024);
+    EXPECT_FALSE(reply.aborted);
+    EXPECT_TRUE(error.empty());
+    reply.deliver(1);
+    EXPECT_TRUE(reply.aborted);
+    EXPECT_EQ(error, "too large");
+}
+
+TEST(ModelStore, CompleteVerifiedPartialRetriesPublicationWithoutNetwork) {
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const auto destination = std::filesystem::path(directory.filePath("sample.onnx").toStdWString());
+    auto partial = destination; partial += ".part";
+    QFile file(QString::fromStdWString(partial.wstring()));
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    ASSERT_EQ(file.write("new-model"), 9); file.close();
+    pfservices::ModelAsset asset;
+    asset.filename = "sample.onnx"; asset.sizeBytes = 9;
+    asset.sha256 = QCryptographicHash::hash(QByteArray("new-model"), QCryptographicHash::Sha256).toHex().toStdString();
+    asset.downloadUrl = "https://github.com/example/unused";
+    // A directory prevents publication. The verified partial must survive.
+    std::filesystem::create_directory(destination);
+    std::string error;
+    EXPECT_FALSE(pfservices::ModelStore::download(asset, destination, {}, error));
+    EXPECT_TRUE(std::filesystem::is_directory(destination));
+    EXPECT_TRUE(std::filesystem::is_regular_file(partial));
+    std::filesystem::remove(destination);
+    QFile previous(QString::fromStdWString(destination.wstring()));
+    ASSERT_TRUE(previous.open(QIODevice::WriteOnly));
+    ASSERT_EQ(previous.write("old"), 3); previous.close();
+    error.clear();
+    ASSERT_TRUE(pfservices::ModelStore::download(asset, destination, {}, error)) << error;
+    EXPECT_FALSE(std::filesystem::exists(partial));
+    EXPECT_TRUE(pfservices::ModelStore::verifySha256(destination, asset.sha256, error));
+}
+
+TEST(ModelStore, InterruptionAbortsReplyOnItsOwningThread) {
+    int argc = 1;
+    char name[] = "pf-network-test";
+    char* argv[] = {name, nullptr};
+    std::unique_ptr<QCoreApplication> application;
+    if (!QCoreApplication::instance()) application = std::make_unique<QCoreApplication>(argc, argv);
+    std::promise<void> started;
+    auto ready = started.get_future();
+    std::atomic_bool aborted = false;
+    std::string error;
+    std::unique_ptr<QThread> worker(QThread::create([&] {
+        BufferedTestReply reply;
+        QTimer timer;
+        QEventLoop loop;
+        QObject::connect(&reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        pfservices::detail::watchInterruption(timer, reply, error);
+        started.set_value();
+        loop.exec();
+        aborted = reply.aborted;
+    }));
+    worker->start();
+    const bool running = ready.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+    worker->requestInterruption();
+    const bool stopped = worker->wait(2000);
+    if (!stopped) { worker->quit(); worker->wait(); }
+    EXPECT_TRUE(running);
+    EXPECT_TRUE(stopped);
+    EXPECT_TRUE(aborted);
+    EXPECT_EQ(error, "download cancelled");
+}

@@ -1,3 +1,4 @@
+#include "MontageGeometry.hpp"
 #include <pfservices/MontageExport.hpp>
 #include <pfcore/VideoDecoder.hpp>
 #include <QCoreApplication>
@@ -64,10 +65,9 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             return it->second;
         };
         const auto first = info(clips.front().inputPath);
-        int width = std::max(2, static_cast<int>(std::round(first.width * first.sampleAspectRatio)) / 2 * 2);
-        int height = std::max(2, first.height / 2 * 2);
-        if (std::abs(first.rotationDegrees) > 45.0 && std::abs(first.rotationDegrees) < 135.0)
-            std::swap(width, height);
+        const auto canvas = detail::montageCanvas(first);
+        if (!canvas) { result.error = "montage display dimensions exceed the safe limit"; return result; }
+        const auto [width, height] = *canvas;
         const double fps = first.frameRate > 0.0 && std::isfinite(first.frameRate) ? first.frameRate : 25.0;
         const CutService cutter(executable);
         QByteArray manifest("ffconcat version 1.0\n");

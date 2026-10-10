@@ -19,6 +19,35 @@ Rectangle {
     signal pairColorRequested(int index, string name, string color)
     signal pairReviewRequested(int index, string field, bool value)
     signal findingsRequested()
+    signal undoRequested()
+    property string sourceQuery: ""
+    property string sourceFilter: ""
+    property string reviewNotice: ""
+    readonly property var sourceChoices: {
+        const sources = [""]
+        for (const row of results) for (const side of ["left", "right"]) {
+            const source = String(row[side + "Source"] || "")
+            if (source && sources.indexOf(source) < 0) sources.push(source)
+        }
+        return [""].concat(sources.slice(1).sort())
+    }
+    function sourceName(path) { return String(path).split(/[\\/]/).pop() }
+    function matchesSource(path) {
+        return (!sourceFilter || String(path) === sourceFilter)
+            && (!sourceQuery.trim() || sourceName(path).toLowerCase().indexOf(sourceQuery.trim().toLowerCase()) >= 0)
+    }
+    function selectNextUnreviewed() {
+        const start = currentVisibleIndex
+        for (let offset = 1; offset <= visibleResults.length; ++offset) {
+            const index = (Math.max(-1, start) + offset) % visibleResults.length
+            if (!visibleResults[index].reviewed) {
+                reviewNotice = ""
+                resultSelected(Number(visibleResults[index].id))
+                return
+            }
+        }
+        reviewNotice = Review.t("allReviewed")
+    }
     property string reviewFilter: "all"
     property int selectionAnchorId: -1
     property var revealedCards: ({})
@@ -29,7 +58,7 @@ Rectangle {
     function choosePairColor(id, paletteIndex) {
         const item = results.find(function(row) { return Number(row.id) === id })
         if (!item || paletteIndex < 0 || paletteIndex >= groupColors.length) return
-        pairColorRequested(id, paletteIndex === 0 ? "" : String(item.category || L10n.t(colorLabels[paletteIndex])), groupColors[paletteIndex])
+        pairColorRequested(id, paletteIndex === 0 ? "" : L10n.t(colorLabels[paletteIndex]), groupColors[paletteIndex])
     }
     Popup {
         id: colorPicker
@@ -113,10 +142,15 @@ Rectangle {
     FontMetrics { id: resultTextMetrics; font.family: Theme.fontFamily; font.pixelSize: 11 }
     function layoutResults() { resultList.forceLayout() }
     function rebuild() {
+        const previousRows = visibleResults
+        const previousIndex = currentVisibleIndex
+        const previousId = selectedIndex
+        const previousY = resultList.contentY
         const next = []
         for (const item of (results || [])) {
             if (reviewFilter === "hidden" ? !item.hidden : item.hidden) continue
             if (reviewFilter === "favorites" && !item.favorite) continue
+            if (!matchesSource(item.leftSource) && !matchesSource(item.rightSource)) continue
             next.push(item)
         }
         next.sort(compareValues)
@@ -134,7 +168,18 @@ Rectangle {
             }
         }
         visibleResults = next
-        Qt.callLater(revealSelection)
+        if (next.some(function(row) { return !row.reviewed })) reviewNotice = ""
+        if (previousId >= 0 && !next.some(function(row) { return Number(row.id) === previousId })) {
+            const successor = previousRows.slice(Math.max(0, previousIndex + 1)).find(function(row) { return wanted[row.id] })
+            const predecessor = previousRows.slice(0, Math.max(0, previousIndex)).reverse().find(function(row) { return wanted[row.id] })
+            const target = successor || predecessor || next[0]
+            resultSelected(target ? Number(target.id) : -1)
+        }
+        Qt.callLater(function() {
+            resultList.forceLayout()
+            resultList.contentY = Math.max(resultList.originY, Math.min(previousY, resultList.originY + Math.max(0, resultList.contentHeight - resultList.height)))
+            revealSelection()
+        })
     }
     function selectCard(id, modifiers) {
         if (Review.multiSelect) {
@@ -178,6 +223,9 @@ Rectangle {
         root.resultSelected(Number(target.id))
     }
 
+    onSourceChoicesChanged: if (sourceFilter && sourceChoices.indexOf(sourceFilter) < 0) sourceFilter = ""
+    onSourceQueryChanged: { reviewNotice = ""; rebuild() }
+    onSourceFilterChanged: { reviewNotice = ""; rebuild() }
     onSelectedIndexChanged: revealSelection()
     onResultsChanged: rebuild()
     onSortDescendingChanged: rebuild()
@@ -220,6 +268,28 @@ Rectangle {
             PfButton { objectName: "clearResultsSelectionButton"; Layout.fillWidth: true; quiet: true; enabled: root.selectedCount > 0; text: L10n.t("results.clearSelection"); onClicked: root.clearSelection() }
         }
 
+        TextField {
+            id: sourceSearch; objectName: "resultSourceSearch"; Layout.fillWidth: true; visible: root.results.length > 0
+            placeholderText: Review.t("sourceSearch"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 11
+            Accessible.name: Review.t("sourceSearch")
+            background: Rectangle { radius: Theme.radiusButton; color: Theme.well; border.color: sourceSearch.activeFocus ? Theme.accent : Theme.hairlineStrong }
+            onTextChanged: root.sourceQuery = text
+            ToolTip.visible: hovered; ToolTip.text: Review.t("sourceHint")
+        }
+        PfComboBox {
+            objectName: "resultSourceFilter"; Layout.fillWidth: true; visible: root.results.length > 0
+            model: root.sourceChoices.map(function(path) { return path ? root.sourceName(path) : Review.t("allSources") })
+            currentIndex: Math.max(0, root.sourceChoices.indexOf(root.sourceFilter))
+            Accessible.name: Review.t("allSources")
+            onActivated: function(index) { root.sourceFilter = root.sourceChoices[index] || "" }
+            ToolTip.visible: hovered && !!root.sourceFilter; ToolTip.text: root.sourceFilter
+        }
+        RowLayout {
+            Layout.fillWidth: true; visible: root.results.length > 0; spacing: 6
+            PfButton { objectName: "nextUnreviewedButton"; Layout.fillWidth: true; compact: true; text: Review.t("nextUnreviewed"); onClicked: root.selectNextUnreviewed() }
+            PfButton { objectName: "undoReviewButton"; compact: true; text: Review.t("undo"); enabled: Analysis.canUndoReview && !Analysis.busy && !Analysis.reviewBusy && !Analysis.exportBusy; onClicked: root.undoRequested() }
+        }
+        Text { Layout.fillWidth: true; visible: !!root.reviewNotice; text: root.reviewNotice; color: Theme.textSecondary; wrapMode: Text.WordWrap; font.family: Theme.fontFamily; font.pixelSize: 10 }
         ColumnLayout {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
@@ -236,7 +306,7 @@ Rectangle {
             Text {
                 font.family: Theme.fontFamily
                 Layout.fillWidth: true
-                text: root.results.length > 0 ? root.visibleResults.length + " " + L10n.t("results.found") : L10n.t("results.emptyHint")
+                text: root.results.length > 0 ? root.visibleResults.length + " " + L10n.t("results.found") + " · " + root.visibleResults.filter(function(row) { return !row.reviewed }).length + " " + Review.t("unreviewed").toLowerCase() : L10n.t("results.emptyHint")
                 color: Theme.textSecondary
                 font.pixelSize: 11
                 elide: Text.ElideRight
@@ -344,12 +414,12 @@ Rectangle {
                     PropertyAction { property: "ListView.delayRemove"; value: true }
                     ParallelAnimation {
                         NumberAnimation { property: "opacity"; to: 0; duration: Theme.motionChangeDuration }
-                        NumberAnimation { property: "scale"; to: 0.95; duration: Theme.motionChangeDuration; easing.type: Easing.InCubic }
+                        NumberAnimation { property: "entranceOffset"; to: 10; duration: Theme.motionChangeDuration; easing.type: Easing.InCubic }
                     }
                     PropertyAction { property: "ListView.delayRemove"; value: false }
                 }
             }
-            displaced: Transition { NumberAnimation { property: "reflowOffset"; from: 4; to: 0; duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
+            displaced: Transition { NumberAnimation { properties: "x,y"; duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
             focus: true
             activeFocusOnTab: true
             Accessible.name: L10n.t("results.title")
@@ -362,6 +432,8 @@ Rectangle {
                 z: Number(modelData.id) === root.selectedIndex ? 2 : 0
                 onHeightChanged: Qt.callLater(root.layoutResults)
                 property var modelData: model.entry
+                enabled: !ListView.delayRemove
+                ListView.onRemove: cardReveal.stop()
                 property real entranceOffset: 0
                 property real reflowOffset: 0
                 transform: Translate { y: resultCard.entranceOffset + resultCard.reflowOffset }
@@ -390,16 +462,17 @@ Rectangle {
                     }
                 }
                 width: Math.max(0, resultList.width - 8)
-                height: Math.max(104, Math.ceil(resultTextMetrics.height) * 5 + 32)
+                height: Math.max(120, Math.ceil(resultTextMetrics.height) * 6 + 36)
                     + (modelData && modelData.category ? Math.ceil(resultTextMetrics.height) + 4 : 0)
                 radius: 7
                 color: root.selectedRows[modelData.id] ? Theme.accentMuted : Theme.surfaceRaised
+                Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
                 border.color: Number(modelData.id) === root.selectedIndex ? Theme.accent : Theme.border
                 Behavior on border.color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
-                Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
                 Rectangle {
                     x: 0; y: 14; width: 2; height: parent.height - 28; radius: 1
                     color: modelData.categoryColor || Theme.accent
+                    Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionChangeDuration } }
                     opacity: modelData.category ? 1 : Number(modelData.id) === root.selectedIndex ? 1 : 0
                     Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration } }
                 }
@@ -441,6 +514,7 @@ Rectangle {
                         background: Rectangle {
                             anchors.centerIn: parent; width: 18; height: 18; radius: 4
                             color: modelData.categoryColor || Theme.well
+                            Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionChangeDuration } }
                             border.color: pairColorButton.hovered ? Theme.accent : Theme.hairlineStrong
                         }
                         onClicked: {
@@ -480,15 +554,24 @@ Rectangle {
                         }
                         Text {
                             visible: !!modelData.category; width: parent.width; font.family: Theme.fontFamily; font.pixelSize: 10
-                            text: "●  " + (modelData.category || ""); color: modelData.categoryColor || Theme.accent; elide: Text.ElideRight
+                            objectName: "resultColorLabel" + modelData.id
+                            text: "●  " + L10n.colorLabel(modelData.categoryColor); color: modelData.categoryColor || Theme.accent; elide: Text.ElideRight
+                            Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionChangeDuration } }
                         }
-                        Text {
-                            font.family: Theme.fontFamily
-                            width: parent.width
-                            text: L10n.t("results.file") + " · " + String(modelData.leftSource || "").split(/[\\/]/).pop() + "  ↔  " + String(modelData.rightSource || "").split(/[\\/]/).pop()
-                            color: Theme.textSecondary
-                            font.pixelSize: 11
-                            elide: Text.ElideMiddle
+                        Repeater {
+                            model: ["left", "right"]
+                            delegate: Text {
+                                required property string modelData
+                                width: rowContent.width; font.family: Theme.fontFamily; font.pixelSize: 10
+                                property string source: String(resultCard.modelData[modelData + "Source"] || "")
+                                text: (modelData === "left" ? "A · " : "B · ") + root.sourceName(source)
+                                color: (root.sourceFilter || root.sourceQuery.trim()) && root.matchesSource(source) ? Theme.accent : Theme.textSecondary; elide: Text.ElideMiddle
+                                Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
+                                font.weight: (root.sourceFilter || root.sourceQuery.trim()) && root.matchesSource(source) ? Font.DemiBold : Font.Normal
+                                ToolTip.visible: sourceHover.containsMouse
+                                ToolTip.text: source
+                                MouseArea { id: sourceHover; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.NoButton }
+                            }
                         }
                         Text {
                             font.family: Theme.fontFamily
@@ -500,7 +583,7 @@ Rectangle {
                         }
                     }
                     Column {
-                        width: 24; spacing: 8
+                        width: 24; spacing: 5
                         PfIconButton {
                             objectName: "removePairButton" + modelData.id
                             width: 24; height: 26; iconSize: 14
@@ -516,6 +599,15 @@ Rectangle {
                             Accessible.name: Review.t("favorite"); ToolTip.visible: hovered; ToolTip.text: Accessible.name
                             enabled: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
                             onClicked: root.pairReviewRequested(Number(modelData.id), "favorite", !modelData.favorite)
+                        }
+                        PfButton {
+                            objectName: "reviewedPairButton" + modelData.id
+                            width: 24; height: 24; implicitHeight: 24; compact: true; quiet: true
+                            text: "✓"; selected: !!modelData.reviewed
+                            Accessible.name: Review.t(modelData.reviewed ? "reviewed" : "unreviewed")
+                            ToolTip.visible: hovered; ToolTip.text: modelData.reviewed ? Review.t("reviewed") : Review.t("reviewedHint")
+                            enabled: !Analysis.busy && !Analysis.reviewBusy && !Analysis.exportBusy
+                            onClicked: root.pairReviewRequested(Number(modelData.id), "reviewed", !modelData.reviewed)
                         }
                     }
                 }

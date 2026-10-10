@@ -1,6 +1,7 @@
 #include "AnalysisController.h"
 #include "AppInfo.h"
 #include <pfcore/VideoDecoder.hpp>
+#include <pfservices/ResultCategoryStore.hpp>
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
@@ -42,17 +43,62 @@ QString timestamp(double value) {
 }
 }
 
+void AnalysisController::pushReviewUndo(const QVariantList& ids, bool includeMatch) {
+    std::vector<ReviewUndoRow> entry;
+    std::set<int> used;
+    for (const auto& value : ids) {
+        const int id = value.toInt();
+        if (id < 0 || id >= results_.size() || !used.insert(id).second) continue;
+        ReviewUndoRow row{id, results_[id].toMap(), {}, {}};
+        if (includeMatch && id < static_cast<int>(matches_.size())) row.match = matches_[id];
+        const auto preview = reviewPreviewDirectories_.find(id);
+        if (preview != reviewPreviewDirectories_.end()) row.preview = preview->second;
+        entry.push_back(std::move(row));
+    }
+    if (entry.empty()) return;
+    reviewUndo_.push_back(std::move(entry));
+    // Bound both actions and retained rows; retain one complete large bulk action.
+    std::size_t rows = 0; for (const auto& action : reviewUndo_) rows += action.size();
+    while (reviewUndo_.size() > 1 && (reviewUndo_.size() > 16 || rows > 16384)) {
+        rows -= reviewUndo_.front().size(); reviewUndo_.erase(reviewUndo_.begin());
+    }
+}
+
+QVariantList AnalysisController::undoResultEdit() {
+    if (busy_ || exportBusy_ || reviewBusy_ || reviewUndo_.empty()) return {};
+    auto entry = std::move(reviewUndo_.back()); reviewUndo_.pop_back();
+    QVariantList restored;
+    for (auto& row : entry) {
+        if (row.id < 0 || row.id >= results_.size()) continue;
+        const auto current = results_[row.id].toMap();
+        if (current.value("category") != row.record.value("category") || current.value("categoryColor") != row.record.value("categoryColor"))
+            pfservices::ResultCategoryStore::save(row.record, row.record.value("category").toString(), row.record.value("categoryColor").toString());
+        results_[row.id] = row.record;
+        if (row.match && row.id < static_cast<int>(matches_.size())) matches_[row.id] = *row.match;
+        if (row.preview) reviewPreviewDirectories_[row.id] = std::move(row.preview);
+        else reviewPreviewDirectories_.erase(row.id);
+        restored.push_back(row.id);
+    }
+    ++resultCategoryRevision_; emit resultCategoriesChanged();
+    return restored;
+}
+
 void AnalysisController::setResultReview(const QVariantList& ids, const QString& field, bool value) {
-    if (busy_ || exportBusy_ || reviewBusy_ || (field != "hidden" && field != "favorite")) return;
-    bool changed = false;
+    if (busy_ || exportBusy_ || reviewBusy_ || (field != "hidden" && field != "favorite" && field != "reviewed")) return;
+    QVariantList changed;
     for (const auto& item : ids) {
         bool ok = false; const int id = item.toInt(&ok);
-        if (!ok || id < 0 || id >= results_.size()) continue;
-        auto row = results_[id].toMap();
-        if (row.value("id").toInt() != id || row.value(field).toBool() == value) continue;
-        row.insert(field, value); results_[id] = row; changed = true;
+        if (!ok || id < 0 || id >= results_.size() || changed.contains(id)) continue;
+        const auto row = results_[id].toMap();
+        if (row.value("id").toInt() == id && row.value(field).toBool() != value) changed.push_back(id);
     }
-    if (changed) { ++resultCategoryRevision_; emit resultCategoriesChanged(); }
+    if (changed.isEmpty()) return;
+    pushReviewUndo(changed);
+    for (const auto& item : changed) {
+        const int id = item.toInt(); auto row = results_[id].toMap();
+        row.insert(field, value); results_[id] = row;
+    }
+    ++resultCategoryRevision_; emit resultCategoriesChanged();
 }
 
 bool AnalysisController::setResultRange(int id, double ls, double le, double rs, double re) {
@@ -64,6 +110,7 @@ bool AnalysisController::setResultRange(int id, double ls, double le, double rs,
     };
     if (!std::isfinite(ls) || !std::isfinite(le) || !std::isfinite(rs) || !std::isfinite(re)
         || ls < 0 || rs < 0 || le <= ls || re <= rs || le > limit("left") || re > limit("right")) return false;
+    pushReviewUndo({id}, true);
     if (!row.contains("originalRange")) {
         row.insert("originalRecord", row);
         row.insert("originalMatchDuration", matches_[id].durationSeconds);
@@ -138,7 +185,8 @@ bool AnalysisController::resetResultRange(int id) {
     const auto current = results_[id].toMap();
     auto original = current.value("originalRecord").toMap();
     if (original.isEmpty()) return false;
-    for (const QString& key : {QString("category"), QString("categoryColor"), QString("favorite"), QString("hidden")})
+    pushReviewUndo({id}, true);
+    for (const QString& key : {QString("category"), QString("categoryColor"), QString("favorite"), QString("hidden"), QString("reviewed")})
         if (current.contains(key)) original.insert(key, current.value(key));
     auto& match = matches_[id];
     match.leftStartSeconds = original.value("leftStart").toDouble(); match.leftEndSeconds = original.value("leftEnd").toDouble();

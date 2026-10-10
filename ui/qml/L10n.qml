@@ -21,7 +21,7 @@ QtObject {
             "results.category": "Группа",
             "results.tagSelection": "Цвет и группа",
             "results.categoryName": "Название группы",
-            "results.categoryColor": "Цвет группы",
+            "results.categoryColor": "Цвет пары",
             "results.removeTag": "Убрать группу",
             "results.applyTag": "Применить к выбранным",
             "colors.orange": "Красный",
@@ -150,7 +150,7 @@ QtObject {
             "search.running": "Идёт анализ…",
 
             "stats.files": "Файлы",
-            "stats.frames": "Кадры",
+            "stats.frames": "Кадры исходника",
             "stats.scenes": "Сцены",
             "stats.pairs": "Пары",
             "stats.duration": "Длительность",
@@ -450,7 +450,7 @@ QtObject {
             "search.stop": "Stop",
             "search.running": "Analysis running…",
             "stats.files": "Files",
-            "stats.frames": "Frames",
+            "stats.frames": "Source frames",
             "stats.scenes": "Scenes",
             "stats.pairs": "Pairs",
             "stats.duration": "Duration",
@@ -691,4 +691,10 @@ QtObject {
         if (text.indexOf("Не удалось скачать модель: ") === 0) return "Could not download model: " + text.slice("Не удалось скачать модель: ".length)
         return text
     }
+    function colorLabel(value) {
+        const color = String(value || "").toLowerCase()
+        const keys = {"#d56565": "colors.orange", "#638edb": "colors.blue", "#7c9885": "colors.green", "#aa83d4": "colors.purple", "#d5ad63": "colors.gold"}
+        return keys[color] ? t(keys[color]) : color.toUpperCase()
+    }
+
 }

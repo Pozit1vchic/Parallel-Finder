@@ -1,6 +1,8 @@
+#include "NetworkOperation.hpp"
 #include <pfservices/ProviderStore.hpp>
 
 #include <QEventLoop>
+#include <QElapsedTimer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -82,9 +84,8 @@ bool trustedHost(const QUrl& url)
             || host.endsWith(QStringLiteral(".githubusercontent.com")));
 }
 
-bool runTarListing(const QStringList& arguments,
-                   QByteArray& output,
-                   std::string& error)
+bool runTarProcess(const QStringList& arguments, QByteArray& output,
+                   std::string& error, int timeoutMs, qsizetype outputLimit)
 {
     QProcess process;
     process.setProgram(tarProgram());
@@ -95,24 +96,49 @@ bool runTarListing(const QStringList& arguments,
     });
 #endif
     process.setProcessChannelMode(QProcess::SeparateChannels);
+    QByteArray diagnostic;
+    bool oversized = false;
+    const auto consume = [&] {
+        while (process.bytesAvailable() > 0) {
+            const auto chunk = process.read(65536);
+            if (chunk.isEmpty()) break;
+            if (chunk.size() > outputLimit - output.size()) {
+                oversized = true; process.kill(); break;
+            }
+            output += chunk;
+        }
+        diagnostic += process.readAllStandardError();
+        if (diagnostic.size() > 65536) diagnostic = diagnostic.right(65536);
+    };
+    QObject::connect(&process, &QProcess::readyReadStandardOutput, &process, consume);
+    QObject::connect(&process, &QProcess::readyReadStandardError, &process, consume);
     process.start();
-    if (!process.waitForStarted(5000) || !process.waitForFinished(30000)) {
-        error = "inspect provider archive: " + process.errorString().toStdString();
-        process.kill();
+    if (!process.waitForStarted(5000)) {
+        error = "start provider archive operation: " + process.errorString().toStdString();
         return false;
     }
-    output = process.readAllStandardOutput();
-    if (output.size() > 32 * 1024 * 1024) {
-        error = "provider archive listing is too large";
+    QElapsedTimer elapsed; elapsed.start();
+    while (process.state() != QProcess::NotRunning && !oversized
+           && !QThread::currentThread()->isInterruptionRequested() && elapsed.elapsed() < timeoutMs)
+        process.waitForFinished(100);
+    consume();
+    const bool cancelled = QThread::currentThread()->isInterruptionRequested();
+    if (oversized || cancelled || process.state() != QProcess::NotRunning) {
+        process.kill(); process.waitForFinished(5000);
+        error = oversized ? "provider archive listing is too large"
+            : cancelled ? "provider archive operation cancelled" : "provider archive operation timed out";
         return false;
     }
     if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
-        const QByteArray stderrData = process.readAllStandardError();
-        error = "inspect provider archive failed: "
-            + (stderrData.isEmpty() ? process.errorString().toStdString() : stderrData.toStdString());
+        error = "provider archive operation failed: " + diagnostic.toStdString();
         return false;
     }
     return true;
+}
+
+bool runTarListing(const QStringList& arguments, QByteArray& output, std::string& error)
+{
+    return runTarProcess(arguments, output, error, 30000, 32 * 1024 * 1024);
 }
 
 bool validateArchive(const std::filesystem::path& archive, std::string& error)
@@ -258,31 +284,10 @@ bool extractArchive(const std::filesystem::path& archive,
         error = "create provider directory: " + filesystemError.message();
         return false;
     }
-    QProcess process;
-    process.setProgram(tarProgram());
-    process.setArguments({QStringLiteral("-xf"),
-                          QString::fromStdWString(archive.wstring()),
-                          QStringLiteral("-C"),
-                          QString::fromStdWString(destination.wstring())});
-#if defined(_WIN32)
-    process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args) {
-        args->flags |= CREATE_NO_WINDOW;
-    });
-#endif
-    process.setProcessChannelMode(QProcess::SeparateChannels);
-    process.start();
-    if (!process.waitForStarted(5000) || !process.waitForFinished(120000)) {
-        error = "extract provider archive: " + process.errorString().toStdString();
-        process.kill();
-        return false;
-    }
-    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
-        const QByteArray stderrData = process.readAllStandardError();
-        error = "extract provider archive failed: "
-            + (stderrData.isEmpty() ? process.errorString().toStdString() : stderrData.toStdString());
-        return false;
-    }
-    return true;
+    QByteArray output;
+    return runTarProcess({QStringLiteral("-xf"), QString::fromStdWString(archive.wstring()),
+                          QStringLiteral("-C"), QString::fromStdWString(destination.wstring())},
+                         output, error, 120000, 65536);
 }
 
 } // namespace
@@ -358,6 +363,9 @@ std::optional<ProviderAsset> ProviderStore::fetchManifest(const std::string& url
                          QNetworkRequest::UserVerifiedRedirectPolicy);
     request.setTransferTimeout(30000);
     QNetworkReply* reply = manager.get(request);
+    QTimer interruption;
+    detail::watchInterruption(interruption, *reply, error);
+    detail::boundManifestReply(*reply, kMaxManifestBytes, error, "provider manifest is too large");
     QEventLoop loop;
     QObject::connect(reply, &QNetworkReply::redirected, [&](const QUrl& target) {
         if (target.scheme() == QStringLiteral("https") && trustedHost(target))

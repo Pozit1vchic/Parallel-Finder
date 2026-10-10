@@ -62,10 +62,20 @@ void AppInfo::registerQmlTypes()
     qmlRegisterSingletonInstance("PfUiBridge", 1, 0, "Discord", &discord);
 }
 
+AppInfo::~AppInfo()
+{
+    workerThreads_.finish();
+    providerScan_.request_stop();
+    if (providerScan_.joinable()) providerScan_.join();
+    backendProbe_.request_stop();
+    if (backendProbe_.joinable()) backendProbe_.join();
+}
+
 AppInfo::AppInfo(QObject* parent)
     : QObject(parent)
 {
     connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, [this] {
+        workerThreads_.finish();
         pfservices::SettingsStore::flushPendingWrites();
         providerScan_.request_stop();
         if (providerScan_.joinable()) providerScan_.join();
@@ -366,8 +376,7 @@ void AppInfo::downloadProvider(const QString& backend)
             }, Qt::QueuedConnection);
         }
     });
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
+    workerThreads_.start(thread);
 }
 
 void AppInfo::setGpuInfo(const QString& backend,

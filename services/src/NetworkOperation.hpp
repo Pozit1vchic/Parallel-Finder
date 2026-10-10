@@ -1,39 +1,36 @@
 #pragma once
 
 #include <QNetworkReply>
+#include <QThread>
 #include <QTimer>
-#include <stop_token>
 #include <string>
 
 namespace pfservices::detail {
-
-// QNetworkReply must be aborted on its owning thread. Poll inside the
-// existing worker event loop instead of calling Qt from a stop callback.
-inline void watchNetworkCancellation(QTimer& timer, QNetworkReply& reply,
-                                     std::stop_token stop, std::string& error)
+inline void watchInterruption(QTimer& timer, QNetworkReply& reply, std::string& error)
 {
-    if (!stop.stop_possible()) return;
-    QObject::connect(&timer, &QTimer::timeout, &reply, [&reply, stop, &error] {
-        if (stop.stop_requested() && !reply.isFinished()) {
-            error = "operation cancelled";
+    auto* worker = QThread::currentThread();
+    timer.setInterval(100);
+    QObject::connect(&timer, &QTimer::timeout, &reply, [worker, &reply, &error] {
+        if (worker->isInterruptionRequested()) {
+            error = "download cancelled";
             reply.abort();
         }
     });
-    timer.start(100);
+    timer.start();
 }
 
-inline void boundManifestReply(QNetworkReply& reply, qsizetype maximum,
-                                std::string& error)
+// Manifests remain buffered until JSON parsing. Bound the reply itself,
+// rather than checking its size only after a potentially unbounded transfer.
+inline void boundManifestReply(QNetworkReply& reply, qsizetype limit,
+                               std::string& error, const char* message)
 {
-    // Leave one extra byte so an oversized response is rejected rather than
-    // silently stalled at the cap. No unbounded response buffering.
-    reply.setReadBufferSize(maximum + 1);
-    QObject::connect(&reply, &QNetworkReply::readyRead, &reply, [&reply, maximum, &error] {
-        if (reply.bytesAvailable() > maximum) {
-            error = "manifest is too large";
-            reply.abort();
-        }
-    });
+    reply.setReadBufferSize(limit + 1);
+    QObject::connect(&reply, &QNetworkReply::readyRead, &reply,
+        [&reply, limit, &error, message] {
+            if (reply.bytesAvailable() > limit) {
+                error = message;
+                reply.abort();
+            }
+        });
 }
-
 } // namespace pfservices::detail

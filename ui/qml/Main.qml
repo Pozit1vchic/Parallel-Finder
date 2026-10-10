@@ -83,7 +83,16 @@ ApplicationWindow {
     }
     function runReviewAction(action) {
         const row = selectedRecord, id = row ? Number(row.id) : -1
-        if (action === "next") resultsRail.selectNext()
+        if (action === "undo") {
+            const restored = Analysis.undoResultEdit()
+            Qt.callLater(function() {
+                const target = restored.find(function(id) { return resultsRail.visibleResults.some(function(row) { return Number(row.id) === Number(id) }) })
+                if (target !== undefined) root.selectResult(Number(target))
+            })
+        }
+        else if (action === "nextUnreviewed") resultsRail.selectNextUnreviewed()
+        else if (action === "reviewed" && row) reviewPairs(id, "reviewed", !row.reviewed)
+        else if (action === "next") resultsRail.selectNext()
         else if (action === "previous") resultsRail.selectPrevious()
         else if (action === "hide" && row) reviewPairs(id, "hidden", !row.hidden)
         else if (action === "favorite" && row) reviewPairs(id, "favorite", !row.favorite)
@@ -127,7 +136,7 @@ ApplicationWindow {
     function resultKeysEnabled() {
         if (settingsDialog.visible || exportDialog.visible || updateDialog.visible || fileDialog.visible
                 || folderDialog.visible || adjustDialog.visible || findingsDialog.visible
-                || Analysis.busy || Analysis.exportBusy || Analysis.reviewBusy || root.selectedRecord === null) return false
+                || Analysis.busy || Analysis.exportBusy || Analysis.reviewBusy) return false
         for (let item = root.activeFocusItem; item; item = item.parent) {
             // Analyze/add buttons retain focus after a run. Do not disable
             // result navigation for the entire source panel because of that.
@@ -140,7 +149,7 @@ ApplicationWindow {
         delegate: Shortcut {
             required property var modelData
             sequences: Review.keys(modelData.id).filter(function(key) { return !!key })
-            enabled: root.resultKeysEnabled()
+            enabled: root.resultKeysEnabled() && (modelData.id === "undo" ? Analysis.canUndoReview : root.selectedRecord !== null)
             autoRepeat: modelData.id === "next" || modelData.id === "previous"
             onActivated: root.runReviewAction(modelData.id)
         }
@@ -193,8 +202,9 @@ ApplicationWindow {
                     selectedRows: root.selectedExportRows; selectedIndex: root.selectedResultIndex
                     onExportSelectionChanged: function(rows) { root.selectedExportRows = rows }
                     onResultSelected: function(index) { root.selectResult(index) }
-                    onPairColorRequested: function(index, name, color) { for (const id of root.actionIds(index)) Analysis.setResultCategory(id, name, color) }
+                    onPairColorRequested: function(index, name, color) { Analysis.setResultCategories(root.actionIds(index), name, color) }
                     onPairReviewRequested: function(index, field, value) { root.reviewPairs(index, field, value) }
+                    onUndoRequested: root.runReviewAction("undo")
                     onFindingsRequested: root.openFindings()
                     onExportRequested: function(rows) { exportDialog.selectionOrder = resultsRail.visibleResults.map(function(item) { return Number(item.id) }); exportDialog.selectedRows = rows; exportDialog.open() }
                 }

@@ -67,7 +67,10 @@ private:
                 job.change(settings);
                 store.save(settings, error);
             } catch (const std::exception& exception) { error = exception.what(); }
-            if (job.completion) job.completion(std::move(error));
+            catch (...) { error = "settings update failed with an unknown exception"; }
+            // A consumer callback must not terminate the writer or strand flush().
+            try { if (job.completion) job.completion(std::move(error)); }
+            catch (...) { /* The commit is complete; continue draining pending writes. */ }
             {
                 std::lock_guard lock(mutex_); writing_ = false;
                 if (jobs_.empty()) drained_.notify_all();
@@ -78,7 +81,7 @@ private:
     std::condition_variable ready_, drained_;
     std::deque<Job> jobs_;
     bool writing_ = false, stopping_ = false;
-    std::thread worker_;
+    std::jthread worker_;
 };
 
 SettingsWriter& settingsWriter() { static SettingsWriter writer; return writer; }

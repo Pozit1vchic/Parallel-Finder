@@ -71,12 +71,12 @@ ColumnLayout {
         }
         first.handle: Rectangle {
             x: track.leftPadding + track.first.visualPosition * (track.availableWidth - width); y: track.topPadding + (track.availableHeight - height) / 2
-            width: 12; height: 30; radius: 4; color: track.first.pressed ? Theme.textPrimary : Theme.accent
+            width: 20; height: 34; radius: 4; color: track.first.pressed ? Theme.textPrimary : Theme.accent
             Behavior on color { ColorAnimation { duration: Theme.motionDuration } }
         }
         second.handle: Rectangle {
             x: track.leftPadding + track.second.visualPosition * (track.availableWidth - width); y: track.topPadding + (track.availableHeight - height) / 2
-            width: 12; height: 30; radius: 4; color: track.second.pressed ? Theme.textPrimary : Theme.accent
+            width: 20; height: 34; radius: 4; color: track.second.pressed ? Theme.textPrimary : Theme.accent
             Behavior on color { ColorAnimation { duration: Theme.motionDuration } }
         }
     }

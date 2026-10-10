@@ -1,5 +1,6 @@
 add_library(pfservices STATIC
     src/ThumbnailCache.cpp
+    src/MotionWindowCache.cpp
     src/SettingsStore.cpp
     src/ModelStore.cpp
     src/ProviderStore.cpp

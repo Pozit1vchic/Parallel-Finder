@@ -1,3 +1,4 @@
+#include "WorkerThreads.h"
 #pragma once
 
 #include <QObject>
@@ -36,6 +37,7 @@ class AppInfo : public QObject {
     Q_PROPERTY(bool backendInitializing READ backendInitializing NOTIFY backendInitializationChanged)
 
 public:
+    ~AppInfo() override;
     static AppInfo* instance();
 
     // Registers PfUiBridge.AppInfo as a QML singleton. Call once per process
@@ -106,6 +108,8 @@ private:
     bool backendSnapshotReady_ = false;
     QVariantMap backendStatuses_;
     std::jthread backendProbe_;
+    WorkerThreads workerThreads_; // Destroy before any worker-captured state.
+
 };
 
 } // namespace pfui

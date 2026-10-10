@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <thread>
+#include <vector>
 
 
 TEST(JobManager, RejectsInvalidConstructionBeforeStartingWorkers)
@@ -53,4 +54,20 @@ TEST(JobManager, SerializesJobsWithTheSameSourceButAllowsDifferentSources)
     EXPECT_EQ(maxActiveA.load(), 1);
     gate.set_value();
     first.get(); second.get(); different.get();
+}
+
+TEST(JobManager, ShutdownDrainsBlockedSourceQueueAndJoinsAllWorkers)
+{
+    std::atomic_int completed = 0;
+    std::vector<std::future<void>> futures;
+    {
+        pfcore::JobManager manager(32, 4);
+        for (int i = 0; i < 24; ++i)
+            futures.push_back(manager.submit("same-source", [&] {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                ++completed;
+            }));
+    }
+    EXPECT_EQ(completed, 24);
+    for (auto& future : futures) EXPECT_NO_THROW(future.get());
 }

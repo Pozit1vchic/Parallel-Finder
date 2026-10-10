@@ -1,3 +1,4 @@
+#include "../../services/src/MontageGeometry.hpp"
 #include <gtest/gtest.h>
 
 #include <pfservices/CutService.hpp>
@@ -16,6 +17,7 @@
 #include <QJsonArray>
 
 #include <filesystem>
+#include <limits>
 
 TEST(ParallelClip, CentersFiveSecondsOnSupportedMatch)
 {
@@ -744,4 +746,18 @@ TEST(CutService, SelectedQualityAndBitrateProduceDecodableClipsWithoutResizing)
     EXPECT_EQ(std::find(copied.arguments.begin(), copied.arguments.end(), "-b:v"), copied.arguments.end());
     request.quality = 52; EXPECT_FALSE(cutter.cut(request).success);
     request.quality = 18; request.videoBitrateKbps = 500001; EXPECT_FALSE(cutter.cut(request).success);
+}
+
+TEST(MontageExport, CanvasChecksAspectRatioOverflowAndRotation) {
+    pfcore::VideoInfo info;
+    info.width = 1920; info.height = 1080; info.sampleAspectRatio = 1.5;
+    const auto normal = pfservices::detail::montageCanvas(info);
+    ASSERT_TRUE(normal);
+    EXPECT_EQ(*normal, (std::pair<int,int>{2880,1080}));
+    info.rotationDegrees = 90;
+    EXPECT_EQ(*pfservices::detail::montageCanvas(info), (std::pair<int,int>{1080,2880}));
+    info.sampleAspectRatio = 1e12;
+    EXPECT_FALSE(pfservices::detail::montageCanvas(info));
+    info.sampleAspectRatio = std::numeric_limits<double>::infinity();
+    EXPECT_FALSE(pfservices::detail::montageCanvas(info));
 }
