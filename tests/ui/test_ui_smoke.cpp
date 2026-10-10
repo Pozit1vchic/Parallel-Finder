@@ -31,6 +31,7 @@
 #include <atomic>
 #include <QElapsedTimer>
 #include <QTimer>
+#include <QScopeGuard>
 #include <DiscordPresence.h>
 #include <pfgpu/SessionCache.hpp>
 #if defined(Q_OS_WIN)
@@ -56,6 +57,7 @@ private slots:
     }
     void mainQmlLoadsFromResources();
     void realSoldierDefaultDiscoveryColdAndWarm();
+    void realAnalysisPublishesProgressWithoutDiagnostics();
     void reviewShortcutsAndMultiSelection();
     void realReviewAdjustAndFindings();
     void idleWindowAndDiscordMemoryPlateau();
@@ -99,6 +101,45 @@ private slots:
     void resultLabelsFollowMatchTypeAndLanguage();
     void sourceStatisticsFollowSelectionAndInspectionScope();
 };
+
+void UiSmokeTests::realAnalysisPublishesProgressWithoutDiagnostics()
+{
+    const auto source = qEnvironmentVariable("PF_REAL_PROGRESS_SOURCE");
+    if (source.isEmpty()) QSKIP("Opt-in real-video progress regression");
+    QVERIFY(QFileInfo::exists(source));
+    const auto debug = qgetenv("PF_DEBUG_ANALYSIS");
+    const bool debugWasSet = qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS");
+    qunsetenv("PF_DEBUG_ANALYSIS");
+    const auto restoreDebug = qScopeGuard([&] {
+        if (debugWasSet) qputenv("PF_DEBUG_ANALYSIS", debug);
+        else qunsetenv("PF_DEBUG_ANALYSIS");
+    });
+    auto* analysis = pfui::AnalysisController::instance();
+    analysis->setModelPath(qEnvironmentVariable("PF_MODEL_PATH"));
+    analysis->setProviderChoice("cuda");
+    analysis->setQualityProfile("fast");
+    analysis->setAccuracyPreset("fast");
+    analysis->setExpandedSearch(true);
+    QElapsedTimer elapsed;
+    elapsed.start();
+    qint64 firstProgressMs = -1;
+    const auto connection = connect(analysis, &pfui::AnalysisController::progressChanged, this, [&] {
+        if (analysis->busy() && analysis->progress() > 0 && analysis->progress() < .85
+            && analysis->progressStage() == QStringLiteral("Анализируем движение")
+            && firstProgressMs < 0) {
+            firstProgressMs = elapsed.elapsed();
+            analysis->stopAnalysis();
+        }
+    });
+    const auto disconnectProgress = qScopeGuard([&] { disconnect(connection); });
+    analysis->analyzeFiles({source});
+    QTRY_VERIFY_WITH_TIMEOUT(firstProgressMs >= 0 || !analysis->busy(), 120000);
+    if (firstProgressMs < 0) analysis->stopAnalysis();
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(), 30000);
+    QVERIFY2(firstProgressMs >= 0, "Normal analysis did not publish intermediate decode progress");
+    qInfo("PF_REAL_FIRST_PROGRESS elapsed_ms=%lld source=%s diagnostics=disabled",
+        static_cast<long long>(firstProgressMs), qPrintable(source));
+}
 
 void UiSmokeTests::realSoldierDefaultDiscoveryColdAndWarm()
 {

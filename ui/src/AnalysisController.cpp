@@ -2652,7 +2652,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     prefetchFrames, 3, profilePipeline);
                 const auto framesBeforeFile = processedFrames;
                 const auto decodedBeforeFile = decodedFrames;
-                auto lastUiProgressNs = stageNow();
+                // UI notifications need a real clock even when optional
+                // pipeline profiling is disabled in normal application runs.
+                QElapsedTimer uiProgressTimer;
+                uiProgressTimer.start();
                 pfcore::VideoSample decodedSample;
                 for (;;) {
                     // Decode timestamps first. Once a timestamp is selected,
@@ -2666,8 +2669,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     if (samplePose) { ++poseSampleIndex; ++analyzedFrames; }
                     decodedFrames = decodedBeforeFile + static_cast<qlonglong>(decodedSample.decodedFrames);
                     processedFrames = framesBeforeFile + static_cast<qlonglong>(decodedSample.decodedFrames);
-                    if (stageNow() - lastUiProgressNs >= 100000000 || processedFrames == totalFramesEstimate) {
-                        lastUiProgressNs = stageNow();
+                    if (uiProgressTimer.elapsed() >= 100 || processedFrames == totalFramesEstimate) {
+                        uiProgressTimer.restart();
                         const double localProgress = totalFramesEstimate > 0
                             ? static_cast<double>(processedFrames) / static_cast<double>(totalFramesEstimate)
                             : 0.0;
