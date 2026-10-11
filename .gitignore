@@ -139,10 +139,14 @@ audit*.md
 /tools/benchmark/*.ps1
 !/AUDIT.md
 !/docs/release-audit.md
+!/docs/analysis-audit-2026-10-10.md
 !/tools/benchmark/audit_project.ps1
 !/tools/benchmark/check_reference_pairs.ps1
 !/tools/benchmark/install_face_models.ps1
 !/tools/benchmark/run_analysis_smoke.ps1
+!/tools/benchmark/compare_analysis_reports.ps1
+!/tools/benchmark/run_cold_performance.ps1
+!/tools/benchmark/run_frozen_performance.ps1
 !/tools/benchmark/run_matcher_regression.ps1
 !/tools/benchmark/run_startup_smoke.ps1
 

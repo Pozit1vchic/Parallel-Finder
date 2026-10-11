@@ -12,7 +12,7 @@ namespace pfui {
 // handled by the cutter separately; it does not change individual clip names.
 inline std::vector<int> orderedExportIndexes(const QVariantList& indexes,
     const std::vector<pfcore::MotionMatch>& matches, const QVariantList& records,
-    int numberingMode, const QStringList& colorOrder)
+    int numberingMode, const QStringList& classOrder)
 {
     std::vector<int> ordered;
     std::vector<bool> seen(matches.size(), false);
@@ -29,14 +29,13 @@ inline std::vector<int> orderedExportIndexes(const QVariantList& indexes,
         return std::tie(a.leftSourceId, a.leftStartSeconds, a.rightStartSeconds)
              < std::tie(b.leftSourceId, b.leftStartSeconds, b.rightStartSeconds);
     });
-    if (!colorOrder.isEmpty()) {
-        QStringList colors;
-        for (const auto& color : colorOrder) colors.push_back(color.toLower());
-        std::vector<qsizetype> ranks(matches.size(), colors.size());
+    if (!classOrder.isEmpty()) {
+        std::vector<qsizetype> ranks(matches.size(), classOrder.size());
         for (const int index : ordered) {
-            const auto color = index < records.size()
-                ? records[index].toMap().value("categoryColor").toString().toLower() : QString{};
-            const auto rank = colors.indexOf(color);
+            const auto classification = index < records.size()
+                ? records[index].toMap().value("classification", "unknown").toString().section('/', 0, 0) : QStringLiteral("unknown");
+            auto rank = classOrder.indexOf(classification);
+            if(rank<0)rank=classOrder.indexOf(QStringLiteral("unknown"));
             if (rank >= 0) ranks[index] = rank;
         }
         std::stable_sort(ordered.begin(), ordered.end(), [&](int a, int b) { return ranks[a] < ranks[b]; });

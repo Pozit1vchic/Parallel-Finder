@@ -1966,6 +1966,87 @@ TEST(MotionMatcher, ReturningCameraDoesNotDiscardASeparateObservedBodyParallel)
     EXPECT_DOUBLE_EQ(observed[0].similarity,original[0].similarity);
 }
 
+TEST(MotionMatcher, ParallelCameraMeasurementsPreserveOrderedBodySelection)
+{
+    std::vector<pfcore::MotionWindow> windows;
+    for(std::size_t i=0;i<160;++i) {
+        auto w=deanAimingPoseFixture()[0];w.sourceId="parallel-camera-source";
+        w.hasSceneIndex=true;w.sceneIndex=i;w.faceEmbedding={1,0};w.faceConfidence=1;
+        w.sceneContext={.75F,.25F};w.sceneView=cameraViewFixture(static_cast<int>(i%3));
+        for(auto& frame:w.frames)frame.timestampSeconds+=i*1000;
+        if(i%3==0) {
+            for(int frame=0;frame<3;++frame)w.sceneSequence.insert(w.sceneSequence.end(),w.sceneView.begin(),w.sceneView.end());
+            w.sceneSequenceTimes={0,.5,1};
+        } else {w.sceneSequence.clear();w.sceneSequenceTimes.clear();}
+        windows.push_back(std::move(w));
+    }
+    pfcore::MotionMatcherParams params;params.individualPairs=params.allowStaticFrames=params.requireAppearance=true;
+    params.recoverUnusedShots=false;params.candidateThreshold=0;params.maxUniqueResults=100;
+    params.maxComparisonThreads=1;params.reuseCameraConflicts=false;
+    const auto serial=pfcore::MotionMatcher(params).findAllPairs(windows);
+    ASSERT_FALSE(serial.empty());
+    params.maxComparisonThreads=4;params.reuseCameraConflicts=true;bool reached=false;pfcore::MotionSearchControl control;
+    const auto caller=std::this_thread::get_id();
+    control.progress=[&](auto stage,std::size_t done,std::size_t total) {
+        EXPECT_EQ(std::this_thread::get_id(),caller);EXPECT_LE(done,total);
+        if(stage==pfcore::MotionSearchStage::Camera && total>4096)reached=true;
+    };
+    const auto parallel=pfcore::MotionMatcher(params).findAllPairs(windows,control);
+    ASSERT_TRUE(reached);ASSERT_EQ(serial.size(),parallel.size());
+    for(std::size_t i=0;i<serial.size();++i) {
+        const auto& a=serial[i];const auto& b=parallel[i];
+        EXPECT_EQ(a.leftIndex,b.leftIndex);EXPECT_EQ(a.rightIndex,b.rightIndex);
+        EXPECT_DOUBLE_EQ(a.similarity,b.similarity);EXPECT_DOUBLE_EQ(a.dtwDistance,b.dtwDistance);
+        EXPECT_DOUBLE_EQ(a.leftStartSeconds,b.leftStartSeconds);EXPECT_DOUBLE_EQ(a.leftEndSeconds,b.leftEndSeconds);
+        EXPECT_DOUBLE_EQ(a.rightStartSeconds,b.rightStartSeconds);EXPECT_DOUBLE_EQ(a.rightEndSeconds,b.rightEndSeconds);
+        EXPECT_DOUBLE_EQ(a.unmirroredSimilarity,b.unmirroredSimilarity);
+        EXPECT_EQ(a.headOnlyComparison,b.headOnlyComparison);EXPECT_EQ(a.faceVerified,b.faceVerified);
+    }
+    bool cancelled=false;control.cancelled=[&]{return cancelled;};
+    control.progress=[&](auto stage,std::size_t,std::size_t total) {
+        if(stage==pfcore::MotionSearchStage::Camera && total>4096)cancelled=true;
+    };
+    EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs(windows,control).empty());EXPECT_TRUE(cancelled);
+}
+
+TEST(MotionMatcher, ParallelPortraitCameraMeasurementsPreserveSelectionAndScores)
+{
+    std::vector<pfcore::MotionWindow> windows;
+    for(std::size_t i=0;i<160;++i) {
+        auto w=soldierHeadPoseFixture()[0];w.sourceId="parallel-portrait-source";
+        w.hasSceneIndex=true;w.sceneIndex=i;w.faceEmbedding={1,0};w.faceConfidence=1;
+        w.sceneView.clear();w.sceneContext.clear();w.sceneSequence.clear();
+        // Independent, non-recurring source views keep enough portraits alive
+        // to exercise measurements against many previously selected pairs.
+        std::uint32_t seed=static_cast<std::uint32_t>(i+1);
+        for(int frame=0;frame<3;++frame)for(int pixel=0;pixel<432;++pixel) {
+            seed=1664525U*seed+1013904223U;
+            w.sceneSequence.push_back(static_cast<float>(seed>>24U)/255.F);
+        }
+        w.sceneSequenceTimes={0,.5,1};
+        for(auto& frame:w.frames)frame.timestampSeconds+=i*1000;
+        windows.push_back(std::move(w));
+    }
+    pfcore::MotionMatcherParams params;params.individualPairs=params.allowStaticFrames=params.requireAppearance=true;
+    params.recoverUnusedShots=false;params.candidateThreshold=0;params.maxUniqueResults=100;
+    params.maxComparisonThreads=1;params.reuseCameraConflicts=false;
+    const auto serial=pfcore::MotionMatcher(params).findAllPairs(windows);
+    ASSERT_GE(serial.size(),8U);
+    params.maxComparisonThreads=4;params.reuseCameraConflicts=true;
+    const auto parallel=pfcore::MotionMatcher(params).findAllPairs(windows);
+    ASSERT_EQ(serial.size(),parallel.size());
+    for(std::size_t i=0;i<serial.size();++i) {
+        const auto& a=serial[i];const auto& b=parallel[i];
+        EXPECT_TRUE(a.headOnlyComparison);EXPECT_TRUE(b.headOnlyComparison);
+        EXPECT_EQ(a.leftIndex,b.leftIndex);EXPECT_EQ(a.rightIndex,b.rightIndex);
+        EXPECT_DOUBLE_EQ(a.similarity,b.similarity);EXPECT_DOUBLE_EQ(a.dtwDistance,b.dtwDistance);
+        EXPECT_DOUBLE_EQ(a.unmirroredSimilarity,b.unmirroredSimilarity);
+        EXPECT_DOUBLE_EQ(a.leftStartSeconds,b.leftStartSeconds);EXPECT_DOUBLE_EQ(a.leftEndSeconds,b.leftEndSeconds);
+        EXPECT_DOUBLE_EQ(a.rightStartSeconds,b.rightStartSeconds);EXPECT_DOUBLE_EQ(a.rightEndSeconds,b.rightEndSeconds);
+        EXPECT_EQ(a.faceVerified,b.faceVerified);
+    }
+}
+
 TEST(MotionMatcher, RecurringCameraCanAppearOnlyOnceAcrossHeadPairsIncludingAugmentation)
 {
     std::vector<pfcore::MotionWindow> windows;
@@ -2160,6 +2241,47 @@ TEST(MotionMatcher, SearchReuseRechecksFacesAndInvalidatesEveryChangedInput)
     pfcore::MotionSearchReuse bounded(0);control.reuse=&bounded;check();check();
 }
 
+TEST(MotionMatcher, RejectedReusePreservesDirectionGeometryAndParameterChanges)
+{
+    auto windows=deanAimingPoseFixture();
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames=params.requireAppearance=true;
+    params.similarityThreshold=1;params.candidateThreshold=0;
+    pfcore::MotionSearchReuse memo(1024*1024);
+    pfcore::MotionSearchControl control;control.reuse=&memo;
+    const auto check=[&] {
+        auto reference=params;reference.reuseRejectedComparisons=false;
+        const auto expected=pfcore::MotionMatcher(reference).findAllPairs(windows);
+        const auto actual=pfcore::MotionMatcher(params).findAllPairs(windows,control);
+        ASSERT_EQ(actual.size(),expected.size());
+        for(std::size_t i=0;i<actual.size();++i) {
+            EXPECT_EQ(actual[i].leftIndex,expected[i].leftIndex);
+            EXPECT_EQ(actual[i].rightIndex,expected[i].rightIndex);
+            EXPECT_DOUBLE_EQ(actual[i].similarity,expected[i].similarity);
+            EXPECT_DOUBLE_EQ(actual[i].dtwDistance,expected[i].dtwDistance);
+            EXPECT_DOUBLE_EQ(actual[i].leftStartSeconds,expected[i].leftStartSeconds);
+            EXPECT_DOUBLE_EQ(actual[i].rightEndSeconds,expected[i].rightEndSeconds);
+        }
+    };
+    check();
+    // Change the whole input fingerprint without changing these comparisons.
+    windows.emplace_back();check();
+    EXPECT_GT(memo.rejectedComparisonHits(),0U);
+    std::reverse(windows.begin(),windows.end());check();
+    EXPECT_EQ(memo.rejectedComparisonHits(),0U);
+    windows.emplace_back();check();
+    EXPECT_GT(memo.rejectedComparisonHits(),0U);
+    params.expandedSearch=true;params.coverageSeedLimit=1;
+    check();EXPECT_GT(memo.rejectedComparisonHits(),0U);
+    for(auto& w:windows)w.sceneSequence.assign(3*432,.25F);
+    check();EXPECT_GT(memo.rejectedComparisonHits(),0U);
+    for(auto& w:windows)for(auto& f:w.frames)f.timestampSeconds+=1;
+    check();EXPECT_EQ(memo.rejectedComparisonHits(),0U);
+    params.similarityThreshold=.7;
+    check();EXPECT_EQ(memo.rejectedComparisonHits(),0U);
+    EXPECT_FALSE(pfcore::MotionMatcher(params).findAllPairs(windows,control).empty());
+}
+
 TEST(MotionMatcher, InspectedPortraitNeedsTwoVisibleIdentityConfirmations)
 {
     auto w=deanAimingPoseFixture()[0];
@@ -2255,6 +2377,14 @@ TEST(MotionMatcher, RecordedSoldier3818And3845AreReturningCameraNotExclusivePort
     EXPECT_TRUE(pfcore::MotionMatcher(p).findAllPairs(windows).empty());
     p.recoverUnusedShots=true;
     EXPECT_TRUE(pfcore::MotionMatcher(p).findAllPairs(windows).empty());
+    pfcore::MotionSearchControl detailed;
+    std::size_t recoveryUpdates=0;
+    detailed.recoveryProgress=[&](auto stage,std::size_t done,std::size_t total) {
+        EXPECT_NE(stage,pfcore::MotionSearchStage::Recovery);
+        EXPECT_LE(done,total); ++recoveryUpdates;
+    };
+    EXPECT_TRUE(pfcore::MotionMatcher(p).findAllPairs(windows,detailed).empty());
+    EXPECT_GT(recoveryUpdates,0U);
 }
 
 TEST(MotionMatcher, UnusedShotRecoveryPreservesEstablishedMotionAndBodyPairs)

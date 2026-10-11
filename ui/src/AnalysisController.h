@@ -17,6 +17,7 @@ class QTemporaryDir;
 namespace pfservices { class RuntimeScratch; }
 
 #include "pfcore/MotionMatcher.hpp"
+#include "ResultClassification.h"
 
 namespace pfui {
 
@@ -164,8 +165,9 @@ public:
                                    const QString& prefix,
                                    const QVariantList& selectedIndexes,
                                    bool mergeChronological = false,
-                                   const QStringList& colorOrder = {},
-                                   int encodingQuality = 18, int videoBitrateKbps = 0);
+                                   const QStringList& classOrder = {},
+                                   int encodingQuality = 18, int videoBitrateKbps = 0, bool classFolders = false);
+    Q_INVOKABLE void setResultClassification(const QVariantList& ids, const QString& classification);
     Q_INVOKABLE bool exportTheme(const QString& path, const QVariantMap& theme) const;
     Q_INVOKABLE QVariantMap importTheme(const QString& path) const;
     Q_INVOKABLE QString videoSourceUrl(const QString& sourcePath) const;
@@ -174,8 +176,6 @@ public:
     Q_INVOKABLE QStringList filesInFolder(const QString& folder) const;
     Q_INVOKABLE void analyzeFiles(const QStringList& paths);
     Q_INVOKABLE void stopAnalysis();
-    Q_INVOKABLE void setResultCategory(int id, const QString& name, const QString& color);
-    Q_INVOKABLE void setResultCategories(const QVariantList& ids, const QString& name, const QString& color);
     Q_INVOKABLE QVariantList undoResultEdit();
     Q_INVOKABLE void setResultReview(const QVariantList& ids, const QString& field, bool value);
     Q_INVOKABLE bool setResultRange(int id, double leftStart, double leftEnd, double rightStart, double rightEnd);
@@ -235,6 +235,7 @@ private:
     QVariantList results_;
     int resultCategoryRevision_ = 0;
     std::vector<pfcore::MotionMatch> matches_;
+    std::vector<ResultPoseEvidence> resultPoseEvidence_;
     double sourceFps_ = 0.0;
     QString status_;
     bool busy_ = false;

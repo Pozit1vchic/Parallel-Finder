@@ -4,6 +4,11 @@ import QtQuick
 
 QtObject {
     property string language: "en"
+    readonly property var movementTypes: ["head_turn", "turn", "head_front", "head_turned", "head_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "body_pose", "head_nod", "head_tilt", "raise", "lower", "raise_lower", "wave", "push", "pull", "reach_return", "step", "static", "mixed", "unknown"]
+    function movementKey(value) {
+        const key=String(value || "unknown").split("/")[0]
+        return movementTypes.indexOf(key)>=0 ? key : "unknown"
+    }
 
     readonly property var _dict: ({
         ru: {
@@ -31,11 +36,22 @@ QtObject {
             "colors.gold": "Золотой",
             "class.head_pose": "Положение головы",
             "class.body_pose": "Положение тела",
+            "class.head_front": "Голова прямо",
+            "class.head_turned": "Голова повёрнута",
+            "class.arms_raised": "Рука поднята",
+            "class.arms_extended": "Рука выпрямлена",
+            "class.arms_folded": "Руки скрещены",
+            "class.legs_bent": "Ноги согнуты",
+            "class.legs_straight": "Ноги выпрямлены",
             "class.unknown": "Не определено",
-            "class.push": "Толчок",
-            "class.pull": "Тяга",
-            "class.raise": "Подъём",
-            "class.lower": "Опускание",
+            "class.push": "Разгибание руки",
+            "class.pull": "Сгибание руки",
+            "class.raise": "Подъём руки",
+            "class.lower": "Опускание руки",
+            "class.raise_lower": "Подъём и опускание руки",
+            "class.reach_return": "Разгибание и возврат руки",
+            "class.head_nod": "Кивок головы",
+            "class.head_tilt": "Наклон головы",
             "class.turn": "Поворот",
             "class.head_turn": "Поворот головы",
             "class.step": "Шаг",
@@ -335,9 +351,20 @@ QtObject {
             "colors.gold": "Gold",
             "class.head_pose": "Head position",
             "class.body_pose": "Body position",
+            "class.head_front": "Head facing forward",
+            "class.head_turned": "Head turned",
+            "class.arms_raised": "Arm raised",
+            "class.arms_extended": "Arm extended",
+            "class.arms_folded": "Arms crossed",
+            "class.legs_bent": "Legs bent",
+            "class.legs_straight": "Legs straight",
             "class.unknown": "Unknown",
-            "class.push": "Push",
-            "class.pull": "Pull",
+            "class.push": "Arm extension",
+            "class.pull": "Arm flexion",
+            "class.raise_lower": "Arm raise and lower",
+            "class.reach_return": "Arm extension and return",
+            "class.head_nod": "Head nod",
+            "class.head_tilt": "Head tilt",
             "class.raise": "Raise",
             "class.lower": "Lower",
             "class.turn": "Turn",
@@ -628,6 +655,7 @@ QtObject {
         const text = String(value || "")
         if (language !== "en") return text
         if (text.indexOf("Матчер: ") === 0) return "Matcher: " + status(text.substring(8))
+        if (text.indexOf("Дополнительный поиск: ") === 0) return "Additional search: " + status(text.substring("Дополнительный поиск: ".length))
         const exact = {
             "Определяем границы сцен": "Detecting scene boundaries",
             "Разделяем треки по сценам": "Splitting tracks by scene",

@@ -15,6 +15,8 @@ public:
     // has half that budget. Both are released with this analysis session.
     explicit MotionSearchReuse(std::size_t byteBudget=64U*1024U*1024U);
     ~MotionSearchReuse();
+    // Hits in the latest main search; secondary recovery reports its own count.
+    std::size_t rejectedComparisonHits() const;
     MotionSearchReuse(const MotionSearchReuse&)=delete;
     MotionSearchReuse& operator=(const MotionSearchReuse&)=delete;
 private:
@@ -32,6 +34,9 @@ struct MotionSearchControl {
     // Selection and measured-face vetoes always run again. Caller owns lifetime;
     // do not share an instance between concurrent searches.
     MotionSearchReuse* reuse = nullptr;
+    // Optional detailed stages for the secondary recovery pass. Legacy callers
+    // continue receiving the single Recovery stage through progress.
+    std::function<void(MotionSearchStage, std::size_t, std::size_t)> recoveryProgress;
 };
 
 struct Keypoint {
@@ -137,6 +142,12 @@ struct MotionMatcherParams {
     // One forces serial A/B replay. Selection remains deterministic and serial;
     // no candidate or sample is dropped by this setting.
     std::size_t maxComparisonThreads = 0;
+    // Exact, search-local reuse of pure camera conflicts against the append-
+    // only selected prefix. False retains the reference traversal for audits.
+    bool reuseCameraConflicts = true;
+    // Reuse pure failed comparisons across overlapping recovery inputs.
+    // False retains the uncached reference for numerical audits.
+    bool reuseRejectedComparisons = true;
     // Independent, wider tier even when individualPairs already broadens
     // default retrieval. The desktop also derives short supported
     // pose alternatives from existing observations. Acceptance stays intact.

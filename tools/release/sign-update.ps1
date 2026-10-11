@@ -13,7 +13,7 @@ $signaturePath = Join-Path $outputDirectory 'update.json.sig'
 $publicKey = Join-Path $PSScriptRoot 'update-public-key.pem'
 $files = @(Get-ChildItem -LiteralPath $Stage -Recurse -File | Sort-Object FullName | ForEach-Object {
     [ordered]@{
-        path = [IO.Path]::GetRelativePath($Stage, $_.FullName).Replace('\','/')
+        path = [IO.Path]::GetRelativePath($Stage, $_.FullName).Replace([IO.Path]::DirectorySeparatorChar, '/')
         size = $_.Length
         sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     }

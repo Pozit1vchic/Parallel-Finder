@@ -48,6 +48,8 @@ struct CutRequest {
 };
 
 struct CutResult {
+    // Actual destination, including the collision suffix for public exports.
+    std::filesystem::path outputPath;
     bool success = false;
     bool reused = false;
     int exitCode = -1;

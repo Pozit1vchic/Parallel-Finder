@@ -12,5 +12,5 @@ using MontageProgress = std::function<void(std::size_t completed, std::size_t to
 // concatenates by stream copy, and atomically installs only a complete MP4.
 CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
     const std::filesystem::path& output, std::stop_token stop = {},
-    MontageProgress progress = {}, const std::string& executable = "ffmpeg");
+    MontageProgress progress = {}, const std::string& executable = "ffmpeg", bool preserveInputOrder = false);
 }

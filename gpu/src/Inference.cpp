@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include "InferenceInternal.hpp"
+#include "CudaGraphRunner.hpp"
 
 #include "pfgpu/OrtRuntime.hpp"
 
@@ -191,6 +192,11 @@ InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input)
 {
     const auto* api = ortApi();
     if (!api) { InferenceResult result; result.error = "ONNX Runtime session is not available"; return result; }
+    if (session.cudaGraph) {
+        auto result = session.cudaGraph->run(input);
+        if (result.ok && session.profiling) SessionCache::recordProfilingRun(session);
+        return result;
+    }
     return detail::runFloatWithApi(*api, session, input);
 }
 

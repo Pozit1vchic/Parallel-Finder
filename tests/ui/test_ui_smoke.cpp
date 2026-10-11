@@ -80,8 +80,10 @@ private slots:
     void sourceSearchAndUnreviewedNavigation();
     void sourcesLiveInsideDropAreaAboveActions();
     void sourceWheelDoesNotMoveSettingsRail();
-    void pairColorsAndExportOrder();
-    void exportColorOrderControlsFileNumbering();
+    void movementClassesAndExportOrder();
+    void classificationsFollowEditedRange();
+    void largeResultSetKeepsClassesContiguous();
+    void exportClassOrderControlsFileNumbering();
     void dialogFramesAdvanceDuringRealEventLoop();
     void modalCloseKeepsNativeBordersAndFades();
     void appearanceRefreshesBackdropBeforeClosing();
@@ -92,7 +94,7 @@ private slots:
     void selectsAllResultsWithoutDisplayLimit();
     void exportModesAreSelectable();
     void exportReopenClearsCancelledStatus();
-    void clearColorsRespectsSelectionAndVisibleRows();
+    void movementFilterRespectsSelectionAndVisibleRows();
     void largeExportBackdropKeepsWorkspaceGeometry();
     void advancedOpensOnFirstClickAndStatusTranslates();
     void directMlDownloadIntegration();
@@ -284,7 +286,14 @@ void UiSmokeTests::realReviewAdjustAndFindings()
     const int first = window->property("selectedResultIndex").toInt(); QVERIFY(first >= 0);
     const auto beforeBulk = analysis->results();
     const int other = first == 0 ? 1 : 0;
-    analysis->setResultCategories({first,other}, "Blue", "#638edb");
+    QString replacementClass;
+    for (const auto& type : {QString("raise"), QString("step"), QString("pull")}) {
+        if (beforeBulk[first].toMap().value("classification").toString().section('/',0,0) != type
+            && beforeBulk[other].toMap().value("classification").toString().section('/',0,0) != type) {
+            replacementClass = type; break;
+        }
+    }
+    analysis->setResultClassification({first,other}, replacementClass);
     QCOMPARE(analysis->undoResultEdit().size(),2); QCOMPARE(analysis->results(),beforeBulk);
     analysis->setResultReview({first,other}, "reviewed",true);
     QVERIFY(analysis->results()[first].toMap().value("reviewed").toBool());
@@ -1033,79 +1042,158 @@ void UiSmokeTests::sourceWheelDoesNotMoveSettingsRail()
     QCOMPARE(outer->property("contentY").toDouble(),initial);
 }
 
-void UiSmokeTests::pairColorsAndExportOrder()
+void UiSmokeTests::movementClassesAndExportOrder()
 {
-    pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
     auto* window = loadWindow(engine); QVERIFY(window);
     auto* rail = window->findChild<QObject*>("resultsRail"); QVERIFY(rail);
     const QVariantList records{
-        QVariantMap{{"id",0},{"similarity",.9},{"categoryColor","#D56565"}},
-        QVariantMap{{"id",1},{"similarity",.8},{"categoryColor","#638EDB"}},
-        QVariantMap{{"id",2},{"similarity",.7}}};
-    rail->setProperty("results", records);
-    rail->setProperty("selectedRows", QVariantMap{{"0",true},{"1",true},{"2",true}});
+        QVariantMap{{"id",0},{"similarity",.9},{"classification","raise/right"}},
+        QVariantMap{{"id",1},{"similarity",.8},{"classification","step/left"}},
+        QVariantMap{{"id",2},{"similarity",.7},{"classification","head_pose"}}};
+    rail->setProperty("results",records); rail->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true}});
     QTest::qWait(100);
-    QVERIFY(!rail->findChild<QObject*>("classificationFilterCombo"));
-    QVERIFY(!rail->findChild<QObject*>("categoryFilterCombo"));
-    QVERIFY(!rail->findChild<QObject*>("colorFilterCombo"));
-    QVERIFY(!rail->findChild<QObject*>("resultCategoryEditor"));
-    QCOMPARE(rail->property("selectedCount").toInt(),3);
-    std::function<QQuickItem*(QQuickItem*, const QString&)> findVisual = [&](QQuickItem* item, const QString& name) -> QQuickItem* {
-        if (item->objectName() == name) return item;
-        for (auto* child : item->childItems()) if (auto* result = findVisual(child, name)) return result;
+    QCOMPARE(rail->property("sortCriterion").toString(),QString("classification"));
+    QVERIFY(rail->findChild<QObject*>("resultClassFilterCombo"));
+    QVERIFY(!rail->findChild<QObject*>("resultColorPicker"));
+    QVERIFY(!rail->findChild<QObject*>("clearResultsColorsButton"));
+    auto values = [](const QVariant& value) { return value.value<QJSValue>().toVariant(); };
+    const auto visible=values(rail->property("visibleResults")).toList();
+    QCOMPARE(visible[0].toMap().value("id").toInt(),2);
+    auto* popup=window->findChild<QObject*>("exportDialog"); QVERIFY(popup);
+    popup->setProperty("results",records); popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true}});
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"head_pose","raise","step"}));
+    QVERIFY(QMetaObject::invokeMethod(popup,"moveClass",Q_ARG(QVariant,2),Q_ARG(QVariant,-1)));
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"head_pose","step","raise"}));
+    popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true}});
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"step","raise"}));
+    popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true}});
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"step","raise","head_pose"}));
+    auto* folders=popup->findChild<QObject*>("exportClassFoldersCheck"); QVERIFY(folders); QVERIFY(folders->property("checked").toBool());
+    auto* picker=rail->findChild<QObject*>("resultClassPicker"); QVERIFY(picker);
+    QSignalSpy requested(rail,SIGNAL(pairClassRequested(int,QString))); QVERIFY(requested.isValid());
+    rail->setProperty("classTargetId",0);
+    QVERIFY(QMetaObject::invokeMethod(picker,"open")); QTRY_VERIFY(picker->property("opened").toBool());
+    const int originalHeight=window->height();
+    window->setHeight(450);
+    QTRY_VERIFY(picker->property("height").toDouble() <= 418);
+    window->setHeight(originalHeight);
+    std::function<QQuickItem*(QQuickItem*)> findChoice = [&](QQuickItem* item) -> QQuickItem* {
+        if (item->objectName() == "resultClassChoice_head_turn") return item;
+        for (auto* child : item->childItems()) if (auto* found = findChoice(child)) return found;
         return nullptr;
     };
-    QVERIFY(!window->grabWindow().isNull());
-    auto* color = findVisual(window->contentItem(),"resultColorButton0"); QVERIFY(color);
-    QVERIFY(!window->grabWindow().isNull());
-    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, color->mapToScene(QPointF(9,14)).toPoint());
-    auto* picker = rail->findChild<QObject*>("resultColorPicker"); QVERIFY(picker);
-    QTRY_VERIFY(picker->property("opened").toBool());
-    QCOMPARE(rail->property("colorTargetId").toInt(),0);
-    QVERIFY(!window->grabWindow().isNull());
-    QVERIFY(findVisual(window->contentItem(),"resultPaletteColor0"));
-    QVERIFY(findVisual(window->contentItem(),"resultPaletteColor5"));
-    QSignalSpy requested(rail, SIGNAL(pairColorRequested(int,QString,QString))); QVERIFY(requested.isValid());
-    auto* blue = findVisual(window->contentItem(),"resultPaletteColor2"); QVERIFY(blue);
-    QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,blue->mapToScene(QPointF(14,14)).toPoint());
-    QCOMPARE(requested.size(),1);
-    QCOMPARE(requested[0][0].toInt(),0);
-    QCOMPARE(requested[0][2].toString(),QString("#638EDB"));
-    QCOMPARE(rail->property("selectedCount").toInt(),3);
-    QTRY_VERIFY(!picker->property("visible").toBool());
-    QTest::mouseMove(window,QPoint(650,400));
-    auto* popup = window->findChild<QObject*>("exportDialog"); QVERIFY(popup);
-    popup->setProperty("results", records);
-    popup->setProperty("selectedRows", QVariantMap{{"0",true},{"1",true},{"2",true}});
-    QCOMPARE(popup->property("colorOrder").value<QJSValue>().toVariant().toStringList(), (QStringList{"#d56565","#638edb",""}));
-    popup->setProperty("selectionOrder", QVariantList{2,0,1});
-    QVariant selected;
-    QVERIFY(QMetaObject::invokeMethod(popup,"selectedIndexes",Q_RETURN_ARG(QVariant,selected)));
-    QCOMPARE(selected.value<QJSValue>().toVariant().toList(), (QVariantList{2,0,1}));
-    QVERIFY(QMetaObject::invokeMethod(popup,"moveColor", Q_ARG(QVariant,1),Q_ARG(QVariant,-1)));
-    QCOMPARE(popup->property("colorOrder").value<QJSValue>().toVariant().toStringList(), (QStringList{"#638edb","#d56565",""}));
-    QVERIFY(QMetaObject::invokeMethod(popup,"moveColor", Q_ARG(QVariant,0),Q_ARG(QVariant,-1)));
-    QCOMPARE(popup->property("colorOrder").value<QJSValue>().toVariant().toStringList().first(),QString("#638edb"));
-    const auto capture=qEnvironmentVariable("PF_UI_CAPTURE_DIR");
-    if(!capture.isEmpty()) {
-        QDir().mkpath(capture); QVERIFY(window->grabWindow().save(capture+"/pair-colors.png"));
-        QVERIFY(QMetaObject::invokeMethod(popup,"open"));
-        QEventLoop loop; QTimer::singleShot(550,&loop,&QEventLoop::quit); loop.exec();
-        QVERIFY(window->grabWindow().save(capture+"/export-color-order.png"));
+    auto* choice=findChoice(window->contentItem()); QVERIFY(choice);
+    QVERIFY(QMetaObject::invokeMethod(choice,"clicked"));
+    QCOMPARE(requested.count(),1); QCOMPARE(requested.takeFirst(),(QList<QVariant>{0,"head_turn"}));
+    const QVariantList detailed{
+        QVariantMap{{"id",0},{"classification","head_nod"}},
+        QVariantMap{{"id",1},{"classification","arms_folded"}},
+        QVariantMap{{"id",2},{"classification","raise_lower"}},
+        QVariantMap{{"id",3},{"classification","head_front"}},
+        QVariantMap{{"id",4},{"classification","reach_return"}},
+        QVariantMap{{"id",5},{"classification","obsolete_type"}},
+        QVariantMap{{"id",6},{"classification","head_turn"}},
+        QVariantMap{{"id",7},{"classification","turn"}}};
+    rail->setProperty("results",detailed);QTest::qWait(100);
+    const auto grouped=values(rail->property("visibleResults")).toList();
+    QCOMPARE(grouped.size(),8);
+    const QList<int> expected{6,7,3,1,0,2,4,5};
+    for(int i=0;i<expected.size();++i)QCOMPARE(grouped[i].toMap().value("id").toInt(),expected[i]);
+    popup->setProperty("results",detailed);
+    popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true},{"3",true},{"4",true},{"5",true},{"6",true},{"7",true}});
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),
+        (QStringList{"head_turn","turn","head_front","arms_folded","head_nod","raise_lower","reach_return","unknown"}));
+}
+void UiSmokeTests::classificationsFollowEditedRange()
+{
+    pfcore::MotionWindow window;
+    window.sceneStartSeconds=0; window.sceneEndSeconds=3.1;
+    window.appearanceEmbedding={1,2,3}; window.sceneSequence={1,2,3};
+    for(int i=0;i<=30;++i) {
+        pfcore::PoseFrame frame;
+        frame.timestampSeconds=i*.1;
+        frame.keypoints={{0,-2},{-.5,-2.5},{.5,-2.5},{-1,-2},{1,-2},
+            {-2,0},{2,0},{-2,1.5},{2,1.5},{-2,3},{2,3},
+            {-1,4},{1,4},{-1,6},{1,6},{-1,8},{1,8}};
+        frame.keypoints[9].y-=2*std::max(0.,frame.timestampSeconds-1.5);
+        window.frames.push_back(std::move(frame));
+    }
+    pfui::ResultPoseEvidence evidence{pfui::groupingEvidence(window),pfui::groupingEvidence(window)};
+    QVERIFY(evidence[0].appearanceEmbedding.empty()); QVERIFY(evidence[0].sceneSequence.empty());
+    pfcore::MotionMatch match;
+    match.leftStartSeconds=match.rightStartSeconds=0;
+    match.leftEndSeconds=match.rightEndSeconds=3;
+    QVariantMap record;
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString().section('/',0,0),QString("raise"));
+    match.leftEndSeconds=match.rightEndSeconds=1.4;
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString().section('/',0,0),QString("static"));
+    match.leftEndSeconds=match.rightEndSeconds=3;
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString().section('/',0,0),QString("raise"));
+    match.leftStartSeconds=match.rightStartSeconds=3.2;
+    match.leftEndSeconds=match.rightEndSeconds=4;
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString().section('/',0,0),QString("unknown"));
+    record.insert("classificationManual",true);record.insert("classification","head_turn");
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString(),QString("head_turn"));
+}
+
+void UiSmokeTests::largeResultSetKeepsClassesContiguous()
+{
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    auto* window=loadWindow(engine); QVERIFY(window);
+    auto* rail=window->findChild<QObject*>("resultsRail"); QVERIFY(rail);
+    auto* popup=window->findChild<QObject*>("exportDialog"); QVERIFY(popup);
+    const QStringList classes{"head_turn","turn","head_front","arms_folded","head_nod","raise","step","mixed","unknown"};
+    QVariantList rows,indexes;QVariantMap selected;std::vector<pfcore::MotionMatch> matches(417);
+    for(int id=0;id<417;++id) {
+        rows.push_back(QVariantMap{{"id",id},{"classification",classes[(id*7)%classes.size()]},
+            {"similarity",double((id*13)%100)/100}});
+        indexes.push_back(id);selected.insert(QString::number(id),true);
+        matches[id].leftSourceId="source.mp4";matches[id].leftStartSeconds=417-id;
+    }
+    rail->setProperty("results",rows);popup->setProperty("results",rows);popup->setProperty("selectedRows",selected);
+    const auto visible=rail->property("visibleResults").value<QJSValue>().toVariant().toList();
+    QCOMPARE(visible.size(),417);
+    int previous=-1;
+    for(const auto& value:visible) {
+        const int rank=classes.indexOf(value.toMap().value("classification").toString());
+        QVERIFY(rank>=previous);previous=rank;
+    }
+    const auto exportClasses=popup->property("classOrder").value<QJSValue>().toVariant().toStringList();
+    QCOMPARE(exportClasses,classes);
+    const auto ordered=pfui::orderedExportIndexes(indexes,matches,rows,0,exportClasses);
+    QCOMPARE(ordered.size(),std::size_t(417));previous=-1;
+    for(const int id:ordered) {
+        const int rank=classes.indexOf(rows[id].toMap().value("classification").toString());
+        QVERIFY(rank>=previous);previous=rank;
+    }
+    // Editing one category must relocate the card and update the export groups.
+    auto changed=rows[0].toMap();changed.insert("classification","step");rows[0]=changed;
+    rail->setProperty("results",rows);popup->setProperty("results",rows);
+    const auto edited=rail->property("visibleResults").value<QJSValue>().toVariant().toList();previous=-1;
+    for(const auto& value:edited) {
+        const int rank=classes.indexOf(value.toMap().value("classification").toString());
+        QVERIFY(rank>=previous);previous=rank;
     }
 }
 
-void UiSmokeTests::exportColorOrderControlsFileNumbering()
+void UiSmokeTests::exportClassOrderControlsFileNumbering()
 {
     std::vector<pfcore::MotionMatch> matches(5);
     for (int i=0;i<5;++i) { matches[i].leftSourceId="one.mp4"; matches[i].leftStartSeconds=50-i*10; }
     const QVariantList records{
-        QVariantMap{{"categoryColor","#D56565"}}, QVariantMap{{"categoryColor","#638EDB"}},
-        QVariantMap{{"categoryColor","#d56565"}}, QVariantMap{}, QVariantMap{{"categoryColor","#abcdef"}}};
+        QVariantMap{{"classification","raise/right"}}, QVariantMap{{"classification","step/left"}},
+        QVariantMap{{"classification","raise/left"}}, QVariantMap{}, QVariantMap{{"classification","wave"}}};
     const QVariantList indexes{0,1,2,3,4,1,-1,50,"invalid"};
-    const QStringList colors{"#638edb","#d56565",""};
-    QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,0,colors), (std::vector<int>{1,2,0,3,4}));
+    const QStringList colors{"step","raise","unknown"};
+    // Types omitted by an external caller share the unknown group; preserve
+    // the requested chronological numbering inside that fallback group.
+    QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,0,colors), (std::vector<int>{1,2,0,4,3}));
     QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,1,colors), (std::vector<int>{1,0,2,3,4}));
     QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,0,{}), (std::vector<int>{4,3,2,1,0}));
     QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,1,{}), (std::vector<int>{0,1,2,3,4}));
@@ -1239,8 +1327,10 @@ void UiSmokeTests::dialogFramesAdvanceDuringRealEventLoop()
     auto* popup = window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
     QElapsedTimer elapsed; elapsed.start();
     QList<qint64> timestamps;
-    connect(window, &QQuickWindow::frameSwapped, this, [&] { timestamps.push_back(elapsed.elapsed()); }, Qt::QueuedConnection);
     QEventLoop loop;
+    // Queued frame notifications must die with the local loop, before the
+    // timestamps/clock leave scope and engine destruction emits more frames.
+    connect(window, &QQuickWindow::frameSwapped, &loop, [&] { timestamps.push_back(elapsed.elapsed()); }, Qt::QueuedConnection);
     QTimer::singleShot(100, popup, [popup] { QMetaObject::invokeMethod(popup,"open"); });
     QTimer::singleShot(900, &loop, &QEventLoop::quit);
     loop.exec();
@@ -1609,26 +1699,26 @@ void UiSmokeTests::exportReopenClearsCancelledStatus()
     QVERIFY(popup->property("exportStatus").toString().isEmpty());
 }
 
-void UiSmokeTests::clearColorsRespectsSelectionAndVisibleRows()
+void UiSmokeTests::movementFilterRespectsSelectionAndVisibleRows()
 {
     pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
-    auto* window = loadWindow(engine); QVERIFY(window);
-    auto* rail = window->findChild<QObject*>("resultsRail"); QVERIFY(rail);
-    rail->setProperty("results", QVariantList{
-        QVariantMap{{"id", 0}, {"categoryColor", "#d56565"}},
-        QVariantMap{{"id", 1}, {"categoryColor", "#638edb"}},
-        QVariantMap{{"id", 2}},
-        QVariantMap{{"id", 3}, {"categoryColor", "#d56565"}, {"hidden", true}}});
-    QSignalSpy requested(rail, SIGNAL(clearColorsRequested(QVariant))); QVERIFY(requested.isValid());
-    rail->setProperty("selectedRows", QVariantMap{{"0", true}, {"2", true}});
-    QVERIFY(QMetaObject::invokeMethod(rail, "clearColors"));
-    QCOMPARE(requested.takeFirst().at(0).value<QJSValue>().toVariant().toList(), QVariantList{0});
-    rail->setProperty("selectedRows", QVariantMap{});
-    QVERIFY(QMetaObject::invokeMethod(rail, "clearColors"));
-    const auto ids = requested.takeFirst().at(0).value<QJSValue>().toVariant().toList();
-    QCOMPARE(ids.size(), 2); QVERIFY(ids.contains(0)); QVERIFY(ids.contains(1));
+    auto* window=loadWindow(engine); QVERIFY(window);
+    auto* rail=window->findChild<QObject*>("resultsRail"); QVERIFY(rail);
+    rail->setProperty("results",QVariantList{
+        QVariantMap{{"id",0},{"classification","raise/right"}},
+        QVariantMap{{"id",1},{"classification","step/left"}},
+        QVariantMap{{"id",2},{"classification","raise/left"}},
+        QVariantMap{{"id",3},{"classification","raise/right"},{"hidden",true}}});
+    rail->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true},{"3",true}});
+    rail->setProperty("classFilter","raise");
+    QCOMPARE(rail->property("selectedCount").toInt(),2);
+    QVariant exported; QVERIFY(QMetaObject::invokeMethod(rail,"exportRows",Q_RETURN_ARG(QVariant,exported)));
+    const auto rows=exported.value<QJSValue>().toVariant().toMap();
+    QVERIFY(rows.contains("0")); QVERIFY(rows.contains("2")); QVERIFY(!rows.contains("1")); QVERIFY(!rows.contains("3"));
+    rail->setProperty("classFilter","step"); QCOMPARE(rail->property("selectedCount").toInt(),1);
+    rail->setProperty("results",QVariantList{QVariantMap{{"id",2},{"classification","raise"}}});
+    QTRY_VERIFY(rail->property("classFilter").toString().isEmpty());
 }
-
 void UiSmokeTests::largeExportBackdropKeepsWorkspaceGeometry()
 {
     pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
@@ -1719,6 +1809,8 @@ Item {
     QCOMPARE(root->property("translated").toString(),QStringLiteral("Matcher: Preparing retrieved candidates · 2048 / 9000"));
     root->setProperty("stage",QString::fromUtf8("Подготавливаем кадры для матчера · 40 / 90"));
     QCOMPARE(root->property("translated").toString(),QStringLiteral("Preparing footage for matching · 40 / 90"));
+    root->setProperty("stage",QString::fromUtf8("Дополнительный поиск: Подготавливаем найденные кандидаты · 2048 / 9000"));
+    QCOMPARE(root->property("translated").toString(),QStringLiteral("Additional search: Preparing retrieved candidates · 2048 / 9000"));
     QVERIFY(QMetaObject::invokeMethod(root.get(),"setLanguage",Q_ARG(QVariant,"ru")));
 }
 

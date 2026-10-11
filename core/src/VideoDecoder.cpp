@@ -1,4 +1,5 @@
 #include "pfcore/VideoDecoder.hpp"
+#include "pfcore/detail/PixelPlanes.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -30,6 +31,27 @@ std::string ffError(int code)
     char buffer[AV_ERROR_MAX_STRING_SIZE] {};
     av_strerror(code, buffer, sizeof(buffer));
     return buffer;
+}
+
+// Our staged MP4 files already contain codec/timing metadata in their header.
+// Packet-only operations need no decoded frames to rediscover that metadata.
+// Incomplete headers and other containers retain FFmpeg's probing fallback.
+bool hasPacketMetadata(const AVFormatContext* context)
+{
+    if (!context->iformat || !context->iformat->name || !context->nb_streams
+        || std::string(context->iformat->name).find("mp4") == std::string::npos) return false;
+    bool video = false;
+    for (unsigned i=0;i<context->nb_streams;++i) {
+        const auto* stream=context->streams[i]; const auto* codec=stream->codecpar;
+        if (stream->time_base.num<=0 || stream->time_base.den<=0 || codec->codec_id==AV_CODEC_ID_NONE) return false;
+        if (codec->codec_type==AVMEDIA_TYPE_VIDEO) {
+            if (codec->width<=0 || codec->height<=0 || codec->extradata_size<=0
+                || stream->avg_frame_rate.num<=0 || stream->avg_frame_rate.den<=0) return false;
+            video=true;
+        } else if (codec->codec_type==AVMEDIA_TYPE_AUDIO
+            && (codec->sample_rate<=0 || codec->ch_layout.nb_channels<=0 || codec->extradata_size<=0)) return false;
+    }
+    return video;
 }
 
 double rationalOr(const AVRational value, double fallback)
@@ -203,10 +225,7 @@ struct VideoDecoder::Impl {
                 const auto* uv = source->data[1] + y * source->linesize[1];
                 auto* u = chromaU.data() + static_cast<std::size_t>(y) * chromaWidth;
                 auto* v = chromaV.data() + static_cast<std::size_t>(y) * chromaWidth;
-                for (int x = 0; x < chromaWidth; ++x) {
-                    u[x] = uv[2 * x];
-                    v[x] = uv[2 * x + 1];
-                }
+                detail::unpackNv12Chroma(uv, u, v, chromaWidth);
             }
             planarView.width = source->width;
             planarView.height = source->height;
@@ -230,17 +249,13 @@ struct VideoDecoder::Impl {
             for (int y = 0; y < source->height; ++y) {
                 const auto* row = source->data[0] + static_cast<std::ptrdiff_t>(y) * source->linesize[0];
                 auto* out = luma10.data() + static_cast<std::size_t>(y) * source->width * 2U;
-                for (int x = 0; x < source->width; ++x)
-                    AV_WL16(out + x * 2, AV_RL16(row + x * 2) >> 6);
+                detail::unpackP010Luma(row, out, source->width);
             }
             for (int y = 0; y < ch; ++y) {
                 const auto* row = source->data[1] + static_cast<std::ptrdiff_t>(y) * source->linesize[1];
                 auto* u = chromaU.data() + static_cast<std::size_t>(y) * cw * 2U;
                 auto* v = chromaV.data() + static_cast<std::size_t>(y) * cw * 2U;
-                for (int x = 0; x < cw; ++x) {
-                    AV_WL16(u + x * 2, AV_RL16(row + x * 4) >> 6);
-                    AV_WL16(v + x * 2, AV_RL16(row + x * 4 + 2) >> 6);
-                }
+                detail::unpackP010Chroma(row, u, v, cw);
             }
             planarView.width = source->width;
             planarView.height = source->height;
@@ -461,7 +476,19 @@ void VideoDecoder::open(const std::string& path, VideoDecodeOptions options)
     if (options.preferNvidia) {
         const char* name = cuvidDecoder(stream->codecpar->codec_id);
         const auto* hardwareDecoder = name ? avcodec_find_decoder_by_name(name) : nullptr;
-        if (!hardwareDecoder) impl_->diagnostics.fallbackReason = "codec has no CUVID decoder";
+        // Keep FFmpeg's H.264 parser and frame ordering for native-size CUDA
+        // surfaces. CUVID's separate parser can attach the same PTS to a
+        // different reordered picture in real concatenated scenepacks.
+        // Explicit hardware resize still requires the CUVID decoder.
+        if(stream->codecpar->codec_id==AV_CODEC_ID_H264 && !options.resizeOnNvidia) {
+            hardwareDecoder=nullptr;
+            for(int i=0;const auto* config=avcodec_get_hw_config(decoder,i);++i)
+                if(config->device_type==AV_HWDEVICE_TYPE_CUDA
+                    && (config->methods&AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX)) {
+                    hardwareDecoder=decoder;break;
+                }
+        }
+        if (!hardwareDecoder) impl_->diagnostics.fallbackReason = "codec has no supported NVIDIA decoder";
         else if (static_cast<std::uint64_t>(impl_->metadata.width) * impl_->metadata.height
                  < options.minimumNvidiaPixels)
             impl_->diagnostics.fallbackReason = "source below hardware size threshold";
@@ -620,5 +647,141 @@ void VideoDecoder::seek(double timestampSeconds)
 }
 
 void VideoDecoder::rewind() { seek(0.0); }
+
+double mediaPacketDuration(const std::string& path, std::stop_token stop)
+{
+    AVFormatContext* context = avformat_alloc_context();
+    if (!context) throw std::bad_alloc();
+    context->interrupt_callback = {[](void* opaque) {
+        return static_cast<std::stop_token*>(opaque)->stop_requested() ? 1 : 0;
+    }, &stop};
+    if (const int status = avformat_open_input(&context, path.c_str(), nullptr, nullptr); status < 0)
+        throw std::runtime_error("packet duration open: " + ffError(status));
+    const auto close = [](AVFormatContext* value) { avformat_close_input(&value); };
+    const std::unique_ptr<AVFormatContext, decltype(close)> owner(context, close);
+    const int status = hasPacketMetadata(context) ? 0 : avformat_find_stream_info(context, nullptr);
+    if (status < 0) throw std::runtime_error("packet duration info: " + ffError(status));
+    const auto freePacket = [](AVPacket* value) { av_packet_free(&value); };
+    const std::unique_ptr<AVPacket, decltype(freePacket)> packet(av_packet_alloc(), freePacket);
+    if (!packet) throw std::bad_alloc();
+    const bool knownStart = context->start_time != AV_NOPTS_VALUE;
+    const double start = knownStart ? double(context->start_time) / AV_TIME_BASE : 0;
+    double firstPresentation = std::numeric_limits<double>::infinity();
+    double end = start;
+    int readStatus;
+    while ((readStatus = av_read_frame(context, packet.get())) >= 0) {
+        if (stop.stop_requested()) throw std::runtime_error("export cancelled");
+        const auto* stream = context->streams[packet->stream_index];
+        if ((stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO || stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
+            && packet->pts != AV_NOPTS_VALUE) {
+            firstPresentation = std::min(firstPresentation, packet->pts * av_q2d(stream->time_base));
+            double duration = packet->duration * av_q2d(stream->time_base);
+            if (duration <= 0 && stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                const auto rate = av_guess_frame_rate(context, const_cast<AVStream*>(stream), nullptr);
+                if (rate.num > 0 && rate.den > 0) duration = av_q2d(av_inv_q(rate));
+            }
+            end = std::max(end, packet->pts * av_q2d(stream->time_base) + duration);
+        }
+        av_packet_unref(packet.get());
+    }
+    if (readStatus != AVERROR_EOF) throw std::runtime_error("packet duration read: " + ffError(readStatus));
+    const double packetStart = std::isfinite(firstPresentation) ? std::max(0.0, firstPresentation) : 0;
+    return std::max(0.0, end - (knownStart ? start : packetStart));
+}
+
+double prepareStreamCopySplice(const std::string& input, const std::string& output, std::stop_token stop)
+{
+    AVFormatContext* context = avformat_alloc_context();
+    if (!context) throw std::bad_alloc();
+    context->interrupt_callback = {[](void* opaque) {
+        return static_cast<std::stop_token*>(opaque)->stop_requested() ? 1 : 0;
+    }, &stop};
+    if (const int status = avformat_open_input(&context, input.c_str(), nullptr, nullptr); status < 0)
+        throw std::runtime_error("splice open: " + ffError(status));
+    const auto close = [](AVFormatContext* value) { avformat_close_input(&value); };
+    const std::unique_ptr<AVFormatContext, decltype(close)> inputOwner(context, close);
+    if (const int status = hasPacketMetadata(context) ? 0 : avformat_find_stream_info(context, nullptr); status < 0)
+        throw std::runtime_error("splice info: " + ffError(status));
+    AVFormatContext* destination = nullptr;
+    if (const int status = avformat_alloc_output_context2(&destination, nullptr, nullptr, output.c_str()); status < 0)
+        throw std::runtime_error("splice output: " + ffError(status));
+    const auto freeOutput = [](AVFormatContext* value) { if (value->pb) avio_closep(&value->pb); avformat_free_context(value); };
+    const std::unique_ptr<AVFormatContext, decltype(freeOutput)> outputOwner(destination, freeOutput);
+    av_dict_copy(&destination->metadata, context->metadata, 0);
+    int hevc = -1, nalLength = 0;
+    for (unsigned i = 0; i < context->nb_streams; ++i) {
+        const auto* source = context->streams[i];
+        auto* stream = avformat_new_stream(destination, nullptr);
+        if (!stream) throw std::bad_alloc();
+        if (const int status = avcodec_parameters_copy(stream->codecpar, source->codecpar); status < 0)
+            throw std::runtime_error("splice parameters: " + ffError(status));
+        stream->time_base = source->time_base; stream->disposition = source->disposition;
+        stream->avg_frame_rate = source->avg_frame_rate;
+        av_dict_copy(&stream->metadata, source->metadata, 0);
+        if (source->codecpar->codec_id == AV_CODEC_ID_HEVC) {
+            hevc = static_cast<int>(i);
+            if (source->codecpar->extradata_size < 23 || source->codecpar->extradata[0] != 1)
+                throw std::runtime_error("unsupported HEVC splice configuration");
+            nalLength = (source->codecpar->extradata[21] & 3) + 1;
+        }
+    }
+    if (const int status = avio_open(&destination->pb, output.c_str(), AVIO_FLAG_WRITE); status < 0)
+        throw std::runtime_error("splice write: " + ffError(status));
+    if (const int status = avformat_write_header(destination, nullptr); status < 0)
+        throw std::runtime_error("splice header: " + ffError(status));
+    const auto freePacket = [](AVPacket* value) { av_packet_free(&value); };
+    const std::unique_ptr<AVPacket, decltype(freePacket)> packet(av_packet_alloc(), freePacket);
+    if (!packet) throw std::bad_alloc();
+    double firstPresentation = std::numeric_limits<double>::infinity();
+    double lastPresentation = -std::numeric_limits<double>::infinity();
+    const auto write = [&](AVPacket* value) {
+        const auto index = value->stream_index;
+        const auto* stream = context->streams[index];
+        if ((stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO || stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
+            && value->pts != AV_NOPTS_VALUE) {
+            const double pts = value->pts * av_q2d(stream->time_base);
+            double duration = value->duration * av_q2d(stream->time_base);
+            if (duration <= 0 && stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                const auto rate = av_guess_frame_rate(context, const_cast<AVStream*>(stream), nullptr);
+                if (rate.num > 0 && rate.den > 0) duration = av_q2d(av_inv_q(rate));
+            }
+            firstPresentation = std::min(firstPresentation, pts);
+            lastPresentation = std::max(lastPresentation, pts + duration);
+        }
+        av_packet_rescale_ts(value, context->streams[index]->time_base, destination->streams[index]->time_base);
+        value->pos = -1;
+        if (const int status = av_interleaved_write_frame(destination, value); status < 0)
+            throw std::runtime_error("splice packet: " + ffError(status));
+    };
+    int readStatus;
+    bool leading = true;
+    while ((readStatus = av_read_frame(context, packet.get())) >= 0) {
+        if (stop.stop_requested()) throw std::runtime_error("export cancelled");
+        if (packet->stream_index == hevc) {
+            int vclType = -1;
+            for (int offset = 0; offset + nalLength + 2 <= packet->size;) {
+                std::uint32_t size = 0;
+                for (int i = 0; i < nalLength; ++i) size = (size << 8) | packet->data[offset + i];
+                offset += nalLength;
+                if (size < 2 || size > static_cast<std::uint32_t>(packet->size - offset))
+                    throw std::runtime_error("invalid HEVC splice packet");
+                const int type = (packet->data[offset] >> 1) & 63;
+                if (type <= 31) { vclType = type; break; }
+                offset += static_cast<int>(size);
+            }
+            if (leading && (vclType == 8 || vclType == 9)) { av_packet_unref(packet.get()); continue; }
+            if (vclType >= 0 && vclType <= 31 && vclType != 6 && vclType != 7
+                && !(vclType >= 16 && vclType <= 23)) leading = false;
+        }
+        write(packet.get());
+        av_packet_unref(packet.get());
+    }
+    if (readStatus != AVERROR_EOF) throw std::runtime_error("splice read: " + ffError(readStatus));
+    if (const int status = av_write_trailer(destination); status < 0)
+        throw std::runtime_error("splice trailer: " + ffError(status));
+    if (!std::isfinite(firstPresentation) || !std::isfinite(lastPresentation))
+        throw std::runtime_error("splice has no presentation timestamps");
+    return std::max(0.0, lastPresentation - firstPresentation);
+}
 
 } // namespace pfcore

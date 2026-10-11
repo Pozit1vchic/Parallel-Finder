@@ -161,6 +161,114 @@ std::optional<double> SceneDetector::refineHardCut(VideoDecoder& decoder, double
     return stop.stop_requested() ? std::nullopt : best;
 }
 
+std::vector<SceneBoundary> SceneDetector::detectInterval(VideoDecoder& decoder,
+    double start, double end, std::stop_token stop, const std::function<bool()>& cancelled) const
+{
+    const auto stopped=[&] {return stop.stop_requested() || (cancelled && cancelled());};
+    if (stopped() || !std::isfinite(start) || !std::isfinite(end)
+        || start < 0 || end <= start) return {};
+    const double fps = decoder.info().frameRate;
+    const double frameDuration = std::isfinite(fps) && fps > 0 ? 1.0 / fps : 1.0 / 24;
+    const double context = std::max(.2, frameDuration * 6);
+    const double decodeStart = std::max(0., start - context);
+    const double decodeEnd = std::min(decoder.info().durationSeconds, end + context);
+    decoder.setRgbaMaxDimensions(kCompactWidth, kCompactHeight);
+    decoder.seek(decodeStart);
+    std::vector<std::vector<std::uint8_t>> pixels;
+    std::vector<double> times;
+    std::vector<std::pair<int, int>> dimensions;
+    DecodedFrame frame;
+    while (!stopped() && decoder.readNext(frame, false)) {
+        if (frame.timestampSeconds >= decodeEnd) break;
+        if (frame.timestampSeconds < decodeStart) continue;
+        if (!decoder.convertCurrentFrameToRgba(frame)) continue;
+        // Conversion can preserve aspect ratio: retain the actual dimensions
+        // rather than interpreting an arbitrary source as a 64x36 image.
+        if (frame.rgba.empty() || frame.width <= 0 || frame.height <= 0) continue;
+        times.push_back(frame.timestampSeconds);
+        dimensions.emplace_back(frame.width, frame.height);
+        pixels.push_back(std::move(frame.rgba));
+    }
+    if (stopped()) return {};
+    std::vector<SceneSample> samples;
+    samples.reserve(times.size());
+    for (std::size_t i = 0; i < times.size(); ++i)
+        samples.push_back({times[i], dimensions[i].first, dimensions[i].second, pixels[i]});
+    auto boundaries = detectWithProgress(samples, stopped);
+    std::erase_if(boundaries, [=](const auto& boundary) {
+        return boundary.timestampSeconds <= start + 1e-6 || boundary.timestampSeconds >= end - 1e-6;
+    });
+    return boundaries;
+}
+
+std::vector<SceneBoundary> SceneDetector::refineSupportedBoundaries(VideoDecoder& decoder,
+    std::span<const SceneBoundary> boundaries, std::span<const double> sampleTimes,
+    std::span<const double> poseTimes, const std::function<bool()>& cancelled) const
+{
+    const auto validTimes=[](auto times) {
+        return std::all_of(times.begin(),times.end(),[](double t){return std::isfinite(t)&&t>=0;})
+            && std::is_sorted(times.begin(),times.end());
+    };
+    if(!validTimes(sampleTimes) || !validTimes(poseTimes))
+        throw std::invalid_argument("Boundary refinement requires ordered observation times");
+    std::vector<SceneBoundary> result;result.reserve(boundaries.size());
+    double previous=-1;
+    for(const auto& boundary:boundaries) {
+        if(cancelled && cancelled())return {};
+        if(!std::isfinite(boundary.timestampSeconds) || boundary.timestampSeconds<=previous)
+            throw std::invalid_argument("Boundary refinement requires ordered boundaries");
+        previous=boundary.timestampSeconds;
+        auto resolved=boundary;
+        const auto sample=std::lower_bound(sampleTimes.begin(),sampleTimes.end(),boundary.timestampSeconds);
+        if(sample!=sampleTimes.begin() && sample!=sampleTimes.end()) {
+            const double before=*std::prev(sample);
+            const auto pose=std::lower_bound(poseTimes.begin(),poseTimes.end(),before);
+            if(pose!=poseTimes.end() && *pose<boundary.timestampSeconds) {
+                const auto native=detectInterval(decoder,before,boundary.timestampSeconds+1e-4,{},cancelled);
+                if(cancelled && cancelled())return {};
+                if(!native.empty()) {
+                    const auto& cut=native.back();
+                    if(cut.timestampSeconds<=boundary.timestampSeconds+1e-6
+                        && (result.empty() || cut.timestampSeconds>result.back().timestampSeconds))
+                        resolved=cut;
+                }
+            }
+        }
+        result.push_back(resolved);
+    }
+    return result;
+}
+
+std::vector<SceneCutCandidate> SceneDetector::sequenceCutCandidates(std::span<const float> pixels,
+    std::span<const double> times, const std::function<bool()>& cancelled) const
+{
+    if(times.size()<2 || pixels.size()/432!=times.size() || pixels.size()%432)return {};
+    std::vector<std::vector<std::uint8_t>> buffers;
+    std::vector<SceneSample> samples;
+    buffers.reserve(times.size());samples.reserve(times.size());
+    for(std::size_t i=0;i<times.size();++i) {
+        if(cancelled && cancelled())return {};
+        if(!std::isfinite(times[i]) || times[i]<0 || (i && times[i]<=times[i-1]))return {};
+        auto& rgba=buffers.emplace_back(16*9*4,255);
+        for(std::size_t p=0;p<144;++p)for(std::size_t c=0;c<3;++c) {
+            const float value=pixels[i*432+p*3+c];
+            if(!std::isfinite(value) || value<0 || value>1)return {};
+            rgba[p*4+c]=static_cast<std::uint8_t>(std::lround(value*255));
+        }
+        samples.push_back({times[i],16,9,rgba});
+    }
+    const auto boundaries=SceneDetector(threshold_,1,adaptiveMultiplier_).detectWithProgress(samples,cancelled);
+    std::vector<SceneCutCandidate> result;
+    for(const auto& boundary:boundaries) {
+        const auto frame=std::lower_bound(times.begin(),times.end(),boundary.timestampSeconds);
+        if(frame==times.end() || frame==times.begin())continue;
+        // Reconstruct the actual sampled bracket; sparse/faded descriptors
+        // must never be treated as an exact frame-time cut.
+        result.push_back({*std::prev(frame),*frame,boundary.score});
+    }
+    return result;
+}
+
 void SceneDetector::setMinSceneFrames(std::size_t value)
 {
     if (value == 0) throw std::invalid_argument("SceneDetector: minSceneFrames must be >= 1");

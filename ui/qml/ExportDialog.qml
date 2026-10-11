@@ -29,30 +29,31 @@ Popup {
     property string outputFolder: ""
     property string exportStatus: ""
     property var results: { Analysis.resultCategoryRevision; return Analysis.results }
-    property var colorOrder: []
-    readonly property var palette: ["", "#d56565", "#638edb", "#7c9885", "#aa83d4", "#d5ad63"]
-    readonly property var colorLabels: ["colors.none", "colors.orange", "colors.blue", "colors.green", "colors.purple", "colors.gold"]
-    function refreshColors() {
+    property var classOrder: []
+    property bool classOrderCustomized: false
+    function refreshClasses() {
         const present = []
         for (const item of root.results) {
             if (root.selectedRows[item.id] !== true || item.hidden) continue
-            const color = String(item.categoryColor || "").toLowerCase()
-            if (present.indexOf(color) < 0) present.push(color)
+            const classification = L10n.movementKey(item.classification)
+            if (present.indexOf(classification) < 0) present.push(classification)
         }
-        const next = colorOrder.filter(function(color) { return present.indexOf(color) >= 0 })
-        for (const color of present) if (next.indexOf(color) < 0) next.push(color)
-        colorOrder = next
+        const next = classOrderCustomized
+            ? classOrder.filter(function(type) { return present.indexOf(type) >= 0 }) : []
+        for (const type of L10n.movementTypes) if (present.indexOf(type) >= 0 && next.indexOf(type) < 0) next.push(type)
+        classOrder = next
     }
-    function moveColor(index, direction) {
+    function moveClass(index, direction) {
         const target = index + direction
-        if (index < 0 || target < 0 || target >= colorOrder.length) return
-        const next = colorOrder.slice()
+        if (index < 0 || target < 0 || target >= classOrder.length) return
+        const next = classOrder.slice()
         const color = next.splice(index, 1)[0]
         next.splice(target, 0, color)
-        colorOrder = next
+        classOrderCustomized = true
+        classOrder = next
     }
-    onSelectedRowsChanged: refreshColors()
-    onResultsChanged: refreshColors()
+    onSelectedRowsChanged: refreshClasses()
+    onResultsChanged: { classOrderCustomized = false; refreshClasses() }
 
     property bool userPositioned: false
     modal: true; focus: true; padding: 0
@@ -91,7 +92,7 @@ Popup {
     }
     function startExport() {
         root.exportStatus = ""
-        Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological, root.colorOrder, root.encodingQuality, root.selectedFormat === "FFMPEG" && root.selectedCutMode === 0 ? root.videoBitrateKbps : 0)
+        Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological, root.classOrder, root.encodingQuality, root.selectedFormat === "FFMPEG" && root.selectedCutMode === 0 ? root.videoBitrateKbps : 0, classFoldersCheck.checked)
     }
     readonly property string runningLabel: Analysis.exportStage === "preparing"
         ? (L10n.language === "ru" ? "Подготовка клипа…" : "Preparing clip…")
@@ -159,15 +160,15 @@ Popup {
             width: parent.width
             visible: root.selectedFormat === "FFMPEG"
             enabled: !Analysis.exportBusy
-            text: L10n.t("export.mergeChronological")
+            text: L10n.language === "ru" ? "Один общий ролик по порядку классов" : "One combined video in movement-type order"
         }
         Column {
-            objectName: "exportColorOrderPanel"
-            width: parent.width; spacing: 6; visible: root.colorOrder.length > 0
+            objectName: "exportClassOrderPanel"
+            width: parent.width; spacing: 6; visible: root.classOrder.length > 0
             enabled: !Analysis.exportBusy
-            Text { text: L10n.t("export.colorOrder"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
+            Text { text: L10n.language === "ru" ? "Порядок типов движений" : "Movement-type order"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
             Repeater {
-                model: root.colorOrder
+                model: root.classOrder
                 delegate: Rectangle {
                     required property int index
                     required property string modelData
@@ -175,14 +176,19 @@ Popup {
                     color: Theme.well; border.color: Theme.hairline
                     Row {
                         anchors.fill: parent; anchors.margins: 4; spacing: 8
-                        Rectangle { width: 18; height: 18; y: 5; radius: 4; color: modelData || Theme.surfaceMuted; border.color: Theme.hairlineStrong }
-                        Text { width: parent.width - 106; height: 28; verticalAlignment: Text.AlignVCenter; text: root.palette.indexOf(modelData) >= 0 ? (modelData ? L10n.colorLabel(modelData) : L10n.t("colors.none")) : modelData; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12 }
-                        PfButton { objectName: "exportColorUp" + index; width: 28; height: 28; text: "↑"; Accessible.name: L10n.t("export.moveUp"); enabled: index > 0; onClicked: root.moveColor(index, -1) }
-                        PfButton { objectName: "exportColorDown" + index; width: 28; height: 28; text: "↓"; Accessible.name: L10n.t("export.moveDown"); enabled: index < root.colorOrder.length - 1; onClicked: root.moveColor(index, 1) }
+                        Text { width: parent.width - 78; height: 28; verticalAlignment: Text.AlignVCenter; text: L10n.classificationLabel(modelData); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                        PfButton { objectName: "exportClassUp" + index; width: 28; height: 28; text: "↑"; Accessible.name: L10n.t("export.moveUp"); enabled: index > 0; onClicked: root.moveClass(index, -1) }
+                        PfButton { objectName: "exportClassDown" + index; width: 28; height: 28; text: "↓"; Accessible.name: L10n.t("export.moveDown"); enabled: index < root.classOrder.length - 1; onClicked: root.moveClass(index, 1) }
                     }
                 }
             }
-            Text { width: parent.width; text: L10n.t("export.colorOrderHint"); wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
+            Text { width: parent.width; text: L10n.language === "ru" ? "Типы идут сверху вниз для клипов и общего ролика. Нумерация сквозная; внутри типа клипы следуют выбранному порядку." : "Types run top to bottom for separate clips and the combined video. Clip numbers are continuous; clips within each type follow the selected order."; wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
+        }
+        PfCheckBox {
+            id: classFoldersCheck; objectName: "exportClassFoldersCheck"; checked: true
+            visible: root.selectedFormat === "FFMPEG" && !root.mergeChronological
+            enabled: !Analysis.exportBusy
+            text: L10n.language === "ru" ? "Папки по типам движений и тип в имени клипа" : "Movement-type folders and type in clip names"
         }
         Text { font.family: Theme.fontFamily; text: L10n.t("export.numbering"); color: Theme.textSecondary; font.pixelSize: 11 }
             Row { width: parent.width; spacing: 8; enabled: !root.mergeChronological
@@ -216,8 +222,8 @@ Popup {
             Text {
                 width: parent.width; wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11
                 text: root.selectedCutMode === 1
-                    ? (L10n.language === "ru" ? "Исходные видео и звук копируются без перекодирования и потери качества; границы зависят от ключевых кадров. Для общего ролика параметры исходников должны совпадать." : "Original video and audio are copied without re-encoding or quality loss; boundaries depend on keyframes. A combined video requires compatible source streams.")
-                    : (L10n.language === "ru" ? "Разрешение сохраняется. Высокое качество — по умолчанию; максимальное увеличивает размер файла. Битрейт — целевой, итоговый зависит от сцены. При перекодировании возможны потери." : "Source resolution is preserved. High quality is the default; maximum increases file size. Bitrate is a target and varies with the scene. Re-encoding can introduce loss.")
+                    ? (L10n.language === "ru" ? "Качество исходника сохраняется без перекодирования. Начало может захватить контекст от предыдущего ключевого кадра. Для обрезки строго по параллели выбери перекодирование и «Точно». Параметры исходников общего ролика должны совпадать." : "Source quality is preserved without re-encoding. The start may include context from the preceding keyframe. For strict parallel boundaries, choose re-encoding and Exact. Combined-video sources must have compatible streams.")
+                    : (L10n.language === "ru" ? "Режим «Точно» обрезает по границам найденной параллели без добавленных секунд. Разрешение сохраняется; максимальное качество увеличивает размер файла. При перекодировании возможны потери." : "Exact mode cuts at the matched parallel boundaries without added seconds. Source resolution is preserved; maximum quality increases file size. Re-encoding can introduce loss.")
             }
         }
         Row { width: parent.width; spacing: 8
@@ -229,7 +235,7 @@ Popup {
             width: parent.width
             text: root.exportStatus || (root.selectedFormat === "FFMPEG"
                 ? (root.mergeChronological && root.selectedCutMode === 1
-                    ? (L10n.language === "ru" ? "Один MP4 по таймкодам без перекодирования видео и звука. Точные дубликаты исключаются. Несовместимые исходники не перекодируются автоматически." : "One chronological MP4 without re-encoding video or audio. Exact duplicates are excluded. Incompatible sources are never automatically re-encoded.")
+                    ? (L10n.language === "ru" ? "Один MP4 по порядку типов движений без перекодирования видео и звука. Точные дубликаты исключаются. Несовместимые исходники не перекодируются автоматически." : "One MP4 in movement-type order without re-encoding video or audio. Exact duplicates are excluded. Incompatible sources are never automatically re-encoded.")
                     : L10n.t(root.mergeChronological ? "export.mergeHint" : "export.ffmpegHint"))
                 : L10n.t("export.hint"))
             color: root.exportStatus ? Theme.accent : Theme.textSecondary
@@ -246,7 +252,7 @@ Popup {
         root.x = Math.round((rootWindow.width - root.width) / 2)
         root.y = Math.round((rootWindow.height - root.height) / 2)
     }
-    onOpened: { refreshColors(); centerInWindow() }
+    onOpened: { refreshClasses(); centerInWindow() }
     Connections {
         target: root.rootWindow
         function onWidthChanged() { if (root.visible) Qt.callLater(root.centerInWindow) }

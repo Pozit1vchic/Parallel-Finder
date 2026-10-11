@@ -19,6 +19,11 @@ struct SceneBoundary {
     double timestampSeconds; // boundary position on the file's local timeline
     double score;            // raw detector confidence (0..1+)
 };
+struct SceneCutCandidate {
+    double beforeSeconds = 0;
+    double afterSeconds = 0;
+    double score = 0;
+};
 
 struct SceneSample {
     double timestampSeconds = 0.0;
@@ -105,6 +110,27 @@ public:
     // nearby edge at native frame cadence. No evidence => no invented edge.
     std::optional<double> refineHardCut(VideoDecoder& decoder, double approximateSeconds,
                                         std::stop_token stop = {}) const;
+
+    // Validate continuity inside a requested clip at native frame cadence.
+    // Includes surrounding frames for the adaptive motion baseline, but only
+    // returns boundaries strictly inside the clip. Cancellation returns no
+    // partial evidence. This does not change cached detector observations.
+    std::vector<SceneBoundary> detectInterval(VideoDecoder& decoder, double startSeconds,
+        double endSeconds, std::stop_token stop = {},
+        const std::function<bool()>& cancelled = {}) const;
+
+    // Resolve delayed sampled boundaries before shot-local tracking and
+    // identity averaging. Only brackets containing pose observations need
+    // source decoding. Sparse RGB/pose observations themselves stay unchanged.
+    std::vector<SceneBoundary> refineSupportedBoundaries(VideoDecoder& decoder,
+        std::span<const SceneBoundary> boundaries, std::span<const double> sampleTimes,
+        std::span<const double> poseTimes, const std::function<bool()>& cancelled = {}) const;
+
+    // Existing 16x9 RGB observations suggest where to check native source
+    // frames. These brackets are NOT confirmed boundaries. Missing samples
+    // retain their actual times; do not assume a fixed .25-second bracket.
+    std::vector<SceneCutCandidate> sequenceCutCandidates(std::span<const float> pixels,
+        std::span<const double> times, const std::function<bool()>& cancelled = {}) const;
 
 private:
     double threshold_;

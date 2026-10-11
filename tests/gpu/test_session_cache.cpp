@@ -14,6 +14,7 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <future>
 
 namespace {
 
@@ -334,4 +335,63 @@ TEST_F(SessionCacheTest, ShrinkingCapacityEvictsImmediately)
     EXPECT_EQ(cache.stats().live, 1U);
 }
 
+TEST(SessionCacheCudaGraph, RealFloat32ModelsPreserveOutputsAcrossClientsAndCacheClear)
+{
+    const auto root=qEnvironmentVariable("PF_TEST_CUDA_GRAPH_MODEL_ROOT");
+    if(root.isEmpty())GTEST_SKIP()<<"set PF_TEST_CUDA_GRAPH_MODEL_ROOT for the actual CUDA models";
+    if(!pfgpu::isProviderAvailable(pfgpu::Provider::Cuda))GTEST_SKIP()<<"CUDA unavailable";
+    const auto previous=qgetenv("PF_AUDIT_CUDA_GRAPH");
+    struct Restore {QByteArray value;~Restore(){if(value.isNull())qunsetenv("PF_AUDIT_CUDA_GRAPH");else qputenv("PF_AUDIT_CUDA_GRAPH",value);}} restore{previous};
+    for(const auto& model:{"yolo26m-pose.onnx","person-reid-osnet.onnx",
+        "face_detection_yunet_2023mar.onnx","face_recognition_sface_2021dec.onnx"}) {
+        SCOPED_TRACE(model);
+        const auto path=QDir(root).filePath(model);
+        ASSERT_TRUE(QFile::exists(path));
+        pfgpu::SessionCache normalCache,graphCache;
+        const auto source=pfgpu::ModelRef::fromPath(path.toStdString());
+        qputenv("PF_AUDIT_CUDA_GRAPH","0");
+        const auto normal=normalCache.getOrCreate(source,{pfgpu::Provider::Cuda,0,{},0});
+        ASSERT_TRUE(normal.ok)<<normal.error;
+        ASSERT_FALSE(normal.handle.cudaGraph);
+        qputenv("PF_AUDIT_CUDA_GRAPH","1");
+        const auto captured=graphCache.getOrCreate(source,{pfgpu::Provider::Cuda,0,{},0});
+        ASSERT_TRUE(captured.ok)<<captured.error;
+        ASSERT_TRUE(captured.handle.cudaGraph);
+        const auto description=pfgpu::describeSession(normal.handle);
+        ASSERT_TRUE(description.ok)<<description.error;
+        pfgpu::FloatTensor input;input.shape=description.input.shape;
+        size_t elements=1;
+        for(const auto d:input.shape){ASSERT_GT(d,0);elements*=static_cast<size_t>(d);}
+        ASSERT_LE(elements,4*1024*1024U);
+        input.values.resize(elements);
+        for(size_t i=0;i<elements;++i)input.values[i]=static_cast<float>((i*37)%251)/250.f;
+        std::vector<pfgpu::FloatTensor> inputs;
+        std::vector<pfgpu::InferenceResult> reference;
+        for(int i=0;i<12;++i) {
+            input.values[static_cast<size_t>(i)%elements]=static_cast<float>(i)/12.f;
+            inputs.push_back(input);reference.push_back(pfgpu::runFloat(normal.handle,input));
+            ASSERT_TRUE(reference.back().ok)<<reference.back().error;
+        }
+        auto invalid=inputs.front();invalid.values.pop_back();
+        EXPECT_FALSE(pfgpu::runFloat(captured.handle,invalid).ok);
+        const auto first=pfgpu::runFloat(captured.handle,inputs.front());
+        ASSERT_TRUE(first.ok)<<first.error;
+        auto reused=graphCache.getOrCreate(source,{pfgpu::Provider::Cuda,0,{},0});
+        ASSERT_TRUE(reused.ok);
+        EXPECT_EQ(reused.handle.cudaGraph,captured.handle.cudaGraph);
+        graphCache.clear();normalCache.clear();
+        std::vector<std::future<pfgpu::InferenceResult>> futures;
+        for(const auto& tensor:inputs)futures.push_back(std::async(std::launch::async,
+            [handle=captured.handle,tensor]{return pfgpu::runFloat(handle,tensor);}));
+        for(size_t i=0;i<futures.size();++i) {
+            const auto actual=futures[i].get();ASSERT_TRUE(actual.ok)<<actual.error;
+            ASSERT_EQ(actual.outputs.size(),reference[i].outputs.size());
+            EXPECT_EQ(actual.outputNames,reference[i].outputNames);
+            for(size_t j=0;j<actual.outputs.size();++j) {
+                EXPECT_EQ(actual.outputs[j].shape,reference[i].outputs[j].shape);
+                EXPECT_EQ(actual.outputs[j].values,reference[i].outputs[j].values)<<i<<":"<<j;
+            }
+        }
+    }
+}
 } // namespace

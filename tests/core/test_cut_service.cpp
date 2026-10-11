@@ -11,6 +11,7 @@
 #include <pfcore/VideoDecoder.hpp>
 #include <pfcore/SceneDetector.hpp>
 #include <pfcore/ParallelClip.hpp>
+#include <pfcore/DominantPerson.hpp>
 #include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -19,42 +20,42 @@
 #include <filesystem>
 #include <limits>
 
-TEST(ParallelClip, CentersFiveSecondsOnSupportedMatch)
+TEST(ParallelClip, PreservesSupportedMatchWithoutPadding)
 {
     const auto clip = pfcore::parallelClipRange(10, 12, 0, 60);
-    EXPECT_DOUBLE_EQ(clip.start, 8.5);
-    EXPECT_DOUBLE_EQ(clip.end, 13.5);
+    EXPECT_DOUBLE_EQ(clip.start, 10);
+    EXPECT_DOUBLE_EQ(clip.end, 12);
 }
 
-TEST(ParallelClip, ShiftsAtShotEdgesBeforeShortening)
+TEST(ParallelClip, DoesNotBorrowContextAtShotEdges)
 {
     const auto nearStart = pfcore::parallelClipRange(10, 10.5, 10, 30);
     EXPECT_DOUBLE_EQ(nearStart.start, 10);
-    EXPECT_DOUBLE_EQ(nearStart.end, 15);
+    EXPECT_DOUBLE_EQ(nearStart.end, 10.5);
     const auto nearEnd = pfcore::parallelClipRange(28.5, 29.5, 10, 30);
-    EXPECT_DOUBLE_EQ(nearEnd.start, 25);
-    EXPECT_DOUBLE_EQ(nearEnd.end, 30);
+    EXPECT_DOUBLE_EQ(nearEnd.start, 28.5);
+    EXPECT_DOUBLE_EQ(nearEnd.end, 29.5);
 }
 
 TEST(ParallelClip, ShortShotNeverIncludesNextScene)
 {
     const auto clip = pfcore::parallelClipRange(11, 11.5, 10, 13);
-    EXPECT_DOUBLE_EQ(clip.start, 10);
-    EXPECT_DOUBLE_EQ(clip.end, 13);
+    EXPECT_DOUBLE_EQ(clip.start, 11);
+    EXPECT_DOUBLE_EQ(clip.end, 11.5);
 }
 
-TEST(ParallelClip, LongGestureIsCappedAtSixSeconds)
+TEST(ParallelClip, LongGestureIsNotTruncated)
 {
     const auto clip = pfcore::parallelClipRange(10, 20, 0, 60);
-    EXPECT_DOUBLE_EQ(clip.start, 12);
-    EXPECT_DOUBLE_EQ(clip.end, 18);
+    EXPECT_DOUBLE_EQ(clip.start, 10);
+    EXPECT_DOUBLE_EQ(clip.end, 20);
 }
 
 TEST(ParallelClip, StaticMatchAndUnknownSceneStillHaveBoundedContext)
 {
     const auto clip = pfcore::parallelClipRange(10, 10, -1, -1);
-    EXPECT_DOUBLE_EQ(clip.start, 7.5);
-    EXPECT_DOUBLE_EQ(clip.end, 12.5);
+    EXPECT_DOUBLE_EQ(clip.start, 10);
+    EXPECT_NEAR(clip.end, 10 + 1.0 / 24.0, 1e-12);
 }
 #include <fstream>
 #include <thread>
@@ -120,8 +121,45 @@ TEST(SceneBoundaryExport, RefinesLateSparseBoundaryAndExcludesTheNextShot)
     ASSERT_TRUE(boundary);
     EXPECT_NEAR(*boundary, 23.0 / 24.0, 1e-6);
     EXPECT_FALSE(detector.refineHardCut(decoder, .5)); // no fabricated cut
+    const auto internalCuts = detector.detectInterval(decoder, .25, 1.75);
+    ASSERT_EQ(internalCuts.size(), 1U);
+    EXPECT_NEAR(internalCuts[0].timestampSeconds, 23.0 / 24.0, 1e-6);
+    EXPECT_TRUE(detector.detectInterval(decoder, .25, .75).empty());
+    EXPECT_TRUE(detector.detectInterval(decoder, 23.0 / 24.0, 1.75).empty());
+    EXPECT_TRUE(detector.detectInterval(decoder, .25, 23.0 / 24.0).empty());
+    EXPECT_TRUE(detector.detectInterval(decoder, 1, .5).empty());
+    EXPECT_TRUE(detector.detectInterval(decoder, std::numeric_limits<double>::quiet_NaN(), 1).empty());
+    const pfcore::SceneBoundary sampledCut{1,1};
+    const std::vector<double> sampleTimes{0,.25,.5,.75,1,1.25,1.5};
+    const std::vector<double> observedPoses{.8,.9,23.0/24,1,1.1,1.2};
+    const auto corrected=detector.refineSupportedBoundaries(decoder,std::span(&sampledCut,1),sampleTimes,observedPoses);
+    ASSERT_EQ(corrected.size(),1U);
+    EXPECT_NEAR(corrected[0].timestampSeconds,23.0/24,1e-6);
+    const std::vector<double> noAffectedPoses{.25,.5,1.1,1.2};
+    const auto unchanged=detector.refineSupportedBoundaries(decoder,std::span(&sampledCut,1),sampleTimes,noAffectedPoses);
+    ASSERT_EQ(unchanged.size(),1U);EXPECT_DOUBLE_EQ(unchanged[0].timestampSeconds,1);
+    EXPECT_TRUE(detector.refineSupportedBoundaries(decoder,std::span(&sampledCut,1),sampleTimes,observedPoses,[]{return true;}).empty());
+    EXPECT_TRUE(detector.detectInterval(decoder,.25,1.75,{},[]{return true;}).empty());
+    // Late boundaries contaminated the original track's shot prototype with
+    // the first face from the next plan. Native correction must precede the
+    // track split; every new track must have unmixed identity observations.
+    pfcore::PersonTracker tracker(.3,1,false);
+    for(const double time:observedPoses) {
+        pfcore::PersonDetection person;person.timestampSeconds=time;person.frameDurationSeconds=1./24;
+        person.box={0,0,100,100};person.confidence=person.keypointConfidence=.9;
+        person.faceEmbedding=time<corrected[0].timestampSeconds ? std::vector<float>{1,0}:std::vector<float>{0,1};
+        tracker.update(time,1./24,{person});
+    }
+    tracker.retrackScenes({corrected[0].timestampSeconds});
+    ASSERT_EQ(tracker.tracks().size(),2U);
+    for(const auto& track:tracker.tracks()) {
+        ASSERT_FALSE(track.observations.empty());
+        for(const auto& observation:track.observations)
+            EXPECT_EQ(observation.faceEmbedding,track.observations.front().faceEmbedding);
+    }
     std::stop_source cancelled; cancelled.request_stop();
     EXPECT_FALSE(detector.refineHardCut(decoder, 1, cancelled.get_token()));
+    EXPECT_TRUE(detector.detectInterval(decoder, .25, 1.75, cancelled.get_token()).empty());
     pfservices::CutRequest request;
     request.inputPath = std::filesystem::path(source.toStdWString());
     request.outputPath = std::filesystem::path(directory.filePath("red-only.mp4").toStdWString());
@@ -271,6 +309,19 @@ TEST(MontageExport, SortsDeduplicatesAndNormalizesMixedSilentAndAudioVideos)
     decoder.seek(1.5);
     ASSERT_TRUE(decoder.readNext(frame));
     EXPECT_GT(frame.rgba[2], frame.rgba[0] + 100); // blue second
+    decoder.close();
+    // Movement groups override chronology and deduplicate repeated clips
+    // even when the duplicates are separated by another group.
+    const auto grouped = pfservices::exportChronologicalMontage({a, b, a},
+        temporary.filePath("grouped.mp4").toStdWString(), {}, {}, ffmpeg.toStdString(), true);
+    ASSERT_TRUE(grouped.success) << grouped.error;
+    decoder.open(QString::fromStdWString(grouped.outputPath.wstring()).toStdString());
+    EXPECT_NEAR(decoder.info().durationSeconds, 2, .3);
+    ASSERT_TRUE(decoder.readNext(frame));
+    EXPECT_GT(frame.rgba[2], frame.rgba[0] + 100); // requested blue first
+    decoder.seek(1.5);
+    ASSERT_TRUE(decoder.readNext(frame));
+    EXPECT_GT(frame.rgba[0], frame.rgba[2] + 100); // red second
     EXPECT_TRUE(QDir(temporary.path()).entryList({".parallelfinder-montage-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
 }
 
@@ -693,7 +744,8 @@ TEST(CutService, CancellationStopsAnActiveEncoderAndCleansTemporaryOutput)
     std::jthread cancel([&] {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
         while (std::chrono::steady_clock::now() < deadline) {
-            if (QFileInfo::exists(directory.filePath("cancelled.part.mp4"))) {
+            const auto temporaries = QDir(directory.path()).entryInfoList({"cancelled.part-*.mp4"}, QDir::Files);
+            if (std::any_of(temporaries.begin(), temporaries.end(), [](const auto& file) { return file.size() > 0; })) {
                 encoderStarted.store(true);
                 break;
             }
@@ -707,7 +759,7 @@ TEST(CutService, CancellationStopsAnActiveEncoderAndCleansTemporaryOutput)
     EXPECT_FALSE(result.success);
     EXPECT_TRUE(result.cancelled);
     EXPECT_FALSE(std::filesystem::exists(request.outputPath));
-    EXPECT_FALSE(QFileInfo::exists(directory.filePath("cancelled.part.mp4")));
+    EXPECT_TRUE(QDir(directory.path()).entryList({"cancelled.part-*.mp4"}, QDir::Files).isEmpty());
 }
 
 TEST(CutService, ExportsVideoWithSubtitlesToMp4)
@@ -892,4 +944,121 @@ TEST(MontageExport, CanvasChecksAspectRatioOverflowAndRotation) {
     EXPECT_FALSE(pfservices::detail::montageCanvas(info));
     info.sampleAspectRatio = std::numeric_limits<double>::infinity();
     EXPECT_FALSE(pfservices::detail::montageCanvas(info));
+}
+
+TEST(ExportQueue, ExistingNamesAndCancelledReservationsPreserveAllPreviousFiles)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    ASSERT_FALSE(ffmpeg.isEmpty());
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    for (const auto& name : {"clip.mp4", "clip (1).mp4"}) {
+        QFile old(directory.filePath(name)); ASSERT_TRUE(old.open(QIODevice::WriteOnly)); old.write("original");
+    }
+    pfservices::CutRequest request;
+    request.inputPath = std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4";
+    request.outputPath = directory.filePath("clip.mp4").toStdWString(); request.endSeconds = .5;
+    const auto batch = pfservices::runExportQueue({request, request}, {}, {}, ffmpeg.toStdString());
+    ASSERT_EQ(batch.completed.size(), 2u);
+    for (const auto& result : batch.completed) ASSERT_TRUE(result.success) << result.error;
+    EXPECT_EQ(batch.completed[0].outputPath, std::filesystem::path(directory.filePath("clip (2).mp4").toStdWString()));
+    EXPECT_EQ(batch.completed[1].outputPath, std::filesystem::path(directory.filePath("clip (3).mp4").toStdWString()));
+    EXPECT_TRUE(batch.completed[1].reused);
+    for (const auto& name : {"clip.mp4", "clip (1).mp4"}) {
+        QFile old(directory.filePath(name)); ASSERT_TRUE(old.open(QIODevice::ReadOnly)); EXPECT_EQ(old.readAll(), "original");
+    }
+    request.inputPath = directory.filePath("missing.mp4").toStdWString();
+    const auto failed = pfservices::runExportQueue({request}, {}, {}, ffmpeg.toStdString());
+    ASSERT_EQ(failed.completed.size(), 1u); EXPECT_FALSE(failed.completed[0].success);
+    EXPECT_FALSE(QFileInfo::exists(directory.filePath("clip (4).mp4")));
+    std::stop_source stop; stop.request_stop();
+    EXPECT_TRUE(pfservices::runExportQueue({request}, stop.get_token(), {}, ffmpeg.toStdString()).cancelled);
+    EXPECT_FALSE(QFileInfo::exists(directory.filePath("clip (4).mp4")));
+}
+
+TEST(MontageExport, StreamCopyReorderedFramesMatchSourceAndHaveIncreasingTimestamps)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    ASSERT_FALSE(ffmpeg.isEmpty());
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    const auto realSource = qEnvironmentVariable("PF_TEST_LOSSLESS_SOURCE");
+    for (const auto& encoder : {QString("libx264"), QString("libx265")}) {
+        const bool real = !realSource.isEmpty();
+        if (real && encoder != "libx265") continue;
+        const auto source = real ? realSource : directory.filePath(encoder + ".mp4");
+        if (!real) {
+            QProcess generate;
+            QStringList args{"-v", "error", "-f", "lavfi", "-i", "testsrc2=s=192x108:r=24:d=16",
+                "-c:v", encoder, "-threads", "2", "-g", "96", "-bf", "8"};
+            if (encoder == "libx265") args << "-x265-params" << "pools=2:frame-threads=2:open-gop=1:scenecut=0:log-level=error" << "-pix_fmt" << "yuv420p10le";
+            args << source;
+            generate.start(ffmpeg, args); ASSERT_TRUE(generate.waitForFinished(30000));
+            ASSERT_EQ(generate.exitCode(), 0) << generate.readAllStandardError().toStdString();
+        }
+        const auto hashes = [&](const QString& path, QStringList inputOptions = {}) {
+            QProcess decode;
+            QStringList args{"-v", "error", "-threads", "4"}; args << inputOptions << "-i" << path;
+            if (real && path == source) args << "-t" << "14";
+            args << "-map" << "0:v:0" << "-fps_mode" << "passthrough" << "-f" << "framemd5" << "-";
+            decode.start(ffmpeg, args);
+            EXPECT_TRUE(decode.waitForFinished(120000)); EXPECT_EQ(decode.exitCode(), 0);
+            const auto errors = decode.readAllStandardError();
+            EXPECT_TRUE(errors.isEmpty()) << path.toStdString() << ": " << errors.toStdString();
+            QList<QByteArray> frames;
+            qint64 previous = -1;
+            for (const auto& line : decode.readAllStandardOutput().split('\n')) {
+                if (line.isEmpty() || line.startsWith('#')) continue;
+                const auto fields = line.split(',');
+                const auto timestamp = fields[2].trimmed().toLongLong();
+                EXPECT_GT(timestamp, previous) << "overlapping presentation timestamps";
+                previous = timestamp; frames.push_back(fields.last().trimmed());
+            }
+            return frames;
+        };
+        const double base = real ? 1800.5 : 2.5;
+        pfservices::CutRequest a, b;
+        a.inputPath = b.inputPath = source.toStdWString(); a.mode = b.mode = pfservices::CutMode::Fast;
+        a.startSeconds = base; a.endSeconds = base + (real ? 5 : 3.6);
+        b.startSeconds = real ? 2132.4 : 10.4; b.endSeconds = b.startSeconds + (real ? 5 : 3.1);
+        a.outputPath = directory.filePath(encoder + "-a.mp4").toStdWString();
+        b.outputPath = directory.filePath(encoder + "-b.mp4").toStdWString();
+        pfservices::CutService cutter(ffmpeg.toStdString());
+        for (const auto& request : {a, b}) {
+            const auto cut = cutter.cut(request); ASSERT_TRUE(cut.success) << cut.error;
+            const auto prepared = QString::fromStdWString(request.outputPath.wstring()) + ".splice.mp4";
+            const double singlePassSpan = pfcore::prepareStreamCopySplice(
+                QString::fromStdWString(request.outputPath.wstring()).toStdString(), prepared.toStdString());
+            EXPECT_NEAR(singlePassSpan,pfcore::mediaPacketDuration(prepared.toStdString()),.00001);
+        }
+        const auto aHashes = hashes(QString::fromStdWString(a.outputPath.wstring()));
+        const auto bHashes = hashes(QString::fromStdWString(b.outputPath.wstring()));
+        ASSERT_FALSE(aHashes.isEmpty()); ASSERT_FALSE(bHashes.isEmpty());
+        const auto originalA = hashes(source, real ? QStringList{"-ss", "1793"} : QStringList{});
+        const auto originalB = real ? hashes(source, {"-ss", "2127"}) : originalA;
+        for (const auto& hash : aHashes) EXPECT_TRUE(originalA.contains(hash)) << "modified or damaged decoded source frame";
+        for (const auto& hash : bHashes) EXPECT_TRUE(originalB.contains(hash)) << "modified or damaged decoded source frame";
+        const auto output = directory.filePath(encoder + "-montage.mp4");
+        { QFile previous(output); ASSERT_TRUE(previous.open(QIODevice::WriteOnly)); previous.write("keep previous montage"); }
+        const auto result = pfservices::exportChronologicalMontage({b, a}, output.toStdWString(), {}, {}, ffmpeg.toStdString());
+        ASSERT_TRUE(result.success) << result.error;
+        EXPECT_EQ(result.outputPath, std::filesystem::path(directory.filePath(encoder + "-montage (1).mp4").toStdWString()));
+        QFile previous(output); ASSERT_TRUE(previous.open(QIODevice::ReadOnly)); EXPECT_EQ(previous.readAll(), "keep previous montage");
+        const auto expected = aHashes + bHashes;
+        const auto actual = hashes(QString::fromStdWString(result.outputPath.wstring()));
+        EXPECT_EQ(actual.size(), expected.size()) << encoder.toStdString();
+        for (qsizetype index = 0; index < std::min(actual.size(), expected.size()); ++index) {
+            if (actual[index] != expected[index]) {
+                ADD_FAILURE() << encoder.toStdString() << " first different frame " << index
+                    << ", clip A=" << aHashes.size() << ", clip B=" << bHashes.size()
+                    << ", actual=" << actual[index].toStdString() << ", expected=" << expected[index].toStdString();
+                break;
+            }
+        }
+        // The UI supplies movement-class order, which must survive the
+        // montage stage even when it contradicts the source chronology.
+        const auto groupedOutput = directory.filePath(encoder + "-grouped-montage.mp4");
+        const auto grouped = pfservices::exportChronologicalMontage({b, a},
+            groupedOutput.toStdWString(), {}, {}, ffmpeg.toStdString(), true);
+        ASSERT_TRUE(grouped.success) << grouped.error;
+        EXPECT_EQ(hashes(QString::fromStdWString(grouped.outputPath.wstring())), bHashes + aHashes);
+    }
 }

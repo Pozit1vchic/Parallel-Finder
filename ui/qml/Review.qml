@@ -20,11 +20,6 @@ QtObject {
         {id: "all", ru: "Выделить все пары", en: "Select all pairs", keys: ["Ctrl+A"]},
         {id: "clear", ru: "Снять выделение", en: "Clear selection", keys: ["Ctrl+Shift+A"]},
         {id: "color0", ru: "Убрать цвет", en: "Clear color", keys: ["0"]},
-        {id: "color1", ru: "Красный цвет", en: "Red color", keys: ["1"]},
-        {id: "color2", ru: "Синий цвет", en: "Blue color", keys: ["2"]},
-        {id: "color3", ru: "Зелёный цвет", en: "Green color", keys: ["3"]},
-        {id: "color4", ru: "Фиолетовый цвет", en: "Purple color", keys: ["4"]},
-        {id: "color5", ru: "Золотой цвет", en: "Gold color", keys: ["5"]},
         {id: "undo", ru: "Отменить последнее действие", en: "Undo last action", keys: ["Ctrl+Z"]},
         {id: "nextUnreviewed", ru: "Следующая неразобранная пара", en: "Next unreviewed pair", keys: ["N"]},
         {id: "reviewed", ru: "Разобрано / не разобрано", en: "Toggle reviewed", keys: ["R"]}

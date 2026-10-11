@@ -2,14 +2,27 @@ param(
     [string]$Toolchain = 'D:\msys2\ucrt64',
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-    [string]$ReleaseTag = '0.1.0-rc.20.3',
+    [string]$ReleaseTag = '0.1.0-rc.20.5',
     [string]$GitHubTag = '',
-    [string]$ReleaseNotes = 'docs/rc20.3-release-notes.md',
+    [string]$ReleaseNotes = 'docs/rc20.5-release-notes.md',
     [string]$SigningKey = (Join-Path $env:LOCALAPPDATA 'ParallelFinder/release-signing/update-ed25519-private.pem'),
     [switch]$KeepStaging,
     [switch]$SkipChecks
 )
 $ErrorActionPreference = 'Stop'
+function New-ReleaseArchive([string]$Directory, [string]$Archive) {
+    # Archive files explicitly: the updater only admits directories implied
+    # by signed files. Avoid tar's list-file escape/option interpretation.
+    $parent = Split-Path -Parent $Directory
+    $output = [IO.Compression.ZipFile]::Open($Archive, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($file in (Get-ChildItem -LiteralPath $Directory -Recurse -File | Sort-Object FullName)) {
+            $name = [IO.Path]::GetRelativePath($parent, $file.FullName).Replace([IO.Path]::DirectorySeparatorChar, '/')
+            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($output, $file.FullName, $name,
+                [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        }
+    } finally { $output.Dispose() }
+}
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $bin = Join-Path $Toolchain 'bin'
 $releaseOriginalPath = $env:PATH
@@ -132,15 +145,7 @@ try {
     }
     $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $stage 'files.sha256.json') -Encoding utf8
     $zip = Join-Path $out "ParallelFinder-$tag-Portable-x64.zip"
-    # The RC17.1 updater admits only directories implied by signed files.
-    # windeployqt creates empty directories, so archive files explicitly.
-    $archiveFiles = Join-Path (Split-Path $stage) 'archive-files.txt'
-    $paths = @(Get-ChildItem -LiteralPath $stage -Recurse -File | Sort-Object FullName | ForEach-Object {
-        'ParallelFinder/' + [IO.Path]::GetRelativePath($stage, $_.FullName).Replace('\','/')
-    })
-    [IO.File]::WriteAllLines($archiveFiles, $paths, [Text.UTF8Encoding]::new($false))
-    & tar.exe -a -cf $zip -C (Split-Path $stage) -T $archiveFiles
-    if ($LASTEXITCODE) { throw 'ZIP creation failed' }
+    New-ReleaseArchive -Directory $stage -Archive $zip
     if (Test-Path -LiteralPath $SigningKey) {
         & "$PSScriptRoot/sign-update.ps1" -Stage $stage -Package $zip -Version $(if ($GitHubTag) { $GitHubTag } else { $tag }) -SigningKey $SigningKey -OpenSSL "$bin/openssl.exe" -ChangelogPath "$stage/RELEASE-NOTES.md"
     } else {
@@ -175,8 +180,7 @@ try {
         Copy-Item -LiteralPath $source -Destination $target
     }
     $sourceZip = Join-Path $out "ParallelFinder-$tag-Source.zip"
-    & tar.exe -a -cf $sourceZip -C (Split-Path $sourceStage) (Split-Path $sourceStage -Leaf)
-    if ($LASTEXITCODE) { throw 'Source archive failed' }
+    New-ReleaseArchive -Directory $sourceStage -Archive $sourceZip
     $hashes = Get-ChildItem -LiteralPath $out -File | Get-FileHash -Algorithm SHA256
     $hashes | ForEach-Object { $_.Hash.ToLowerInvariant() + '  ' + [IO.Path]::GetFileName($_.Path) } |
         Set-Content -LiteralPath (Join-Path $out 'SHA256SUMS.txt') -Encoding ascii

@@ -6,6 +6,8 @@
 #include <QElapsedTimer>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QTemporaryFile>
+#include <QScopeGuard>
 #include <QStringList>
 
 #include <algorithm>
@@ -176,10 +178,18 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
     // its muxer from the output suffix; `clip.mp4.part` has no known format
     // and produces "Unable to choose an output format" on Windows.
     const std::string extension = request.outputPath.extension().string();
-    const std::string temporaryName = request.outputPath.stem().string()
-        + ".part" + (extension.empty() ? std::string(".mp4") : extension);
-    const auto temporaryPath = request.outputPath.parent_path() / temporaryName;
-    std::filesystem::remove(temporaryPath, filesystemError);
+    std::filesystem::path temporaryPath;
+    {
+        QTemporaryFile temporaryFile(QFileInfo(QString::fromStdWString(request.outputPath.wstring())).absolutePath() + "/"
+            + QString::fromStdWString(request.outputPath.stem().wstring()) + ".part-XXXXXX"
+            + QString::fromStdString(extension.empty() ? std::string(".mp4") : extension));
+        if (!temporaryFile.open()) { result.error = temporaryFile.errorString().toStdString(); return result; }
+        temporaryPath = std::filesystem::path(temporaryFile.fileName().toStdWString());
+        temporaryFile.setAutoRemove(false);
+    } // Release the native Windows handle before FFmpeg/rename access it.
+    const auto temporaryCleanup = qScopeGuard([temporaryPath] {
+        std::error_code error; std::filesystem::remove(temporaryPath, error);
+    });
 
     std::vector<std::string> encoders;
     if (request.mode == CutMode::Fast) encoders.emplace_back("copy");
@@ -239,6 +249,10 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
                     : QStringLiteral("0:a?"));
         if (request.mode == CutMode::Fast) {
             arguments << QStringLiteral("-c") << QStringLiteral("copy");
+            // Keep the preceding keyframe and its dependent frames visible.
+            // Negative preroll/edit-list timestamps otherwise overlap when
+            // independently sought clips are concatenated (especially HEVC).
+            arguments << "-avoid_negative_ts" << "make_zero";
         } else {
             arguments << QStringLiteral("-c:v") << QString::fromStdString(encoder)
                       << QStringLiteral("-c:a") << QStringLiteral("aac")

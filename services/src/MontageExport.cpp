@@ -1,4 +1,5 @@
 #include "MontageGeometry.hpp"
+#include "ExportDestination.hpp"
 #include <pfservices/MontageExport.hpp>
 #include <pfcore/VideoDecoder.hpp>
 #include <QCoreApplication>
@@ -14,6 +15,7 @@
 #include <cmath>
 #include <tuple>
 #include <unordered_map>
+#include <set>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
@@ -21,7 +23,7 @@
 namespace pfservices {
 CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
     const std::filesystem::path& output, std::stop_token stop,
-    MontageProgress progress, const std::string& executable)
+    MontageProgress progress, const std::string& executable, bool preserveInputOrder)
 {
     CutResult result;
     const auto cancelled = [&] {
@@ -37,13 +39,12 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
     if (std::any_of(clips.begin(), clips.end(), [streamCopy](const auto& clip) {
         return (clip.mode == CutMode::Fast) != streamCopy;
     })) { result.error = "montage clips must use the same cut mode"; return result; }
-    std::stable_sort(clips.begin(), clips.end(), [](const auto& a, const auto& b) {
+    if (!preserveInputOrder) std::stable_sort(clips.begin(), clips.end(), [](const auto& a, const auto& b) {
         return std::tie(a.startSeconds, a.inputPath, a.endSeconds)
             < std::tie(b.startSeconds, b.inputPath, b.endSeconds);
     });
-    clips.erase(std::unique(clips.begin(), clips.end(), [](const auto& a, const auto& b) {
-        return a.inputPath == b.inputPath && a.startSeconds == b.startSeconds && a.endSeconds == b.endSeconds;
-    }), clips.end());
+    std::set<std::tuple<std::filesystem::path, double, double>> seen;
+    std::erase_if(clips, [&](const auto& clip) { return !seen.emplace(clip.inputPath, clip.startSeconds, clip.endSeconds).second; });
     const QString destination = QString::fromStdWString(output.wstring());
     const QString parent = QFileInfo(destination).absolutePath();
     if (!QDir().mkpath(parent)) { result.error = "cannot create montage folder"; return result; }
@@ -112,10 +113,16 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             };
             result = cutter.cut(request);
             if (!result.success) return result;
-            montageDuration += request.endSeconds - request.startSeconds;
+            const QString spliceName = streamCopy ? staging.filePath(QString::number(i) + "-splice.mp4") : name;
+            const double clipDuration = streamCopy
+                ? pfcore::prepareStreamCopySplice(name.toUtf8().toStdString(), spliceName.toUtf8().toStdString(), stop)
+                : pfcore::mediaPacketDuration(spliceName.toUtf8().toStdString(), stop);
+            if (cancelled()) return result;
+            montageDuration += clipDuration;
             // Relative, generated filenames avoid quoting user paths and
             // keep concat's safe-path check enabled.
-            manifest += "file '" + QByteArray::number(static_cast<qulonglong>(i)) + ".mp4'\n";
+            manifest += "file '" + QFileInfo(spliceName).fileName().toUtf8() + "'\n";
+            manifest += "duration " + QByteArray::number(clipDuration, 'f', 9) + "\n";
             if (progress) progress(i + 1, clips.size() + 1, 0);
         }
         result.success = false;
@@ -182,8 +189,9 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
             result.error = "montage mux: " + errors.right(65536).toStdString(); return result;
         }
+        detail::ExportDestination destinationName(output);
         QFile combined(staging.filePath("combined.mp4"));
-        QSaveFile finalFile(destination);
+        QSaveFile finalFile(QString::fromStdWString(destinationName.path().wstring()));
         if (!combined.open(QIODevice::ReadOnly) || combined.size() == 0 || !finalFile.open(QIODevice::WriteOnly)) {
             result.error = "cannot install completed montage"; return result;
         }
@@ -199,10 +207,12 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         }
         if (cancelled()) return result;
         if (!finalFile.commit()) { result.error = finalFile.errorString().toStdString(); return result; }
+        destinationName.commit();
+        result.outputPath = destinationName.path();
         result.success = true;
         result.error.clear();
         if (progress) progress(clips.size() + 1, clips.size() + 1, 100);
-    } catch (const std::exception& error) { result.success = false; result.error = error.what(); }
+    } catch (const std::exception& error) { result.success = false; if (!cancelled()) result.error = error.what(); }
     return result;
 }
 }

@@ -6,6 +6,7 @@ add_library(pfgpu STATIC
     src/ProviderFactory.cpp
     src/SessionCache.cpp
     src/Inference.cpp
+    src/CudaGraphRunner.cpp
     src/PoseEstimator.cpp
     src/PoseInput.cpp
     src/ReIdEstimator.cpp

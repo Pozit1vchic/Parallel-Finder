@@ -27,7 +27,7 @@
 #include <QThread>
 #include <QVariantMap>
 #include <QVersionNumber>
-#include <QColor>
+#include <pfcore/MovementClassifier.hpp>
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -66,7 +66,6 @@
 #include "pfgpu/FaceEstimator.hpp"
 #include "pfgpu/DeviceInfo.hpp"
 #include "pfservices/SettingsStore.hpp"
-#include <pfservices/ResultCategoryStore.hpp>
 #include "pfservices/ModelStore.hpp"
 #include "pfservices/PfCache.hpp"
 #include "pfservices/CutService.hpp"
@@ -171,6 +170,8 @@ std::shared_ptr<pfgpu::PoseEstimator> sharedPoseEstimator(const std::filesystem:
     const std::string modelName = model.filename().string();
     if (modelName.find("-b16") != std::string::npos) params.profile = "b16";
     else if (modelName.find("-b8") != std::string::npos) params.profile = "b8";
+    else if (modelName.find("-b4") != std::string::npos) params.profile = "b4";
+    else if (modelName.find("-b2") != std::string::npos) params.profile = "b2";
     else params.profile = "b1";
     const std::string key = model.string() + "|" + providerKey(providerChoice)
         + "|" + std::to_string(processingThreads) + "|" + params.profile;
@@ -943,12 +944,7 @@ std::filesystem::path findBodyReIdModel()
     }
     const auto executableModels = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) / "models";
     const auto localModels = std::filesystem::path(pfservices::SettingsStore::defaultDirectory()) / "models";
-    std::vector<std::filesystem::path> roots {executableModels, localModels};
-    if (const char* root = std::getenv("PF_MODEL_ROOT"); root && *root)
-        roots.emplace_back(root);
-    roots.emplace_back(R"(D:\PF_CUDA\models)");
-    roots.emplace_back(R"(D:\YOLO_Download_Project\models)");
-    roots.emplace_back(R"(D:\YOLO\_Download_Project\models)");
+    const auto roots = modelRoots();
     const std::vector<std::string> preferred {
         "person-reid-osnet.onnx", "osnet_x1_0.onnx", "osnet.onnx",
         "body-reid.onnx", "person-reid.onnx"
@@ -1656,31 +1652,22 @@ void AnalysisController::setSceneThreshold(double value)
     emit settingsChanged();
 }
 
-void AnalysisController::setResultCategory(int id,const QString& name,const QString& color)
-{
-    setResultCategories({id}, name, color);
-}
-
-void AnalysisController::setResultCategories(const QVariantList& ids, const QString& name, const QString& color)
+void AnalysisController::setResultClassification(const QVariantList& ids, const QString& classification)
 {
     if (busy_ || exportBusy_ || reviewBusy_) return;
-    const auto category = name.trimmed().left(64);
-    const QColor chosen(color);
-    if (!category.isEmpty() && !chosen.isValid()) return;
-    const QString normalizedColor = category.isEmpty() ? QString{} : chosen.name();
+    const QStringList allowed{"head_pose", "head_front", "head_turned", "body_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "head_turn", "head_nod", "head_tilt", "push", "pull", "reach_return", "raise", "lower", "raise_lower", "turn", "step", "wave", "static", "mixed", "unknown"};
+    if (!allowed.contains(classification)) return;
     QVariantList changed;
     for (const auto& value : ids) {
         bool ok = false; const int id = value.toInt(&ok);
-        if (!ok || id < 0 || id >= results_.size() || changed.contains(id)) continue;
-        const auto row = results_[id].toMap();
-        if (row.value("category").toString() != category || row.value("categoryColor").toString() != normalizedColor) changed.push_back(id);
+        if (ok && id >= 0 && id < results_.size() && !changed.contains(id)
+            && results_[id].toMap().value("classification").toString().section('/', 0, 0) != classification) changed.push_back(id);
     }
     if (changed.isEmpty()) return;
     pushReviewUndo(changed);
     for (const auto& value : changed) {
         const int id = value.toInt(); auto record = results_[id].toMap();
-        record.insert("category",category); record.insert("categoryColor",normalizedColor);
-        pfservices::ResultCategoryStore::save(record,category,normalizedColor);
+        record.insert("classification", classification); record.insert("classificationManual", true);
         results_[id] = record;
     }
     ++resultCategoryRevision_; emit resultCategoriesChanged();
@@ -1693,15 +1680,15 @@ bool AnalysisController::exportResults(const QString& format,
                                        const QString& prefix,
                                        const QVariantList& selectedIndexes,
                                        bool mergeChronological,
-                                       const QStringList& colorOrder,
-                                       int encodingQuality, int videoBitrateKbps)
+                                       const QStringList& classOrder,
+                                       int encodingQuality, int videoBitrateKbps, bool classFolders)
 {
     if (busy_ || exportBusy_ || reviewBusy_) return false;
     if (encodingQuality < 1 || encodingQuality > 51 || videoBitrateKbps < 0 || videoBitrateKbps > 500000) {
         emit exportFinished(false, QStringLiteral("Недопустимое качество или битрейт"));
         return false;
     }
-    auto ordered = orderedExportIndexes(selectedIndexes, matches_, results_, numberingMode, colorOrder);
+    auto ordered = orderedExportIndexes(selectedIndexes, matches_, results_, numberingMode, classOrder);
     std::erase_if(ordered, [this](int id) { return results_[id].toMap().value("hidden").toBool(); });
     if (ordered.empty()) {
         emit exportFinished(false, QStringLiteral("Не выбраны результаты для экспорта"));
@@ -1710,10 +1697,12 @@ bool AnalysisController::exportResults(const QString& format,
     std::vector<pfcore::MotionMatch> selected;
     selected.reserve(ordered.size());
     std::vector<bool> manuallyAdjusted;
+    QStringList selectedClasses;
     manuallyAdjusted.reserve(ordered.size());
     for (const int index : ordered) {
         selected.push_back(matches_[index]);
         manuallyAdjusted.push_back(results_[index].toMap().value("manualAdjusted").toBool());
+        selectedClasses.push_back(results_[index].toMap().value("classification", "unknown").toString().section('/', 0, 0));
     }
     const QString normalized = format.trimmed().toUpper();
     if (normalized == QStringLiteral("FFMPEG")) {
@@ -1743,7 +1732,7 @@ bool AnalysisController::exportResults(const QString& format,
         exportTotal_ = static_cast<int>(selected.size() * 2 + (mergeChronological ? 1 : 0));
         emit exportProgressChanged();
         emit exportBusyChanged();
-        exportWorker_ = std::jthread([this, selected = std::move(selected), manuallyAdjusted = std::move(manuallyAdjusted), folder, requestedPrefix, mode, mergeChronological, encodingQuality, videoBitrateKbps,
+        exportWorker_ = std::jthread([this, selected = std::move(selected), manuallyAdjusted = std::move(manuallyAdjusted), selectedClasses, classOrder, classFolders, folder, requestedPrefix, mode, mergeChronological, encodingQuality, videoBitrateKbps,
                                      sceneThreshold = sceneThreshold_](std::stop_token stop) {
         const auto finish = [this](bool success, const QString& message) {
             QMetaObject::invokeMethod(this, [this, success, message] {
@@ -1770,8 +1759,13 @@ bool AnalysisController::exportResults(const QString& format,
                                     const QString& side) {
                 pfservices::CutRequest request;
                 request.inputPath = std::filesystem::path(QString::fromStdString(source).toStdWString());
-                request.outputPath = std::filesystem::path((QDir(folder).filePath(
-                    requestedPrefix + ordinal + "_" + side + ".mp4")).toStdWString());
+                const auto type = selectedClasses.at(static_cast<qsizetype>(index));
+                const QString safeType = isSafeExportPrefix(type) ? type : QStringLiteral("unknown");
+                const auto rank = classOrder.indexOf(type);
+                const auto classFolder = QString::number(rank < 0 ? classOrder.size() + 1 : rank + 1).rightJustified(2, '0') + "_" + safeType;
+                const auto clipFolder = classFolders && !mergeChronological ? QDir(folder).filePath(classFolder) : folder;
+                request.outputPath = std::filesystem::path((QDir(clipFolder).filePath(
+                    requestedPrefix + ordinal + "_" + (classFolders ? safeType + "_" : QString{}) + side + ".mp4")).toStdWString());
                 request.startSeconds = std::max(0.0, start);
                 request.endSeconds = end;
                 const bool refineEdge = !manuallyAdjusted[index] && mode == pfservices::CutMode::Exact
@@ -1842,8 +1836,8 @@ bool AnalysisController::exportResults(const QString& format,
                         exportStage_ = done + 1 == total ? QStringLiteral("finalizing") : QStringLiteral("encoding");
                         emit exportProgressChanged();
                     }, Qt::QueuedConnection);
-                });
-            finish(result.success, result.success ? QStringLiteral("MP4: ") + QString::fromStdWString(output.wstring())
+                }, "ffmpeg", !classOrder.isEmpty());
+            finish(result.success, result.success ? QStringLiteral("MP4: ") + QString::fromStdWString(result.outputPath.wstring())
                 : QString::fromStdString(result.error));
             return;
         }
@@ -1883,7 +1877,7 @@ bool AnalysisController::exportResults(const QString& format,
     else options.format = pfexporters::ExportFormat::Json;
     options.numbering = numberingMode == 1 ? pfexporters::NumberingMode::RenumberSorted
                                            : pfexporters::NumberingMode::AsInVideo;
-    options.preserveInputOrder = !colorOrder.isEmpty();
+    options.preserveInputOrder = !classOrder.isEmpty();
     options.cutMode = cutMode == 1 ? pfexporters::CutMode::Fast : pfexporters::CutMode::Exact;
     const QString exportPrefix = prefix.trimmed().isEmpty() ? QStringLiteral("frame_") : prefix.trimmed();
     if (!isSafeExportPrefix(exportPrefix)) {
@@ -1977,6 +1971,7 @@ void AnalysisController::inspectFiles(const QStringList& paths)
     reviewDraftDirectory_.reset();
     analysisPreviewDirectory_.reset();
     matches_.clear();
+    resultPoseEvidence_.clear();
     fileCount_ = 0;
     sourceSummaries_.clear();
     frameCount_ = 0;
@@ -2128,6 +2123,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     reviewDraftDirectory_.reset();
     analysisPreviewDirectory_.reset();
     matches_.clear();
+    resultPoseEvidence_.clear();
     matchCount_ = 0;
     analysisCompleted_ = false;
     emit analysisStateChanged();
@@ -2177,6 +2173,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         QVariantList resultRecords;
         QVariantMap summaries;
         std::vector<pfcore::MotionMatch> foundMatches;
+        std::vector<ResultPoseEvidence> resultPoseEvidence;
         QStringList previewA;
         QStringList previewB;
         qlonglong frames = 0;
@@ -2767,13 +2764,29 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                                             * 4.0 / std::max(1.0, info.frameRate)))),
                                                     settings.sceneAdaptiveMultiplier);
                 QElapsedTimer sceneUpdates;sceneUpdates.start();
-                const auto sceneBoundaries = sceneDetector.detectWithProgress(samples,isCancelled,
+                auto sceneBoundaries = sceneDetector.detectWithProgress(samples,isCancelled,
                     [&](std::size_t done,std::size_t total) {
                         if(done==0 || done==total || sceneUpdates.elapsed()>=150) {
                             reportPreparation(QStringLiteral("Определяем границы сцен"),done,total);sceneUpdates.restart();
                         }
                     });
                 if(isCancelled()) {markCancelled();break;}
+                if(!cacheHit && !sceneBoundaries.empty()) {
+                    // The pose sampler runs faster than scene thumbnails. A
+                    // delayed cut must be resolved BEFORE retracking and
+                    // averaging identities, not only while exporting a clip.
+                    reportPreparation(QStringLiteral("Уточняем границы движений по кадрам"));
+                    std::vector<double> observedPoseTimes;
+                    for(const auto& track:tracker.tracks())for(const auto& observation:track.observations)
+                        observedPoseTimes.push_back(observation.timestampSeconds);
+                    std::sort(observedPoseTimes.begin(),observedPoseTimes.end());
+                    observedPoseTimes.erase(std::unique(observedPoseTimes.begin(),observedPoseTimes.end()),observedPoseTimes.end());
+                    const pfcore::SceneDetector nativeDetector(settings.sceneThreshold,
+                        std::max<std::size_t>(1,settings.sceneMinFrames),settings.sceneAdaptiveMultiplier);
+                    sceneBoundaries=nativeDetector.refineSupportedBoundaries(decoder,sceneBoundaries,
+                        sceneTimestamps,observedPoseTimes,isCancelled);
+                    if(isCancelled()) {markCancelled();break;}
+                }
                 const auto sceneDetectNs = stageNow() - decodeAndInferNs;
                 if (!cacheHit && !sceneBoundaries.empty()) {
                     std::vector<double> cuts;
@@ -3306,9 +3319,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             searchControl.reuse=&searchReuse;
             QElapsedTimer searchUpdates;searchUpdates.start();
             auto lastStage=pfcore::MotionSearchStage::Recovery;
-            searchControl.progress=[&,this](pfcore::MotionSearchStage stage,std::size_t done,std::size_t total) {
-                if(stage==lastStage && searchUpdates.elapsed()<150 && done!=total)return;
-                lastStage=stage;searchUpdates.restart();
+            bool lastRecovery=false;
+            const auto reportSearchStage=[&,this](pfcore::MotionSearchStage stage,std::size_t done,std::size_t total,bool recovery) {
+                if(stage==lastStage && recovery==lastRecovery && searchUpdates.elapsed()<150 && done!=total)return;
+                lastStage=stage;lastRecovery=recovery;searchUpdates.restart();
                 const QStringList stages={QStringLiteral("Подготавливаем поиск параллелей"),
                     QStringLiteral("Исключаем одинаковые фрагменты"),QStringLiteral("Ищем похожие движения"),
                     QStringLiteral("Ищем совпадения персонажа"),
@@ -3317,14 +3331,16 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     QStringLiteral("Исключаем повторяющиеся ракурсы"),QStringLiteral("Ищем дополнительные параллели")};
                 const auto index=static_cast<int>(stage);
                 const double fraction=total ? std::min(1.0,static_cast<double>(done)/total) : 0;
-                const double value=.85+.12*(index+fraction)/stages.size();
-                const auto label=QStringLiteral("Матчер: ")+stages[index];
+                const double value=recovery ? .97 : .85+.12*(index+fraction)/stages.size();
+                const auto label=(recovery ? QStringLiteral("Дополнительный поиск: ") : QStringLiteral("Матчер: "))+stages[index];
                 QMetaObject::invokeMethod(this,[this,cancel,label,value,done,total,processedFrames,totalFramesEstimate] {
                     if(analysisCancel_!=cancel || cancel->load())return;
                     setProgress(std::max(progress_,value),total ? label+QStringLiteral(" · %1 / %2").arg(done).arg(total) : label,processedFrames,totalFramesEstimate);
                     setStatus(label+QStringLiteral(" · %1 / %2").arg(done).arg(total));
                 },Qt::QueuedConnection);
             };
+            searchControl.progress=[&](auto stage,auto done,auto total) {reportSearchStage(stage,done,total,false);};
+            searchControl.recoveryProgress=[&](auto stage,auto done,auto total) {reportSearchStage(stage,done,total,true);};
             foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows,searchControl);
             markCancelled();
             while(!isCancelled() && !foundMatches.empty()) {
@@ -3471,7 +3487,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             });
             for (std::size_t i = 0; i < foundMatches.size(); ++i) {
                 if (isCancelled()) { markCancelled(); break; }
-                const auto& item = foundMatches[i];
+                auto& item = foundMatches[i];
                 QVariantMap record;
                 record.insert(QStringLiteral("id"), static_cast<int>(i));
                 record.insert(QStringLiteral("similarity"), item.similarity);
@@ -3480,6 +3496,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert("classification", item.leftIndex<windows.size() && windows[item.leftIndex].staticFrameSet
                     ? (item.headOnlyComparison ? QStringLiteral("head_pose") : QStringLiteral("body_pose"))
                     : QString::fromStdString((item.headOnlyComparison && item.gestureLabel=="turn" ? std::string("head_turn") : item.gestureLabel)+"/"+item.directionLabel));
+                ResultPoseEvidence evidence;
+                if(item.leftIndex<windows.size() && item.rightIndex<windows.size()) {
+                    evidence={groupingEvidence(windows[item.leftIndex]),groupingEvidence(windows[item.rightIndex])};
+                    classifyResultRange(record,item,evidence);
+                }
+                resultPoseEvidence.push_back(std::move(evidence));
                 record.insert(QStringLiteral("matchType"),
                     item.leftIndex < windows.size() && windows[item.leftIndex].staticFrameSet
                         ? QStringLiteral("pose") : QStringLiteral("motion"));
@@ -3519,9 +3541,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 markers << item.leftStartSeconds << item.leftEndSeconds
                         << item.rightStartSeconds << item.rightEndSeconds;
                 record.insert(QStringLiteral("markers"), markers);
-                const auto tag=pfservices::ResultCategoryStore::load(record);
-                record.insert("category",tag.value("name").toString());
-                record.insert("categoryColor",tag.value("color").toString());
+                // Review annotations belong to this analysis, not cached poses.
+                record.insert("category",QString{});
+                record.insert("categoryColor",QString{});
                 resultRecords.push_back(record);
                 const QString exactA = exactPreviews.get(QString::fromStdString(item.leftSourceId), item.leftStartSeconds);
                 const QString exactB = exactPreviews.get(QString::fromStdString(item.rightSourceId), item.rightStartSeconds);
@@ -3571,7 +3593,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             summary.insert("matchCount", count);
             entry.value() = summary;
         }
-        QMetaObject::invokeMethod(this, [this, cancel, files, frames, duration, scenes, poseDetections, matches, resultRecords = std::move(resultRecords), foundMatches = std::move(foundMatches), error, processedFrames, totalFramesEstimate, decodedFrames, analyzedFrames, sourceFps, reidStatus, debugSummary, summaries = std::move(summaries), expandedSearch, previewScratch = threadPreviewScratch]() mutable {
+        QMetaObject::invokeMethod(this, [this, cancel, files, frames, duration, scenes, poseDetections, matches, resultRecords = std::move(resultRecords), foundMatches = std::move(foundMatches), resultPoseEvidence = std::move(resultPoseEvidence), error, processedFrames, totalFramesEstimate, decodedFrames, analyzedFrames, sourceFps, reidStatus, debugSummary, summaries = std::move(summaries), expandedSearch, previewScratch = threadPreviewScratch]() mutable {
             if (pendingInspectionPaths_) {
                 busy_ = false;
                 emit busyChanged();
@@ -3587,6 +3609,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             results_ = std::move(resultRecords);
             analysisPreviewDirectory_ = previewScratch;
             matches_ = std::move(foundMatches);
+            resultPoseEvidence_ = std::move(resultPoseEvidence);
             sourceFps_ = sourceFps;
             emit summaryChanged();
             emit resultsChanged();

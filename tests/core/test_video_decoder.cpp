@@ -511,7 +511,15 @@ TEST(VideoDecoder, NativeNvidiaDecodePreservesCpuWorkingPixelsIncludingFullRange
                 EXPECT_EQ(a.width, b.width);
                 EXPECT_EQ(a.height, b.height);
                 ASSERT_EQ(a.rgba.size(), b.rgba.size());
-                EXPECT_TRUE(a.rgba == b.rgba) << path.toStdString() << " at " << a.timestampSeconds;
+                if(a.rgba!=b.rgba) {
+                    std::size_t changed=0;int maximum=0;
+                    for(std::size_t i=0;i<a.rgba.size();++i) {
+                        const int delta=std::abs(int(a.rgba[i])-int(b.rgba[i]));
+                        changed+=delta!=0;maximum=std::max(maximum,delta);
+                    }
+                    FAIL()<<path.toStdString()<<" at "<<a.timestampSeconds
+                        <<" changed bytes="<<changed<<" max delta="<<maximum;
+                }
                 ++samples;
             }
             ++frames;
@@ -707,5 +715,40 @@ TEST(VideoSampleReader, SampleClockPreservesOrdinaryRepeatedAdditionCadence) {
             EXPECT_EQ(pfcore::detail::selectSampleTimestamp(timestamp, 1.0 / fps, actual), selected);
             EXPECT_EQ(actual, expected);
         }
+    }
+}
+#include <pfcore/detail/PixelPlanes.hpp>
+
+TEST(PixelPlanes, P010LumaPreservesEveryInputWordIncludingUnalignedTail)
+{
+    std::vector<std::uint8_t> source(65536 * 2 + 2, 0xa5), actual(source.size(), 0xa5), expected=actual;
+    for (unsigned word=0; word<65536; ++word) {
+        source[1+word*2]=static_cast<std::uint8_t>(word);
+        source[2+word*2]=static_cast<std::uint8_t>(word>>8);
+        expected[1+word*2]=static_cast<std::uint8_t>(word>>6);
+        expected[2+word*2]=static_cast<std::uint8_t>(word>>14);
+    }
+    pfcore::detail::unpackP010Luma(source.data()+1,actual.data()+1,65536);
+    EXPECT_EQ(actual,expected);
+}
+
+TEST(PixelPlanes, ChromaPreservesOddWidthsUnalignedRowsAndGuardBytes)
+{
+    for (std::size_t count=0;count<67;++count) {
+        std::vector<std::uint8_t> source(count*4+2,0xa5);
+        for(std::size_t i=1;i+1<source.size();++i)source[i]=static_cast<std::uint8_t>(i*37+count*11);
+        std::vector<std::uint8_t> u(count*2+2,0xa5),v=u,expectedU=u,expectedV=v;
+        for(std::size_t x=0;x<count;++x) {
+            const unsigned a=source[1+x*4] | (unsigned(source[2+x*4])<<8);
+            const unsigned b=source[3+x*4] | (unsigned(source[4+x*4])<<8);
+            expectedU[1+x*2]=static_cast<std::uint8_t>(a>>6);expectedU[2+x*2]=static_cast<std::uint8_t>(a>>14);
+            expectedV[1+x*2]=static_cast<std::uint8_t>(b>>6);expectedV[2+x*2]=static_cast<std::uint8_t>(b>>14);
+        }
+        pfcore::detail::unpackP010Chroma(source.data()+1,u.data()+1,v.data()+1,count);
+        EXPECT_EQ(u,expectedU)<<count;EXPECT_EQ(v,expectedV)<<count;
+        u.assign(count+2,0xa5);v=u;expectedU=u;expectedV=v;
+        for(std::size_t x=0;x<count;++x) {expectedU[1+x]=source[1+x*2];expectedV[1+x]=source[2+x*2];}
+        pfcore::detail::unpackNv12Chroma(source.data()+1,u.data()+1,v.data()+1,count);
+        EXPECT_EQ(u,expectedU)<<count;EXPECT_EQ(v,expectedV)<<count;
     }
 }

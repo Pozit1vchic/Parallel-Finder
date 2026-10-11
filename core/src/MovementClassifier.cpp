@@ -153,11 +153,26 @@ MovementClassification MovementClassifier::classify(const MotionWindow& window) 
     return classifyOne(window);
 }
 
+MovementClassification MovementClassifier::classify(const MotionWindow& window, double start, double end) const
+{
+    MotionWindow supported;
+    for (const auto& frame : window.frames)
+        if (frame.timestampSeconds >= start - 1e-6 && frame.timestampSeconds <= end + 1e-6)
+            supported.frames.push_back(frame);
+    return classifyOne(supported);
+}
+
 MovementClassification MovementClassifier::classify(const MotionWindow& left,
                                                     const MotionWindow& right) const
 {
     const auto a = classifyOne(left);
     const auto b = classifyOne(right);
+    return combineClassifications(a, b);
+}
+
+MovementClassification MovementClassifier::combineClassifications(
+    const MovementClassification& a, const MovementClassification& b)
+{
     MovementClassification result;
     result.direction = combine(a.direction, b.direction, a.directionConfidence,
                                b.directionConfidence, MovementDirection::Mixed);
@@ -194,6 +209,11 @@ const char* MovementClassifier::gestureName(GestureClass value) noexcept
     case GestureClass::Wave: return "wave";
     case GestureClass::Static: return "static";
     case GestureClass::Mixed: return "mixed";
+    case GestureClass::RaiseLower: return "raise_lower";
+    case GestureClass::ReachReturn: return "reach_return";
+    case GestureClass::HeadTurn: return "head_turn";
+    case GestureClass::HeadNod: return "head_nod";
+    case GestureClass::HeadTilt: return "head_tilt";
     case GestureClass::Unknown: break;
     }
     return "unknown";

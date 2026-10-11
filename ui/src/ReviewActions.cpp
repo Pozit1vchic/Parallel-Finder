@@ -1,7 +1,6 @@
 #include "AnalysisController.h"
 #include "AppInfo.h"
 #include <pfcore/VideoDecoder.hpp>
-#include <pfservices/ResultCategoryStore.hpp>
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
@@ -25,9 +24,8 @@ QImage frameAt(pfcore::VideoDecoder& decoder, double seconds, std::stop_token st
     decoder.setRgbaMaxDimensions(960, 540);
     decoder.seek(seconds);
     bool found = false;
-    const double halfFrame = 0.5 / std::max(1.0, decoder.info().frameRate);
     while (!stop.stop_requested() && decoder.readNext(frame, false)) {
-        if (frame.timestampSeconds + halfFrame >= seconds) {
+        if (frame.timestampSeconds + 1e-6 >= seconds) {
             found = decoder.convertCurrentFrameToRgba(frame); break;
         }
     }
@@ -70,9 +68,6 @@ QVariantList AnalysisController::undoResultEdit() {
     QVariantList restored;
     for (auto& row : entry) {
         if (row.id < 0 || row.id >= results_.size()) continue;
-        const auto current = results_[row.id].toMap();
-        if (current.value("category") != row.record.value("category") || current.value("categoryColor") != row.record.value("categoryColor"))
-            pfservices::ResultCategoryStore::save(row.record, row.record.value("category").toString(), row.record.value("categoryColor").toString());
         results_[row.id] = row.record;
         if (row.match && row.id < static_cast<int>(matches_.size())) matches_[row.id] = *row.match;
         if (row.preview) reviewPreviewDirectories_[row.id] = std::move(row.preview);
@@ -119,7 +114,6 @@ bool AnalysisController::setResultRange(int id, double ls, double le, double rs,
     row.insert("leftStart", ls); row.insert("leftEnd", le); row.insert("rightStart", rs); row.insert("rightEnd", re);
     row.insert("leftClipStart", ls); row.insert("leftClipEnd", le); row.insert("rightClipStart", rs); row.insert("rightClipEnd", re);
     row.insert("manualAdjusted", true);
-    results_[id] = row;
     auto& match = matches_[id];
     match.leftStartSeconds = ls; match.leftEndSeconds = le; match.rightStartSeconds = rs; match.rightEndSeconds = re;
     // Exact custom bounds must also reach clip/XML/EDL exporters; original
@@ -127,6 +121,9 @@ bool AnalysisController::setResultRange(int id, double ls, double le, double rs,
     match.leftSceneStartSeconds = ls; match.leftSceneEndSeconds = le;
     match.rightSceneStartSeconds = rs; match.rightSceneEndSeconds = re;
     match.durationSeconds = std::min(le - ls, re - rs);
+    if(id < static_cast<int>(resultPoseEvidence_.size()))
+        classifyResultRange(row,match,resultPoseEvidence_[id]);
+    results_[id] = row;
     ++resultCategoryRevision_; emit resultCategoriesChanged();
     return startReviewPreview(id, row, true);
 }
@@ -186,14 +183,20 @@ bool AnalysisController::resetResultRange(int id) {
     auto original = current.value("originalRecord").toMap();
     if (original.isEmpty()) return false;
     pushReviewUndo({id}, true);
-    for (const QString& key : {QString("category"), QString("categoryColor"), QString("favorite"), QString("hidden"), QString("reviewed")})
+    for (const QString& key : {QString("favorite"), QString("hidden"), QString("reviewed")})
         if (current.contains(key)) original.insert(key, current.value(key));
+    if(current.value("classificationManual").toBool()) {
+        original.insert("classification",current.value("classification"));
+        original.insert("classificationManual",true);
+    }
     auto& match = matches_[id];
     match.leftStartSeconds = original.value("leftStart").toDouble(); match.leftEndSeconds = original.value("leftEnd").toDouble();
     match.rightStartSeconds = original.value("rightStart").toDouble(); match.rightEndSeconds = original.value("rightEnd").toDouble();
     match.leftSceneStartSeconds = original.value("leftSceneStart").toDouble(); match.leftSceneEndSeconds = original.value("leftSceneEnd").toDouble();
     match.rightSceneStartSeconds = original.value("rightSceneStart").toDouble(); match.rightSceneEndSeconds = original.value("rightSceneEnd").toDouble();
     match.durationSeconds = current.value("originalMatchDuration").toDouble();
+    if(id < static_cast<int>(resultPoseEvidence_.size()))
+        classifyResultRange(original,match,resultPoseEvidence_[id]);
     results_[id] = original; ++resultCategoryRevision_; emit resultCategoriesChanged();
     reviewPreviewDirectories_.erase(id);
     return true;
@@ -230,15 +233,13 @@ bool AnalysisController::exportFindings(const QString& output, const QVariantLis
                 painter.drawText(QRect(margin, 63, width - 2 * margin, 24), QString("Parallel Finder  ·  %1 / %2").arg(page + 1).arg((rows.size() + 3) / 4));
                 for (int pair = 0; pair < pairs; ++pair) {
                     const auto row = rows[page * 4 + pair].toMap(); const int top = header + pair * pairHeight;
-                    QColor pairColor(row.value("categoryColor").toString());
-                    if (!pairColor.isValid()) pairColor = QColor("#df824d");
-                    painter.setPen(pairColor); painter.drawLine(margin, top, width - margin, top);
+                    painter.setPen(QColor("#df824d")); painter.drawLine(margin, top, width - margin, top);
                     painter.setFont(QFont("Segoe UI", 13, QFont::DemiBold)); painter.setPen(QColor("#f5f1ec"));
                     painter.drawText(QRect(margin, top + 12, width - 2 * margin, 30),
                         QString(ru ? "Пара %1  ·  Сходство %2%" : "Pair %1  ·  Similarity %2%")
                             .arg(row.value("id").toInt() + 1).arg(qRound(row.value("similarity").toDouble() * 100))
                             + (row.value("favorite").toBool() ? QStringLiteral("  ★") : QString{})
-                            + (row.value("category").toString().isEmpty() ? QString{} : "  ·  " + row.value("category").toString()));
+                            + "  ·  " + row.value("classification", "unknown").toString());
                     for (int sideIndex = 0; sideIndex < 2; ++sideIndex) {
                         const QString side = sideIndex == 0 ? "left" : "right", source = row.value(side + "Source").toString();
                         pfcore::VideoDecoder decoder; pfcore::VideoDecodeOptions options; options.threads = 2;

@@ -32,6 +32,7 @@ add_executable(pf_tests
     core/test_estimator_cache.cpp
     core/test_scene_sequence_cache.cpp
     core/test_scene_detector.cpp
+    core/test_scene_window.cpp
     core/test_video_decoder.cpp
     core/test_ordered_pipeline.cpp
     core/test_camera_view.cpp
@@ -83,7 +84,7 @@ target_link_libraries(pfui_tests PRIVATE
     pfui_module_import # static import of the PfUi module plugin
     Qt6::Test
 )
-add_test(NAME pfui_tests COMMAND pfui_tests)
+add_test(NAME pfui_tests COMMAND pfui_tests -o "${CMAKE_CURRENT_BINARY_DIR}/pfui-results.txt,txt")
 set_tests_properties(pfui_tests PROPERTIES
     TIMEOUT 180
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -95,6 +96,15 @@ set_tests_properties(app_smoke PROPERTIES
     TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
+
+# A packaged checkout may have qt.conf restricting Plugins to the app folder,
+# which deliberately deploys only the Windows platform plugin. Headless tests
+# must explicitly use the SDK's offscreen plugin rather than showing a fatal
+# Windows dialog because that plugin is absent from the distributable.
+if(TARGET Qt6::QOffscreenIntegrationPlugin)
+    set_property(TEST pf_update_tests pfui_tests app_smoke APPEND PROPERTY ENVIRONMENT
+        "QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QOffscreenIntegrationPlugin>")
+endif()
 
 if(WIN32)
     find_program(PF_POWERSHELL_EXECUTABLE NAMES pwsh powershell)

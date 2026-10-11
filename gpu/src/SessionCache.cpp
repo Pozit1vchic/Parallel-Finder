@@ -16,6 +16,7 @@
 #include "pfgpu/DeviceInfo.hpp"
 #include "pfgpu/OrtRuntime.hpp"
 #include "pfgpu/ProviderFactory.hpp"
+#include "CudaGraphRunner.hpp"
 
 namespace pfgpu {
 namespace {
@@ -50,11 +51,11 @@ std::string modelIdentity(const ModelRef& model)
         + std::to_string(model.bytes.size());
 }
 
-std::string buildCacheKey(const ModelRef& model, const SessionKey& key, Provider resolved)
+std::string buildCacheKey(const ModelRef& model, const SessionKey& key, Provider resolved, bool graph)
 {
     return modelIdentity(model) + "|" + providerName(resolved) + "|device"
         + std::to_string(key.deviceId) + "|" + key.profile + "|threads"
-        + std::to_string(key.intraOpThreads);
+        + std::to_string(key.intraOpThreads) + (graph ? "|audit_cuda_graph" : "");
 }
 
 std::size_t effectiveThreadCount(const SessionKey& key, Provider resolved)
@@ -87,7 +88,7 @@ ModelRef ModelRef::fromBytes(std::string bytes, std::string tag)
 struct SessionCache::Entry {
     Entry(const OrtApi* runtime, OrtSession* value, Provider ep, const std::string& key)
         : api(runtime), session(value), provider(ep), cacheKey(key) {}
-    ~Entry() { if (session) api->ReleaseSession(session); }
+    ~Entry() { cudaGraph.reset(); if (session) api->ReleaseSession(session); }
     const OrtApi* api;
     OrtSession* session = nullptr;
     Provider provider = Provider::Cpu;
@@ -96,6 +97,7 @@ struct SessionCache::Entry {
     mutable std::mutex profileMutex;
     mutable std::size_t profileRuns = 0;
     mutable std::atomic_bool profiling{false};
+    std::shared_ptr<detail::CudaGraphRunner> cudaGraph;
 };
 
 struct SessionCache::Impl {
@@ -149,7 +151,12 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
         return result;
     }
 
-    const std::string cacheKey = buildCacheKey(model, key, resolved);
+    const auto* graphFlag = std::getenv("PF_AUDIT_CUDA_GRAPH");
+    const bool graph = resolved == Provider::Cuda && graphFlag && std::string(graphFlag) == "1";
+    std::string cacheKey = buildCacheKey(model, key, resolved, graph);
+    if (const auto* tf32 = std::getenv("PF_AUDIT_CUDA_TF32"); resolved == Provider::Cuda
+        && tf32 && (std::string(tf32) == "0" || std::string(tf32) == "1"))
+        cacheKey += std::string("|audit_cuda_tf32=") + tf32;
 
     {
         Impl& impl = *impl_;
@@ -167,6 +174,7 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
             result.handle.cacheKey = cacheKey;
             result.handle.createdNow = false;
             result.handle.profiling = it->second.entry->profiling;
+            result.handle.cudaGraph = it->second.entry->cudaGraph;
             return result;
         }
         impl.stats.misses += 1;
@@ -203,11 +211,13 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
         }
     } cleanup { api, options };
 
+    auto providerOptions = factory->defaultOptions();
+    if (graph) providerOptions.emplace_back("enable_cuda_graph", "1");
     if (!checkStatus(*api, api->SetIntraOpNumThreads(options,
                                                      static_cast<int>(effectiveThreadCount(key, resolved))), error)
         || !checkStatus(*api, api->SetSessionGraphOptimizationLevel(options, ORT_ENABLE_ALL),
                         error)
-        || !factory->configure(*api, *options, factory->defaultOptions(), error)) {
+        || !factory->configure(*api, *options, providerOptions, error)) {
         result.error = "session options: " + error;
         return result;
     }
@@ -276,6 +286,7 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
     auto entry = std::make_shared<Entry>(api, session, resolved, cacheKey);
     session = nullptr; // Entry now owns the session; allocation failures were guarded above.
     entry->profiling = profiling;
+    if (graph) entry->cudaGraph = std::make_shared<detail::CudaGraphRunner>(*api, entry->session, key.deviceId);
 
     {
         Impl& impl = *impl_;
@@ -313,6 +324,7 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
     result.handle.cacheKey = cacheKey;
     result.handle.createdNow = true;
     result.handle.profiling = profiling;
+    result.handle.cudaGraph = entry->cudaGraph;
     return result;
 }
 

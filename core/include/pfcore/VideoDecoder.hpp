@@ -4,8 +4,19 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <stop_token>
 
 namespace pfcore {
+
+// Presentation span of encoded video/audio packets, relative to the container
+// start. Stream-copy cuts can contain reordered tail frames beyond the header's
+// duration; concat must include those frames before starting the next clip.
+double mediaPacketDuration(const std::string& path, std::stop_token stop = {});
+// Copies encoded packets, omitting HEVC leading RASL pictures at a splice.
+// An independent decoder already discards these pictures; a continuous decoder
+// would otherwise try to use references from the wrong preceding clip.
+// Returns the presentation span while copying, avoiding a second packet scan.
+double prepareStreamCopySplice(const std::string& input, const std::string& output, std::stop_token stop = {});
 
 struct VideoInfo {
     int width = 0;

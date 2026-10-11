@@ -1,4 +1,5 @@
 #include <pfservices/ExportQueue.hpp>
+#include "ExportDestination.hpp"
 #include <QFile>
 #include <QSaveFile>
 #include <map>
@@ -25,6 +26,8 @@ ExportBatchResult runExportQueue(const std::vector<CutRequest>& jobs,
                 prepare(request);
             }
             if (stop.stop_requested()) { batch.cancelled = true; break; }
+            detail::ExportDestination destinationName(request.outputPath);
+            request.outputPath = destinationName.path();
             const Key key{request.inputPath, request.startSeconds, request.endSeconds, request.mode,
                 request.quality, request.videoBitrateKbps, request.maxWidth, request.maxHeight,
                 request.canvasWidth, request.canvasHeight, request.outputFrameRate,
@@ -53,6 +56,10 @@ ExportBatchResult runExportQueue(const std::vector<CutRequest>& jobs,
                 }
             }
             if (!result.success) result = cutter.cut(request);
+            if (result.success) {
+                destinationName.commit();
+                result.outputPath = request.outputPath;
+            }
             if (result.success && !result.reused) {
                 // A caller may reuse a filename for a different cut. Do not
                 // leave older memo entries pointing at its replacement.

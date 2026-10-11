@@ -65,6 +65,9 @@ IProviderFactory::OptionList cudaRuntimeOptions(const IProviderFactory::OptionLi
         && (std::strcmp(search, "EXHAUSTIVE") == 0 || std::strcmp(search, "HEURISTIC") == 0
             || std::strcmp(search, "DEFAULT") == 0))
         options.emplace_back("cudnn_conv_algo_search", search);
+    if (const auto* tf32 = std::getenv("PF_AUDIT_CUDA_TF32"); tf32
+        && (std::strcmp(tf32, "0") == 0 || std::strcmp(tf32, "1") == 0))
+        options.emplace_back("use_tf32", tf32);
     return options;
 }
 

@@ -10,14 +10,19 @@ Rectangle {
     objectName: "resultsRail"
     property var results: []
     property var selectedRows: ({})
-    property bool sortDescending: true
+    property bool sortDescending: false
     property int selectedIndex: -1
-    property string sortCriterion: "movement"
+    property string sortCriterion: "classification"
     signal exportSelectionChanged(var rows)
     signal resultSelected(int index)
     signal exportRequested(var rows)
-    signal pairColorRequested(int index, string name, string color)
-    signal clearColorsRequested(var ids)
+    signal pairClassRequested(int index, string classification)
+    property string classFilter: ""
+    readonly property var classKeys: L10n.movementTypes
+    function classKey(row) {
+        return L10n.movementKey(row.classification)
+    }
+    readonly property var classChoices: [""].concat(classKeys.filter(function(key) { return results.some(function(row) { return classKey(row) === key }) }))
     signal pairReviewRequested(int index, string field, bool value)
     signal findingsRequested()
     signal undoRequested()
@@ -53,38 +58,34 @@ Rectangle {
     property int selectionAnchorId: -1
     property var revealedCards: ({})
     ListModel { id: displayModel; dynamicRoles: true }
-    readonly property var groupColors: ["", "#D56565", "#638EDB", "#7C9885", "#AA83D4", "#D5AD63"]
-    readonly property var colorLabels: ["colors.none", "colors.orange", "colors.blue", "colors.green", "colors.purple", "colors.gold"]
-    property int colorTargetId: -1
-    function choosePairColor(id, paletteIndex) {
-        const item = results.find(function(row) { return Number(row.id) === id })
-        if (!item || paletteIndex < 0 || paletteIndex >= groupColors.length) return
-        pairColorRequested(id, paletteIndex === 0 ? "" : L10n.t(colorLabels[paletteIndex]), groupColors[paletteIndex])
-    }
+    property int classTargetId: -1
     Popup {
-        id: colorPicker
-        objectName: "resultColorPicker"
+        id: classPicker
+        objectName: "resultClassPicker"
         parent: Overlay.overlay
         padding: 8
+        width: 226
+        height: Math.min(root.classKeys.length * 30 + 16,
+                         parent ? Math.max(120, parent.height - 32) : 440)
         enter: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
         exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.motionDuration; easing.type: Easing.InCubic } }
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusButton; border.color: Theme.hairlineStrong }
-        contentItem: Row {
-            spacing: 6
-            Repeater {
-                model: root.groupColors
-                delegate: Button {
-                    required property int index
-                    required property string modelData
-                    objectName: "resultPaletteColor" + index
-                    width: 28; height: 28
-                    Accessible.name: L10n.t(root.colorLabels[index])
-                    ToolTip.visible: hovered
-                    ToolTip.text: Accessible.name
-                    background: Rectangle { radius: 6; color: modelData || Theme.well; border.color: parent.hovered ? Theme.accent : Theme.hairlineStrong; border.width: 1 }
-                    contentItem: Text { text: index === 0 ? "×" : ""; color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                    onClicked: { root.choosePairColor(root.colorTargetId, index); colorPicker.close() }
+        contentItem: ScrollView {
+            clip: true
+            contentWidth: availableWidth
+            Column {
+                spacing: 2
+                Repeater {
+                    model: root.classKeys
+                    delegate: PfButton {
+                        required property int index
+                        required property string modelData
+                        objectName: "resultClassChoice_" + modelData
+                        width: 210; height: 28; compact: true; quiet: true
+                        text: L10n.classificationLabel(modelData)
+                        onClicked: { root.pairClassRequested(root.classTargetId, modelData); classPicker.close() }
+                    }
                 }
             }
         }
@@ -118,10 +119,6 @@ Rectangle {
     }
 
     function clearSelection() { exportSelectionChanged({}) }
-    readonly property var coloredSelectionIds: visibleResults.filter(function(row) {
-        return !!row.categoryColor && (selectedCount === 0 || selectedRows[row.id] === true)
-    }).map(function(row) { return Number(row.id) })
-    function clearColors() { clearColorsRequested(coloredSelectionIds) }
 
     function sceneSimilarity(item) {
         return Number(item.sceneSimilarity !== undefined ? item.sceneSimilarity : 0)
@@ -133,7 +130,10 @@ Rectangle {
 
     function compareValues(a, b) {
         let delta = 0
-        if (sortCriterion === "scene")
+        if (sortCriterion === "classification") {
+            delta = classKeys.indexOf(classKey(a)) - classKeys.indexOf(classKey(b))
+            if (!delta) return movementSimilarity(b) - movementSimilarity(a) || Number(a.id) - Number(b.id)
+        } else if (sortCriterion === "scene")
             delta = sceneSimilarity(a) - sceneSimilarity(b)
         else if (sortCriterion === "time")
             delta = timeValue(a) - timeValue(b)
@@ -156,6 +156,7 @@ Rectangle {
             if (reviewFilter === "hidden" ? !item.hidden : item.hidden) continue
             if (reviewFilter === "favorites" && !item.favorite) continue
             if (!matchesSource(item.leftSource) && !matchesSource(item.rightSource)) continue
+            if (classFilter && classKey(item) !== classFilter) continue
             next.push(item)
         }
         next.sort(compareValues)
@@ -166,10 +167,10 @@ Rectangle {
             let existing = -1
             for (let j = i; j < displayModel.count; ++j)
                 if (Number(displayModel.get(j).entry.id) === Number(next[i].id)) { existing = j; break }
-            if (existing < 0) displayModel.insert(i, {entry: next[i]})
+            if (existing < 0) displayModel.insert(i, {entry: next[i], movementGroup: classKey(next[i])})
             else {
                 if (existing !== i) displayModel.move(existing, i, 1)
-                displayModel.set(i, {entry: next[i]})
+                displayModel.set(i, {entry: next[i], movementGroup: classKey(next[i])})
             }
         }
         visibleResults = next
@@ -231,6 +232,8 @@ Rectangle {
     onSourceChoicesChanged: if (sourceFilter && sourceChoices.indexOf(sourceFilter) < 0) sourceFilter = ""
     onSourceQueryChanged: { reviewNotice = ""; rebuild() }
     onSourceFilterChanged: { reviewNotice = ""; rebuild() }
+    onClassFilterChanged: rebuild()
+    onClassChoicesChanged: if (classFilter && classChoices.indexOf(classFilter) < 0) classFilter = ""
     onSelectedIndexChanged: revealSelection()
     onResultsChanged: rebuild()
     onSortDescendingChanged: rebuild()
@@ -272,16 +275,12 @@ Rectangle {
             PfButton { objectName: "selectAllResultsButton"; Layout.fillWidth: true; quiet: true; enabled: root.selectedCount < root.visibleResults.length; text: L10n.t("results.selectAll"); onClicked: root.selectAll() }
             PfButton { objectName: "clearResultsSelectionButton"; Layout.fillWidth: true; quiet: true; enabled: root.selectedCount > 0; text: L10n.t("results.clearSelection"); onClicked: root.clearSelection() }
         }
-        PfButton {
-            objectName: "clearResultsColorsButton"; Layout.fillWidth: true; quiet: true; compact: true
-            visible: root.results.length > 0
-            enabled: root.coloredSelectionIds.length > 0 && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
-            text: L10n.language === "ru" ? "Снять цвет" : "Clear color"
-            ToolTip.visible: hovered
-            ToolTip.text: root.selectedCount > 0
-                ? (L10n.language === "ru" ? "Снять цвет с выбранных пар" : "Clear color from selected pairs")
-                : (L10n.language === "ru" ? "Снять цвет со всех видимых пар" : "Clear color from all visible pairs")
-            onClicked: root.clearColors()
+        PfComboBox {
+            objectName: "resultClassFilterCombo"; Layout.fillWidth: true; visible: root.results.length > 0
+            Accessible.name: L10n.language === "ru" ? "Тип движения" : "Movement type"
+            model: root.classChoices.map(function(key) { return key ? L10n.classificationLabel(key) + " · " + root.results.filter(function(row) { return root.classKey(row) === key && !row.hidden }).length : (L10n.language === "ru" ? "Все типы движений" : "All movement types") })
+            currentIndex: root.classChoices.indexOf(root.classFilter)
+            onActivated: function(index) { root.classFilter = root.classChoices[index]; resultList.forceActiveFocus() }
         }
 
         TextField {
@@ -388,12 +387,13 @@ Rectangle {
             Accessible.name: L10n.t("results.sortBy")
             model: [L10n.t("results.scoreHigh"), L10n.t("results.scoreLow"),
                     L10n.t("results.sceneHigh"), L10n.t("results.sceneLow"),
-                    L10n.t("results.timeEarly"), L10n.t("results.timeLate")]
-            currentIndex: root.sortCriterion === "time" ? (root.sortDescending ? 5 : 4)
+                    L10n.t("results.timeEarly"), L10n.t("results.timeLate"),
+                    L10n.language === "ru" ? "По типам движений" : "By movement type"]
+            currentIndex: root.sortCriterion === "classification" ? 6 : root.sortCriterion === "time" ? (root.sortDescending ? 5 : 4)
                 : root.sortCriterion === "scene" ? (root.sortDescending ? 2 : 3)
                 : (root.sortDescending ? 0 : 1)
             onActivated: function(index) {
-                root.sortCriterion = index >= 4 ? "time" : index >= 2 ? "scene" : "movement"
+                root.sortCriterion = index === 6 ? "classification" : index >= 4 ? "time" : index >= 2 ? "scene" : "movement"
                 root.sortDescending = index < 4 ? index % 2 === 0 : index === 5
                 resultList.forceActiveFocus()
             }
@@ -424,6 +424,13 @@ Rectangle {
             clip: true
             spacing: 5
             model: displayModel
+            section.property: root.sortCriterion === "classification" ? "movementGroup" : ""
+            section.delegate: Text {
+                required property string section
+                width: resultList.width; height: 30; verticalAlignment: Text.AlignVCenter
+                text: L10n.classificationLabel(section) + " · " + root.visibleResults.filter(function(row) { return root.classKey(row) === section }).length
+                color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: Font.DemiBold
+            }
             add: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionChangeDuration } }
             remove: Transition {
                 SequentialAnimation {
@@ -487,7 +494,7 @@ Rectangle {
                 Behavior on border.color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
                 Rectangle {
                     x: 0; y: 14; width: 2; height: parent.height - 28; radius: 1
-                    color: modelData.categoryColor || Theme.accent
+                    color: Theme.accent
                     Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionChangeDuration } }
                     opacity: modelData.category ? 1 : Number(modelData.id) === root.selectedIndex ? 1 : 0
                     Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration } }
@@ -520,25 +527,26 @@ Rectangle {
                     }
 
                     Button {
-                        id: pairColorButton
-                        objectName: "resultColorButton" + modelData.id
+                        id: pairClassButton
+                        objectName: "resultClassButton" + modelData.id
                         width: 18; height: 28
-                        enabled: !Analysis.busy
-                        Accessible.name: L10n.t("results.categoryColor") + " " + (Number(modelData.id) + 1)
+                        enabled: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
+                        Accessible.name: (L10n.language === "ru" ? "Изменить тип движения " : "Change movement type ") + (Number(modelData.id) + 1)
                         ToolTip.visible: hovered
                         ToolTip.text: Accessible.name
                         background: Rectangle {
                             anchors.centerIn: parent; width: 18; height: 18; radius: 4
-                            color: modelData.categoryColor || Theme.well
+                            color: Theme.well
                             Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionChangeDuration } }
-                            border.color: pairColorButton.hovered ? Theme.accent : Theme.hairlineStrong
+                            border.color: pairClassButton.hovered ? Theme.accent : Theme.hairlineStrong
                         }
+                        contentItem: Text { text: "≡"; color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                         onClicked: {
-                            root.colorTargetId = Number(modelData.id)
+                            root.classTargetId = Number(modelData.id)
                             const point = mapToItem(Overlay.overlay, 0, height)
-                            colorPicker.x = Math.max(8, Math.min(point.x, Overlay.overlay.width - colorPicker.width - 8))
-                            colorPicker.y = Math.max(8, Math.min(point.y, Overlay.overlay.height - colorPicker.height - 8))
-                            colorPicker.open()
+                            classPicker.x = Math.max(8, Math.min(point.x, Overlay.overlay.width - classPicker.width - 8))
+                            classPicker.y = Math.max(8, Math.min(point.y, Overlay.overlay.height - classPicker.height - 8))
+                            classPicker.open()
                         }
                     }
                     Column {
@@ -569,9 +577,10 @@ Rectangle {
                             color: Theme.textSecondary; elide: Text.ElideRight
                         }
                         Text {
-                            visible: !!modelData.category; width: parent.width; font.family: Theme.fontFamily; font.pixelSize: 10
-                            objectName: "resultColorLabel" + modelData.id
-                            text: "●  " + L10n.colorLabel(modelData.categoryColor); color: modelData.categoryColor || Theme.accent; elide: Text.ElideRight
+                            width: parent.width; font.family: Theme.fontFamily; font.pixelSize: 10
+                            objectName: "resultManualClassLabel" + modelData.id
+                            visible: !!modelData.classificationManual
+                            text: L10n.language === "ru" ? "Тип задан вручную" : "Type set manually"; color: Theme.textSecondary; elide: Text.ElideRight
                             Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionChangeDuration } }
                         }
                         Repeater {

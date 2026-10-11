@@ -7,6 +7,29 @@
 
 namespace {
 
+TEST(SceneDetector, SequenceCandidatesRetainTheActualObservedBracket)
+{
+    const std::vector<double> times{10,10.26,10.8,11.02,11.26,11.5};
+    std::vector<float> pixels(times.size()*432,0);
+    std::fill(pixels.begin()+2*432,pixels.end(),1);
+    const auto candidates=pfcore::SceneDetector().sequenceCutCandidates(pixels,times);
+    ASSERT_EQ(candidates.size(),1U);
+    EXPECT_DOUBLE_EQ(candidates[0].beforeSeconds,10.26);
+    EXPECT_DOUBLE_EQ(candidates[0].afterSeconds,10.8);
+    // These are sampled times, not a claimed native-frame cut timestamp.
+    EXPECT_GE(candidates[0].score,1);
+}
+TEST(SceneDetector, SequenceCandidatesRejectInvalidObservationsAndCancellation)
+{
+    std::vector<double> times{0,.25,.5};std::vector<float> pixels(times.size()*432,0);
+    std::fill(pixels.begin()+432,pixels.end(),1);
+    const pfcore::SceneDetector detector;
+    EXPECT_TRUE(detector.sequenceCutCandidates(pixels,times,[]{return true;}).empty());
+    times[2]=times[1];EXPECT_TRUE(detector.sequenceCutCandidates(pixels,times).empty());
+    times[2]=.5;pixels[0]=-1;EXPECT_TRUE(detector.sequenceCutCandidates(pixels,times).empty());
+    pixels[0]=0;pixels.pop_back();EXPECT_TRUE(detector.sequenceCutCandidates(pixels,times).empty());
+}
+
 TEST(SceneDetector, DefaultThresholdMatchesContentDeltaScale)
 {
     pfcore::SceneDetector detector;

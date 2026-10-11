@@ -10,6 +10,7 @@
 #include "pfgpu/Provider.hpp"
 
 namespace pfgpu {
+namespace detail { class CudaGraphRunner; }
 
 // What to load. Exactly one of `path` / `bytes` is used; in-memory models exist
 // so tests (and the probe) never touch the filesystem.
@@ -45,6 +46,7 @@ struct SessionHandle {
     std::string cacheKey;             // diagnostics for logs and tests
     bool createdNow = false;
     bool profiling = false;           // opt-in, bounded diagnostic capture
+    std::shared_ptr<detail::CudaGraphRunner> cudaGraph;
 
     explicit operator bool() const noexcept { return session != nullptr; }
 };

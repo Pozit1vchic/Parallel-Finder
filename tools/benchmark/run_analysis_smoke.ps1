@@ -83,7 +83,18 @@ foreach ($mode in $Modes) {
     # before stderr can deadlock a verbose PF_DEBUG_MATCHER run when stderr's
     # pipe fills before the child has a chance to exit.
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
+    # Keep diagnostic progress readable while a long matcher run is active.
+    # Copy bytes asynchronously; a PowerShell DataReceived callback would need
+    # a runspace and could block while this script waits for process exit.
+    $stderrStream = $null
+    $stderrCapturePath = if ($ReportPath) { $ReportPath + '.stderr.log' } else { '' }
+    if ($stderrCapturePath) {
+        $stderrStream = [IO.File]::Open($stderrCapturePath, [IO.FileMode]::Create,
+            [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+        $stderrTask = $process.StandardError.BaseStream.CopyToAsync($stderrStream)
+    } else {
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+    }
     # Cover startup too: the application's own analysis timer cannot fire if
     # runtime/platform initialization fails before its event loop begins.
     $exited = $process.WaitForExit(($TimeoutSec + 45) * 1000)
@@ -94,7 +105,12 @@ foreach ($mode in $Modes) {
     $process.Refresh()
     $processClock.Stop()
     $stdout = $stdoutTask.GetAwaiter().GetResult()
-    $stderr = $stderrTask.GetAwaiter().GetResult()
+    if ($stderrStream) {
+        try { [void]$stderrTask.GetAwaiter().GetResult() } finally { $stderrStream.Dispose() }
+        $stderr = [IO.File]::ReadAllText($stderrCapturePath, [Text.UTF8Encoding]::new($false))
+    } else {
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+    }
     Write-Host $stdout
     if ($stderr) { Write-Warning $stderr }
     if (-not $exited) {
@@ -117,6 +133,7 @@ foreach ($mode in $Modes) {
                 debugFlags=@{analysis=$psi.EnvironmentVariables['PF_DEBUG_ANALYSIS']; matcher=$psi.EnvironmentVariables['PF_DEBUG_MATCHER']; pose=$psi.EnvironmentVariables['PF_DEBUG_POSE']};
                 processWallMs=$processClock.ElapsedMilliseconds;
                 cpuTimeMs=$cpuTimeMs;
+                peakWorkingSetBytes=$process.PeakWorkingSet64;
                 elapsedMs=$(if ($elapsedMatch.Success) { [long]$elapsedMatch.Groups[1].Value } else { $null });
                 frameCount=$(if ($framesMatch.Success) { [long]$framesMatch.Groups[1].Value } else { $null });
                 decodeDiagnostics=@([regex]::Matches($stderr, 'PF_DECODE [^\r\n]+') | ForEach-Object { $_.Value });

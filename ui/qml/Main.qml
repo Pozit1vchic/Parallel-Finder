@@ -108,7 +108,7 @@ ApplicationWindow {
             const rows = Object.assign({}, selectedExportRows), value = rows[id] !== true
             for (const target of actionIds(id)) { if (value) rows[target] = true; else delete rows[target] }
             selectedExportRows = rows
-        } else if (action.startsWith("color") && row) resultsRail.choosePairColor(id, Number(action.slice(5)))
+        }
     }
     Component.onCompleted: root.syncResultsSelection()
 
@@ -202,8 +202,7 @@ ApplicationWindow {
                     selectedRows: root.selectedExportRows; selectedIndex: root.selectedResultIndex
                     onExportSelectionChanged: function(rows) { root.selectedExportRows = rows }
                     onResultSelected: function(index) { root.selectResult(index) }
-                    onPairColorRequested: function(index, name, color) { Analysis.setResultCategories(root.actionIds(index), name, color) }
-                    onClearColorsRequested: function(ids) { Analysis.setResultCategories(ids, "", "") }
+                    onPairClassRequested: function(index, classification) { Analysis.setResultClassification(root.actionIds(index), classification) }
                     onPairReviewRequested: function(index, field, value) { root.reviewPairs(index, field, value) }
                     onUndoRequested: root.runReviewAction("undo")
                     onFindingsRequested: root.openFindings()
