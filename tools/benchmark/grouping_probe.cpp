@@ -18,7 +18,7 @@ int main(int argc,char** argv) {
     std::ifstream input(argv[1],std::ios::binary);char magic[8];std::uint32_t version=0,keySize=0;std::uint64_t size=0;
     input.read(magic,8);input.read(reinterpret_cast<char*>(&version),4);
     input.read(reinterpret_cast<char*>(&keySize),4);input.read(reinterpret_cast<char*>(&size),8);
-    if(!input||std::string(magic,8)!="PFCACHE1"||version!=1||keySize>1024||size>512ULL*1024*1024)return 3;
+    if(!input||std::string(magic,8)!="PFCACHE1"||version!=1||keySize>16*1024||size>512ULL*1024*1024)return 3;
     input.seekg(keySize,std::ios::cur);std::vector<std::uint8_t> bytes(size);
     input.read(reinterpret_cast<char*>(bytes.data()),size);if(!input)return 3;
     std::vector<pfcore::MotionWindow> windows;int scenes=0;
@@ -35,24 +35,11 @@ int main(int argc,char** argv) {
             cuts.push_back(time);
         }
         std::sort(cuts.begin(),cuts.end());cuts.erase(std::unique(cuts.begin(),cuts.end()),cuts.end());
-        std::size_t nextScene=0,refresh=0;
-        for(const auto& w:windows)nextScene=std::max(nextScene,w.sceneIndex+1);
-        std::map<std::pair<double,double>,std::vector<pfcore::ObservedSceneRange>> partitions;
+        std::size_t refresh=0;
         std::vector<pfcore::MotionWindow> splitWindows;
-        for(const auto& w:windows) {
-            std::vector<double> internal;
-            for(const double cut:cuts)if(cut>w.sceneStartSeconds && cut<w.sceneEndSeconds)internal.push_back(cut);
-            if(internal.empty()) {splitWindows.push_back(w);continue;}
-            auto& partition=partitions[{w.sceneStartSeconds,w.sceneEndSeconds}];
-            if(partition.empty()) {
-                double start=w.sceneStartSeconds;
-                for(const double end:internal) {partition.push_back({start,end,nextScene++});start=end;}
-                partition.push_back({start,w.sceneEndSeconds,nextScene++});
-            }
-            for(auto& part:pfcore::splitMotionWindowAtScenes(w,partition)) {
-                refresh+=part.identityNeedsRefresh;
-                splitWindows.push_back(std::move(part.window));
-            }
+        for(auto& part:pfcore::splitSourceWindowsAtCuts(windows,cuts)) {
+            refresh+=part.identityNeedsRefresh;
+            splitWindows.push_back(std::move(part.window));
         }
         windows=std::move(splitWindows);
         report["diagnosticContinuityReplay"]=true;
@@ -83,6 +70,8 @@ int main(int argc,char** argv) {
                     row[side+"ContinuityEnd"]=reviewEnd;
                 }
                 const auto group=classifier.classifyForGrouping(*best,reviewStart,reviewEnd,head);
+                QJsonArray actions;for(const auto action:group.actions)actions.append(pfcore::MovementClassifier::gestureName(action));
+                row[side+"Actions"]=actions;
                 row[side+"Group"]=QString::fromStdString(pose ? classifier.classifyPoseForGrouping(*best,reviewStart,reviewEnd,head)
                     : pfcore::MovementClassifier::gestureName(group.gesture));
                 QJsonArray frames;
@@ -100,12 +89,14 @@ int main(int argc,char** argv) {
     for(const auto& w:windows)if(!w.staticFrameSet && w.frames.size()>=5) {
         const auto start=w.frames.front().timestampSeconds,end=w.frames.back().timestampSeconds;
         const auto body=classifier.classifyForGrouping(w,start,end),head=classifier.classifyForGrouping(w,start,end,true);
+        QJsonArray actions;for(const auto action:body.actions)actions.append(pfcore::MovementClassifier::gestureName(action));
         candidates.append(QJsonObject{{"start",start},{"end",end},{"track",static_cast<qint64>(w.trackId)},
+            {"actions",actions},
             {"body",pfcore::MovementClassifier::gestureName(body.gesture)},
             {"head",pfcore::MovementClassifier::gestureName(head.gesture)},
             {"confidence",body.gestureConfidence},{"headConfidence",head.gestureConfidence}});
     }
     report["candidateWindows"]=candidates;
-    QFile output(argv[3]);if(!output.open(QIODevice::WriteOnly))return 6;
+    QFile output(argv[3]);if(!output.open(QIODevice::WriteOnly|QIODevice::NewOnly))return 6;
     output.write(QJsonDocument(report).toJson());std::cout<<"Reviewed "<<reviewed.size()<<" pairs from "<<windows.size()<<" cached windows\n";
 }

@@ -8,4 +8,6 @@ namespace pfgpu::detail {
 // resource. Keeping it separate also permits failure-path tests without a GPU.
 InferenceResult runFloatWithApi(const OrtApi& api, const SessionHandle& session,
                                 const FloatTensor& input);
+InferenceResult runFloatsWithApi(const OrtApi& api, const SessionHandle& session,
+                                 std::span<const FloatTensor> inputs);
 }

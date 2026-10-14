@@ -19,6 +19,9 @@
 #include <UiRuntime.h>
 #include <ExportOrder.h>
 #include <AnalysisController.h>
+#include <McpController.h>
+#include <QTcpServer>
+#include <QClipboard>
 #include <QTemporaryDir>
 #include <pfservices/SettingsStore.hpp>
 #include <QFileInfo>
@@ -60,6 +63,8 @@ private slots:
     void realAnalysisPublishesProgressWithoutDiagnostics();
     void reviewShortcutsAndMultiSelection();
     void realReviewAdjustAndFindings();
+    void realAutomaticClassConfirmationSurvivesTrim();
+    void realWalkingClassificationTrimAndOrderedExport();
     void idleWindowAndDiscordMemoryPlateau();
     void isolatedBackendProbeHandlesFailureTimeoutAndCancellation();
     void updateDialogDragsWithinWindow();
@@ -83,6 +88,7 @@ private slots:
     void movementClassesAndExportOrder();
     void classificationsFollowEditedRange();
     void largeResultSetKeepsClassesContiguous();
+    void mcpSettingsExposeWorkingConnection();
     void exportClassOrderControlsFileNumbering();
     void dialogFramesAdvanceDuringRealEventLoop();
     void modalCloseKeepsNativeBordersAndFades();
@@ -267,6 +273,170 @@ onResultSelected: function(id) { selectedIndex = id }
     QVERIFY(QMetaObject::invokeMethod(review, "reset")); QVERIFY(QMetaObject::invokeMethod(review, "setMulti", Q_ARG(QVariant, false)));
 }
 
+void UiSmokeTests::realWalkingClassificationTrimAndOrderedExport()
+{
+    const auto genv=qEnvironmentVariable("PF_ACTION_PIPELINE_GENV"),s03=qEnvironmentVariable("PF_ACTION_PIPELINE_S03");
+    if(genv.isEmpty() || s03.isEmpty())QSKIP("Opt-in multi-source walking classification, trim and export");
+    auto* analysis=pfui::AnalysisController::instance();
+    analysis->setModelPath(qEnvironmentVariable("PF_MODEL_PATH"));analysis->setProviderChoice("cuda");
+    analysis->setCachePath(qEnvironmentVariable("PF_ACTION_PIPELINE_CACHE"));analysis->setCacheLimitGb(64);
+    analysis->setQualityProfile("fast");analysis->setAnalysisMode("combined");
+    analysis->setSceneThreshold(27);analysis->setAccuracyPreset("fast");analysis->setExpandedSearch(true);
+    // Match the recorded application audit policy explicitly. The preset name
+    // alone does not apply QML's parameter changes in this C++ integration test.
+    analysis->setSimilarityThreshold(.70);analysis->setCandidateThreshold(.48);
+    analysis->setRepeatGap(8);analysis->setSameFileGap(3);analysis->setCrossFileGap(0);
+    analysis->setDuplicateWindow(2);analysis->setNoiseFactor(1.25);analysis->setTimeWeight(.1);
+    analysis->setNormalizeSize(true);analysis->setMirrorPoses(true);
+    analysis->setMaxUniqueResults(500);analysis->analyzeFiles({genv,s03});
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),600000);
+    int walk=-1,pose=-1;
+    for(const auto& value:analysis->results()) {
+        const auto row=value.toMap();
+        if(row.value("leftStart").toDouble()>5 && row.value("leftStart").toDouble()<8
+            && row.value("rightStart").toDouble()>1651 && row.value("rightStart").toDouble()<1655)
+            walk=row.value("id").toInt();
+        if(pose<0 && row.value("classification").toString().section('/',0,0)=="arms_extended")pose=row.value("id").toInt();
+    }
+    QVERIFY(walk>=0);QVERIFY(pose>=0);
+    const auto original=analysis->results()[walk].toMap();
+    QCOMPARE(original.value("classification").toString().section('/',0,0),QString("step"));
+    const double start=original.value("leftClipStart").toDouble()+.1;
+    QVERIFY(analysis->setResultRange(walk,start,original.value("leftClipEnd").toDouble(),
+        original.value("rightClipStart").toDouble(),original.value("rightClipEnd").toDouble()));
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->reviewBusy(),30000);
+    QCOMPARE(analysis->results()[walk].toMap().value("classification").toString().section('/',0,0),QString("step"));
+    QVERIFY(!analysis->results()[walk].toMap().value("classificationManual").toBool());
+    QQmlApplicationEngine engine;pfui::AppInfo::registerQmlTypes();
+    engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));QVERIFY(!engine.rootObjects().isEmpty());
+    auto* rail=engine.rootObjects().constFirst()->findChild<QObject*>("resultsRail");QVERIFY(rail);
+    const auto variant=[](const QVariant& value) {return value.metaType()==QMetaType::fromType<QJSValue>() ? value.value<QJSValue>().toVariant():value;};
+    QTRY_VERIFY(variant(rail->property("visibleResults")).toList().size()==analysis->results().size());
+    const auto orderValue=variant(rail->property("classKeys")).toList();QStringList order;
+    for(const auto& value:orderValue)order.push_back(value.toString());
+    QVERIFY(order.indexOf("arms_extended")>=0);QVERIFY(order.indexOf("step")>order.indexOf("arms_extended"));
+    int previous=-1;
+    for(const auto& value:variant(rail->property("visibleResults")).toList()) {
+        const auto row=value.toMap();const int rank=order.indexOf(row.value("classification").toString().section('/',0,0));
+        QVERIFY(rank>=previous);previous=rank;
+    }
+    QTemporaryDir output;QVERIFY(output.isValid());QSignalSpy finished(analysis,&pfui::AnalysisController::exportFinished);
+    QVERIFY(analysis->exportResults("FFMPEG",1,2,output.path(),"classified",{walk,pose},false,order,14,0,true));
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->exportBusy(),60000);
+    QCOMPARE(finished.size(),1);QVERIFY2(finished[0][0].toBool(),qPrintable(finished[0][1].toString()));
+    const auto folders=QDir(output.path()).entryList(QDir::Dirs|QDir::NoDotAndDotDot);QCOMPARE(folders.size(),2);
+    QString stepFolder,poseFolder;
+    for(const auto& folder:folders) {
+        if(folder.endsWith("_step"))stepFolder=folder;
+        if(folder.endsWith("_arms_extended"))poseFolder=folder;
+    }
+    QVERIFY(!stepFolder.isEmpty());QVERIFY(!poseFolder.isEmpty());QVERIFY(poseFolder<stepFolder);
+    const auto steps=QDir(output.path()+"/"+stepFolder).entryList({"*.mov"},QDir::Files);
+    QCOMPARE(steps.size(),2);QVERIFY(steps[0].contains("0002_step"));
+    for(const auto& clip:steps) {
+        const QString side=clip.endsWith("_A.mov")?"left":"right";
+        const auto row=analysis->results()[walk].toMap();
+        pfcore::VideoDecoder sourceDecoder,exportDecoder;
+        sourceDecoder.open(row.value(side+"Source").toString().toStdString());
+        exportDecoder.open((output.path()+"/"+stepFolder+"/"+clip).toStdString());
+        sourceDecoder.seek(row.value(side+"ClipStart").toDouble());
+        pfcore::DecodedFrame sourceFrame,exportFrame;bool available=sourceDecoder.readNext(sourceFrame);int frames=0;
+        while(available && sourceFrame.timestampSeconds<row.value(side+"ClipStart").toDouble()-1e-6)
+            available=sourceDecoder.readNext(sourceFrame);
+        while(available && sourceFrame.timestampSeconds<row.value(side+"ClipEnd").toDouble()-1e-6) {
+            QVERIFY(exportDecoder.readNext(exportFrame));QVERIFY(sourceFrame.rgba==exportFrame.rgba);++frames;
+            available=sourceDecoder.readNext(sourceFrame);
+        }
+        QVERIFY(frames>5);QVERIFY(!exportDecoder.readNext(exportFrame));
+    }
+}
+
+void UiSmokeTests::realAutomaticClassConfirmationSurvivesTrim()
+{
+    const auto source=qEnvironmentVariable("PF_REAL_CLASSIFICATION_SOURCE");
+    if(source.isEmpty()) QSKIP("Opt-in real-source manual classification and preview integration");
+    QVERIFY(QFileInfo::exists(source));
+    auto* analysis=pfui::AnalysisController::instance();
+    analysis->setModelPath(qEnvironmentVariable("PF_MODEL_PATH"));
+    analysis->setProviderChoice("cuda");
+    analysis->setQualityProfile("fast");
+    analysis->setAnalysisMode("combined");
+    analysis->setAccuracyPreset("fast");
+    analysis->setExpandedSearch(false);
+    analysis->analyzeFiles({source});
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),180000);
+    QVERIFY(!analysis->results().isEmpty());
+    int id=-1;
+    for(const auto& item:analysis->results()) {
+        const auto row=item.toMap();
+        const auto type=row.value("classification").toString().section('/',0,0);
+        if(!type.contains('+') && !row.value("classificationManual").toBool()
+            && row.value("leftClipEnd").toDouble()-row.value("leftClipStart").toDouble()>.5) {
+            id=row.value("id").toInt();break;
+        }
+    }
+    QVERIFY2(id>=0,"Fixture must contain a trimmable automatically classified single-action result");
+    const auto before=analysis->results();
+    const auto original=before[id].toMap();
+    const auto type=original.value("classification").toString().section('/',0,0);
+    analysis->setResultClassification({id},type);
+    QVERIFY(analysis->results()[id].toMap().value("classificationManual").toBool());
+    QCOMPARE(analysis->undoResultEdit().size(),1);
+    QCOMPARE(analysis->results(),before);
+    analysis->setResultClassification({id},type);
+    const auto confirmed=analysis->results();
+    const double start=original.value("leftClipStart").toDouble()+.1;
+    QVERIFY(analysis->setResultRange(id,start,original.value("leftClipEnd").toDouble(),
+        original.value("rightClipStart").toDouble(),original.value("rightClipEnd").toDouble()));
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->reviewBusy(),20000);
+    const auto trimmed=analysis->results()[id].toMap();
+    QCOMPARE(trimmed.value("classification").toString(),type);
+    QVERIFY(trimmed.value("classificationManual").toBool());
+    QCOMPARE(trimmed.value("leftClipStart").toDouble(),start);
+    QVERIFY(QFileInfo::exists(QUrl(trimmed.value("leftPreview").toString()).toLocalFile()));
+    if(qEnvironmentVariable("PF_REAL_CLASSIFICATION_EXPORT")=="1") {
+        QTemporaryDir output;QVERIFY(output.isValid());
+        QSignalSpy finished(analysis,&pfui::AnalysisController::exportFinished);
+        QVERIFY(analysis->exportResults("FFMPEG",0,2,output.path(),"classified",{id},false,{},14,0));
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->exportBusy(),60000);
+        QCOMPARE(finished.size(),1);
+        QVERIFY2(finished[0][0].toBool(),qPrintable(finished[0][1].toString()));
+        const auto clips=QDir(output.path()).entryList({"*.mov"},QDir::Files);
+        QCOMPARE(clips.size(),2);
+        for(int side=0;side<2;++side) {
+            const QString key=side==0?"left":"right";
+            const auto suffix=side==0?"_A.mov":"_B.mov";
+            QString clip;
+            for(const auto& name:clips)if(name.endsWith(suffix))clip=name;
+            QVERIFY(!clip.isEmpty());
+            const double begin=trimmed.value(key+"ClipStart").toDouble();
+            const double end=trimmed.value(key+"ClipEnd").toDouble();
+            pfcore::VideoDecoder originalDecoder,exportedDecoder;
+            originalDecoder.open(trimmed.value(key+"Source").toString().toStdString());
+            exportedDecoder.open((output.path()+"/"+clip).toStdString());
+            QCOMPARE(exportedDecoder.info().width,originalDecoder.info().width);
+            QCOMPARE(exportedDecoder.info().height,originalDecoder.info().height);
+            originalDecoder.seek(begin);
+            pfcore::DecodedFrame originalFrame,exportedFrame;
+            bool available=originalDecoder.readNext(originalFrame);
+            while(available && originalFrame.timestampSeconds<begin-1e-6)
+                available=originalDecoder.readNext(originalFrame);
+            int count=0;
+            while(available && originalFrame.timestampSeconds<end-1e-6) {
+                QVERIFY2(exportedDecoder.readNext(exportedFrame),"Export is missing a supported source frame");
+                QVERIFY2(originalFrame.rgba==exportedFrame.rgba,"Exact export differs from the source's decoded pixels");
+                ++count;available=originalDecoder.readNext(originalFrame);
+            }
+            QVERIFY(count>0);
+            QVERIFY2(!exportedDecoder.readNext(exportedFrame),"Export includes frames after the selected interval");
+        }
+    }
+    QCOMPARE(analysis->undoResultEdit().size(),1);
+    QCOMPARE(analysis->results(),confirmed);
+    QCOMPARE(analysis->undoResultEdit().size(),1);
+    QCOMPARE(analysis->results(),before);
+}
+
 void UiSmokeTests::realReviewAdjustAndFindings()
 {
     if (qEnvironmentVariableIsEmpty("PF_REAL_SOLDIER_SOURCE")) QSKIP("Opt-in real-video review/export integration");
@@ -293,6 +463,22 @@ void UiSmokeTests::realReviewAdjustAndFindings()
             replacementClass = type; break;
         }
     }
+    analysis->setResultClassification({first,other}, replacementClass);
+    // Explicitly choosing an existing automatic label must freeze the class,
+    // not silently remain automatic. Undo restores the original scope.
+    QCOMPARE(analysis->undoResultEdit().size(),2); QCOMPARE(analysis->results(),beforeBulk);
+    bool checkedAutomaticConfirmation=false;
+    for(const auto& item:beforeBulk) {
+        const auto candidate=item.toMap();const auto type=candidate.value("classification").toString().section('/',0,0);
+        if(type.contains('+') || candidate.value("classificationManual").toBool())continue;
+        const auto id=candidate.value("id").toInt();
+        analysis->setResultClassification({id},type);
+        QVERIFY(analysis->results()[id].toMap().value("classificationManual").toBool());
+        QCOMPARE(analysis->undoResultEdit().size(),1);QCOMPARE(analysis->results(),beforeBulk);
+        checkedAutomaticConfirmation=true;
+        break;
+    }
+    QVERIFY2(checkedAutomaticConfirmation,"Real review fixture needs an automatic single-action class");
     analysis->setResultClassification({first,other}, replacementClass);
     QCOMPARE(analysis->undoResultEdit().size(),2); QCOMPARE(analysis->results(),beforeBulk);
     analysis->setResultReview({first,other}, "reviewed",true);
@@ -1072,11 +1258,18 @@ void UiSmokeTests::movementClassesAndExportOrder()
     auto* folders=popup->findChild<QObject*>("exportClassFoldersCheck"); QVERIFY(folders); QVERIFY(folders->property("checked").toBool());
     auto* picker=rail->findChild<QObject*>("resultClassPicker"); QVERIFY(picker);
     QSignalSpy requested(rail,SIGNAL(pairClassRequested(int,QString))); QVERIFY(requested.isValid());
-    rail->setProperty("classTargetId",0);
-    QVERIFY(QMetaObject::invokeMethod(picker,"open")); QTRY_VERIFY(picker->property("opened").toBool());
+    std::function<QQuickItem*(QQuickItem*)> findClassButton = [&](QQuickItem* item) -> QQuickItem* {
+        if(item->objectName()=="resultClassButton0")return item;
+        for(auto* child:item->childItems())if(auto* found=findClassButton(child))return found;
+        return nullptr;
+    };
+    auto* classButton=findClassButton(window->contentItem()); QVERIFY(classButton);
+    QVERIFY(QMetaObject::invokeMethod(classButton,"clicked")); QTRY_VERIFY(picker->property("opened").toBool());
+    QVERIFY(picker->property("x").toDouble()>window->width()/2.0);
+    QVERIFY(picker->property("x").toDouble()+picker->property("width").toDouble()<=window->width()-7);
     const int originalHeight=window->height();
     window->setHeight(450);
-    QTRY_VERIFY(picker->property("height").toDouble() <= 418);
+    QTRY_VERIFY(picker->property("height").toDouble() <= std::min(440,window->height()-32));
     window->setHeight(originalHeight);
     std::function<QQuickItem*(QQuickItem*)> findChoice = [&](QQuickItem* item) -> QQuickItem* {
         if (item->objectName() == "resultClassChoice_head_turn") return item;
@@ -1104,6 +1297,18 @@ void UiSmokeTests::movementClassesAndExportOrder()
     popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true},{"3",true},{"4",true},{"5",true},{"6",true},{"7",true}});
     QCOMPARE(values(popup->property("classOrder")).toStringList(),
         (QStringList{"head_turn","turn","head_front","arms_folded","head_nod","raise_lower","reach_return","unknown"}));
+    const QVariantList equivalent{
+        QVariantMap{{"id",0},{"classification","step+turn/left"}},
+        QVariantMap{{"id",1},{"classification","turn+step/right"}},
+        QVariantMap{{"id",2},{"classification","step+step"}},
+        QVariantMap{{"id",3},{"classification","step+obsolete_type"}}};
+    rail->setProperty("results",equivalent);
+    popup->setProperty("results",equivalent);
+    popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true},{"3",true}});
+    QTest::qWait(100);
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"turn+step","unknown"}));
+    rail->setProperty("classFilter","turn+step");QTest::qWait(100);
+    QCOMPARE(values(rail->property("visibleResults")).toList().size(),2);
 }
 void UiSmokeTests::classificationsFollowEditedRange()
 {
@@ -1140,6 +1345,99 @@ void UiSmokeTests::classificationsFollowEditedRange()
     record.insert("classificationManual",true);record.insert("classification","head_turn");
     pfui::classifyResultRange(record,match,evidence);
     QCOMPARE(record.value("classification").toString(),QString("head_turn"));
+    record.insert("classificationManual",false);
+    window.headOrientations.clear();
+    for(const auto& frame:window.frames) {
+        const double angle=std::max(0.,frame.timestampSeconds-1.5)*.6;
+        const double c=std::cos(angle),s=std::sin(angle);
+        window.headOrientations.push_back({frame.timestampSeconds,{c,0,s,0,1,0,-s,0,c},true});
+    }
+    evidence={pfui::groupingEvidence(window),pfui::groupingEvidence(window)};
+    QCOMPARE(evidence[0].headOrientations.size(),window.headOrientations.size());
+    match.headOnlyComparison=false;
+    match.leftStartSeconds=match.rightStartSeconds=0;
+    match.leftEndSeconds=match.rightEndSeconds=3;
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString().section('/',0,0),QString("raise+head_turn_away"));
+    QCOMPARE(record.value("classificationActions").toStringList(),(QStringList{"raise","head_turn"}));
+    record.insert("classificationManual",true);record.insert("classification","step");
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString(),QString("step"));
+    record.insert("classificationManual",false);
+    match.headOnlyComparison=true;
+    match.leftStartSeconds=match.rightStartSeconds=0;
+    match.leftEndSeconds=match.rightEndSeconds=3;
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString().section('/',0,0),QString("head_turn_away"));
+    // A return and an outward turn must not inherit one side's specific phase.
+    auto returning=window;
+    for(auto& sample:returning.headOrientations) {
+        const double angle=std::max(0.,1.5-sample.time)*.6;
+        const double c=std::cos(angle),s=std::sin(angle);
+        sample.rotation={c,0,s,0,1,0,-s,0,c};
+    }
+    evidence[1]=pfui::groupingEvidence(returning);
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString().section('/',0,0),QString("head_turn"));
+    evidence[1]=pfui::groupingEvidence(window);
+    match.leftEndSeconds=match.rightEndSeconds=1.4;
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString().section('/',0,0),QString("static"));
+    // Observed head phases also apply when the full body is visible, without
+    // turning an independent raised arm into head-only evidence.
+    for(auto& frame:window.frames)frame.keypoints[9].y=3;
+    for(auto& frame:returning.frames)frame.keypoints[9].y=3;
+    match.headOnlyComparison=false;
+    match.leftEndSeconds=match.rightEndSeconds=3;
+    evidence={pfui::groupingEvidence(window),pfui::groupingEvidence(window)};
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString().section('/',0,0),QString("head_turn_away"));
+    evidence={pfui::groupingEvidence(returning),pfui::groupingEvidence(returning)};
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString().section('/',0,0),QString("head_turn_back"));
+    evidence[1]=pfui::groupingEvidence(window);
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString().section('/',0,0),QString("head_turn"));
+    // Compound learned head actions retain their grouping facets and phase.
+    for(auto& sample:window.headOrientations) {
+        const double t=std::min(1.,sample.time/3),yaw=.9*t,pitch=.35*t;
+        const double cy=std::cos(yaw),sy=std::sin(yaw),cp=std::cos(pitch),sp=std::sin(pitch);
+        sample.rotation={cy,sy*sp,sy*cp,0,cp,-sp,-sy,cy*sp,cy*cp};
+    }
+    evidence={pfui::groupingEvidence(window),pfui::groupingEvidence(window)};
+    for(bool headOnly:{false,true}) {
+        match.headOnlyComparison=headOnly;
+        pfui::classifyResultRange(record,match,evidence);
+        QCOMPARE(record.value("classification").toString().section('/',0,0),QString("head_turn_away+head_tilt"));
+        QCOMPARE(record.value("classificationActions").toStringList(),(QStringList{"head_turn","head_tilt"}));
+    }
+    for(auto& frame:window.frames)for(int joint=7;joint<17;++joint)frame.keypoints[joint].confidence=.01;
+    evidence={pfui::groupingEvidence(window),pfui::groupingEvidence(window)};
+    match.headOnlyComparison=false;
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString().section('/',0,0),QString("head_turn_away+head_tilt"));
+    QVERIFY(record.value("classificationPartial").toBool());
+    record.insert("classificationManual",true);record.insert("classification","step");
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString(),QString("step"));
+}
+
+void UiSmokeTests::mcpSettingsExposeWorkingConnection()
+{
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;auto* window=loadWindow(engine);QVERIFY(window);
+    auto* dialog=window->findChild<QObject*>("settingsDialog");QVERIFY(dialog);
+    auto* tabs=window->findChild<QObject*>("settingsTabs");QVERIFY(tabs);tabs->setProperty("currentIndex",2);
+    QVERIFY(QMetaObject::invokeMethod(dialog,"open"));
+    auto* mcp=engine.singletonInstance<pfui::McpController*>(qmlTypeId("PfUiBridge",1,0,"Mcp"));QVERIFY(mcp);
+    const bool wasEnabled=mcp->enabled(),wasControl=mcp->allowControl();const int wasPort=mcp->port();
+    const auto restore=qScopeGuard([&]{mcp->setEnabled(false);mcp->setPort(wasPort);mcp->setAllowControl(wasControl);mcp->setEnabled(wasEnabled);pfservices::SettingsStore::flushPendingWrites();});
+    mcp->setEnabled(false);QTcpServer portProbe;QVERIFY(portProbe.listen(QHostAddress::LocalHost,0));const int port=portProbe.serverPort();portProbe.close();mcp->setPort(port);
+    auto* toggle=window->findChild<QObject*>("mcpEnabledCheck");auto* control=window->findChild<QObject*>("mcpControlCheck");auto* copy=window->findChild<QObject*>("mcpCopyConnection");QVERIFY(toggle);QVERIFY(control);QVERIFY(copy);
+    QVERIFY(!copy->property("enabled").toBool());mcp->setEnabled(true);QVERIFY(mcp->running());QTRY_VERIFY(toggle->property("checked").toBool());QTRY_VERIFY(copy->property("enabled").toBool());
+    mcp->copyConnection();const auto config=QJsonDocument::fromJson(QGuiApplication::clipboard()->text().toUtf8()).object()["mcpServers"].toObject()["parallel-finder"].toObject();
+    QCOMPARE(config["url"].toString(),QString("http://127.0.0.1:%1/mcp").arg(port));QVERIFY(config["headers"].toObject()["Authorization"].toString().startsWith("Bearer "));
+    mcp->setAllowControl(true);QTRY_VERIFY(control->property("checked").toBool());mcp->setEnabled(false);QTRY_VERIFY(!toggle->property("checked").toBool());QVERIFY(!mcp->running());
+    QGuiApplication::clipboard()->clear();
 }
 
 void UiSmokeTests::largeResultSetKeepsClassesContiguous()
@@ -1148,15 +1446,26 @@ void UiSmokeTests::largeResultSetKeepsClassesContiguous()
     auto* window=loadWindow(engine); QVERIFY(window);
     auto* rail=window->findChild<QObject*>("resultsRail"); QVERIFY(rail);
     auto* popup=window->findChild<QObject*>("exportDialog"); QVERIFY(popup);
-    const QStringList classes{"head_turn","turn","head_front","arms_folded","head_nod","raise","step","mixed","unknown"};
+      const QStringList classes{"head_turn_away","head_turn_back","head_turn","head_turn+raise","turn","head_front","arms_folded","head_nod","raise","step","mixed","unknown"};
     QVariantList rows,indexes;QVariantMap selected;std::vector<pfcore::MotionMatch> matches(417);
     for(int id=0;id<417;++id) {
         rows.push_back(QVariantMap{{"id",id},{"classification",classes[(id*7)%classes.size()]},
-            {"similarity",double((id*13)%100)/100}});
+            {"similarity",double((id*13)%100)/100},{"classificationPartial",id==0}});
         indexes.push_back(id);selected.insert(QString::number(id),true);
         matches[id].leftSourceId="source.mp4";matches[id].leftStartSeconds=417-id;
     }
     rail->setProperty("results",rows);popup->setProperty("results",rows);popup->setProperty("selectedRows",selected);
+    rail->setProperty("selectedIndex",0);
+    QTest::qWait(100);
+    std::function<QQuickItem*(QQuickItem*)> findPartialLabel=[&](QQuickItem* item)->QQuickItem* {
+        if(item->objectName()=="resultManualClassLabel0")return item;
+        for(auto* child:item->childItems())if(auto* found=findPartialLabel(child))return found;
+        return nullptr;
+    };
+    auto* partialLabel=findPartialLabel(window->contentItem());QVERIFY(partialLabel);
+    QVERIFY(partialLabel->isVisible());
+    QVERIFY(partialLabel->property("text").toString().contains("Head motion")
+        || partialLabel->property("text").toString().contains(QString::fromUtf8("движение головы")));
     const auto visible=rail->property("visibleResults").value<QJSValue>().toVariant().toList();
     QCOMPARE(visible.size(),417);
     int previous=-1;
@@ -1172,9 +1481,38 @@ void UiSmokeTests::largeResultSetKeepsClassesContiguous()
         const int rank=classes.indexOf(rows[id].toMap().value("classification").toString());
         QVERIFY(rank>=previous);previous=rank;
     }
-    // Editing one category must relocate the card and update the export groups.
+    // Editing a selected category must regroup it without following it down
+    // the list. Manual labels must also fit inside the card at narrow widths.
+    auto* list=window->findChild<QQuickItem*>("resultList"); QVERIFY(list);
+    rail->setProperty("selectedIndex",0);
+    QTest::qWait(100);
+    list->setProperty("contentY",180.0);
+    const double viewportY=list->property("contentY").toDouble();
     auto changed=rows[0].toMap();changed.insert("classification","step");rows[0]=changed;
+    changed.insert("classificationManual",true);rows[0]=changed;
     rail->setProperty("results",rows);popup->setProperty("results",rows);
+    QTest::qWait(300);
+    QVERIFY2(std::abs(list->property("contentY").toDouble()-viewportY)<2.0,
+             "Reclassification must not scroll to the relocated selected card");
+    rail->setProperty("selectedIndex",1);
+    QTest::qWait(100);
+    rail->setProperty("selectedIndex",0);
+    QTest::qWait(300);
+    std::function<QQuickItem*(QQuickItem*)> findCard=[&](QQuickItem* item)->QQuickItem* {
+        if(item->objectName()=="resultCard0")return item;
+        for(auto* child:item->childItems())if(auto* found=findCard(child))return found;
+        return nullptr;
+    };
+    auto* card=findCard(window->contentItem()); QVERIFY(card);
+    auto* label=card->findChild<QQuickItem*>("resultManualClassLabel0"); QVERIFY(label);
+    QVERIFY(label->isVisible());
+    const auto labelPosition=label->mapToItem(card,QPointF(0,label->height()));
+    QVERIFY(labelPosition.y()<=card->height()-8);
+    for(auto* item:card->findChildren<QQuickItem*>()) {
+        if(item->inherits("QQuickText") && item->isVisible())
+            QVERIFY2(item->mapToItem(card,QPointF(0,item->height())).y()<=card->height()-7,
+                     "Card text must fit inside its content padding");
+    }
     const auto edited=rail->property("visibleResults").value<QJSValue>().toVariant().toList();previous=-1;
     for(const auto& value:edited) {
         const int rank=classes.indexOf(value.toMap().value("classification").toString());
@@ -1197,6 +1535,19 @@ void UiSmokeTests::exportClassOrderControlsFileNumbering()
     QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,1,colors), (std::vector<int>{1,0,2,3,4}));
     QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,0,{}), (std::vector<int>{4,3,2,1,0}));
     QCOMPARE(pfui::orderedExportIndexes(indexes,matches,records,1,{}), (std::vector<int>{0,1,2,3,4}));
+    const QVariantList compoundRecords{
+        QVariantMap{{"classification","turn+step/away"}},
+        QVariantMap{{"classification","step/left"}},
+        QVariantMap{{"classification","step+turn/toward"},{"classificationManual",true}},
+        QVariantMap{{"classification","unknown"}},
+        QVariantMap{{"classification","head_turn+raise/right"}}};
+    const QStringList compoundOrder{"head_turn+raise","turn+step","step","unknown"};
+    QCOMPARE(pfui::exportClassKey("step+turn/toward",compoundOrder),QString("turn+step"));
+    QCOMPARE(pfui::exportClassKey("step+step",compoundOrder),QString("unknown"));
+    QCOMPARE(pfui::orderedExportIndexes(indexes,matches,compoundRecords,0,compoundOrder),
+             (std::vector<int>{4,2,0,1,3}));
+    QCOMPARE(pfui::orderedExportIndexes(indexes,matches,compoundRecords,1,compoundOrder),
+             (std::vector<int>{4,0,2,1,3}));
 }
 
 void UiSmokeTests::settingsDragAndScrollKeepRendering()
@@ -1675,9 +2026,9 @@ void UiSmokeTests::exportModesAreSelectable()
     quality->setProperty("currentIndex", 4);
     QVERIFY(QMetaObject::invokeMethod(quality, "activated", Q_ARG(int, 4)));
     QVERIFY(popup->property("losslessExport").toBool());
-    QCOMPARE(popup->property("selectedCutMode").toInt(), 1);
+    QCOMPARE(popup->property("selectedCutMode").toInt(), 2);
     merge->setProperty("checked", true);
-    QCOMPARE(popup->property("selectedCutMode").toInt(), 1);
+    QCOMPARE(popup->property("selectedCutMode").toInt(), 2);
     QVERIFY(quality->property("enabled").toBool()); // Can switch back from lossless.
     QVERIFY(QMetaObject::invokeMethod(quality, "activated", Q_ARG(int, 1)));
     QCOMPARE(popup->property("selectedCutMode").toInt(), 0);

@@ -171,6 +171,7 @@ $RECYCLE.BIN/
 /update-staging/
 /.update-backup/
 /benchmark-output/
+/research/preserved-evidence-*/
 /profiling/
 # Source videos belong in external test folders; keep small test fixtures.
 *.mp4

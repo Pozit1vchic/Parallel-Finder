@@ -7,6 +7,19 @@ set_tests_properties(pf_discord_tests PROPERTIES TIMEOUT 60)
 
 find_package(GTest CONFIG REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Test)
+add_executable(pf_head_review_tests ui/test_head_review.cpp)
+target_link_libraries(pf_head_review_tests PRIVATE pfui pfui_module_import Qt6::Test)
+add_test(NAME pf_head_review_tests COMMAND pf_head_review_tests)
+set_tests_properties(pf_head_review_tests PROPERTIES TIMEOUT 120)
+add_executable(pf_video_action_review_tests ui/test_video_action_review.cpp)
+target_link_libraries(pf_video_action_review_tests PRIVATE pfui pfui_module_import Qt6::Test)
+add_test(NAME pf_video_action_review_tests COMMAND pf_video_action_review_tests)
+set_tests_properties(pf_video_action_review_tests PROPERTIES TIMEOUT 120)
+add_executable(pf_mcp_tests ui/test_mcp.cpp)
+target_link_libraries(pf_mcp_tests PRIVATE pfui pfui_module_import Qt6::Test)
+target_compile_definitions(pf_mcp_tests PRIVATE PF_MCP_CLIENT_SCRIPT="${CMAKE_SOURCE_DIR}/tools/benchmark/mcp_client_smoke.py")
+add_test(NAME pf_mcp_tests COMMAND pf_mcp_tests)
+set_tests_properties(pf_mcp_tests PROPERTIES TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 add_executable(pf_update_tests updates/test_updates.cpp)
 target_link_libraries(pf_update_tests PRIVATE pfui pfui_module_import Qt6::Test)
 add_test(NAME pf_update_tests COMMAND pf_update_tests)
@@ -29,10 +42,13 @@ set_target_properties(pf_ffmpeg_stall_stub PROPERTIES AUTOMOC OFF AUTOUIC OFF AU
 
 # ── Core tests (Google Test): pfcore + pfservices + pfgpu ──────────────────
 add_executable(pf_tests
+    core/test_face_consensus.cpp
     core/test_estimator_cache.cpp
     core/test_scene_sequence_cache.cpp
     core/test_scene_detector.cpp
     core/test_scene_window.cpp
+    core/test_pose_association.cpp
+    core/test_visual_object_evidence.cpp
     core/test_video_decoder.cpp
     core/test_ordered_pipeline.cpp
     core/test_camera_view.cpp
@@ -42,6 +58,8 @@ add_executable(pf_tests
     core/test_job_manager.cpp
     core/test_worker_threads.cpp
     core/test_movement_classifier.cpp
+    core/test_head_orientation.cpp
+    core/test_video_action_evidence.cpp
     core/test_pf_cache.cpp
     core/test_thumbnail_cache.cpp
     core/test_exporters.cpp
@@ -58,6 +76,9 @@ add_executable(pf_tests
     gpu/test_session_cache.cpp
     gpu/test_pose_estimator.cpp
     gpu/test_reid_estimator.cpp
+    gpu/test_face_input.cpp
+    gpu/test_video_action_input.cpp
+    gpu/test_head_pose_estimator.cpp
     gpu/test_pose_input.cpp
     gpu/test_rgba_sampling.cpp
 )
@@ -102,7 +123,7 @@ set_tests_properties(app_smoke PROPERTIES
 # must explicitly use the SDK's offscreen plugin rather than showing a fatal
 # Windows dialog because that plugin is absent from the distributable.
 if(TARGET Qt6::QOffscreenIntegrationPlugin)
-    set_property(TEST pf_update_tests pfui_tests app_smoke APPEND PROPERTY ENVIRONMENT
+    set_property(TEST pf_update_tests pf_mcp_tests pfui_tests app_smoke APPEND PROPERTY ENVIRONMENT
         "QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QOffscreenIntegrationPlugin>")
 endif()
 

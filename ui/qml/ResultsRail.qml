@@ -18,7 +18,8 @@ Rectangle {
     signal exportRequested(var rows)
     signal pairClassRequested(int index, string classification)
     property string classFilter: ""
-    readonly property var classKeys: L10n.movementTypes
+    readonly property var classKeys: L10n.movementKeysForRows(results)
+    onClassKeysChanged: rebuild()
     function classKey(row) {
         return L10n.movementKey(row.classification)
     }
@@ -63,9 +64,17 @@ Rectangle {
         id: classPicker
         objectName: "resultClassPicker"
         parent: Overlay.overlay
+        property Item anchorItem: null
+        function placeAtAnchor() {
+            if (!anchorItem || !parent) return
+            const point = anchorItem.mapToItem(parent, 0, anchorItem.height)
+            x = Math.max(8, Math.min(point.x, parent.width - width - 8))
+            y = Math.max(8, Math.min(point.y, parent.height - height - 8))
+        }
+        onOpened: placeAtAnchor()
         padding: 8
         width: 226
-        height: Math.min(root.classKeys.length * 30 + 16,
+        height: Math.min(440, L10n.movementTypes.length * 30 + 16,
                          parent ? Math.max(120, parent.height - 32) : 440)
         enter: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
         exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.motionDuration; easing.type: Easing.InCubic } }
@@ -74,10 +83,13 @@ Rectangle {
         contentItem: ScrollView {
             clip: true
             contentWidth: availableWidth
+            contentHeight: classChoicesColumn.implicitHeight
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
             Column {
+                id: classChoicesColumn
                 spacing: 2
                 Repeater {
-                    model: root.classKeys
+                    model: L10n.movementTypes
                     delegate: PfButton {
                         required property int index
                         required property string modelData
@@ -184,7 +196,9 @@ Rectangle {
         Qt.callLater(function() {
             resultList.forceLayout()
             resultList.contentY = Math.max(resultList.originY, Math.min(previousY, resultList.originY + Math.max(0, resultList.contentHeight - resultList.height)))
-            revealSelection()
+            // A model edit may move the selected result into another group.
+            // Keep the reader's viewport; only explicit navigation reveals it.
+            resultList.currentIndex = currentVisibleIndex
         })
     }
     function selectCard(id, modifiers) {
@@ -421,6 +435,7 @@ Rectangle {
             objectName: "resultList"
             boundsBehavior: Flickable.StopAtBounds
             keyNavigationWraps: false
+            highlightFollowsCurrentItem: false
             clip: true
             spacing: 5
             model: displayModel
@@ -485,8 +500,7 @@ Rectangle {
                     }
                 }
                 width: Math.max(0, resultList.width - 8)
-                height: Math.max(120, Math.ceil(resultTextMetrics.height) * 6 + 36)
-                    + (modelData && modelData.category ? Math.ceil(resultTextMetrics.height) + 4 : 0)
+                height: Math.max(120, Math.ceil(rowContent.implicitHeight) + 16)
                 radius: 7
                 color: root.selectedRows[modelData.id] ? Theme.accentMuted : Theme.surfaceRaised
                 Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
@@ -515,6 +529,7 @@ Rectangle {
 
                     PfCheckBox {
                         width: 18
+                        height: 28
                         text: ""
                         checked: root.selectedRows[modelData.id] === true
                         Accessible.name: L10n.t("results.export") + " " + (modelData.id + 1)
@@ -530,6 +545,7 @@ Rectangle {
                         id: pairClassButton
                         objectName: "resultClassButton" + modelData.id
                         width: 18; height: 28
+                        padding: 0
                         enabled: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
                         Accessible.name: (L10n.language === "ru" ? "Изменить тип движения " : "Change movement type ") + (Number(modelData.id) + 1)
                         ToolTip.visible: hovered
@@ -540,12 +556,10 @@ Rectangle {
                             Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionChangeDuration } }
                             border.color: pairClassButton.hovered ? Theme.accent : Theme.hairlineStrong
                         }
-                        contentItem: Text { text: "≡"; color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                        contentItem: Text { text: "≡"; font.family: Theme.fontFamily; font.pixelSize: 14; color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                         onClicked: {
                             root.classTargetId = Number(modelData.id)
-                            const point = mapToItem(Overlay.overlay, 0, height)
-                            classPicker.x = Math.max(8, Math.min(point.x, Overlay.overlay.width - classPicker.width - 8))
-                            classPicker.y = Math.max(8, Math.min(point.y, Overlay.overlay.height - classPicker.height - 8))
+                            classPicker.anchorItem = pairClassButton
                             classPicker.open()
                         }
                     }
@@ -579,8 +593,11 @@ Rectangle {
                         Text {
                             width: parent.width; font.family: Theme.fontFamily; font.pixelSize: 10
                             objectName: "resultManualClassLabel" + modelData.id
-                            visible: !!modelData.classificationManual
-                            text: L10n.language === "ru" ? "Тип задан вручную" : "Type set manually"; color: Theme.textSecondary; elide: Text.ElideRight
+                            visible: !!modelData.classificationManual || !!modelData.classificationPartial
+                            text: modelData.classificationManual
+                                ? (L10n.language === "ru" ? "Тип задан вручную" : "Type set manually")
+                                : (L10n.language === "ru" ? "Видно движение головы; тело не определено" : "Head motion observed; body undetermined")
+                            color: Theme.textSecondary; elide: Text.ElideRight
                             Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionChangeDuration } }
                         }
                         Repeater {

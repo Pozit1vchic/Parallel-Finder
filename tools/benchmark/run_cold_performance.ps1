@@ -6,6 +6,7 @@ param(
     [string]$ReIdModel = '',
     [ValidateSet('cpu','cuda','tensorrt','dml')][string]$Provider = 'cuda',
     [ValidateSet('fast','medium','maximum')][string]$Quality = 'fast',
+    [ValidateSet('0','1')][string]$ExpandedSearch = '0',
     [ValidateRange(1,10)][int]$Repeat = 1,
     [string]$OutputDirectory = "$PSScriptRoot/../../build/performance",
     [switch]$Serial
@@ -24,7 +25,7 @@ foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariabl
 try {
     $env:PF_DEBUG_ANALYSIS = '1'
     $env:PF_QUALITY_PROFILE = $Quality
-    $env:PF_EXPANDED_SEARCH = '0'
+    $env:PF_EXPANDED_SEARCH = $ExpandedSearch
     $env:PF_DEBUG_POSES_JSON = '' # large diagnostic dumps would skew timing
     $env:PF_DEBUG_INFERENCE = '' # model profiling is a separate diagnostic, not the default timing run
     $env:PF_CUDA_CONV_SEARCH = '' # compare the production tuning policy, not a shell's experiment

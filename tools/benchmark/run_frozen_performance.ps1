@@ -7,6 +7,8 @@ param(
     [Parameter(Mandatory=$true)][string]$OrtDll,
     [Parameter(Mandatory=$true)][string]$ReportPath,
     [string]$Exe='D:/Parallel-Finder/build/ucrt64-release/ParallelFinder.exe',
+    [ValidateSet('0','1')][string]$ExpandedSearch='0',
+    [ValidateRange(1,10000)][int]$MaxUniqueResults=500,
     [ValidateRange(1,43200)][int]$TimeoutSec=1200
 )
 $ErrorActionPreference='Stop'
@@ -22,12 +24,14 @@ if(-not(Test-Path -LiteralPath $cacheFile -PathType Leaf)){throw "Frozen motion 
 # is deliberately separate from the first-analysis benchmark and must never
 # fall back silently to a fresh hour of model inference.
 $names=@('PF_DEBUG_ANALYSIS','PF_QUALITY_PROFILE','PF_BENCHMARK_CACHE_ROOT',
-    'PF_AUDIT_REUSE_OBSERVATIONS','PF_AUDIT_FROZEN_WINDOW_KEYS')
+    'PF_AUDIT_REUSE_OBSERVATIONS','PF_AUDIT_FROZEN_WINDOW_KEYS','PF_EXPANDED_SEARCH','PF_MAX_UNIQUE_RESULTS')
 $previous=@{}
 foreach($name in $names){$previous[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 try {
     $env:PF_DEBUG_ANALYSIS='1'
     $env:PF_QUALITY_PROFILE='fast'
+    $env:PF_EXPANDED_SEARCH=$ExpandedSearch
+    $env:PF_MAX_UNIQUE_RESULTS=[string]$MaxUniqueResults
     $env:PF_BENCHMARK_CACHE_ROOT=(Resolve-Path -LiteralPath $CacheRoot).Path
     $env:PF_AUDIT_REUSE_OBSERVATIONS='1'
     $env:PF_AUDIT_FROZEN_WINDOW_KEYS=(Resolve-Path -LiteralPath $WindowKeys).Path

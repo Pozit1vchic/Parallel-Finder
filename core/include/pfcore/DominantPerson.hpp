@@ -101,6 +101,10 @@ struct DominantSelectionControl {
     std::function<void(DominantSelectionStage,std::size_t,std::size_t)> progress;
     // Zero selects bounded CPU parallelism. One enables exact serial replay.
     std::size_t maxThreads = 0;
+    // Experimental audit policy; disabled until real identity validation.
+    // Repeated face consensus can corroborate a run without a clothing link.
+    bool auditFaceConsensusRecovery = false;
+    bool auditDirectFaceRecovery = false;
 };
 std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities,
     const DominantSelectionControl& control={});
@@ -109,6 +113,13 @@ struct DominantVideoSelection {
     std::vector<bool> windows;
     std::vector<std::string> sources;
     std::size_t suppliedSources = 0;
+    std::vector<bool> recoveredWindows;
+};
+
+struct DominantVideoSelectionControl {
+    // Audit until independently reviewed: admit individual observed shots,
+    // never the whole rejected source, against the fixed original lead group.
+    bool auditShotRecovery = false;
 };
 
 // Input windows must already belong to the independently admitted source lead.
@@ -116,7 +127,8 @@ struct DominantVideoSelection {
 // Use independent shot face prototypes, never sliding-window counts or local
 // timestamps. Complete-link agreement prevents a clothing/face bridge between
 // different people. A single source keeps its existing admission unchanged.
-DominantVideoSelection selectDominantVideoWindows(const std::vector<MotionWindow>& windows);
+DominantVideoSelection selectDominantVideoWindows(const std::vector<MotionWindow>& windows,
+    const DominantVideoSelectionControl& control={});
 
 struct TrackObservationRange {
     std::size_t begin = 0;

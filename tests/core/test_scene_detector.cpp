@@ -4,8 +4,60 @@
 
 #include <stdexcept>
 #include <algorithm>
+#include <cmath>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
 
 namespace {
+
+TEST(SceneDetector, RecordedHoodAngleCutIsProposedDespiteDenseMontageBaseline)
+{
+    QFile file(QStringLiteral(PF_TEST_FIXTURE_DIR "/elliot-hood-cut-sampled.json"));
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const auto fixture=QJsonDocument::fromJson(file.readAll()).object();
+    ASSERT_EQ(fixture["width"].toInt(),64); ASSERT_EQ(fixture["height"].toInt(),36);
+    std::vector<std::vector<std::uint8_t>> buffers;
+    std::vector<double> times;
+    for(const auto row:fixture["samples"].toArray()) {
+        const auto sample=row.toObject();
+        const auto rgba=QByteArray::fromBase64(sample["rgbaBase64"].toString().toLatin1());
+        ASSERT_EQ(rgba.size(),64*36*4);
+        buffers.emplace_back(rgba.begin(),rgba.end());
+        times.push_back(sample["time"].toDouble());
+    }
+    std::vector<pfcore::SceneSample> samples;
+    for(std::size_t i=0;i<times.size();++i)samples.push_back({times[i],64,36,buffers[i]});
+    const double reviewedCut=fixture["verifiedCutSeconds"].toDouble();
+    const pfcore::SceneDetector detector(27,2,3); // production 4 FPS samples of 30 FPS footage
+    const auto ordinary=detector.detectWithProgress(samples,{},{});
+    EXPECT_FALSE(std::any_of(ordinary.begin(),ordinary.end(),[&](const auto& cut) {
+        return std::abs(cut.timestampSeconds-reviewedCut)<1e-6;
+    }));
+    const auto proposed=detector.highContrastCutCandidates(samples);
+    EXPECT_TRUE(std::any_of(proposed.begin(),proposed.end(),[&](const auto& cut) {
+        return std::abs(cut.afterSeconds-reviewedCut)<1e-6 && cut.beforeSeconds<reviewedCut;
+    }));
+}
+
+TEST(SceneDetector, AbsoluteCutProposalsDoNotClaimNativeBoundaries)
+{
+    std::vector<std::uint8_t> dark(16*9*4,255),light=dark;
+    for(std::size_t i=0;i<dark.size();i+=4) {
+        dark[i]=dark[i+1]=dark[i+2]=20;
+        light[i]=light[i+1]=light[i+2]=200;
+    }
+    const pfcore::SceneSample samples[]={{0,16,9,dark},{.266,16,9,light},{.5,16,9,light}};
+    const pfcore::SceneDetector detector;
+    const auto proposed=detector.highContrastCutCandidates(samples);
+    ASSERT_EQ(proposed.size(),1U);
+    EXPECT_DOUBLE_EQ(proposed[0].beforeSeconds,0);
+    EXPECT_DOUBLE_EQ(proposed[0].afterSeconds,.266);
+    EXPECT_TRUE(detector.highContrastCutCandidates(samples,[]{return true;}).empty());
+    const pfcore::SceneSample invalid[]={{.5,16,9,dark},{.25,16,9,light}};
+    EXPECT_THROW(detector.highContrastCutCandidates(invalid),std::invalid_argument);
+}
 
 TEST(SceneDetector, SequenceCandidatesRetainTheActualObservedBracket)
 {

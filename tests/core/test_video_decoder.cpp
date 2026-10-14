@@ -62,6 +62,58 @@ TEST(VideoDecoder, SceneViewBatchMatchesIndependentSeeksAndHonorsBounds)
     EXPECT_THROW(pfcore::sampleSceneViews(batch,std::vector<pfcore::SceneViewRequest>{{2,0,1}}),std::invalid_argument);
 }
 
+TEST(VideoDecoder, ThreadedConversionPreservesSerialPixelsPtsAndDisplayGeometry)
+{
+    QTemporaryDir directory;
+    const auto path=h264Fixture(directory,{"-bf","3"});
+    if(path.isEmpty())GTEST_SKIP()<<"FFmpeg H264 unavailable";
+    for(const auto [width,height]:{std::pair{127,73},std::pair{160,96},std::pair{1920,1080}})
+        for(const int threads:{2,4,8}) {
+            pfcore::VideoDecoder serial,parallel;
+            pfcore::VideoDecodeOptions options;options.threads=2;options.maxWidth=width;options.maxHeight=height;
+            serial.open(path.toStdString(),options);options.conversionThreads=threads;parallel.open(path.toStdString(),options);
+            for(int i=0;i<40;++i) {
+                pfcore::DecodedFrame a,b;
+                ASSERT_TRUE(serial.readNext(a));ASSERT_TRUE(parallel.readNext(b));
+                ASSERT_EQ(a.timestampSeconds,b.timestampSeconds);ASSERT_EQ(a.width,b.width);ASSERT_EQ(a.height,b.height);
+                ASSERT_EQ(a.rgba,b.rgba)<<"threads="<<threads<<" frame="<<i;
+            }
+            serial.seek(1.25);parallel.seek(1.25);
+            pfcore::VideoFrameSnapshot snapshot;ASSERT_TRUE(parallel.readNextSnapshot(snapshot));
+            pfcore::DecodedFrame a,b;ASSERT_TRUE(serial.readNext(a));ASSERT_TRUE(parallel.convertSnapshotToRgba(snapshot,b));
+            EXPECT_EQ(a.timestampSeconds,b.timestampSeconds);EXPECT_EQ(a.rgba,b.rgba);
+        }
+}
+
+TEST(VideoDecoder, RealTenBitThreadedConversionPreservesSerialPixelsAndPts)
+{
+    const auto path=qEnvironmentVariable("PF_TEST_10BIT_SOURCE");
+    if(path.isEmpty())GTEST_SKIP()<<"Opt-in real ten-bit source";
+    for(const bool nvidia:{false,true})for(const int threads:{0,2,4,8}) {
+        if(nvidia && qEnvironmentVariable("PF_TEST_RGBA_CPU_ONLY")=="1")continue;
+        pfcore::VideoDecodeOptions options;options.threads=2;options.preferNvidia=nvidia;
+        options.maxWidth=1280;options.maxHeight=720;
+        pfcore::VideoDecoder serial,parallel;serial.open(path.toStdString(),options);
+        options.conversionThreads=threads ? threads:1;options.autoNvidiaConversion=threads==0;
+        parallel.open(path.toStdString(),options);
+        if(nvidia && qEnvironmentVariable("PF_TEST_REQUIRE_NVDEC")=="1") {
+            ASSERT_EQ(serial.diagnostics().backend,"nvdec");
+            ASSERT_EQ(parallel.diagnostics().backend,"nvdec");
+            if(threads==0 && parallel.info().width>=3840 && parallel.info().height>=2160) {
+                EXPECT_EQ(parallel.diagnostics().conversionThreads,4);
+            }
+        }
+        for(const double time:{20.,100.,900.}) {
+            serial.seek(time);parallel.seek(time);
+            for(int frame=0;frame<5;++frame) {
+                pfcore::DecodedFrame a,b;ASSERT_TRUE(serial.readNext(a));ASSERT_TRUE(parallel.readNext(b));
+                ASSERT_EQ(a.timestampSeconds,b.timestampSeconds);ASSERT_EQ(a.rgba,b.rgba)
+                    <<"threads="<<threads<<" nvidia="<<nvidia<<" time="<<time;
+            }
+        }
+    }
+}
+
 TEST(VideoDecoder, OpensFixtureReadsFramesAndSeeks)
 {
     pfcore::VideoDecoder decoder;
@@ -569,6 +621,61 @@ TEST(VideoDecoder, TenBitNvidiaDecodeAndRandomSeeksPreserveCpuPixels)
     }
 }
 
+TEST(VideoDecoder, RetainedFramesPreservePixelsAcrossLaterReadsAndSeeksButRejectAnotherSource)
+{
+    QTemporaryDir directory; const auto path = h264Fixture(directory, {"-bf", "3"});
+    if (path.isEmpty()) GTEST_SKIP() << "FFmpeg H264 unavailable";
+    pfcore::VideoDecoder decoder, reference;
+    decoder.open(path.toStdString()); reference.open(path.toStdString());
+    decoder.setRgbaMaxDimensions(160, 90); reference.setRgbaMaxDimensions(160, 90);
+    std::vector<pfcore::VideoFrameSnapshot> frames;
+    std::vector<pfcore::DecodedFrame> expected;
+    for (int i = 0; i < 24; ++i) {
+        pfcore::VideoFrameSnapshot snapshot; ASSERT_TRUE(decoder.readNextSnapshot(snapshot));
+        frames.push_back(std::move(snapshot));
+        pfcore::DecodedFrame rgba; ASSERT_TRUE(reference.readNext(rgba)); expected.push_back(std::move(rgba));
+    }
+    decoder.seek(1.5);
+    for (int i = 23; i >= 0; --i) {
+        pfcore::DecodedFrame rgba; ASSERT_TRUE(decoder.convertSnapshotToRgba(frames[i], rgba));
+        EXPECT_EQ(rgba.timestampSeconds, expected[i].timestampSeconds); EXPECT_EQ(rgba.rgba, expected[i].rgba);
+    }
+    pfcore::DecodedFrame ignored;
+    EXPECT_FALSE(decoder.convertSnapshotToRgba({}, ignored));
+    EXPECT_THROW(reference.convertSnapshotToRgba(frames.front(), ignored), std::invalid_argument);
+    decoder.close(); EXPECT_THROW(decoder.convertSnapshotToRgba(frames.front(), ignored), std::invalid_argument);
+    decoder.open(path.toStdString());
+    EXPECT_THROW(decoder.convertSnapshotToRgba(frames.front(), ignored), std::invalid_argument);
+}
+
+TEST(VideoDecoder, RealTenBitRetainedNvidiaFramesPreserveCpuPixelsAfterSeek)
+{
+    const auto path = qEnvironmentVariable("PF_TEST_10BIT_SOURCE");
+    if (path.isEmpty()) GTEST_SKIP() << "Opt-in real 10-bit retained NVIDIA frames";
+    pfcore::VideoDecodeOptions options; options.maxWidth = 1280; options.maxHeight = 720;
+    pfcore::VideoDecoder cpu, gpu; cpu.open(path.toStdString(), options);
+    options.preferNvidia = true; gpu.open(path.toStdString(), options);
+    ASSERT_EQ(gpu.diagnostics().backend, "nvdec");
+    for (const double fraction : {0., .2, .7, .95}) {
+        const double target = cpu.info().durationSeconds * fraction;
+        cpu.seek(target); gpu.seek(target);
+        pfcore::DecodedFrame rgba; pfcore::VideoFrameSnapshot snapshot;
+        do { ASSERT_TRUE(cpu.readNext(rgba)); } while (rgba.timestampSeconds + 1e-6 < target);
+        do { ASSERT_TRUE(gpu.readNextSnapshot(snapshot)); } while (snapshot.timestampSeconds + 1e-6 < target);
+        std::vector<pfcore::DecodedFrame> expected{rgba};
+        std::vector<pfcore::VideoFrameSnapshot> retained{snapshot};
+        for (int i = 0; i < 3; ++i) {
+            ASSERT_TRUE(cpu.readNext(rgba)); expected.push_back(rgba);
+            ASSERT_TRUE(gpu.readNextSnapshot(snapshot)); retained.push_back(snapshot);
+        }
+        gpu.seek(target + 2);
+        for (int i = 3; i >= 0; --i) {
+            ASSERT_TRUE(gpu.convertSnapshotToRgba(retained[i], rgba));
+            EXPECT_EQ(rgba.timestampSeconds, expected[i].timestampSeconds); EXPECT_EQ(rgba.rgba, expected[i].rgba);
+        }
+    }
+}
+
 TEST(VideoDecoder, RealTenBitNvidiaSeeksPreserveCpuPixels)
 {
     const auto path=qEnvironmentVariable("PF_TEST_10BIT_SOURCE");
@@ -591,6 +698,7 @@ TEST(VideoDecoder, RealTenBitNvidiaSeeksPreserveCpuPixels)
             ASSERT_TRUE(cpu.readNext(a,false));ASSERT_TRUE(gpu.readNext(b,false));
         }
     }
+    EXPECT_GT(gpu.diagnostics().reusedDownloadBuffers, 60U);
 }
 
 TEST(VideoDecoder, RealTenBitNvidiaPreviewsPreserveFullHdPixelsAndPts)

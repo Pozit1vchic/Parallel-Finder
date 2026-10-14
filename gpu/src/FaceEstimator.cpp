@@ -47,7 +47,8 @@ double overlap(const Face& a, const Face& b)
 }
 
 std::vector<float> FaceEstimator::inferFromPose(const ReIdImage& image,
-    const std::array<double,6>& points,FaceRecognitionDiagnostics* diagnostic)
+    const std::array<double,6>& points,FaceRecognitionDiagnostics* diagnostic,
+    bool forwardAlignmentAudit)
 {
     if(diagnostic)*diagnostic={};
     if(!image.rgba || image.width<=0 || image.height<=0
@@ -61,7 +62,14 @@ std::vector<float> FaceEstimator::inferFromPose(const ReIdImage& image,
         const double x=target[k*2]-tx,y=target[k*2+1]-ty,u=points[k*2]-sx,v=points[k*2+1]-sy;
         a+=x*u+y*v;b+=x*v-y*u;den+=x*x+y*y;
     }
-    a/=den;b/=den;
+    if (forwardAlignmentAudit) {
+        double sourceVariance = 0;
+        for (int k=0;k<3;++k)
+            sourceVariance += std::pow(points[k*2]-sx,2)+std::pow(points[k*2+1]-sy,2);
+        const double covarianceNorm=a*a+b*b;
+        if(covarianceNorm<1e-12 || !std::isfinite(sourceVariance))return {};
+        a*=sourceVariance/covarianceNorm;b*=sourceVariance/covarianceNorm;
+    } else {a/=den;b/=den;}
     FloatTensor input;input.shape={1,3,112,112};input.values.resize(3*112*112);
     for(int y=0;y<112;++y)for(int x=0;x<112;++x) {
         const auto rgb = detail::sampleRgb(image,a*(x-tx)-b*(y-ty)+sx,b*(x-tx)+a*(y-ty)+sy);
@@ -88,12 +96,37 @@ FaceEstimator::FaceEstimator(std::string detector, std::string recognizer, Provi
     : detector_(std::move(detector)), recognizer_(std::move(recognizer)), provider_(provider) {}
 
 std::vector<float> FaceEstimator::infer(const ReIdImage& image, FaceRecognitionDiagnostics* diagnostics,
-                                      double minimumDetectionConfidence,const std::array<double,2>* expectedNose)
+                                      double minimumDetectionConfidence,const std::array<double,2>* expectedNose,
+                                      bool forwardAlignmentAudit)
+{
+    return inferImage(image,diagnostics,minimumDetectionConfidence,expectedNose,true,forwardAlignmentAudit);
+}
+
+std::optional<std::array<double,4>> FaceEstimator::locateFace(const ReIdImage& image,
+    const std::array<double,2>& expectedNose,double minimumDetectionConfidence)
+{
+    FaceRecognitionDiagnostics diagnostics;
+    inferImage(image,&diagnostics,minimumDetectionConfidence,&expectedNose,false);
+    if(!diagnostics.faceDetected)return {};
+    return diagnostics.faceBox;
+}
+
+std::vector<float> FaceEstimator::inferImage(const ReIdImage& image, FaceRecognitionDiagnostics* diagnostics,
+    double minimumDetectionConfidence,const std::array<double,2>* expectedNose,bool recognize,
+    bool forwardAlignmentAudit)
 {
     if (diagnostics) *diagnostics = {};
     FaceTimings timings;
     auto stageStarted = timings.mark();
     if (!image.rgba || image.width <= 0 || image.height <= 0) return {};
+    if (!std::isfinite(image.left) || !std::isfinite(image.top)
+        || !std::isfinite(image.right) || !std::isfinite(image.bottom)
+        || image.right<=image.left || image.bottom<=image.top
+        || image.right<=0 || image.bottom<=0
+        || image.left>=image.width || image.top>=image.height
+        || !std::isfinite(minimumDetectionConfidence)
+        || minimumDetectionConfidence<0 || minimumDetectionConfidence>1
+        || (expectedNose && (!std::isfinite((*expectedNose)[0]) || !std::isfinite((*expectedNose)[1]))))return {};
     const double left = std::clamp<double>(image.left, 0, image.width-1);
     const double top = std::clamp<double>(image.top, 0, image.height-1);
     const double width = std::clamp<double>(image.right, left+1, image.width)-left;
@@ -178,6 +211,12 @@ std::vector<float> FaceEstimator::infer(const ReIdImage& image, FaceRecognitionD
         if (overlap(face,candidates[i])<0.3 && candidates[i].w*candidates[i].h>face.w*face.h*0.4) return {};
     if (std::hypot(face.landmarks[0].first-face.landmarks[1].first,
                    face.landmarks[0].second-face.landmarks[1].second)<10) return {};
+    if(diagnostics) {
+        diagnostics->faceDetected=true;
+        diagnostics->faceBox={face.x,face.y,face.w,face.h};
+        diagnostics->detectorScore=face.score;
+    }
+    if(!recognize)return {};
     constexpr std::array<std::pair<double,double>,5> target = {{{38.2946,51.6963},{73.5318,51.5014},
         {56.0252,71.7366},{41.5493,92.3655},{70.7299,92.2041}}};
     // Least-squares, orientation-preserving similarity transform from the
@@ -190,7 +229,20 @@ std::vector<float> FaceEstimator::infer(const ReIdImage& image, FaceRecognitionD
         const double u=face.landmarks[k].first-sx,v=face.landmarks[k].second-sy;
         aa+=x*u+y*v; bb+=x*v-y*u; den+=x*x+y*y;
     }
-    aa/=den; bb/=den;
+    if (forwardAlignmentAudit) {
+        // Recognition aligns source landmarks to the canonical face. Fitting
+        // the reverse mapping directly has a different least-squares scale
+        // when measured landmarks are noisy. Fit forward, then invert.
+        double sourceVariance = 0;
+        for (const auto& landmark : face.landmarks)
+            sourceVariance += std::pow(landmark.first-sx,2) + std::pow(landmark.second-sy,2);
+        const double covarianceNorm = aa*aa + bb*bb;
+        if (covarianceNorm < 1e-12 || !std::isfinite(sourceVariance)) return {};
+        aa *= sourceVariance / covarianceNorm;
+        bb *= sourceVariance / covarianceNorm;
+    } else {
+        aa/=den; bb/=den;
+    }
     FloatTensor aligned;
     aligned.shape={1,3,112,112}; aligned.values.resize(3*112*112);
     for (int y=0;y<112;++y) for (int x=0;x<112;++x) {

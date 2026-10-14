@@ -13,7 +13,9 @@ struct RuntimeSpy {
     int names = 0, freedNames = 0, values = 0, freedValues = 0;
     int memories = 0, freedMemories = 0, shapes = 0, freedShapes = 0;
     int releasedStatuses = 0, runs = 0;
-    std::size_t outputs = 2, rank = 1, elements = 2;
+    std::size_t inputs = 1, outputs = 2, rank = 1, elements = 2, receivedInputs=0;
+    std::vector<std::string> receivedInputNames;
+    int inputCreates=0;
     std::string fail;
     bool nullData = false;
     int statusToken = 0;
@@ -29,8 +31,11 @@ OrtStatus* ORT_API_CALL allocator(OrtAllocator** out) noexcept
 { *out = reinterpret_cast<OrtAllocator*>(&spy.statusToken); return nullptr; }
 OrtStatus* ORT_API_CALL freeName(OrtAllocator*, void* value) noexcept
 { delete[] static_cast<char*>(value); ++spy.freedNames; return nullptr; }
-OrtStatus* ORT_API_CALL inputName(const OrtSession*, std::size_t, OrtAllocator*, char** out) noexcept
-{ *out = new char[2]{'x',0}; ++spy.names; return failure("input-name"); }
+OrtStatus* ORT_API_CALL inputName(const OrtSession*, std::size_t index, OrtAllocator*, char** out) noexcept
+{ *out = new char[3]{'x',static_cast<char>('0'+index),0}; ++spy.names;
+  return index==1 && spy.fail=="second-input-name" ? failure("second-input-name"):failure("input-name"); }
+OrtStatus* ORT_API_CALL inputCount(const OrtSession*,std::size_t* out) noexcept
+{*out=spy.inputs;return failure("input-count");}
 OrtStatus* ORT_API_CALL outputName(const OrtSession*, std::size_t index, OrtAllocator*, char** out) noexcept
 { *out = new char[2]{'y',0}; ++spy.names; return index == 1 ? failure("output-name") : nullptr; }
 OrtStatus* ORT_API_CALL memoryInfo(OrtAllocatorType, OrtMemType, OrtMemoryInfo** out) noexcept
@@ -40,15 +45,18 @@ void ORT_API_CALL releaseMemory(OrtMemoryInfo* value) noexcept
 OrtValue* newValue() { ++spy.values; return reinterpret_cast<OrtValue*>(new int(1)); }
 OrtStatus* ORT_API_CALL tensor(const OrtMemoryInfo*, void*, std::size_t, const std::int64_t*,
                              std::size_t, ONNXTensorElementDataType, OrtValue** out) noexcept
-{ *out = newValue(); return failure("input-value"); }
+{ *out = newValue();++spy.inputCreates;
+  return spy.inputCreates==2 && spy.fail=="second-input-value" ? failure("second-input-value"):failure("input-value"); }
 void ORT_API_CALL releaseValue(OrtValue* value) noexcept
 { delete reinterpret_cast<int*>(value); ++spy.freedValues; }
 OrtStatus* ORT_API_CALL outputCount(const OrtSession*, std::size_t* out) noexcept
 { *out = spy.outputs; return failure("output-count"); }
-OrtStatus* ORT_API_CALL run(OrtSession*, const OrtRunOptions*, const char* const*, const OrtValue* const*,
-                           std::size_t, const char* const*, std::size_t count, OrtValue** out) noexcept
+OrtStatus* ORT_API_CALL run(OrtSession*, const OrtRunOptions*, const char* const* names, const OrtValue* const*,
+                           std::size_t inputs, const char* const*, std::size_t count, OrtValue** out) noexcept
 {
     ++spy.runs;
+    spy.receivedInputs=inputs;
+    for(std::size_t i=0;i<inputs;++i)spy.receivedInputNames.emplace_back(names[i]);
     if (delayRun) {
         const int active = ++activeRuns;
         int previous = peakRuns.load();
@@ -79,6 +87,7 @@ OrtApi api()
     result.GetErrorMessage=errorMessage; result.ReleaseStatus=releaseStatus;
     result.GetAllocatorWithDefaultOptions=allocator; result.AllocatorFree=freeName;
     result.SessionGetInputName=inputName; result.SessionGetOutputName=outputName;
+    result.SessionGetInputCount=inputCount;
     result.CreateCpuMemoryInfo=memoryInfo; result.ReleaseMemoryInfo=releaseMemory;
     result.CreateTensorWithDataAsOrtValue=tensor; result.ReleaseValue=releaseValue;
     result.SessionGetOutputCount=outputCount; result.Run=run;
@@ -105,7 +114,7 @@ void expectReleased()
 
 TEST(InferenceFailures, EveryFailureReleasesPartialResourcesAndRemainingOutputs)
 {
-    for (const auto* stage : {"input-name","memory","input-value","output-count","output-name",
+    for (const auto* stage : {"input-count","input-name","memory","input-value","output-count","output-name",
                              "run","shape","type","rank","dimensions","elements","data"}) {
         SCOPED_TRACE(stage);
         spy={}; spy.fail=stage;
@@ -115,6 +124,30 @@ TEST(InferenceFailures, EveryFailureReleasesPartialResourcesAndRemainingOutputs)
         EXPECT_EQ(spy.releasedStatuses,1);
         expectReleased();
     }
+}
+
+TEST(InferenceFailures, MultipleInputsBindInGraphOrderAndReleasePartialSecondInputs)
+{
+    pfgpu::SessionHandle session;session.session=reinterpret_cast<OrtSession*>(&spy.statusToken);
+    const std::array<pfgpu::FloatTensor,2> inputs{{{{1,2},{4.25F,-2.5F}},{{1,2},{1.F,3.F}}}};
+    for(const auto* stage:{"second-input-name","second-input-value","run","data"}) {
+        SCOPED_TRACE(stage);spy={};spy.inputs=2;spy.fail=stage;
+        EXPECT_FALSE(pfgpu::detail::runFloatsWithApi(api(),session,inputs).ok);
+        EXPECT_EQ(spy.releasedStatuses,1);expectReleased();
+    }
+    spy={};spy.inputs=2;
+    const auto result=pfgpu::detail::runFloatsWithApi(api(),session,inputs);
+    ASSERT_TRUE(result.ok)<<result.error;
+    EXPECT_EQ(spy.receivedInputs,2U);
+    EXPECT_EQ(spy.receivedInputNames,(std::vector<std::string>{"x0","x1"}));
+    expectReleased();
+    spy={};spy.inputs=1;
+    EXPECT_FALSE(pfgpu::detail::runFloatsWithApi(api(),session,inputs).ok);
+    EXPECT_EQ(spy.runs,0);EXPECT_EQ(spy.names,0);expectReleased();
+    auto malformed=inputs;malformed[1].shape={2,2};
+    spy={};spy.inputs=2;
+    EXPECT_FALSE(pfgpu::detail::runFloatsWithApi(api(),session,malformed).ok);
+    EXPECT_EQ(spy.runs,0);EXPECT_EQ(spy.names,0);expectReleased();
 }
 
 TEST(InferenceConcurrency, SharedDirectMlSessionNeverOverlapsRuntimeRun)

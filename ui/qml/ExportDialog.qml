@@ -18,7 +18,7 @@ Popup {
     readonly property int videoBitrateKbps: qualityChoice === 3 ? Math.round(Number(bitrateField.text.replace(",", ".")) * 1000) : 0
     readonly property bool qualityValid: qualityChoice !== 3 || (isFinite(videoBitrateKbps) && videoBitrateKbps >= 1000 && videoBitrateKbps <= 500000)
     readonly property int selectedNumbering: exportNumbering.currentIndex
-    readonly property int selectedCutMode: losslessExport ? 1 : mergeChronological ? 0 : cutMode.currentIndex
+    readonly property int selectedCutMode: losslessExport ? 2 : mergeChronological ? 0 : cutMode.currentIndex
     readonly property bool mergeChronological: selectedFormat === "FFMPEG" && mergeCheck.checked
     readonly property string selectedFormat: ["FFMPEG", "JSON", "CSV", "TXT"][exportFormat.currentIndex] || "FFMPEG"
     readonly property string fileBaseName: prefixField.text
@@ -40,7 +40,7 @@ Popup {
         }
         const next = classOrderCustomized
             ? classOrder.filter(function(type) { return present.indexOf(type) >= 0 }) : []
-        for (const type of L10n.movementTypes) if (present.indexOf(type) >= 0 && next.indexOf(type) < 0) next.push(type)
+        for (const type of L10n.movementKeysForRows(results)) if (present.indexOf(type) >= 0 && next.indexOf(type) < 0) next.push(type)
         classOrder = next
     }
     function moveClass(index, direction) {
@@ -198,7 +198,7 @@ Popup {
         ComboBox { id: exportNumbering; visible: false; model: [0, 1]; currentIndex: 0 }
         Text { font.family: Theme.fontFamily; text: L10n.t("export.cutMode"); color: Theme.textSecondary; font.pixelSize: 11 }
         Row { width: parent.width; spacing: 8; enabled: !root.mergeChronological && !root.losslessExport && !Analysis.exportBusy
-            PfButton { width: (parent.width - 8) / 2; objectName: "exactCutButton"; text: L10n.t("export.exact"); selected: root.selectedCutMode === 0; onClicked: cutMode.currentIndex = 0 }
+            PfButton { width: (parent.width - 8) / 2; objectName: "exactCutButton"; text: L10n.t("export.exact"); selected: root.selectedCutMode !== 1; onClicked: cutMode.currentIndex = 0 }
             PfButton { width: (parent.width - 8) / 2; objectName: "fastCutButton"; text: L10n.t("export.fast"); selected: root.selectedCutMode === 1; onClicked: cutMode.currentIndex = 1 }
         }
         ComboBox { id: cutMode; visible: false; model: [0, 1]; currentIndex: 0 }
@@ -212,7 +212,7 @@ Popup {
                 onModelChanged: Qt.callLater(root.restoreQualityChoice)
                 onActivated: function(index) { root.qualityChoice = index }
                 enabled: root.selectedCutMode === 0 || root.losslessExport
-                model: L10n.language === "ru" ? ["Максимальное", "Высокое · рекомендуется", "Баланс качества и размера", "Свой битрейт", "Без потери качества · без перекодирования"] : ["Maximum", "High · recommended", "Balance quality and size", "Custom bitrate", "No quality loss · no re-encoding"]
+                model: L10n.language === "ru" ? ["Максимальное", "Высокое · рекомендуется", "Баланс качества и размера", "Свой битрейт", "Без потери качества · точная обрезка · MOV"] : ["Maximum", "High · recommended", "Balance quality and size", "Custom bitrate", "No quality loss · exact trim · MOV"]
             }
             Row {
                 width: parent.width; spacing: 8; visible: root.selectedCutMode === 0 && qualityChoice === 3
@@ -221,7 +221,9 @@ Popup {
             }
             Text {
                 width: parent.width; wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11
-                text: root.selectedCutMode === 1
+                text: root.losslessExport
+                    ? (L10n.language === "ru" ? "Точная обрезка без потери пикселей и звука. Формат MOV; файлы могут быть большими. Для общего ролика параметры исходников должны совпадать." : "Exact trimming with preserved pixels and audio samples. MOV output; files can be large. Montage sources must have compatible streams.")
+                    : root.selectedCutMode === 1
                     ? (L10n.language === "ru" ? "Качество исходника сохраняется без перекодирования. Начало может захватить контекст от предыдущего ключевого кадра. Для обрезки строго по параллели выбери перекодирование и «Точно». Параметры исходников общего ролика должны совпадать." : "Source quality is preserved without re-encoding. The start may include context from the preceding keyframe. For strict parallel boundaries, choose re-encoding and Exact. Combined-video sources must have compatible streams.")
                     : (L10n.language === "ru" ? "Режим «Точно» обрезает по границам найденной параллели без добавленных секунд. Разрешение сохраняется; максимальное качество увеличивает размер файла. При перекодировании возможны потери." : "Exact mode cuts at the matched parallel boundaries without added seconds. Source resolution is preserved; maximum quality increases file size. Re-encoding can introduce loss.")
             }
@@ -234,8 +236,10 @@ Popup {
         Text { font.family: Theme.fontFamily;
             width: parent.width
             text: root.exportStatus || (root.selectedFormat === "FFMPEG"
-                ? (root.mergeChronological && root.selectedCutMode === 1
-                    ? (L10n.language === "ru" ? "Один MP4 по порядку типов движений без перекодирования видео и звука. Точные дубликаты исключаются. Несовместимые исходники не перекодируются автоматически." : "One MP4 in movement-type order without re-encoding video or audio. Exact duplicates are excluded. Incompatible sources are never automatically re-encoded.")
+                ? (root.losslessExport
+                    ? (root.mergeChronological
+                        ? (L10n.language === "ru" ? "Один MOV по порядку типов движений с точной обрезкой без потери качества. Точные дубликаты исключаются. Несовместимые исходники не перекодируются автоматически." : "One MOV in movement-type order with exact lossless trimming. Exact duplicates are excluded. Incompatible sources are never automatically re-encoded.")
+                        : (L10n.language === "ru" ? "Отдельные MOV по типам движений с точной обрезкой без потери качества изображения и звука. Размер файлов может быть большим." : "Separate MOV clips grouped by movement type, with exact trimming and lossless picture and sound. Files may be large."))
                     : L10n.t(root.mergeChronological ? "export.mergeHint" : "export.ffmpegHint"))
                 : L10n.t("export.hint"))
             color: root.exportStatus ? Theme.accent : Theme.textSecondary

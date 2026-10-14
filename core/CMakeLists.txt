@@ -1,4 +1,5 @@
 add_library(pfcore STATIC
+    src/FaceConsensus.cpp
     src/SceneSequenceCache.cpp
     src/SceneDetector.cpp
     src/SceneWindow.cpp
@@ -10,6 +11,7 @@ add_library(pfcore STATIC
     src/JobManager.cpp
     src/MovementClassifier.cpp
     src/MovementGrouping.cpp
+    src/HeadOrientation.cpp
     src/MotionRanker.cpp
 )
 add_library(pf::core ALIAS pfcore)
@@ -20,6 +22,8 @@ target_compile_features(pfcore PUBLIC cxx_std_23)
 
 # Guard: pfcore must not include Qt headers (spec section 2: "ядро без Qt").
 set(PF_CORE_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/VisualObjectEvidence.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/PoseAssociation.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/SceneWindow.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/SceneWindow.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/SceneSequenceCache.hpp
@@ -41,6 +45,8 @@ set(PF_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/MovementClassifier.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MovementClassifier.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MovementGrouping.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/HeadOrientation.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/HeadOrientation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/MotionRanker.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MotionRanker.cpp
 )

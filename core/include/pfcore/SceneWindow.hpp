@@ -24,4 +24,11 @@ struct SceneWindowPart {
 // across all chunks/tracks belonging to these same observed shots.
 std::vector<SceneWindowPart> splitMotionWindowAtScenes(const MotionWindow& window,
     std::span<const ObservedSceneRange> scenes);
+
+// Apply already-confirmed internal cuts to one source's cached windows.
+// All chunks/tracks of the same original range share the new scene IDs.
+// Existing source data is immutable; refreshed identity must be supplied by
+// the caller before any changed part can be admitted by the matcher.
+std::vector<SceneWindowPart> splitSourceWindowsAtCuts(std::span<const MotionWindow> windows,
+    std::span<const double> confirmedCuts);
 }

@@ -5,12 +5,25 @@
 #include <QDir>
 #include <QTemporaryDir>
 #include <QUrl>
+#include <QFile>
 
 #include <filesystem>
 #include <atomic>
 #include <stdexcept>
 
 namespace {
+TEST(SettingsStore, McpDefaultsAndMalformedSettingsDoNotEnableRemoteControl)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    pfservices::SettingsStore store(directory.filePath("settings.json").toStdString());std::string error;
+    auto settings=store.load(error);EXPECT_FALSE(settings.mcpEnabled);EXPECT_FALSE(settings.mcpAllowControl);EXPECT_EQ(settings.mcpPort,32145);EXPECT_TRUE(settings.mcpToken.empty());
+    settings.mcpEnabled=true;settings.mcpAllowControl=true;settings.mcpPort=32456;settings.mcpToken=std::string(64,'a');
+    ASSERT_TRUE(store.save(settings,error));const auto restored=store.load(error);
+    EXPECT_TRUE(restored.mcpEnabled);EXPECT_TRUE(restored.mcpAllowControl);EXPECT_EQ(restored.mcpPort,32456);EXPECT_EQ(restored.mcpToken,settings.mcpToken);
+    QFile malformed(directory.filePath("settings.json"));ASSERT_TRUE(malformed.open(QIODevice::WriteOnly));
+    malformed.write(R"({"mcpEnabled":"yes","mcpAllowControl":1,"mcpPort":1234.5,"mcpToken":"short"})");malformed.close();
+    const auto safe=store.load(error);EXPECT_FALSE(safe.mcpEnabled);EXPECT_FALSE(safe.mcpAllowControl);EXPECT_EQ(safe.mcpPort,32145);EXPECT_TRUE(safe.mcpToken.empty());
+}
 
 TEST(SettingsStore, MigratesCachedFolderUrlWithoutDecodingPlainPaths)
 {

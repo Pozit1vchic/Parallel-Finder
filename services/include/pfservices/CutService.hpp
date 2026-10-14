@@ -13,6 +13,8 @@ namespace pfservices {
 enum class CutMode {
     Exact,
     Fast,
+    // Exact decoded pixels/samples in MOV; no format conversion or lossy fallback.
+    ExactLossless,
 };
 
 struct CutRequest {

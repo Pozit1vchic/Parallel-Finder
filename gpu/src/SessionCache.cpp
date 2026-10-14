@@ -55,7 +55,7 @@ std::string buildCacheKey(const ModelRef& model, const SessionKey& key, Provider
 {
     return modelIdentity(model) + "|" + providerName(resolved) + "|device"
         + std::to_string(key.deviceId) + "|" + key.profile + "|threads"
-        + std::to_string(key.intraOpThreads) + (graph ? "|audit_cuda_graph" : "");
+        + std::to_string(key.intraOpThreads) + (graph ? "|cuda_graph" : "");
 }
 
 std::size_t effectiveThreadCount(const SessionKey& key, Provider resolved)
@@ -152,7 +152,13 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
     }
 
     const auto* graphFlag = std::getenv("PF_AUDIT_CUDA_GRAPH");
-    const bool graph = resolved == Provider::Cuda && graphFlag && std::string(graphFlag) == "1";
+    // The distributed CUDA 12 / ORT 1.24.4 runtime and these fixed-shape
+    // profiles have real-model parity coverage. Other runtimes retain the
+    // ordinary provider; explicit audit 0/1 still supports controlled timings.
+    const bool validatedGraphRuntime=ortRuntimeVersion()=="1.24.4"
+        && (key.profile=="b1" || key.profile=="face-detector" || key.profile=="face-recognizer");
+    const bool graph = resolved == Provider::Cuda
+        && (graphFlag ? std::string(graphFlag)=="1":validatedGraphRuntime);
     std::string cacheKey = buildCacheKey(model, key, resolved, graph);
     if (const auto* tf32 = std::getenv("PF_AUDIT_CUDA_TF32"); resolved == Provider::Cuda
         && tf32 && (std::string(tf32) == "0" || std::string(tf32) == "1"))
@@ -212,6 +218,12 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
     } cleanup { api, options };
 
     auto providerOptions = factory->defaultOptions();
+    // Head orientation compares small angular trajectories. Keep full float32
+    // convolution precision rather than introducing TF32 crop-dependent drift.
+    if (resolved == Provider::Cuda && key.profile == "head-orientation") {
+        std::erase_if(providerOptions, [](const auto& option) { return option.first == "use_tf32"; });
+        providerOptions.emplace_back("use_tf32", "0");
+    }
     if (graph) providerOptions.emplace_back("enable_cuda_graph", "1");
     if (!checkStatus(*api, api->SetIntraOpNumThreads(options,
                                                      static_cast<int>(effectiveThreadCount(key, resolved))), error)

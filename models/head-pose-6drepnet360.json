@@ -1,0 +1,14 @@
+{
+  "filename": "head-pose-6drepnet360.onnx",
+  "bytes": 94007930,
+  "sha256": "8585173bcd7e7d1e5f14baee995cca285814d3f3cf4e1a20d6cafa70787400a3",
+  "source": "https://github.com/thohemp/6DRepNet360",
+  "weightsSHA256": "3ee08f1e04b8d452a6c4a40926a6f38051894ae6d0aaa6d191fe6d8bc6e4f9c6",
+  "licenseFile": "head-pose-6drepnet360.LICENSE",
+  "licenseSHA256": "9cbf2690c92d75b75f6c548d96599878cb3692e054b0379d7478db3cd621e8fd",
+  "input": "float32 RGB 1x3x224x224; PIL-compatible resize256 and center224",
+  "output": "camera-relative 3x3 rotation matrix",
+  "exportParityCases": 12,
+  "maximumRotationElementError": 2.086162567138672e-7,
+  "professionalMovementAccuracyEstablished": false
+}

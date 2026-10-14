@@ -3,6 +3,8 @@
 #include <cmath>
 #include <set>
 #include <stdexcept>
+#include <map>
+#include <limits>
 
 namespace pfcore {
 std::vector<SceneWindowPart> splitMotionWindowAtScenes(const MotionWindow& window,
@@ -51,6 +53,11 @@ std::vector<SceneWindowPart> splitMotionWindowAtScenes(const MotionWindow& windo
             split.faceEmbedding.clear();split.faceConfidence=0;
             split.sceneContext.clear();split.sceneView.clear();split.sceneViewSampled=false;
             split.measuredFaces.clear();
+            split.directFaces.clear();split.directFaceModel.clear();
+            split.videoActions.clear();
+            std::erase_if(split.headOrientations,[&](const auto& sample) {
+                return !std::isfinite(sample.time) || sample.time<scene.start || sample.time>=scene.end;
+            });
             split.sceneSequence.clear();split.sceneSequenceTimes.clear();
             if(window.sceneSequence.size()==window.sceneSequenceTimes.size()*432) {
                 for(std::size_t i=0;i<window.sceneSequenceTimes.size();++i) {
@@ -63,6 +70,59 @@ std::vector<SceneWindowPart> splitMotionWindowAtScenes(const MotionWindow& windo
             }
         }
         result.push_back(std::move(part));
+    }
+    return result;
+}
+
+std::vector<SceneWindowPart> splitSourceWindowsAtCuts(std::span<const MotionWindow> windows,
+    std::span<const double> confirmedCuts)
+{
+    if(!std::all_of(confirmedCuts.begin(),confirmedCuts.end(),[](double time) {
+        return std::isfinite(time)&&time>=0;
+    }) || !std::is_sorted(confirmedCuts.begin(),confirmedCuts.end()))
+        throw std::invalid_argument("Confirmed cuts must be finite and ordered");
+    if(windows.empty())return {};
+    const auto& source=windows.front().sourceId;
+    std::size_t nextId=0;
+    for(const auto& window:windows) {
+        if(window.sourceId!=source)
+            throw std::invalid_argument("Cut partition requires one source");
+        if(window.hasSceneIndex) {
+            if(window.sceneIndex==std::numeric_limits<std::size_t>::max())
+                throw std::invalid_argument("Scene ID space exhausted");
+            nextId=std::max(nextId,window.sceneIndex+1);
+        }
+    }
+    using Range=std::pair<double,double>;
+    std::map<Range,std::vector<ObservedSceneRange>> partitions;
+    // Allocate in source-time order, independent of chunk enumeration.
+    for(const auto& window:windows) {
+        if(!std::isfinite(window.sceneStartSeconds)||!std::isfinite(window.sceneEndSeconds)
+            ||window.sceneStartSeconds<0||window.sceneEndSeconds<=window.sceneStartSeconds)
+            throw std::invalid_argument("Cut partition requires known shot bounds");
+        const auto first=std::upper_bound(confirmedCuts.begin(),confirmedCuts.end(),window.sceneStartSeconds);
+        if(first!=confirmedCuts.end()&&*first<window.sceneEndSeconds)
+            partitions.try_emplace(Range{window.sceneStartSeconds,window.sceneEndSeconds});
+    }
+    for(auto& [range,partition]:partitions) {
+        double start=range.first;
+        for(auto cut=std::upper_bound(confirmedCuts.begin(),confirmedCuts.end(),start);
+            cut!=confirmedCuts.end()&&*cut<range.second;++cut) {
+            if(*cut==start)continue;
+            if(nextId==std::numeric_limits<std::size_t>::max())
+                throw std::invalid_argument("Scene ID space exhausted");
+            partition.push_back({start,*cut,nextId++});start=*cut;
+        }
+        if(nextId==std::numeric_limits<std::size_t>::max())
+            throw std::invalid_argument("Scene ID space exhausted");
+        partition.push_back({start,range.second,nextId++});
+    }
+    std::vector<SceneWindowPart> result;
+    for(const auto& window:windows) {
+        const auto found=partitions.find({window.sceneStartSeconds,window.sceneEndSeconds});
+        if(found==partitions.end()) {result.push_back({window,false});continue;}
+        auto parts=splitMotionWindowAtScenes(window,found->second);
+        for(auto& part:parts)result.push_back(std::move(part));
     }
     return result;
 }

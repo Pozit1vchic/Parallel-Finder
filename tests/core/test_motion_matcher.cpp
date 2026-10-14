@@ -39,12 +39,23 @@ TEST(MotionMatcher, MeasuredTorsoScaleRetainsPoseAcrossForeshortenedShoulders)
     params.bodyScaleInvariant=true;params.similarityThreshold=.7;params.staticPoseSimilarityThreshold=.7;
     const pfcore::MotionMatcher matcher(params);
     const auto match=matcher.compare(front,profile);
+    EXPECT_EQ(match.rejection, pfcore::MotionRejection::None);
     EXPECT_GE(match.similarity,.7);
     EXPECT_FALSE(match.headOnlyComparison);
     EXPECT_GE(match.unmirroredSimilarity,.7);
     EXPECT_EQ(matcher.findAllPairs({front,profile}).size(),1U);
     auto other=profile;other.faceEmbedding={0,1};
     EXPECT_DOUBLE_EQ(matcher.compare(front,other).similarity,0);
+    EXPECT_EQ(matcher.compare(front,other).rejection, pfcore::MotionRejection::Identity);
+    auto crossing = profile;
+    crossing.hasSceneIndex = true;
+    crossing.sceneStartSeconds = 10;
+    crossing.sceneEndSeconds = 10.5;
+    EXPECT_EQ(matcher.compare(front,crossing).rejection, pfcore::MotionRejection::ShotBoundary);
+    auto overlap = profile;
+    overlap.sourceId = front.sourceId;
+    for (auto& frame : overlap.frames) frame.timestampSeconds -= 10;
+    EXPECT_EQ(matcher.compare(front,overlap).rejection, pfcore::MotionRejection::SourceOverlap);
     auto raised=profile;
     for(auto& frame:raised.frames) {
         frame.keypoints[7].y=-.5;frame.keypoints[9].y=-1;
@@ -181,18 +192,16 @@ TEST(MotionMatcher, DeferredBodyCameraProofKeepsSelectionAndCallerProgress)
     p.similarityThreshold=.7;p.staticArticulationSimilarityThreshold=.82;
     p.sameSourceGapFloorSec=p.sameFileGapSec=3;p.maxComparisonThreads=1;
     const auto expected=pfcore::MotionMatcher(p).findAllPairs(windows);
-    // Frozen against the shipped RC19 eager verifier: retain both distinct
-    // settings per replication, reject every recorded returning-body camera.
-    // Replication also crosses the packed cache's 32/64/96 column boundaries.
-    std::set<std::pair<std::size_t,std::size_t>> eagerPairs,selectedPairs;
-    for(std::size_t copy=0;copy<8;++copy) {
-        eagerPairs.emplace(copy*14,copy*14+1);
-        eagerPairs.emplace(copy*14+2,copy*14+3);
-    }
+    // Repeated measured footage now shares its quota within one source.
+    // Unchanging thumbnail sequences cannot prove copies, so their synthetic
+    // replicas may still support additional edges. This fixture checks
+    // scheduling against the serial verifier, not real-footage recall.
+    std::set<std::pair<std::size_t,std::size_t>> selectedPairs;
     for(const auto& match:expected)selectedPairs.emplace(
         std::min(match.leftIndex,match.rightIndex),std::max(match.leftIndex,match.rightIndex));
-    EXPECT_EQ(selectedPairs,eagerPairs);
-    ASSERT_EQ(expected.size(),eagerPairs.size());
+    EXPECT_TRUE(selectedPairs.contains({0,1}));
+    EXPECT_TRUE(selectedPairs.contains({2,3}));
+    ASSERT_GE(expected.size(),2U);
     p.maxComparisonThreads=4;
     const auto caller=std::this_thread::get_id();bool selectionProgress=false;
     pfcore::MotionSearchControl control;
@@ -315,6 +324,108 @@ TEST(MotionMatcher, HeadOnlyGeometryNeedsStrongerIndependentFaceIdentity)
     EXPECT_DOUBLE_EQ(rejected.similarity, 0);
     repeat.faceEmbedding = {.85F, static_cast<float>(std::sqrt(1-.85*.85))};
     EXPECT_GT(pfcore::MotionMatcher(params).compare(head, repeat).similarity, .90);
+}
+
+TEST(MotionMatcher, AuditedDirectFacesSupportPortraitWithoutLoweringGlobalThreshold)
+{
+    auto left=soldierHeadPoseFixture()[0],right=left;
+    right.sourceId="independent-direct-face";
+    left.faceEmbedding={1,0};right.faceEmbedding={.65F,float(std::sqrt(1-.65*.65))};
+    left.faceConfidence=right.faceConfidence=1;
+    left.directFaceModel=right.directFaceModel="fixed-sface-model:forward";
+    const double start=left.frames.front().timestampSeconds,end=left.frames.back().timestampSeconds;
+    for(double time:{start,(start+end)/2,end}) {
+        left.directFaces.push_back({time,left.faceEmbedding});right.directFaces.push_back({time,right.faceEmbedding});
+    }
+    pfcore::MotionMatcherParams params;params.allowStaticFrames=params.requireAppearance=true;
+    EXPECT_EQ(pfcore::MotionMatcher(params).compare(left,right).similarity,0);
+    params.auditDirectFaceConsensus=true;
+    EXPECT_GT(pfcore::MotionMatcher(params).compare(left,right).similarity,.90);
+    right.directFaceModel="different-model";
+    EXPECT_EQ(pfcore::MotionMatcher(params).compare(left,right).similarity,0);
+    right.directFaceModel=left.directFaceModel;
+    right.directFaces.push_back({start+.1,{0,1}});
+    EXPECT_EQ(pfcore::MotionMatcher(params).compare(left,right).similarity,0);
+}
+
+TEST(MotionMatcher, DirectFacesDoNotDependOnAnAveragedShotFacePrototype)
+{
+    auto left=soldierHeadPoseFixture()[0],right=left;right.sourceId="direct-without-prototype";
+    left.faceEmbedding.clear();right.faceEmbedding.clear();
+    left.faceConfidence=right.faceConfidence=0;
+    left.appearanceEmbedding={1,0};right.appearanceEmbedding={0,1};
+    left.appearanceConfidence=right.appearanceConfidence=1;
+    left.directFaceModel=right.directFaceModel="fixed-sface-model:forward";
+    const double start=left.frames.front().timestampSeconds,end=left.frames.back().timestampSeconds;
+    for(double time:{start,(start+end)/2,end}) {
+        left.directFaces.push_back({time,{1,0}});
+        right.directFaces.push_back({time,{.65F,float(std::sqrt(1-.65*.65))}});
+    }
+    pfcore::MotionMatcherParams params;params.allowStaticFrames=params.requireAppearance=true;
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(left,right).similarity,0);
+    params.auditDirectFaceConsensus=true;
+    const auto match=pfcore::MotionMatcher(params).compare(left,right);
+    EXPECT_GT(match.similarity,.9);EXPECT_TRUE(match.faceVerified);
+    EXPECT_NEAR(match.appearanceSimilarity,.65,1e-5);
+    EXPECT_EQ(pfcore::MotionMatcher(params).findAllPairs({left,right}).size(),1U);
+    left.faceEmbedding={1,0};right.faceEmbedding={0,1};left.faceConfidence=right.faceConfidence=1;
+    EXPECT_NEAR(pfcore::MotionMatcher(params).compare(left,right).appearanceSimilarity,.65,1e-5);
+    right.directFaceModel="different-model";
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(left,right).similarity,0);
+    right.directFaceModel=left.directFaceModel;
+    for(auto& sample:right.directFaces)sample.timestampSeconds=end+1;
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher(params).compare(left,right).similarity,0);
+    for(std::size_t i=0;i<right.directFaces.size();++i) {
+        right.directFaces[i].timestampSeconds=left.directFaces[i].timestampSeconds;
+        right.directFaces[i].embedding={0,1};
+    }
+    // Conflicting observed faces veto similar clothing even without a mean face.
+    left.faceEmbedding.clear();right.faceEmbedding.clear();left.faceConfidence=right.faceConfidence=0;
+    right.appearanceEmbedding=left.appearanceEmbedding;
+    EXPECT_EQ(pfcore::MotionMatcher(params).compare(left,right).rejection,pfcore::MotionRejection::Identity);
+}
+
+TEST(MotionMatcher, DirectFaceChangesInvalidateAcceptedAndRejectedSearchReuse)
+{
+    auto left=soldierHeadPoseFixture()[0],right=left;
+    right.sourceId="independent-direct-reuse";
+    left.faceEmbedding={1,0};right.faceEmbedding={.65F,float(std::sqrt(1-.65*.65))};
+    left.faceConfidence=right.faceConfidence=1;
+    left.directFaceModel=right.directFaceModel="fixed-sface-model:forward";
+    const double start=left.frames.front().timestampSeconds,end=left.frames.back().timestampSeconds;
+    for(double time:{start,(start+end)/2,end}) {
+        left.directFaces.push_back({time,left.faceEmbedding});
+        right.directFaces.push_back({time,right.faceEmbedding});
+    }
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames=params.requireAppearance=params.individualPairs=true;
+    params.auditDirectFaceConsensus=true;
+    pfcore::MotionSearchReuse memo;
+    pfcore::MotionSearchControl control;control.reuse=&memo;
+    const auto check=[&](std::size_t count) {
+        const std::vector<pfcore::MotionWindow> windows{left,right};
+        const auto expected=pfcore::MotionMatcher(params).findAllPairs(windows);
+        const auto actual=pfcore::MotionMatcher(params).findAllPairs(windows,control);
+        ASSERT_EQ(expected.size(),count);
+        ASSERT_EQ(actual.size(),expected.size());
+        for(std::size_t i=0;i<actual.size();++i) {
+            EXPECT_DOUBLE_EQ(actual[i].similarity,expected[i].similarity);
+            EXPECT_EQ(actual[i].leftIndex,expected[i].leftIndex);
+            EXPECT_EQ(actual[i].rightIndex,expected[i].rightIndex);
+        }
+    };
+    check(1);check(1);
+    // Same prototypes/poses, contradictory actual observation: cached
+    // acceptance must not mask the foreign face.
+    right.directFaces.push_back({start+.1,{0,1}});check(0);check(0);
+    right.directFaces.pop_back();check(1);
+    right.directFaceModel="other-model";check(0);
+    right.directFaceModel=left.directFaceModel;check(1);
+    // Timestamp changes can leave only two supported in-range observations.
+    right.directFaces.back().timestampSeconds=end+1;check(0);
+    right.directFaces.back().timestampSeconds=end;check(1);
+    params.auditDirectFaceConsensus=false;check(0);
+    params.auditDirectFaceConsensus=true;check(1);
 }
 
 TEST(MotionMatcher, KnownShotEndIsExclusiveForPoseWindows)
@@ -1370,6 +1481,30 @@ TEST(MotionMatcher, ShortGestureSupportsSparseSampling)
     EXPECT_GT(pfcore::MotionMatcher().compare(left, right).similarity, 0.78);
     EXPECT_EQ(pfcore::MotionMatcher().findAllPairs({left, right}).size(), 1U);
 }
+TEST(MotionMatcher, SeparatedShortRunsCannotBridgeUnobservedSeconds)
+{
+    auto left=window("a",0,false,8,.14),right=window("b",8,false,8,.14);
+    ASSERT_GT(pfcore::MotionMatcher().compare(left,right).similarity,.78);
+    for(std::size_t i=4;i<left.frames.size();++i) {
+        left.frames[i].timestampSeconds+=3;right.frames[i].timestampSeconds+=3;
+    }
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher().compare(left,right).similarity,0);
+    EXPECT_DOUBLE_EQ(pfcore::MotionMatcher().compare(right,left).similarity,0);
+}
+TEST(MotionMatcher, ContinuousSupportedPartSurvivesWithoutExportingAcrossTimeGap)
+{
+    auto left=window("a",0,false,24,.1),right=window("b",8,false,24,.1);
+    for(std::size_t i=12;i<left.frames.size();++i) {
+        left.frames[i].timestampSeconds+=3;right.frames[i].timestampSeconds+=3;
+    }
+    const auto match=pfcore::MotionMatcher().compare(left,right);
+    ASSERT_GT(match.similarity,0);
+    EXPECT_TRUE(match.leftEndSeconds<left.frames[12].timestampSeconds
+        || match.leftStartSeconds>=left.frames[12].timestampSeconds);
+    EXPECT_TRUE(match.rightEndSeconds<right.frames[12].timestampSeconds
+        || match.rightStartSeconds>=right.frames[12].timestampSeconds);
+    EXPECT_LE(match.durationSeconds,1.1+1e-6);
+}
 
 TEST(MotionMatcher, VerifiedDifferentShotsStillRespectTheExplicitSourceGapFloor)
 {
@@ -1571,6 +1706,43 @@ TEST(PoseSupport, RepeatSearchSlicesObservedFramesWithoutCrossingGaps)
     EXPECT_TRUE(pfcore::shortPoseWindows(w).empty());
     auto head = soldierHeadPoseFixture()[0];
     EXPECT_TRUE(pfcore::shortPoseWindows(head).empty());
+}
+TEST(PoseSupport, HiddenFaceRetainsMeasuredLimbCandidatesWithTorsoAnchor)
+{
+    pfcore::MotionWindow back;back.sourceId="back";back.staticFrameSet=true;
+    const std::vector<pfcore::Keypoint> points{
+        {0,-1,0},{-.1,-1,0},{.1,-1,0},{-.2,-1,0},{.2,-1,0},
+        {-.5,0,.9},{.5,0,.9},{-.7,.5,.9},{.7,.5,.9},{-.7,1,.9},{.7,1,.9},
+        {-.3,1,.9},{.3,1,.9},{-.3,2,.9},{.3,2,.9},{-.3,3,.9},{.3,3,.9}};
+    for(int i=0;i<12;++i)back.frames.push_back({i*.1,points});
+    ASSERT_FALSE(pfcore::observedPoseRuns(back).empty());
+    const auto alternatives=pfcore::shortPoseWindows(back);
+    ASSERT_FALSE(alternatives.empty());
+    for(const auto& candidate:alternatives) {
+        EXPECT_TRUE(candidate.faceEmbedding.empty());
+        EXPECT_TRUE(candidate.appearanceEmbedding.empty());
+    }
+    auto unknownPerson=alternatives.front();unknownPerson.sourceId="another";
+    pfcore::MotionMatcherParams params;params.requireAppearance=true;params.allowStaticFrames=true;
+    EXPECT_EQ(pfcore::MotionMatcher(params).compare(alternatives.front(),unknownPerson).rejection,
+        pfcore::MotionRejection::Identity);
+    auto missingTorso=back;
+    for(auto& frame:missingTorso.frames)frame.keypoints[11].confidence=0;
+    EXPECT_TRUE(pfcore::observedPoseRuns(missingTorso).empty());
+    auto missingLimbs=back;
+    for(auto& frame:missingLimbs.frames)for(int joint:{9,10,15,16})frame.keypoints[joint].confidence=0;
+    EXPECT_TRUE(pfcore::observedPoseRuns(missingLimbs).empty());
+    auto oneArm=back;
+    for(auto& frame:oneArm.frames)for(int joint:{8,10,13,14,15,16})frame.keypoints[joint].confidence=0;
+    EXPECT_FALSE(pfcore::observedPoseRuns(oneArm).empty());
+    EXPECT_FALSE(pfcore::shortPoseWindows(oneArm).empty());
+    // Complementary single-frame limbs do not supply one sustained chain.
+    for(std::size_t i=0;i<oneArm.frames.size();++i) {
+        oneArm.frames[i].keypoints[7].confidence=i%2 ? 0:.9;
+        oneArm.frames[i].keypoints[8].confidence=i%2 ? .9:0;
+        oneArm.frames[i].keypoints[10].confidence=.9;
+    }
+    EXPECT_TRUE(pfcore::observedPoseRuns(oneArm).empty());
 }
 
 TEST(MotionMatcher, HeldPoseScoreIsNotPenalizedByDifferentShotLength)
@@ -1835,6 +2007,39 @@ TEST(MotionMatcher, IndividualSelectionPrioritisesBody)
     ASSERT_EQ(selected.size(),1U);
     EXPECT_FALSE(selected[0].headOnlyComparison);
     EXPECT_GE(selected[0].leftIndex,2U); EXPECT_GE(selected[0].rightIndex,2U);
+}
+
+TEST(MotionMatcher, VerifiedBodyMotionIsNotCrowdedOutByAHigherScoringHeldPose)
+{
+    auto motion=recordedPoseFixture("soldier-cross-source-walking.json",false,true);
+    auto poses=deanAimingPoseFixture();
+    ASSERT_EQ(motion.size(),2U);ASSERT_GE(poses.size(),2U);
+    poses[1]=poses[0];
+    for(std::size_t i=0;i<2;++i) {
+        // Identity is held fixed here: this test concerns competition for an
+        // already verified shot, not actor recognition across these fixtures.
+        motion[i].faceEmbedding={1,0};motion[i].faceConfidence=1;
+        poses[i].sourceId=i==0 ? motion[0].sourceId:"independent-held-pose";
+        poses[i].hasSceneIndex=true;poses[i].sceneIndex=motion[0].sceneIndex;
+        poses[i].sceneStartSeconds=i==0 ? 0:100;
+        poses[i].sceneEndSeconds=i==0 ? 20:120;
+        poses[i].faceEmbedding={1,0};poses[i].faceConfidence=1;
+        for(auto& frame:poses[i].frames)frame.timestampSeconds+=i*100;
+    }
+    pfcore::MotionMatcherParams p;p.individualPairs=p.allowStaticFrames=p.requireAppearance=true;
+    p.similarityThreshold=.7;p.minTemporalFrames=6;p.timeWeight=.1;
+    p.staticArticulationSimilarityThreshold=.82;p.minAppearanceSimilarity=.76;
+    const pfcore::MotionMatcher matcher(p);
+    const auto moving=matcher.compare(motion[0],motion[1]);
+    const auto held=matcher.compare(poses[0],poses[1]);
+    ASSERT_EQ(moving.rejection,pfcore::MotionRejection::None);
+    ASSERT_EQ(held.rejection,pfcore::MotionRejection::None);
+    ASSERT_GT(held.similarity,moving.similarity);
+    std::vector<pfcore::MotionWindow> windows{motion[0],motion[1],poses[0],poses[1]};
+    const auto selected=matcher.findAllPairs(windows);
+    ASSERT_EQ(selected.size(),1U);
+    EXPECT_LT(selected[0].leftIndex,2U);EXPECT_LT(selected[0].rightIndex,2U);
+    EXPECT_FALSE(selected[0].headOnlyComparison);
 }
 
 TEST(MotionMatcher, IndividualCoverageRecoversTwoPairsFromAGreedyBlockedPath)
@@ -2155,6 +2360,35 @@ TEST(MotionMatcher, ReflectedCopiesRejectWithoutSuppressingOtherBodyFootage)
     EXPECT_GT(pfcore::MotionMatcher(p).compare(a,b).similarity,.8);
 }
 
+TEST(MotionMatcher, RepeatedFootageInsideOneScenepackIsNotAnotherParallel)
+{
+    auto a=deanAimingPoseFixture()[0],copy=a,other=a;
+    a.sourceId=copy.sourceId=other.sourceId="one-scenepack";
+    a.hasSceneIndex=copy.hasSceneIndex=other.hasSceneIndex=true;
+    a.sceneIndex=0;copy.sceneIndex=1;other.sceneIndex=2;
+    for(auto& frame:copy.frames)frame.timestampSeconds+=100;
+    for(auto& frame:other.frames)frame.timestampSeconds+=200;
+    for(int n=0;n<3;++n) {
+        const auto pixels=cameraViewFixture(n);
+        a.sceneSequence.insert(a.sceneSequence.end(),pixels.begin(),pixels.end());
+    }
+    copy.sceneSequence=other.sceneSequence=a.sceneSequence;
+    const auto different=cameraViewFixture(3);
+    std::copy(different.begin(),different.end(),other.sceneSequence.begin()+864);
+    pfcore::MotionMatcherParams params;
+    params.individualPairs=params.allowStaticFrames=params.requireAppearance=true;
+    const pfcore::MotionMatcher matcher(params);
+    EXPECT_DOUBLE_EQ(matcher.compare(a,copy).similarity,0);
+    EXPECT_DOUBLE_EQ(matcher.compare(copy,a).similarity,0);
+    EXPECT_GT(matcher.compare(a,other).similarity,.8);
+    const auto pairs=matcher.findAllPairs({a,copy,other});
+    ASSERT_EQ(pairs.size(),1U);
+    EXPECT_TRUE(pairs[0].leftIndex==2 || pairs[0].rightIndex==2);
+    // Missing pixels cannot prove a copy, even if the measured pose agrees.
+    copy.sceneSequence.clear();
+    EXPECT_GT(matcher.compare(a,copy).similarity,.8);
+}
+
 TEST(MotionMatcher, IndexedFootageProofKeepsAffineAndReflectedCopiesExcluded)
 {
     auto original=deanAimingPoseFixture()[0];original.sourceId="source-a";original.hasSceneIndex=true;
@@ -2183,6 +2417,31 @@ TEST(MotionMatcher, MeasuredForeignFaceRejectsOnlyTheIntervalContainingIt)
     EXPECT_TRUE(pfcore::observedIdentityAllows(w,20,22,false));
     w.measuredFaces[2].relativeEyeSpan=.008;
     EXPECT_TRUE(pfcore::observedIdentityAllows(w,10,12,false));
+}
+
+TEST(MotionMatcher, FaceRefinementSkipsSearchOnlyWhenEveryObservedIntervalIsUnchanged)
+{
+    auto window=deanAimingPoseFixture()[0];
+    const std::vector<pfcore::MeasuredFaceIdentity> empty;
+    for(const auto& frame:window.frames)
+        window.measuredFaces.push_back({frame.timestampSeconds,true,.75,.1});
+    EXPECT_FALSE(pfcore::observedIdentityAdmissionChanged(window,empty));
+    const auto confirmed=window.measuredFaces;
+    window.measuredFaces.back().similarity=.1;
+    EXPECT_TRUE(pfcore::observedIdentityAdmissionChanged(window,confirmed));
+    window.measuredFaces=confirmed;
+    for(auto& face:window.measuredFaces)face.observed=false;
+    EXPECT_TRUE(pfcore::observedIdentityAdmissionChanged(window,empty));
+    EXPECT_FALSE(pfcore::observedIdentityAdmissionChanged(window,window.measuredFaces));
+    // A previously failed portrait can become allowed too: checking only the
+    // selected results would miss that newly admitted alternative.
+    const auto missing=window.measuredFaces;
+    window.measuredFaces=confirmed;
+    EXPECT_TRUE(pfcore::observedIdentityAdmissionChanged(window,missing));
+    // Independent explicit disagreement matters even to a body comparison.
+    window.measuredFaces=confirmed;
+    window.measuredFaces.front().similarity=.2;
+    EXPECT_TRUE(pfcore::observedIdentityAdmissionChanged(window,confirmed));
 }
 
 TEST(MotionMatcher, RecordedCroppedMotionCannotBorrowBodyIdentityFromAnotherPerson)

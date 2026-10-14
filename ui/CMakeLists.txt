@@ -67,7 +67,10 @@ target_sources(pfui PRIVATE
     src/AppInfo.cpp
     src/DiscordPresence.cpp
     src/AnalysisController.cpp
+    src/HeadOrientationReview.cpp
+    src/VideoActionReview.cpp
     src/ReviewActions.cpp
+    src/McpController.cpp
 )
 target_link_libraries(pfui PUBLIC pf::core pf::gpu pf::services pf::exporters pfupdate)
 

@@ -7,6 +7,7 @@
 #include <pfgpu/SessionCache.hpp>
 
 #include <cstdint>
+#include <array>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -15,6 +16,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <future>
+#include "../../gpu/src/CudaGraphRunner.hpp"
 
 namespace {
 
@@ -161,6 +163,28 @@ TEST_F(SessionCacheTest, FloatInferenceCopiesOrtOutputIntoOwnedTensor)
     ASSERT_EQ(output.outputs.front().values.size(), 2U);
     EXPECT_FLOAT_EQ(output.outputs.front().values[0], 4.25F);
     EXPECT_FLOAT_EQ(output.outputs.front().values[1], -2.5F);
+}
+
+TEST_F(SessionCacheTest, MultipleFloatInputsPreserveBindingOrderAndModelShapes)
+{
+    QFile file(QString::fromUtf8(PF_TEST_FIXTURE_DIR)+"/two-input-subtract.onnx");
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const auto bytes=file.readAll();
+    pfgpu::SessionCache cache;
+    const auto loaded=cache.getOrCreate(pfgpu::ModelRef::fromBytes(
+        std::string(bytes.constData(),bytes.size()),"two-input-subtract"),{pfgpu::Provider::Cpu,0,"multi-input-test",1});
+    ASSERT_TRUE(loaded.ok)<<loaded.error;
+    const auto spec=pfgpu::describeSession(loaded.handle);
+    ASSERT_TRUE(spec.ok)<<spec.error;ASSERT_EQ(spec.inputs.size(),2U);
+    EXPECT_EQ(spec.inputs[0].shape,(std::vector<std::int64_t>{1,2}));
+    EXPECT_EQ(spec.inputs[1].shape,spec.inputs[0].shape);
+    const std::array<pfgpu::FloatTensor,2> inputs{{{{1,2},{4.25F,-2.5F}},{{1,2},{1.5F,3.F}}}};
+    const auto output=pfgpu::runFloats(loaded.handle,inputs);
+    ASSERT_TRUE(output.ok)<<output.error;ASSERT_EQ(output.outputs.size(),1U);
+    EXPECT_EQ(output.outputNames,(std::vector<std::string>{"difference"}));
+    EXPECT_EQ(output.outputs[0].values,(std::vector<float>{2.75F,-5.5F}));
+    const auto incomplete=pfgpu::runFloat(loaded.handle,inputs[0]);
+    EXPECT_FALSE(incomplete.ok);EXPECT_EQ(incomplete.error,"input count does not match model");
 }
 
 TEST_F(SessionCacheTest, DiagnosticProfilingIsBoundedAndPreservesInference)
@@ -335,6 +359,30 @@ TEST_F(SessionCacheTest, ShrinkingCapacityEvictsImmediately)
     EXPECT_EQ(cache.stats().live, 1U);
 }
 
+TEST_F(SessionCacheTest, GraphSetupFailureKeepsOrdinaryInferenceUsable)
+{
+    pfgpu::SessionCache cache;
+    const auto session=cache.getOrCreate(probeModel(),{pfgpu::Provider::Cpu,0,"fallback",1});
+    ASSERT_TRUE(session.ok)<<session.error;
+    const auto* api=pfgpu::ortApi();ASSERT_NE(api,nullptr);
+    // The CPU identity fixture cannot supply graph device allocations. Force
+    // the real runner through setup failure, then use its uncaptured fallback.
+    pfgpu::detail::CudaGraphRunner runner(*api,session.handle.session,0);
+    for(const auto& values:{std::vector<float>{1.f,2.f},std::vector<float>{-.5f,9.f}}) {
+        pfgpu::FloatTensor input{{1,2},values};
+        const auto result=runner.run(input);
+        ASSERT_TRUE(result.ok)<<result.error;
+        ASSERT_EQ(result.outputs.size(),1U);
+        EXPECT_EQ(result.outputs.front().shape,input.shape);
+        EXPECT_EQ(result.outputs.front().values,values);
+    }
+    auto invalid=pfgpu::FloatTensor{{1,2},{1.f}};
+    EXPECT_FALSE(runner.run(invalid).ok);
+    const auto recovered=runner.run(pfgpu::FloatTensor{{1,2},{3.f,4.f}});
+    ASSERT_TRUE(recovered.ok)<<recovered.error;
+    EXPECT_EQ(recovered.outputs.front().values,(std::vector<float>{3.f,4.f}));
+}
+
 TEST(SessionCacheCudaGraph, RealFloat32ModelsPreserveOutputsAcrossClientsAndCacheClear)
 {
     const auto root=qEnvironmentVariable("PF_TEST_CUDA_GRAPH_MODEL_ROOT");
@@ -392,6 +440,15 @@ TEST(SessionCacheCudaGraph, RealFloat32ModelsPreserveOutputsAcrossClientsAndCach
                 EXPECT_EQ(actual.outputs[j].values,reference[i].outputs[j].values)<<i<<":"<<j;
             }
         }
+        qunsetenv("PF_AUDIT_CUDA_GRAPH");
+        const auto automatic=graphCache.getOrCreate(source,{pfgpu::Provider::Cuda,0,"b1",0});
+        ASSERT_TRUE(automatic.ok)<<automatic.error;
+        EXPECT_EQ(bool(automatic.handle.cudaGraph),pfgpu::ortRuntimeVersion()=="1.24.4");
+        const auto automaticResult=pfgpu::runFloat(automatic.handle,inputs.front());
+        ASSERT_TRUE(automaticResult.ok)<<automaticResult.error;
+        ASSERT_EQ(automaticResult.outputs.size(),reference.front().outputs.size());
+        for(size_t i=0;i<automaticResult.outputs.size();++i)
+            EXPECT_EQ(automaticResult.outputs[i].values,reference.front().outputs[i].values);
     }
 }
 } // namespace

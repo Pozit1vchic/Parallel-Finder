@@ -46,6 +46,12 @@ FloatTensor makeInput(const ReIdImage& image, const InputShape& shape, bool chan
 {
     if (!image.rgba || image.width <= 0 || image.height <= 0)
         throw std::invalid_argument("ReIdEstimator: invalid frame");
+    if (!std::isfinite(image.left) || !std::isfinite(image.top)
+        || !std::isfinite(image.right) || !std::isfinite(image.bottom)
+        || image.right<=image.left || image.bottom<=image.top
+        || image.right<=0 || image.bottom<=0
+        || image.left>=image.width || image.top>=image.height)
+        throw std::invalid_argument("ReIdEstimator: invalid or empty person crop");
     const float left = std::clamp(image.left, 0.0F, static_cast<float>(image.width - 1));
     const float top = std::clamp(image.top, 0.0F, static_cast<float>(image.height - 1));
     const float right = std::clamp(image.right, left + 1.0F, static_cast<float>(image.width));

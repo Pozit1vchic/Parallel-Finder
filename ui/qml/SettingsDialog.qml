@@ -531,6 +531,25 @@ Popup {
                         PfSliderField { Layout.fillWidth: true; label: L10n.t("settings.cacheLimit"); from: 0.25; to: 128; stepSize: 0.25; value: Analysis.cacheLimitGb; decimals: 2; suffix: "GB"; tooltipText: L10n.t("settings.cacheLimitHint"); Accessible.name: L10n.t("settings.cacheLimit"); onValueEdited: Analysis.setCacheLimitGb(nextValue) }
                         PfSliderField { Layout.fillWidth: true; label: L10n.t("settings.processingThreads"); from: 0; to: 64; stepSize: 1; value: Analysis.processingThreads; decimals: 0; integer: true; tooltipText: L10n.t("settings.processingThreadsHint"); Accessible.name: L10n.t("settings.processingThreads"); onValueEdited: Analysis.setProcessingThreads(Math.round(nextValue)) }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.systemHint"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                        Text { Layout.fillWidth: true; text: "MCP"; color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        PfCheckBox { objectName: "mcpEnabledCheck"; text: L10n.language === "ru" ? "Включить MCP-сервер" : "Enable MCP server"; checked: Mcp.enabled; onToggled: Mcp.enabled = checked }
+                        Text { Layout.fillWidth: true; text: L10n.language === "ru" ? "Подключай помощника к результатам и ходу анализа. Сервер доступен только на этом компьютере, пока приложение открыто." : "Connect an assistant to results and analysis progress. Available only on this computer while the app is open."; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                        PfCheckBox { objectName: "mcpControlCheck"; text: L10n.language === "ru" ? "Разрешить управление приложением" : "Allow app control"; checked: Mcp.allowControl; onToggled: Mcp.allowControl = checked }
+                        Text { Layout.fillWidth: true; text: L10n.language === "ru" ? "Управление разрешает запуск и отмену анализа, изменение типов и границ клипов, отметки и экспорт. Без него доступно только чтение." : "Control allows starting/cancelling analysis, editing classes and clip bounds, review marks and export. Otherwise access is read-only."; color: Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }
+                        RowLayout { Layout.fillWidth: true; spacing: 8
+                            Text { text: L10n.language === "ru" ? "Порт" : "Port"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
+                            PfTextField { objectName: "mcpPortField"; Layout.preferredWidth: 100; text: String(Mcp.port)
+                                validator: IntValidator { bottom: 1024; top: 65535 }
+                                onEditingFinished: if (acceptableInput) Mcp.port = Number(text)
+                                onActiveFocusChanged: if (!activeFocus && !acceptableInput) text = String(Mcp.port)
+                            }
+                            Text { Layout.fillWidth: true; text: Mcp.error.length ? Mcp.error : Mcp.running ? (L10n.language === "ru" ? "Работает" : "Running") : (L10n.language === "ru" ? "Выключен" : "Off"); color: Mcp.error.length ? Theme.accent : Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                        }
+                        Text { Layout.fillWidth: true; visible: Mcp.running; text: Mcp.endpoint; color: Theme.textSecondary; font.family: Theme.monoFont; font.pixelSize: 11; wrapMode: Text.WrapAnywhere }
+                        RowLayout { Layout.fillWidth: true; spacing: 8
+                            PfButton { objectName: "mcpCopyConnection"; Layout.fillWidth: true; compact: true; text: L10n.language === "ru" ? "Скопировать подключение" : "Copy connection"; enabled: Mcp.running; onClicked: Mcp.copyConnection() }
+                            PfButton { Layout.preferredWidth: 150; compact: true; quiet: true; text: L10n.language === "ru" ? "Обновить ключ" : "Renew key"; enabled: Mcp.running; onClicked: Mcp.rotateKey() }
+                        }
                     }
                 }
             }

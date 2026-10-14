@@ -1,4 +1,5 @@
 #include <pfcore/DominantPerson.hpp>
+#include <pfcore/FaceConsensus.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -537,7 +538,8 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
     return selected;
 }
 
-DominantVideoSelection selectDominantVideoWindows(const std::vector<MotionWindow>& windows)
+DominantVideoSelection selectDominantVideoWindows(const std::vector<MotionWindow>& windows,
+    const DominantVideoSelectionControl& control)
 {
     struct Source {
         std::map<std::size_t, const MotionWindow*> shots;
@@ -560,6 +562,7 @@ DominantVideoSelection selectDominantVideoWindows(const std::vector<MotionWindow
     DominantVideoSelection result;
     result.suppliedSources = evidence.size();
     result.windows.assign(windows.size(), true);
+    result.recoveredWindows.assign(windows.size(),false);
     if (evidence.size() <= 1) {
         for (const auto& [name, _] : evidence) result.sources.push_back(name);
         return result;
@@ -634,6 +637,51 @@ DominantVideoSelection selectDominantVideoWindows(const std::vector<MotionWindow
     std::sort(result.sources.begin(),result.sources.end());
     for (std::size_t i=0;i<windows.size();++i)
         result.windows[i]=std::binary_search(result.sources.begin(),result.sources.end(),windows[i].sourceId);
+    if(control.auditShotRecovery && groups[best].size()>=2) {
+        // Freeze references before recovery. Recovered shots must never become
+        // new anchors, so a sequence of weaker links cannot change the target.
+        std::set<std::pair<std::string,std::size_t>> recoveredShots;
+        for(std::size_t source=0;source<sources.size();++source) {
+            if(owner[source]==best)continue;
+            const auto& candidate=*sources[source];
+            if(std::any_of(groups[best].begin(),groups[best].end(),[&](auto reference) {
+                return embeddingScore(candidate.face,sources[reference]->face)<.363;
+            }))continue;
+            for(const auto& [shot,window]:candidate.shots) {
+                if(window->faceConfidence<.45 || embeddingScore(window->faceEmbedding,window->faceEmbedding)<=.99)continue;
+                bool supported=false;
+                for(const auto reference:groups[best]) {
+                    const auto& lead=*sources[reference];
+                    // Clear aggregate contradiction remains a veto. A mask or
+                    // view can weaken the mean, but cannot establish identity.
+                    if(embeddingScore(candidate.face,lead.face)<.363)continue;
+                    std::vector<const std::vector<float>*> votes;
+                    for(const auto& anchor:lead.anchors)
+                        if(embeddingScore(window->faceEmbedding,anchor)>=.55)votes.push_back(&anchor);
+                    for(std::size_t a=0;a<votes.size() && !supported;++a)
+                        for(std::size_t b=a+1;b<votes.size();++b)
+                            if(embeddingScore(*votes[a],*votes[b])>=.50) {supported=true;break;}
+                    if(supported)break;
+                }
+                if(supported)recoveredShots.emplace(names[source],shot);
+            }
+        }
+        for(std::size_t i=0;i<windows.size();++i) {
+            const auto& window=windows[i];
+            if(!result.windows[i] && window.hasSceneIndex && recoveredShots.contains({window.sourceId,window.sceneIndex})
+                && window.faceConfidence>=.45 && embeddingScore(window.faceEmbedding,window.faceEmbedding)>.99) {
+                // A scene can contain more than one track. Do not propagate a
+                // selected track's identity to an unrelated co-visible actor.
+                const auto& representative=evidence.at(window.sourceId).shots.at(window.sceneIndex);
+                if(window.trackId!=representative->trackId || embeddingScore(window.faceEmbedding,representative->faceEmbedding)<.70)continue;
+                result.windows[i]=true;result.recoveredWindows[i]=true;
+            }
+        }
+        for(const auto& [source,shot]:recoveredShots)
+            if(!std::binary_search(result.sources.begin(),result.sources.end(),source)) {
+                result.sources.push_back(source);std::sort(result.sources.begin(),result.sources.end());
+            }
+    }
     return result;
 }
 
@@ -787,7 +835,8 @@ DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack
     for (std::size_t i = 0; i < summaries.size(); ++i) {
         if(control.cancelled && control.cancelled())return {};
         if(control.progress)control.progress(DominantSelectionStage::Recovery,i,summaries.size());
-        if (original[i] || !faceReady(i) || !bodyReady(i)) continue;
+        if (original[i] || !faceReady(i)
+            || (!bodyReady(i) && !control.auditFaceConsensusRecovery)) continue;
         if (std::any_of(lead.begin(), lead.end(), [&](std::size_t anchor) {
             return coVisible(i, anchor) || (faceObserved(anchor) && !faceReady(anchor)
                 && embeddingScore(summaries[i].face, summaries[anchor].face) < .363);
@@ -800,7 +849,9 @@ DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack
             body = body || (bodyReady(anchor)
                 && embeddingScore(summaries[i].body, summaries[anchor].body) >= .76);
         }
-        candidate[i] = votes >= 2 && votes > anchors.size() / 2 && body;
+        const bool facialConsensus = control.auditFaceConsensusRecovery
+            && anchors.size() >= 3 && votes >= 2 && votes * 3 >= anchors.size() * 2;
+        candidate[i] = votes >= 2 && votes > anchors.size() / 2 && (body || facialConsensus);
     }
     for (std::size_t i = 0; i < candidate.size(); ++i) if (candidate[i])
         for (std::size_t j = i + 1; j < candidate.size(); ++j) if (candidate[j] && coVisible(i, j))
@@ -821,7 +872,8 @@ DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack
                 const auto run = summarizeObservations(std::span(observations).subspan(first, last - first + 1));
                 std::size_t votes = 0;
                 bool body = false;
-                if (run.bodyEvidence >= .45 && embeddingScore(run.body, run.body) > .99) {
+                if (control.auditFaceConsensusRecovery
+                    || (run.bodyEvidence >= .45 && embeddingScore(run.body, run.body) > .99)) {
                     for (const auto anchor : anchors) {
                         if (embeddingScore(run.face, summaries[anchor].face) < .363) continue;
                         ++votes;
@@ -829,7 +881,11 @@ DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack
                             && embeddingScore(run.body, summaries[anchor].body) >= .76);
                     }
                 }
-                if (votes >= 2 && votes > anchors.size() / 2 && body) ranges.push_back({first, last + 1});
+                const bool facialConsensus = control.auditFaceConsensusRecovery
+                    && independentFaces >= 3 && anchors.size() >= 3
+                    && votes >= 2 && votes * 3 >= anchors.size() * 2;
+                if (votes >= 2 && votes > anchors.size() / 2 && (body || facialConsensus))
+                    ranges.push_back({first, last + 1});
             }
             independentFaces = 0;
         };
@@ -859,6 +915,67 @@ DominantSourceSelection selectDominantSourceTracks(const std::vector<PersonTrack
             std::fprintf(stderr, "PF_DOMINANT track=%zu decision=verified-run begin=%zu end=%zu time=%.9f/%.9f\n",
                 tracks[trackIndex].id, range.begin, range.end,
                 observations[range.begin].timestampSeconds, observations[range.end - 1].timestampSeconds);
+    }
+    if (control.auditDirectFaceRecovery) {
+        // Direct multi-image support from one admitted view can be stronger
+        // than votes against averages from many poorly lit views. Never grow
+        // a run outside actual face observations or across an identity gap.
+        std::vector<std::vector<TrackObservationRange>> proposals(tracks.size());
+        for (std::size_t i=0;i<summaries.size();++i) {
+            if(control.cancelled && control.cancelled())return {};
+            const auto index=indices[i];
+            if(result.tracks[index] || std::any_of(lead.begin(),lead.end(),
+                [&](std::size_t anchor){return coVisible(i,anchor);}))continue;
+            const auto& observations=tracks[index].observations;
+            std::vector<DirectFaceSample> samples;
+            std::size_t first=0,last=0;
+            const auto finishDirect=[&] {
+                if(samples.size()<3)return;
+                for(const auto anchor:anchors) {
+                    if(control.cancelled && control.cancelled())return;
+                    std::vector<DirectFaceSample> reference;
+                    const auto anchorIndex=indices[anchor];
+                    const auto& anchorObservations=tracks[anchorIndex].observations;
+                    for(const auto range:result.observationRuns[anchorIndex])
+                        for(std::size_t n=range.begin;n<range.end;++n) {
+                            const auto& observation=anchorObservations[n];
+                            if(!observation.faceEmbedding.empty())
+                                reference.push_back({observation.timestampSeconds,observation.faceEmbedding});
+                        }
+                    if(reference.size()<3)continue;
+                    const auto consensus=compareDirectFaces(samples,samples.front().timestampSeconds,
+                        samples.back().timestampSeconds,reference,reference.front().timestampSeconds,
+                        reference.back().timestampSeconds);
+                    if(consensus.decision==FaceConsensusDecision::Supported) {
+                        proposals[index].push_back({first,last+1});break;
+                    }
+                }
+            };
+            for(std::size_t j=0;j<observations.size();++j) {
+                if(control.cancelled && control.cancelled())return {};
+                const auto& observation=observations[j];
+                if(observation.faceEmbedding.empty())continue;
+                if(!samples.empty() && (observation.timestampSeconds-samples.back().timestampSeconds>1.0
+                    || observation.timestampSeconds<=samples.back().timestampSeconds)) {
+                    finishDirect();samples.clear();
+                }
+                if(samples.empty())first=j;
+                last=j;samples.push_back({observation.timestampSeconds,observation.faceEmbedding});
+            }
+            finishDirect();
+        }
+        // Competing co-visible candidates cannot both become the source lead.
+        for(std::size_t i=0;i<summaries.size();++i) {
+            if(control.cancelled && control.cancelled())return {};
+            const auto index=indices[i];if(proposals[index].empty())continue;
+            bool competing=false;
+            for(std::size_t j=0;j<summaries.size();++j)
+                if(i!=j && !proposals[indices[j]].empty() && coVisible(i,j)) {competing=true;break;}
+            if(!competing) {
+                result.observationRuns[index]=proposals[index];
+                result.tracks[index]=result.recovered[index]=true;
+            }
+        }
     }
     if(control.progress)control.progress(DominantSelectionStage::Recovery,summaries.size(),summaries.size());
     return result;

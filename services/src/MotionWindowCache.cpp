@@ -1,5 +1,6 @@
 #include <pfservices/MotionWindowCache.hpp>
 #include <cmath>
+#include <algorithm>
 #include <cstring>
 
 namespace pfservices {
@@ -25,7 +26,9 @@ bool readBytes(std::span<const std::uint8_t> input, std::size_t& offset, T& valu
 std::vector<std::uint8_t> serializeMotionWindows(std::span<const pfcore::MotionWindow> windows, int sceneCount)
 {
     std::vector<std::uint8_t> output;
-    const std::uint32_t version = 9;
+    const std::uint32_t version = std::any_of(windows.begin(),windows.end(),[](const auto& window) {
+        return !window.directFaceModel.empty() || !window.directFaces.empty();
+    }) ? 10 : 9;
     appendBytes(output, version);
     appendBytes(output, static_cast<std::uint32_t>(windows.size()));
     appendBytes(output, static_cast<std::uint32_t>(sceneCount));
@@ -59,6 +62,16 @@ std::vector<std::uint8_t> serializeMotionWindows(std::span<const pfcore::MotionW
                 appendBytes(output, point.confidence);
             }
         }
+        if(version>=10) {
+            appendBytes(output,static_cast<std::uint32_t>(window.directFaceModel.size()));
+            output.insert(output.end(),window.directFaceModel.begin(),window.directFaceModel.end());
+            appendBytes(output,static_cast<std::uint32_t>(window.directFaces.size()));
+            for(const auto& face:window.directFaces) {
+                appendBytes(output,face.timestampSeconds);
+                appendBytes(output,static_cast<std::uint32_t>(face.embedding.size()));
+                for(float value:face.embedding)appendBytes(output,value);
+            }
+        }
     }
     return output;
 }
@@ -69,7 +82,7 @@ bool deserializeMotionWindows(std::span<const std::uint8_t> input,
     cachedSceneCount = -1;
     std::size_t offset = 0;
     std::uint32_t version = 0, windowCount = 0;
-    if (!readBytes(input, offset, version) || (version != 7 && version != 8 && version != 9)
+    if (!readBytes(input, offset, version) || (version != 7 && version != 8 && version != 9 && version != 10)
         || !readBytes(input, offset, windowCount) || windowCount > 100'000U) return false;
     if (version >= 8) {
         std::uint32_t count = 0;
@@ -155,6 +168,23 @@ bool deserializeMotionWindows(std::span<const std::uint8_t> input,
                     || !std::isfinite(point.confidence)) return false;
             }
             window.frames.push_back(std::move(frame));
+        }
+        if(version>=10) {
+            std::uint32_t modelSize=0,sampleCount=0;
+            if(!readBytes(input,offset,modelSize) || modelSize>4096U || modelSize>input.size()-offset)return false;
+            window.directFaceModel.assign(reinterpret_cast<const char*>(input.data()+offset),modelSize);offset+=modelSize;
+            if(!readBytes(input,offset,sampleCount) || sampleCount>512U)return false;
+            if(sampleCount && window.directFaceModel.empty())return false;
+            for(std::uint32_t i=0;i<sampleCount;++i) {
+                pfcore::DirectFaceSample sample;std::uint32_t dimension=0;
+                if(!readBytes(input,offset,sample.timestampSeconds) || !std::isfinite(sample.timestampSeconds)
+                    || !readBytes(input,offset,dimension) || dimension==0 || dimension>4096U
+                    || dimension>(input.size()-offset)/sizeof(float))return false;
+                sample.embedding.resize(dimension);
+                for(auto& value:sample.embedding)
+                    if(!readBytes(input,offset,value) || !std::isfinite(value))return false;
+                window.directFaces.push_back(std::move(sample));
+            }
         }
         windows.push_back(std::move(window));
     }

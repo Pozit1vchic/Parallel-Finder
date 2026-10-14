@@ -92,6 +92,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $ModelsDirectory $name) -Destination $modelStage
     }
     Copy-Item -LiteralPath "$root/release-models/yolo26m-pose.onnx" -Destination $modelStage
+    & "$PSScriptRoot/stage-classifier-model.ps1" -Stage $stage
     # Include all locally available notices; provenance/source obligations remain a release gate.
     Copy-Item -LiteralPath "$Toolchain/share/licenses" -Destination (Join-Path $stage 'third-party-licenses') -Recurse
     Copy-Item -LiteralPath "$root/ui/qml/fonts/OFL.txt" -Destination (Join-Path $stage 'third-party-licenses/JetBrainsMono-OFL.txt')

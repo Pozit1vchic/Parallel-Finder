@@ -120,6 +120,7 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
             return result;
         }
     }
+    const bool lossless = request.mode == CutMode::ExactLossless;
     if (request.inputPath.empty() || request.outputPath.empty()) {
         result.error = "input and output paths are required";
         return result;
@@ -147,6 +148,11 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
         return result;
     }
     const bool montage = request.canvasWidth > 0 || request.canvasHeight > 0 || request.ensureStereoAudio;
+    if(lossless && (QString::fromStdWString(request.outputPath.extension().wstring()).toLower() != ".mov"
+        || request.maxWidth || request.maxHeight || montage || request.videoBitrateKbps)) {
+        result.error="exact lossless requires MOV without resizing, normalization, or target bitrate";
+        return result;
+    }
     if (montage && (request.mode != CutMode::Exact || request.canvasWidth < 2 || request.canvasHeight < 2
         || request.canvasWidth % 2 || request.canvasHeight % 2
         || !std::isfinite(request.outputFrameRate) || request.outputFrameRate <= 0.0)) {
@@ -205,6 +211,17 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
             capabilities_ = std::move(capabilities);
         }
         encoders = capabilities_->h264Candidates();
+        if(lossless) {
+            encoders.clear();
+            for(const auto* name:{"hevc_nvenc","libx264"})
+                if(std::find(capabilities_->videoEncoders.begin(),capabilities_->videoEncoders.end(),name)
+                    !=capabilities_->videoEncoders.end())encoders.emplace_back(name);
+            if(std::find(capabilities_->audioEncoders.begin(),capabilities_->audioEncoders.end(),"pcm_f64le")
+                ==capabilities_->audioEncoders.end()) {
+                result.error="exact lossless requires the pcm_f64le audio encoder";
+                return result;
+            }
+        }
         // Compiled-in hardware support does not mean this PC has that GPU.
         // Try the encoder that actually succeeded first for subsequent clips.
         const auto preferred = std::find(encoders.begin(), encoders.end(), preferredEncoder_);
@@ -231,7 +248,16 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
         // Input-side seeking uses the index instead of decoding the entire
         // prefix for EVERY cut. In Exact mode FFmpeg's default accurate_seek
         // discards frames between the preceding keyframe and the target.
-        arguments << QStringLiteral("-ss") << seconds(request.startSeconds);
+        const bool timestampTrim = request.mode != CutMode::Fast;
+        // Preserve the source clock until trimming. Resetting it at a seek
+        // between frames rounds the end against the wrong frame origin.
+        // A bounded preroll also retains partial audio packets at the start.
+        const double seekStart = timestampTrim ? std::max(0.0, request.startSeconds - 0.5)
+                                                : request.startSeconds;
+        if (timestampTrim) arguments << "-copyts";
+        arguments << QStringLiteral("-ss") << seconds(seekStart);
+        if (timestampTrim)
+            arguments << "-t" << seconds(request.endSeconds - seekStart + 0.25);
         const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 2, 1u, 8u);
         arguments << QStringLiteral("-threads") << QString::number(threads);
         arguments << QStringLiteral("-i")
@@ -255,22 +281,46 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
             arguments << "-avoid_negative_ts" << "make_zero";
         } else {
             arguments << QStringLiteral("-c:v") << QString::fromStdString(encoder)
-                      << QStringLiteral("-c:a") << QStringLiteral("aac")
+                      << QStringLiteral("-c:a") << (lossless ? QStringLiteral("pcm_f64le") : QStringLiteral("aac"))
                       << QStringLiteral("-movflags") << QStringLiteral("+faststart");
-            arguments << "-b:a" << "256k";
-            for (const auto& option : videoEncodingArguments(encoder, request.quality, request.videoBitrateKbps, threads))
-                arguments << QString::fromStdString(option);
+            if(lossless) {
+                // '+' preserves the input pixel format and rejects automatic
+                // conversions when an encoder cannot represent that format.
+                arguments << "-pix_fmt" << "+";
+                if(encoder=="libx264")arguments << "-preset" << "veryfast" << "-qp" << "0" << "-threads:v" << QString::number(threads);
+                else arguments << "-preset" << "p5" << "-tune" << "lossless";
+            } else {
+                arguments << "-b:a" << "256k";
+                for (const auto& option : videoEncodingArguments(encoder, request.quality, request.videoBitrateKbps, threads))
+                    arguments << QString::fromStdString(option);
+            }
             if (montage) {
-                arguments << "-vf" << QString("scale=%1:%2:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=%1:%2:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=%3,format=yuv420p")
+                const QString trim = QString("trim=start=%1:end=%2,setpts=PTS-%1/TB,")
+                    .arg(seconds(request.startSeconds), seconds(request.endSeconds));
+                arguments << "-vf" << trim + QString("scale=%1:%2:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=%1:%2:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=%3:round=down,format=yuv420p")
                     .arg(request.canvasWidth).arg(request.canvasHeight).arg(request.outputFrameRate, 0, 'g', 12);
+                const QString audioTrim = request.ensureStereoAudio && !request.sourceHasAudio
+                    ? QString("atrim=end=%1,asetpts=PTS-STARTPTS,").arg(seconds(duration))
+                    : QString("atrim=start=%1:end=%2,asetpts=PTS-%1/TB,")
+                        .arg(seconds(request.startSeconds), seconds(request.endSeconds));
                 arguments << "-profile:v" << "high" << "-ar" << "48000" << "-ac" << "2"
-                          << "-af" << "aresample=async=1:first_pts=0,apad";
-            } else if (request.maxWidth > 0 || request.maxHeight > 0) {
-                // min(iw/ih, limit) prevents upscaling while preserving aspect ratio.
-                const int width = request.maxWidth > 0 ? request.maxWidth : 100000;
-                const int height = request.maxHeight > 0 ? request.maxHeight : 100000;
-                const QString filter = QStringLiteral("scale=min(iw\\,%1):min(ih\\,%2):force_original_aspect_ratio=decrease")
-                    .arg(width).arg(height);
+                          << "-af" << audioTrim + "aresample=async=1:first_pts=0,apad";
+            } else {
+                QString filter = QString("trim=start=%1:end=%2,setpts=PTS-%1/TB")
+                    .arg(seconds(request.startSeconds), seconds(request.endSeconds));
+                arguments << "-af" << QString("atrim=start=%1:end=%2,asetpts=PTS-%1/TB")
+                    .arg(seconds(request.startSeconds), seconds(request.endSeconds));
+                arguments << "-fps_mode" << "passthrough";
+                // The nominal frame-rate timebase can round a sub-frame
+                // offset up and push the final frame onto the exclusive end.
+                arguments << "-enc_time_base:v" << "demux";
+                if (request.maxWidth > 0 || request.maxHeight > 0) {
+                    // min(iw/ih, limit) prevents upscaling while preserving aspect ratio.
+                    const int width = request.maxWidth > 0 ? request.maxWidth : 100000;
+                    const int height = request.maxHeight > 0 ? request.maxHeight : 100000;
+                    filter += QStringLiteral(",scale=min(iw\\,%1):min(ih\\,%2):force_original_aspect_ratio=decrease")
+                        .arg(width).arg(height);
+                }
                 arguments << QStringLiteral("-vf") << filter;
             }
         }
@@ -354,7 +404,7 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
                 result.success = true;
                 result.encoder = encoder;
                 result.error.clear();
-                if (request.mode == CutMode::Exact) {
+                if (request.mode != CutMode::Fast) {
                     std::lock_guard lock(capabilitiesMutex_);
                     preferredEncoder_ = encoder;
                 }

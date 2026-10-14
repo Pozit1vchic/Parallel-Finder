@@ -3,9 +3,9 @@
 #include <memory>
 
 namespace pfgpu::detail {
-// Opt-in audit implementation. Owns fixed IO buffers for exactly one graph.
-// All CUDA Graph runs are serialized, including capture, until stream-level
-// synchronization is verified for the runtime distributed with the app.
+// Fixed IO buffers for one graph. Capture and replay share a dedicated worker.
+// Initial real-input float32 parity is required; unsupported capture or changed
+// tensor shapes use ordinary CUDA execution with the same session and weights.
 class CudaGraphRunner {
 public:
     CudaGraphRunner(const OrtApi& api, OrtSession* session, int deviceId);

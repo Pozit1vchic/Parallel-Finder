@@ -4,10 +4,28 @@ import QtQuick
 
 QtObject {
     property string language: "en"
-    readonly property var movementTypes: ["head_turn", "turn", "head_front", "head_turned", "head_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "body_pose", "head_nod", "head_tilt", "raise", "lower", "raise_lower", "wave", "push", "pull", "reach_return", "step", "static", "mixed", "unknown"]
+    readonly property var movementTypes: ["head_turn_away", "head_turn_back", "head_turn", "turn", "head_front", "head_turned", "head_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "body_pose", "head_nod", "head_tilt", "raise", "lower", "raise_lower", "wave", "push", "pull", "reach_return", "step", "static", "mixed", "unknown"]
     function movementKey(value) {
         const key=String(value || "unknown").split("/")[0]
-        return movementTypes.indexOf(key)>=0 ? key : "unknown"
+        if (movementTypes.indexOf(key)>=0) return key
+        const actions=key.split("+")
+        return actions.length>1 && actions.every(function(action,index) {
+            return movementTypes.indexOf(action)>=0 && action!=="mixed" && action!=="unknown"
+                && action!=="static" && actions.indexOf(action)===index
+        }) ? actions.sort(function(a,b) {return movementTypes.indexOf(a)-movementTypes.indexOf(b)}).join("+") : "unknown"
+    }
+    function movementKeysForRows(rows) {
+        const keys=movementTypes.slice()
+        for(const row of rows) {
+            const key=movementKey(row.classification)
+            if(keys.indexOf(key)<0)keys.push(key)
+        }
+        function rank(key) {
+            return Math.min.apply(null,key.split("+").map(function(action) {return movementTypes.indexOf(action)}))
+        }
+        return keys.sort(function(a,b) {
+            return rank(a)-rank(b) || a.split("+").length-b.split("+").length || a.localeCompare(b)
+        })
     }
 
     readonly property var _dict: ({
@@ -54,6 +72,8 @@ QtObject {
             "class.head_tilt": "Наклон головы",
             "class.turn": "Поворот",
             "class.head_turn": "Поворот головы",
+            "class.head_turn_away": "Отворачивает голову от камеры",
+            "class.head_turn_back": "Поворачивает голову к камере",
             "class.step": "Шаг",
             "class.wave": "Взмах",
             "class.static": "Без движения",
@@ -145,8 +165,8 @@ QtObject {
             "search.presetBalanced": "Баланс",
             "search.presetPrecise": "Высокая точность",
             "search.advanced": "Дополнительные настройки",
-            "search.reanalyze": "Повторный анализ",
-            "search.reanalyzeHint": "Включите и нажмите «Запустить анализ», чтобы удалить кэш выбранных видео и полностью проанализировать их с нуля: кадры, позы, лица и превью. Займёт больше времени.",
+            "search.reanalyze": "Расширенный поиск",
+            "search.reanalyzeHint": "Ищет дополнительные параллели по готовым наблюдениям. Кэш выбранных видео сохраняется; распознавание повторяется только при изменении исходника или настроек анализа. Поиск может занять больше времени.",
             "search.advancedHint": "Здесь только три параметра, которые сильнее всего влияют на точность. Остальное профиль подбирает автоматически.",
             "search.fast": "Быстро",
             "search.medium": "Средне",
@@ -369,6 +389,8 @@ QtObject {
             "class.lower": "Lower",
             "class.turn": "Turn",
             "class.head_turn": "Head turn",
+            "class.head_turn_away": "Turns head away from camera",
+            "class.head_turn_back": "Turns head toward camera",
             "class.step": "Step",
             "class.wave": "Wave",
             "class.static": "Still",
@@ -457,8 +479,8 @@ QtObject {
             "search.presetBalanced": "Balanced",
             "search.presetPrecise": "High precision",
             "search.advanced": "Advanced settings",
-            "search.reanalyze": "Analyze again",
-            "search.reanalyzeHint": "Enable and click Start analysis to delete the selected videos' cache and analyze frames, poses, faces and previews from scratch. This takes longer.",
+            "search.reanalyze": "Expanded search",
+            "search.reanalyzeHint": "Finds additional parallels using existing observations. The selected videos' cache is kept; recognition runs again only when the source or analysis settings change. The search may take longer.",
             "search.advancedHint": "Only the three controls with the biggest impact on precision are shown here. The profile handles the rest.",
             "search.fast": "Fast",
             "search.medium": "Balanced",
@@ -634,7 +656,9 @@ QtObject {
 
     function classificationLabel(key) {
         const parts = String(key || "unknown").split("/")
-        return parts.map(function(part) { return t("class." + (part || "unknown")) }).join(" · ")
+        return parts.map(function(part) {
+            return part.split("+").map(function(action) {return t("class."+(action || "unknown"))}).join(" + ")
+        }).join(" · ")
     }
 
     function matchLabel(record) {

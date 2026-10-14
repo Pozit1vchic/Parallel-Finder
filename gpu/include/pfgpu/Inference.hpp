@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <span>
 #include <vector>
 
 #include "pfgpu/SessionCache.hpp"
@@ -29,6 +30,7 @@ struct SessionSpec {
     std::string error;
     TensorSpec input;
     std::vector<TensorSpec> outputs;
+    std::vector<TensorSpec> inputs;
 };
 
 // Reads static/dynamic tensor shapes without running the graph. This is used
@@ -40,5 +42,8 @@ SessionSpec describeSession(const SessionHandle& session);
 // graph name. The current implementation intentionally requires float output;
 // model-specific decoding (YOLO/NMS variants) belongs in PoseEstimator.
 InferenceResult runFloat(const SessionHandle& session, const FloatTensor& input);
+// Inputs follow the graph's declared order; count and bounded shapes are
+// checked before allocating runtime tensors. Names are read from the graph.
+InferenceResult runFloats(const SessionHandle& session, std::span<const FloatTensor> inputs);
 
 } // namespace pfgpu

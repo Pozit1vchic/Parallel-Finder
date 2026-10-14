@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <pfcore/MotionRanker.hpp>
 #include <pfcore/DominantPerson.hpp>
+#include <pfcore/MovementClassifier.hpp>
 #include <QCoreApplication>
 #include <QFile>
 #include <QJsonDocument>
@@ -10,6 +11,19 @@
 #include <iostream>
 #include <chrono>
 #include <set>
+#include <array>
+
+const char* rejectionName(pfcore::MotionRejection reason)
+{
+    constexpr std::array names = {"none", "shot_boundary", "source_overlap", "same_shot",
+        "nearby_context", "identity", "head_identity", "temporal_support", "motion_evidence",
+        "body_visibility", "limb_support", "active_body", "alignment", "source_gap", "direction",
+        "scene_context", "head_geometry", "static_geometry", "measured_identity", "copied_footage",
+        "body_only", "same_camera", "score"};
+    static_assert(names.size() == static_cast<std::size_t>(pfcore::MotionRejection::Score) + 1);
+    const auto index = static_cast<std::size_t>(reason);
+    return index < names.size() ? names[index] : "unknown";
+}
 
 // Replay diagnostic windows without decoding/inference, so a suspected miss
 // can be inspected against the exact production matcher, not a second model.
@@ -17,7 +31,7 @@ int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
     const auto args = app.arguments();
-    if (args.size() < 3) { std::cerr << "usage: pf_matcher_probe windows.json left-index right-index | --all [params.json] | --batch pairs.json [params.json]\n"; return 2; }
+    if (args.size() < 3) { std::cerr << "usage: pf_matcher_probe windows.json left-index right-index | --all [params.json] | --batch pairs.json [params.json] | --actions\n"; return 2; }
     QFile file(args[1]);
     if (!file.open(QIODevice::ReadOnly)) return 2;
     QJsonParseError error;
@@ -35,6 +49,12 @@ int main(int argc, char** argv)
         w.sceneStartSeconds = o["sceneStart"].toDouble(-1);
         w.sceneEndSeconds = o["sceneEnd"].toDouble(-1);
         w.faceConfidence = o["faceConfidence"].toDouble();
+        w.directFaceModel=o["directFaceModel"].toString().toStdString();
+        for(const auto& v:o["directFaces"].toArray()) {
+            const auto f=v.toObject();pfcore::DirectFaceSample sample;sample.timestampSeconds=f["time"].toDouble();
+            for(const auto& value:f["face"].toArray())sample.embedding.push_back(value.toDouble());
+            w.directFaces.push_back(std::move(sample));
+        }
         w.appearanceConfidence = o["bodyConfidence"].toDouble();
         for (const auto& v : o["face"].toArray()) w.faceEmbedding.push_back(v.toDouble());
         for (const auto& v : o["body"].toArray()) w.appearanceEmbedding.push_back(v.toDouble());
@@ -57,6 +77,28 @@ int main(int argc, char** argv)
             w.frames.push_back(std::move(f));
         }
         windows.push_back(std::move(w));
+    }
+    if (args[2]=="--actions") {
+        const pfcore::MovementClassifier classifier;
+        QJsonArray rows;
+        for(std::size_t index=0;index<windows.size();++index) {
+            const auto& window=windows[index];
+            if(window.frames.empty())return 2;
+            const auto start=window.frames.front().timestampSeconds;
+            const auto end=window.frames.back().timestampSeconds;
+            const auto classification=classifier.classifyForGrouping(window,start,end,false);
+            QJsonArray actions;
+            for(const auto action:classification.actions)
+                actions.append(pfcore::MovementClassifier::gestureName(action));
+            rows.append(QJsonObject{{"index",static_cast<qint64>(index)},
+                {"source",QString::fromStdString(window.sourceId)},
+                {"start",start},{"end",end},
+                {"gesture",pfcore::MovementClassifier::gestureName(classification.gesture)},
+                {"actions",actions},{"confidence",classification.gestureConfidence}});
+        }
+        std::cout<<QJsonDocument(QJsonObject{{"scope","grouping only; no identity or matcher admission"},
+            {"results",rows}}).toJson(QJsonDocument::Compact).constData()<<'\n';
+        return 0;
     }
     if (args[2]=="--identity") {
         const auto selected=pfcore::selectDominantVideoWindows(windows);
@@ -103,12 +145,18 @@ int main(int argc, char** argv)
         PF_NUMBER(minAppearanceSimilarity); PF_NUMBER(minFaceSimilarity); PF_NUMBER(sameSceneContextThreshold);
         PF_NUMBER(minHeadFaceSimilarity);
         PF_NUMBER(sameSourceGapFloorSec); PF_NUMBER(minMotionRange); PF_NUMBER(motionDeltaThreshold);
+        PF_NUMBER(dtwBand); PF_NUMBER(sakoeChibaRatio); PF_NUMBER(minActiveTransitionRatio);
+        PF_NUMBER(temporalSimilarityThreshold); PF_NUMBER(minTemporalDurationSec);
+        PF_NUMBER(nmsOverlapThreshold); PF_NUMBER(appearanceWeight); PF_NUMBER(minAppearanceEvidence);
+        PF_NUMBER(sameSceneContextGapSec);
         PF_BOOL(requireAppearance); PF_BOOL(requireSameTrackWithinSource); PF_BOOL(mirrorInvariant);
+        PF_BOOL(auditDirectFaceConsensus);
         PF_BOOL(normalizeSize); PF_BOOL(expandedSearch); PF_BOOL(allowStaticFrames);
         PF_BOOL(individualPairs);
         PF_BOOL(recoverUnusedShots);
         PF_BOOL(bodyMotionOnly);
         PF_BOOL(bodyScaleInvariant);
+        PF_BOOL(reuseCameraConflicts); PF_BOOL(reuseRejectedComparisons);
 #undef PF_NUMBER
 #undef PF_BOOL
     }
@@ -162,7 +210,10 @@ int main(int argc, char** argv)
             const auto a = p["a"].toInteger(-1), b = p["b"].toInteger(-1);
             if (a < 0 || b < 0 || static_cast<std::size_t>(a) >= windows.size()
                 || static_cast<std::size_t>(b) >= windows.size()) return 2;
-            auto result = resultJson(matcher.compare(windows[a],windows[b],a,b));
+            const auto match = matcher.compare(windows[a],windows[b],a,b);
+            auto result = resultJson(match);
+            result["comparisonRejection"] = rejectionName(match.rejection);
+            result["rejectionScope"] = "first failing gate of the winning comparison variant; excludes retrieval and selection";
             result["caseId"] = p["id"];
             results.append(result);
         }
@@ -176,5 +227,6 @@ int main(int argc, char** argv)
     const auto match = pfcore::MotionMatcher(params).compare(windows[a], windows[b], a, b);
     std::cout << "similarity=" << match.similarity << " dtw=" << match.dtwDistance
               << " identity=" << match.appearanceVerified << " face=" << match.faceVerified
-              << " headOnly=" << match.headOnlyComparison << "\n";
+              << " headOnly=" << match.headOnlyComparison
+              << " rejection=" << rejectionName(match.rejection) << "\n";
 }

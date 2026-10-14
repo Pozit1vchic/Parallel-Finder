@@ -40,6 +40,10 @@ struct Settings {
     bool normalizeSize = true;
     bool mirrorPoses = true;
     bool expandedSearch = false;
+    bool mcpEnabled = false;
+    bool mcpAllowControl = false;
+    int mcpPort = 32145;
+    std::string mcpToken;
 };
 
 class SettingsStore {

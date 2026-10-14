@@ -9,6 +9,7 @@
 #include <functional>
 #include <future>
 #include <thread>
+#include <cstring>
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -90,6 +91,8 @@ struct CudaGraphRunner::Impl {
     Synchronize synchronize = nullptr;
     SetDevice setDevice = nullptr;
     bool ready = false;
+    bool regularReady = false;
+    unsigned parityChecks = 0;
     std::string failure;
     Impl(const OrtApi& a, OrtSession* s, int device) : api(a), session(s), deviceId(device) {}
     ~Impl() {
@@ -161,9 +164,8 @@ struct CudaGraphRunner::Impl {
         output.values.assign(static_cast<float*>(data), static_cast<float*>(data)+elements);
         return output;
     }
-    void initialize(const FloatTensor& input) {
-        loadRuntime();
-        if (setDevice(deviceId)) throw std::runtime_error("CUDA graph device selection failed");
+    void prepareRegular() {
+        if(regularReady)return;
         check(api, api.CreateRunOptions(&uncaptured));
         check(api, api.AddRunConfigEntry(uncaptured, "gpu_graph_id", "-1"));
         size_t outputs = 0; check(api, api.SessionGetOutputCount(session, &outputs));
@@ -173,6 +175,13 @@ struct CudaGraphRunner::Impl {
             char* name = nullptr; check(api, api.SessionGetOutputName(session, i, cpu, &name));
             outputNames.emplace_back(name); check(api, api.AllocatorFree(cpu, name));
         }
+        regularReady=true;
+    }
+    void initialize(const FloatTensor& input) {
+        prepareRegular();
+        loadRuntime();
+        if (setDevice(deviceId)) throw std::runtime_error("CUDA graph device selection failed");
+        OrtAllocator* cpu = nullptr; check(api, api.GetAllocatorWithDefaultOptions(&cpu));
         auto first = regular(input);
         outputTemplates = std::move(first.outputs);
         for (auto& output : outputTemplates) output.values.clear();
@@ -194,7 +203,7 @@ struct CudaGraphRunner::Impl {
             check(api, api.BindOutput(binding, outputNames[i].c_str(), output));
         }
         ready = true;
-        std::fprintf(stderr, "PF_DEBUG_CUDA_GRAPH initialized outputs=%zu elements=%zu\n", outputs, input.values.size());
+        std::fprintf(stderr, "PF_DEBUG_CUDA_GRAPH initialized outputs=%zu elements=%zu\n", outputNames.size(), input.values.size());
     }
 };
 CudaGraphRunner::CudaGraphRunner(const OrtApi& api, OrtSession* session, int deviceId)
@@ -212,10 +221,15 @@ InferenceResult CudaGraphRunner::run(const FloatTensor& input) {
     InferenceResult result;
     try {
         auto& state = *impl_;
-        if (!state.failure.empty()) throw std::runtime_error(state.failure);
+        if (!state.failure.empty()) {state.prepareRegular();return state.regular(input);}
         if (!state.ready) state.initialize(input);
         if (state.setDevice(state.deviceId)) throw std::runtime_error("CUDA graph device selection failed");
         if (input.shape != state.inputShape) return state.regular(input);
+        // Validate real inputs, including the first captured execution, with
+        // the identical session in ordinary float32 mode. A numerical change
+        // disables replay for this session instead of changing detections.
+        InferenceResult reference;
+        if(state.parityChecks<5)reference=state.regular(input);
         void* data = nullptr; check(state.api, state.api.GetTensorMutableData(state.inputValue, &data));
         if (state.copy(data, input.values.data(), input.values.size()*sizeof(float), 1) || state.synchronize())
             throw std::runtime_error("CUDA graph input transfer failed");
@@ -230,7 +244,26 @@ InferenceResult CudaGraphRunner::run(const FloatTensor& input) {
                 throw std::runtime_error("CUDA graph output transfer failed");
         }
         result.ok = true;
-    } catch (const std::exception& error) { result.error = error.what(); impl_->failure = result.error; }
+        if(state.parityChecks<5) {
+            bool same=result.outputNames==reference.outputNames && result.outputs.size()==reference.outputs.size();
+            for(size_t i=0;same && i<result.outputs.size();++i) {
+                const auto& a=result.outputs[i];const auto& b=reference.outputs[i];
+                same=a.shape==b.shape && a.values.size()==b.values.size()
+                    && std::memcmp(a.values.data(),b.values.data(),a.values.size()*sizeof(float))==0;
+            }
+            if(!same) {
+                state.failure="CUDA graph float32 parity mismatch";
+                std::fprintf(stderr,"PF_DEBUG_CUDA_GRAPH disabled reason=%s\n",state.failure.c_str());
+                return reference;
+            }
+            ++state.parityChecks;
+        }
+    } catch (const std::exception& error) {
+        impl_->failure=error.what();
+        std::fprintf(stderr,"PF_DEBUG_CUDA_GRAPH disabled reason=%s\n",impl_->failure.c_str());
+        try {impl_->prepareRegular();return impl_->regular(input);}
+        catch(const std::exception& fallback) {result.error=impl_->failure+"; ordinary CUDA: "+fallback.what();}
+    }
     return result;
     });
 }

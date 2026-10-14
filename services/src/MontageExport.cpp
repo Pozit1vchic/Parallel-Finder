@@ -35,9 +35,15 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
     };
     if (cancelled()) return result;
     if (clips.empty() || output.empty()) { result.error = "no montage clips or output"; return result; }
+    const auto mode=clips.front().mode;
+    const bool exactLossless=mode==CutMode::ExactLossless;
+    if(exactLossless && QString::fromStdWString(output.extension().wstring()).toLower()!=".mov") {
+        result.error="exact lossless montage requires a MOV destination";
+        return result;
+    }
     const bool streamCopy = clips.front().mode == CutMode::Fast;
-    if (std::any_of(clips.begin(), clips.end(), [streamCopy](const auto& clip) {
-        return (clip.mode == CutMode::Fast) != streamCopy;
+    if (std::any_of(clips.begin(), clips.end(), [mode](const auto& clip) {
+        return clip.mode != mode;
     })) { result.error = "montage clips must use the same cut mode"; return result; }
     if (!preserveInputOrder) std::stable_sort(clips.begin(), clips.end(), [](const auto& a, const auto& b) {
         return std::tie(a.startSeconds, a.inputPath, a.endSeconds)
@@ -70,7 +76,7 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             return it->second;
         };
         const auto first = info(clips.front().inputPath);
-        if (streamCopy) {
+        if (streamCopy || exactLossless) {
             for (const auto& clip : clips) {
                 if (cancelled()) return result;
                 if (info(clip.inputPath).streamCopySignature != first.streamCopySignature) {
@@ -86,6 +92,7 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         const CutService cutter(executable);
         QByteArray manifest("ffconcat version 1.0\n");
         double montageDuration = 0;
+        std::string preparedSignature;
         for (std::size_t i = 0; i < clips.size(); ++i) {
             if (cancelled()) return result;
             auto request = clips[i];
@@ -95,14 +102,21 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
                 prepare(request);
                 if (cancelled()) return result;
             }
-            const QString name = staging.filePath(QString::number(i) + ".mp4");
+            if(exactLossless && (request.mode!=mode || request.maxWidth || request.maxHeight
+                || request.canvasWidth || request.canvasHeight || request.outputFrameRate
+                || request.ensureStereoAudio || request.videoBitrateKbps)) {
+                result.success=false;
+                result.error="exact lossless montage cannot resize, normalize, or limit bitrate";
+                return result;
+            }
+            const QString name = staging.filePath(QString::number(i) + (exactLossless ? ".mov" : ".mp4"));
             request.outputPath = std::filesystem::path(name.toStdWString());
-            request.mode = streamCopy ? CutMode::Fast : CutMode::Exact;
+            request.mode = mode;
             request.maxWidth = request.maxHeight = 0;
-            request.canvasWidth = streamCopy ? 0 : width;
-            request.canvasHeight = streamCopy ? 0 : height;
-            request.outputFrameRate = streamCopy ? 0 : fps;
-            request.ensureStereoAudio = !streamCopy;
+            request.canvasWidth = streamCopy || exactLossless ? 0 : width;
+            request.canvasHeight = streamCopy || exactLossless ? 0 : height;
+            request.outputFrameRate = streamCopy || exactLossless ? 0 : fps;
+            request.ensureStereoAudio = !streamCopy && !exactLossless;
             request.sourceHasAudio = info(request.inputPath).hasAudio;
             request.stopToken = stop;
             if (progress) progress(i, clips.size() + 1, 0);
@@ -113,15 +127,28 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             };
             result = cutter.cut(request);
             if (!result.success) return result;
+            if(exactLossless) {
+                const auto signature=info(request.outputPath).streamCopyCodecSignature;
+                if(i && signature!=preparedSignature) {
+                    result.success=false;
+                    result.error="exact lossless clips produced incompatible streams; no lossy fallback was used";
+                    return result;
+                }
+                preparedSignature=signature;
+            }
             const QString spliceName = streamCopy ? staging.filePath(QString::number(i) + "-splice.mp4") : name;
             const double clipDuration = streamCopy
                 ? pfcore::prepareStreamCopySplice(name.toUtf8().toStdString(), spliceName.toUtf8().toStdString(), stop)
-                : pfcore::mediaPacketDuration(spliceName.toUtf8().toStdString(), stop);
+                : (exactLossless ? request.endSeconds-request.startSeconds
+                                 : pfcore::mediaPacketDuration(spliceName.toUtf8().toStdString(), stop));
             if (cancelled()) return result;
             montageDuration += clipDuration;
             // Relative, generated filenames avoid quoting user paths and
             // keep concat's safe-path check enabled.
             manifest += "file '" + QFileInfo(spliceName).fileName().toUtf8() + "'\n";
+            // A silent VFR clip can begin after zero; concat otherwise uses
+            // that first video PTS as its origin and removes the source gap.
+            if(exactLossless)manifest += "inpoint 0\n";
             manifest += "duration " + QByteArray::number(clipDuration, 'f', 9) + "\n";
             if (progress) progress(i + 1, clips.size() + 1, 0);
         }
@@ -140,10 +167,14 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             else program = QStandardPaths::findExecutable(program);
         }
         QProcess process;
+        const QString combinedPath=staging.filePath(exactLossless ? "combined.mov" : "combined.mp4");
         process.setProgram(program);
         process.setArguments({"-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-nostats", "-progress", "pipe:1",
             "-f", "concat", "-safe", "1", "-auto_convert", streamCopy ? "0" : "1", "-i", list, "-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart",
-            staging.filePath("combined.mp4")});
+            combinedPath});
+        if(exactLossless) {
+            auto arguments=process.arguments();arguments.prepend("-copyts");process.setArguments(arguments);
+        }
 #ifdef Q_OS_WIN
         process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args) { args->flags |= CREATE_NO_WINDOW; });
 #endif
@@ -173,7 +204,7 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
                     if (progress) progress(clips.size(), clips.size() + 1, percent);
                 }
             }
-            const auto size = QFileInfo(staging.filePath("combined.mp4")).size();
+            const auto size = QFileInfo(combinedPath).size();
             if (size > previousSize) { previousSize = size; lastAdvance = timer.elapsed(); }
         };
         while (!process.waitForFinished(100)) {
@@ -190,7 +221,7 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             result.error = "montage mux: " + errors.right(65536).toStdString(); return result;
         }
         detail::ExportDestination destinationName(output);
-        QFile combined(staging.filePath("combined.mp4"));
+        QFile combined(combinedPath);
         QSaveFile finalFile(QString::fromStdWString(destinationName.path().wstring()));
         if (!combined.open(QIODevice::ReadOnly) || combined.size() == 0 || !finalFile.open(QIODevice::WriteOnly)) {
             result.error = "cannot install completed montage"; return result;

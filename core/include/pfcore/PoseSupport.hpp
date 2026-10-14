@@ -65,18 +65,26 @@ inline std::vector<PoseSampleRange> observedPoseRuns(const MotionWindow& window)
                 && points[j].confidence >= 0.5;
         };
         unsigned mask = 0;
-        if (visible(0) && visible(5) && visible(6) && visible(9) && visible(10)) {
-            if (visible(7)) mask |= 1;
-            if (visible(8)) mask |= 2;
+        // A back/profile view can hide every facial landmark while its limbs
+        // are measured. The complete shoulder/hip anchor supplies anatomy,
+        // never actor identity; matcher identity admission remains separate.
+        const bool anchor=visible(0)
+            || (visible(5) && visible(6) && visible(11) && visible(12));
+        if (anchor && visible(5) && visible(6)) {
+            if (visible(7) && visible(9)) mask |= 1;
+            if (visible(8) && visible(10)) mask |= 2;
         }
-        if (visible(0) && visible(11) && visible(12)) {
+        if (anchor && visible(11) && visible(12)) {
             if (visible(13) && visible(15)) mask |= 4;
             if (visible(14) && visible(16)) mask |= 8;
         }
         const bool gap = i && (!std::isfinite(window.frames[i-1].timestampSeconds)
             || window.frames[i].timestampSeconds <= window.frames[i-1].timestampSeconds
             || window.frames[i].timestampSeconds - window.frames[i-1].timestampSeconds > 0.5);
-        if (common && (gap || !(common & mask))) {
+        // A two-arm pose may not extend into an endpoint where one hand is
+        // hidden, nor bridge that dropout using the other visible arm. Start
+        // a separate support epoch whenever the observed chain set changes.
+        if (common && (gap || common != mask)) {
             finish(i-1);
             common = 0;
         }

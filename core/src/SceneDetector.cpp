@@ -13,9 +13,65 @@
 #include <chrono>
 #include <stdexcept>
 #include <vector>
+#include <deque>
+#include <condition_variable>
+#include <mutex>
 
 namespace pfcore {
 namespace {
+// Receiving references ahead keeps the decode engine busy while the caller
+// downloads/unpacks the preceding frame. The queue owns its native pixels;
+// no mutable codec frame or RGBA allocation is shared between the threads.
+class NativeFrameReader {
+    VideoDecoder& decoder_;
+    std::function<bool()> cancelled_;
+    std::size_t capacity_;
+    std::mutex mutex_;
+    std::condition_variable_any available_, space_;
+    std::deque<VideoFrameSnapshot> queue_;
+    bool finished_ = false;
+    std::exception_ptr error_;
+    std::jthread worker_;
+public:
+    NativeFrameReader(VideoDecoder& decoder, std::function<bool()> cancelled, bool prefetch = true)
+        : decoder_(decoder), cancelled_(std::move(cancelled)),
+          capacity_(std::clamp<std::uint64_t>((128ULL * 1024 * 1024)
+              / std::max<std::uint64_t>(1, std::uint64_t(decoder.info().width) * decoder.info().height * 4), 1, 8))
+    {
+        if (!prefetch) return;
+        worker_ = std::jthread([this](std::stop_token stop) {
+            try {
+                while (!stop.stop_requested() && !(cancelled_ && cancelled_())) {
+                    {
+                        std::unique_lock lock(mutex_);
+                        if (!space_.wait(lock, stop, [&] { return queue_.size() < capacity_; })) break;
+                    }
+                    if (stop.stop_requested() || (cancelled_ && cancelled_())) break;
+                    VideoFrameSnapshot frame;
+                    if (!decoder_.readNextSnapshot(frame)) break;
+                    { const std::lock_guard lock(mutex_); queue_.push_back(std::move(frame)); }
+                    available_.notify_one();
+                }
+            } catch (...) { const std::lock_guard lock(mutex_); error_ = std::current_exception(); }
+            { const std::lock_guard lock(mutex_); finished_ = true; }
+            available_.notify_all();
+        });
+    }
+    ~NativeFrameReader() {
+        worker_.request_stop(); space_.notify_all(); available_.notify_all();
+        if (worker_.joinable()) worker_.join();
+    }
+    bool readNext(VideoFrameSnapshot& frame) {
+        if (!worker_.joinable()) return !(cancelled_ && cancelled_()) && decoder_.readNextSnapshot(frame);
+        std::unique_lock lock(mutex_);
+        available_.wait(lock, [&] { return !queue_.empty() || finished_; });
+        if (cancelled_ && cancelled_()) return false;
+        if (error_) std::rethrow_exception(error_);
+        if (queue_.empty()) return false;
+        frame = std::move(queue_.front()); queue_.pop_front();
+        lock.unlock(); space_.notify_one(); return true;
+    }
+};
 
 constexpr int kCompactWidth = 64;
 constexpr int kCompactHeight = 36;
@@ -203,7 +259,9 @@ std::vector<SceneBoundary> SceneDetector::detectInterval(VideoDecoder& decoder,
 
 std::vector<SceneBoundary> SceneDetector::refineSupportedBoundaries(VideoDecoder& decoder,
     std::span<const SceneBoundary> boundaries, std::span<const double> sampleTimes,
-    std::span<const double> poseTimes, const std::function<bool()>& cancelled) const
+    std::span<const double> poseTimes, const std::function<bool()>& cancelled,
+    const std::function<void(std::size_t,std::size_t)>& progress,
+    bool requireNativeConfirmation) const
 {
     const auto validTimes=[](auto times) {
         return std::all_of(times.begin(),times.end(),[](double t){return std::isfinite(t)&&t>=0;})
@@ -211,32 +269,190 @@ std::vector<SceneBoundary> SceneDetector::refineSupportedBoundaries(VideoDecoder
     };
     if(!validTimes(sampleTimes) || !validTimes(poseTimes))
         throw std::invalid_argument("Boundary refinement requires ordered observation times");
+    // Ordered brackets share decoded context. Keep only compact pixels for
+    // overlapping brackets and advance through nearby gaps without converting
+    // discarded frames. Each bracket still runs the exact interval detector
+    // with its own history/lookahead, rather than a global changed threshold.
+    std::deque<DecodedFrame> contextFrames;
+    VideoFrameSnapshot pendingFrame;
+    std::unique_ptr<NativeFrameReader> reader;
+    bool scanning = false, pending = false, exhausted = false;
+    double lastRead = -std::numeric_limits<double>::infinity();
+    const auto stopped = [&] { return cancelled && cancelled(); };
+    const bool prefetch = !std::getenv("PF_NATIVE_SCENE_PREFETCH")
+        || std::string(std::getenv("PF_NATIVE_SCENE_PREFETCH")) != "0";
+    const auto nativeInterval = [&](double start, double end) {
+        try {
+        const double fps = decoder.info().frameRate;
+        const double duration = std::isfinite(fps) && fps > 0 ? 1.0 / fps : 1.0 / 24;
+        const double context = std::max(.2, duration * 6);
+        const double decodeStart = std::max(0., start - context);
+        const double decodeEnd = std::min(decoder.info().durationSeconds, end + context);
+        // Very distant brackets retain random access. For nearby brackets,
+        // decoding skipped packets is cheaper than reconstructing a long GOP
+        // from scratch, and leaves all source pixels/PTS unchanged.
+        if (!scanning || decodeStart > lastRead + 20.) {
+            reader.reset();
+            decoder.setRgbaMaxDimensions(kCompactWidth, kCompactHeight);
+            decoder.seek(decodeStart);
+            contextFrames.clear(); pending = false; exhausted = false; scanning = true;
+            reader = std::make_unique<NativeFrameReader>(decoder, cancelled, prefetch);
+        }
+        while (!contextFrames.empty() && contextFrames.front().timestampSeconds < decodeStart)
+            contextFrames.pop_front();
+        while (!stopped() && !exhausted) {
+            if (!pending) {
+                if (!reader->readNext(pendingFrame)) { exhausted = true; break; }
+                lastRead = pendingFrame.timestampSeconds; pending = true;
+            }
+            if (pendingFrame.timestampSeconds >= decodeEnd) break;
+            if (pendingFrame.timestampSeconds >= decodeStart) {
+                DecodedFrame rgba;
+                if (decoder.convertSnapshotToRgba(pendingFrame, rgba)
+                    && !rgba.rgba.empty() && rgba.width > 0 && rgba.height > 0)
+                    contextFrames.push_back(std::move(rgba));
+            }
+            pendingFrame = {};
+            pending = false;
+        }
+        if (stopped()) return std::vector<SceneBoundary>{};
+        std::vector<SceneSample> samples; samples.reserve(contextFrames.size());
+        for (const auto& frame : contextFrames)
+            if (frame.timestampSeconds < decodeEnd)
+                samples.push_back({frame.timestampSeconds, frame.width, frame.height, frame.rgba});
+        auto native = detectWithProgress(samples, stopped);
+        std::erase_if(native, [=](const auto& cut) {
+            return cut.timestampSeconds <= start + 1e-6 || cut.timestampSeconds >= end - 1e-6;
+        });
+        return native;
+        } catch (const std::runtime_error&) {
+            // Stop receiving before the ordinary interval path seeks or
+            // recovers from a failed hardware download on the CPU. Never
+            // publish the incomplete context from the asynchronous attempt.
+            reader.reset();
+            pendingFrame = {}; contextFrames.clear();
+            scanning = pending = exhausted = false;
+            if (stopped()) return std::vector<SceneBoundary>{};
+            return detectInterval(decoder, start, end, {}, cancelled);
+        }
+    };
     std::vector<SceneBoundary> result;result.reserve(boundaries.size());
+    if (progress) progress(0, boundaries.size());
     double previous=-1;
+    std::size_t processed=0;
     for(const auto& boundary:boundaries) {
         if(cancelled && cancelled())return {};
         if(!std::isfinite(boundary.timestampSeconds) || boundary.timestampSeconds<=previous)
             throw std::invalid_argument("Boundary refinement requires ordered boundaries");
         previous=boundary.timestampSeconds;
         auto resolved=boundary;
+        bool confirmed=false;
         const auto sample=std::lower_bound(sampleTimes.begin(),sampleTimes.end(),boundary.timestampSeconds);
         if(sample!=sampleTimes.begin() && sample!=sampleTimes.end()) {
             const double before=*std::prev(sample);
             const auto pose=std::lower_bound(poseTimes.begin(),poseTimes.end(),before);
             if(pose!=poseTimes.end() && *pose<boundary.timestampSeconds) {
-                const auto native=detectInterval(decoder,before,boundary.timestampSeconds+1e-4,{},cancelled);
+                const auto native=nativeInterval(before,boundary.timestampSeconds+1e-4);
                 if(cancelled && cancelled())return {};
                 if(!native.empty()) {
                     const auto& cut=native.back();
                     if(cut.timestampSeconds<=boundary.timestampSeconds+1e-6
-                        && (result.empty() || cut.timestampSeconds>result.back().timestampSeconds))
+                        && (result.empty() || cut.timestampSeconds>result.back().timestampSeconds)) {
                         resolved=cut;
+                        confirmed=true;
+                    }
                 }
             }
         }
-        result.push_back(resolved);
+        if (!requireNativeConfirmation || confirmed) result.push_back(resolved);
+        if (progress) progress(++processed, boundaries.size());
     }
+    if (stopped()) return {};
     return result;
+}
+
+std::vector<SceneBoundary> SceneDetector::refineSupportedBoundariesParallel(
+    const std::string& source,const VideoDecodeOptions& options,
+    std::span<const SceneBoundary> boundaries,std::span<const double> sampleTimes,
+    std::span<const double> poseTimes,std::size_t workers,
+    const std::function<bool()>& cancelled,
+    const std::function<void(std::size_t,std::size_t)>& progress) const
+{
+    if(workers<1 || workers>4)throw std::invalid_argument("Boundary workers must be 1..4");
+    const auto validTimes=[](auto times){return std::is_sorted(times.begin(),times.end())
+        && std::all_of(times.begin(),times.end(),[](double time){return std::isfinite(time)&&time>=0;});};
+    if(!validTimes(sampleTimes)||!validTimes(poseTimes))throw std::invalid_argument("Boundary refinement requires ordered observation times");
+    double previous=-1;
+    for(const auto& boundary:boundaries){
+        if(!std::isfinite(boundary.timestampSeconds)||boundary.timestampSeconds<=previous)
+            throw std::invalid_argument("Boundary refinement requires ordered boundaries");
+        previous=boundary.timestampSeconds;
+    }
+    if(progress)progress(0,boundaries.size());
+    if(boundaries.empty()||(cancelled&&cancelled()))return {};
+    workers=std::min(workers,boundaries.size());
+    std::vector<SceneBoundary> result(boundaries.size());
+    std::atomic_size_t completed{0};std::atomic_bool failed{false};
+    const auto stopped=[&]{return failed.load(std::memory_order_relaxed)||(cancelled&&cancelled());};
+    std::vector<std::future<void>> futures;
+    for(std::size_t worker=0;worker<workers;++worker){
+        const auto begin=boundaries.size()*worker/workers,end=boundaries.size()*(worker+1)/workers;
+        futures.push_back(std::async(std::launch::async,[&,begin,end]{
+            try{
+                if(stopped())return;
+                auto decodeOptions=options;
+                const auto budget=options.threads>0 ? std::size_t(options.threads)
+                    : std::max(std::size_t(1),std::size_t(std::thread::hardware_concurrency()));
+                decodeOptions.threads=static_cast<int>(std::clamp(budget/workers,std::size_t(1),std::size_t(8)));
+                VideoDecoder decoder;decoder.open(source,decodeOptions);
+                std::size_t localDone=0;
+                const auto refined=refineSupportedBoundaries(decoder,boundaries.subspan(begin,end-begin),
+                    sampleTimes,poseTimes,stopped,[&](auto done,auto){
+                        completed.fetch_add(done-localDone,std::memory_order_relaxed);localDone=done;
+                    });
+                if(stopped())return;
+                if(refined.size()!=end-begin)throw std::runtime_error("Incomplete boundary partition");
+                std::copy(refined.begin(),refined.end(),result.begin()+begin);
+            }catch(...){failed.store(true,std::memory_order_relaxed);throw;}
+        }));
+    }
+    std::exception_ptr error;std::size_t reported=0;
+    for(auto& future:futures){
+        while(future.wait_for(std::chrono::milliseconds(100))!=std::future_status::ready){
+            const auto done=completed.load(std::memory_order_relaxed);
+            if(progress&&done!=reported){progress(done,boundaries.size());reported=done;}
+        }
+        try{future.get();}catch(...){if(!error)error=std::current_exception();}
+    }
+    if(error)std::rethrow_exception(error);
+    if(stopped())return {};
+    for(std::size_t i=1;i<result.size();++i)
+        if(result[i].timestampSeconds<=result[i-1].timestampSeconds)result[i]=boundaries[i];
+    if(progress)progress(boundaries.size(),boundaries.size());
+    if(stopped())return {};
+    return result;
+}
+
+std::vector<SceneCutCandidate> SceneDetector::highContrastCutCandidates(
+    std::span<const SceneSample> samples, const std::function<bool()>& cancelled) const
+{
+    std::vector<SceneCutCandidate> candidates;
+    CompactFrame previous;
+    for (std::size_t i=0;i<samples.size();++i) {
+        if (cancelled && cancelled()) return {};
+        if (!std::isfinite(samples[i].timestampSeconds) || samples[i].timestampSeconds < 0
+            || (i && samples[i].timestampSeconds <= samples[i-1].timestampSeconds))
+            throw std::invalid_argument("Cut proposals require ordered source observations");
+        auto current = compact(samples[i]);
+        if (i && !previous.pixels.empty() && !current.pixels.empty()) {
+            const auto delta = hsvDistance(previous,current);
+            if (delta >= threshold_)
+                candidates.push_back({samples[i-1].timestampSeconds, samples[i].timestampSeconds,
+                    boundaryScore(delta,threshold_)});
+        }
+        previous=std::move(current);
+    }
+    return candidates;
 }
 
 std::vector<SceneCutCandidate> SceneDetector::sequenceCutCandidates(std::span<const float> pixels,

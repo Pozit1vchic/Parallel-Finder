@@ -1,4 +1,5 @@
 #include "pfcore/MovementClassifier.hpp"
+#include "pfcore/HeadOrientation.hpp"
 
 #include <algorithm>
 #include <array>
@@ -136,6 +137,7 @@ std::optional<Observation> observe(const PoseFrame& f,Reference ref) {
 }
 struct Trace {
     double delta=0,extent=0;int reversals=0;bool returning=false;double coverage=0;
+    double first=0,last=0,largestChange=0;
 };
 template<class Read> std::optional<Trace> trace(const std::vector<Observation>& samples,Read read,double prominence) {
     std::vector<double> values;std::vector<double> times;
@@ -150,6 +152,8 @@ template<class Read> std::optional<Trace> trace(const std::vector<Observation>& 
     const double last=median(std::vector<double>(filtered.end()-n,filtered.end()));
     const auto [low,high]=std::minmax_element(filtered.begin(),filtered.end());
     Trace result;result.delta=last-first;result.extent=*high-*low;
+    result.first=first;result.last=last;
+    for(std::size_t i=1;i<filtered.size();++i)result.largestChange=std::max(result.largestChange,std::abs(filtered[i]-filtered[i-1]));
     result.coverage=double(values.size())/samples.size();
     double pivot=first,extreme=first;int sign=0;
     for(const double v:filtered) {
@@ -162,7 +166,13 @@ template<class Read> std::optional<Trace> trace(const std::vector<Observation>& 
         && std::abs(result.delta)<result.extent*.35;
     return result;
 }
-struct Decision {GestureClass type=GestureClass::Unknown;double strength=0;};
+struct Decision {
+    GestureClass type=GestureClass::Unknown;
+    double strength=0;
+    std::vector<GestureClass> actions;
+    Decision()=default;
+    Decision(GestureClass action,double confidence):type(action),strength(confidence){}
+};
 Decision armDecision(const std::vector<Observation>& samples,int arm) {
     const auto coordinate=[&](bool vertical) {return trace(samples,[&](const Observation& s)->std::optional<double> {
         if(!s.local[9+arm])return {};
@@ -198,39 +208,112 @@ Decision torsoDecision(const std::vector<Observation>& samples) {
         return s.local[joint]->x;
     },.15);};
     const auto hipLeft=hipAxis(11),hipRight=hipAxis(12);
+    const bool continuousReversal=shoulders&&hips && shoulders->coverage>=.9 && hips->coverage>=.9
+        && shoulders->first*shoulders->last<0 && hips->first*hips->last<0
+        && std::min(std::abs(shoulders->first),std::abs(shoulders->last))>=.35
+        && std::min(std::abs(hips->first),std::abs(hips->last))>=.22
+        && shoulders->delta*hips->delta>0
+        && shoulders->largestChange<shoulders->extent*.6 && hips->largestChange<hips->extent*.6;
     if(shoulders&&torsoSize&&hips&&hipLeft&&hipRight && std::abs(shoulders->delta)>=.65
         && ((std::abs(hips->delta)>=.22 && hips->delta*shoulders->delta>0) || legs)
         && torsoSize->extent<.2
-        && hipLeft->extent<.2 && hipRight->extent<.2)
+        && ((hipLeft->extent<.2 && hipRight->extent<.2) || continuousReversal))
         return {GestureClass::Turn,std::min(shoulders->coverage,std::clamp(std::abs(shoulders->delta)/.9,0.,1.))};
     return {};
 }
-Decision classifyAction(const std::vector<Observation>& samples,bool headOnly) {
+Decision classifyAction(const std::vector<Observation>& samples,bool headOnly,bool geometricHead=true) {
     // A verified trunk rotation also rotates the face. Classify the body first
     // instead of mistaking a whole-body turn for an isolated head action.
-    if(!headOnly) {
-        const auto torso=torsoDecision(samples);
-        if(torso.type==GestureClass::Turn && torso.strength>=.65)return torso;
-    }
     std::vector<Decision> actions;
+    Decision torso;
+    if(!headOnly) {
+        const auto jointAxis=[&](int joint,bool vertical) {return trace(samples,[&](const Observation& s)->std::optional<double> {
+            if(!s.local[joint])return {};
+            return vertical ? s.local[joint]->y:s.local[joint]->x;
+        },.15);};
+        const auto leftKnee=jointAxis(13,true),rightKnee=jointAxis(14,true);
+        // Torso bending/rotation moves both planted feet together in the
+        // body-relative coordinates. Require opposing foot articulation.
+        const auto alternatingFeet=[&](bool vertical,double extent,double prominence,double maxCorrelation) {
+        const auto footTrace=[&](int joint){return trace(samples,[&](const Observation& sample)->std::optional<double>{
+            if(!sample.local[joint])return {};
+            return vertical ? sample.local[joint]->y:sample.local[joint]->x;
+        },prominence);};
+        const auto leftFoot=footTrace(15),rightFoot=footTrace(16);
+        if(!leftFoot||!rightFoot || leftFoot->extent<extent || rightFoot->extent<extent
+            || leftFoot->reversals+rightFoot->reversals<2)return 0.0;
+        std::vector<std::pair<double,double>> feet;
+        for(const auto& sample:samples)if(sample.local[15]&&sample.local[16])
+            feet.emplace_back(vertical ? sample.local[15]->y:sample.local[15]->x,
+                vertical ? sample.local[16]->y:sample.local[16]->x);
+        double correlation=1;
+        if(feet.size()>=5 && feet.size()*4>=samples.size()*3) {
+            double leftMean=0,rightMean=0;
+            for(const auto& foot:feet){leftMean+=foot.first;rightMean+=foot.second;}
+            leftMean/=feet.size();rightMean/=feet.size();
+            double covariance=0,leftVariance=0,rightVariance=0;
+            for(const auto& foot:feet){const double a=foot.first-leftMean,b=foot.second-rightMean;
+                covariance+=a*b;leftVariance+=a*a;rightVariance+=b*b;}
+            const double denominator=std::sqrt(leftVariance*rightVariance);
+            if(denominator>1e-12)correlation=covariance/denominator;
+        }
+        return correlation<=maxCorrelation ? std::min(leftFoot->coverage,rightFoot->coverage):0.0;
+        };
+        // In a front/back view the alternating steps project vertically,
+        // while horizontal coordinates may move together with the torso.
+        // Keep the horizontal rule and require stronger opposing evidence
+        // on the vertical axis, with two measured direction reversals.
+        const double walking=std::max(alternatingFeet(false,.3,.15,-.35),
+            samples.size()>=8 ? alternatingFeet(true,.12,.075,-.5):0.0);
+        if(walking>0 && leftKnee&&rightKnee && std::max(leftKnee->extent,rightKnee->extent)>=.12)
+            actions.emplace_back(GestureClass::Step,walking);
+        torso=torsoDecision(samples);
+        if(torso.type==GestureClass::Turn && torso.strength>=.65)actions.push_back(torso);
+    }
     for(int arm=0;arm<(headOnly ? 0:2);++arm) {
         const auto d=armDecision(samples,arm);
         if(d.type!=GestureClass::Static && d.type!=GestureClass::Unknown && d.strength>=.65)actions.push_back(d);
     }
     if(!actions.empty()) {
+        // A simultaneous confident arm and head action must not be labelled
+        // as the arm alone. A trunk turn already explains the rotating face;
+        // do not count that same motion twice as an independent head action.
+        if(!headOnly && geometricHead && torso.type!=GestureClass::Turn) {
+            const auto head=classifyAction(samples,true);
+            if(head.type!=GestureClass::Static && head.type!=GestureClass::Unknown && head.strength>=.65)
+                actions.push_back(head);
+        }
         auto result=actions.front();
+        result.actions.clear();
         for(const auto& action:actions) {
             if(action.type!=result.type)result.type=GestureClass::Mixed;
             result.strength=std::min(result.strength,action.strength);
+            if(!action.actions.empty())result.actions.insert(result.actions.end(),action.actions.begin(),action.actions.end());
+            else if(action.type!=GestureClass::Mixed)result.actions.push_back(action.type);
         }
+        std::sort(result.actions.begin(),result.actions.end());
+        result.actions.erase(std::unique(result.actions.begin(),result.actions.end()),result.actions.end());
         return result;
+    }
+    if(!headOnly) {
+        // A visible, substantial but unclassified hand action must not be
+        // silently replaced by the accompanying head motion (for example,
+        // shovelling). Cropped head-only comparisons remain independent.
+        for(int arm=0;arm<2;++arm)if(armDecision(samples,arm).type==GestureClass::Unknown) {
+            const auto axis=[&](bool vertical) {return trace(samples,[&](const Observation& s)->std::optional<double> {
+                if(!s.local[9+arm])return {};
+                return vertical ? s.local[9+arm]->y:s.local[9+arm]->x;
+            },.18);};
+            const auto x=axis(false),y=axis(true);
+            if(x&&y && std::max(x->extent,y->extent)>=.28)return {};
+        }
     }
     const auto head=[&](bool vertical) {return trace(samples,[&](const Observation& s)->std::optional<double> {
         if(!s.head)return {};
         return vertical ? s.head->y:s.head->x;
     },.075);};
     const auto hx=head(false),hy=head(true);
-    if(hx&&hy) {
+    if(geometricHead && hx&&hy) {
         const auto ear=trace(samples,[](const Observation& s){return s.earVisibility;},.5);
         // Foreshortened eye separation makes the vertical nose ratio grow
         // during yaw too. A sustained ear occlusion agreeing with lateral
@@ -242,8 +325,14 @@ Decision classifyAction(const std::vector<Observation>& samples,bool headOnly) {
             const auto vertical=trace(samples,[](const Observation& s){return s.headVerticalBodyScale;},.015);
             const bool compound=vertical && vertical->extent>=.035
                 && (vertical->returning || std::abs(vertical->delta)>=vertical->extent*.65);
-            return {compound ? GestureClass::Mixed:GestureClass::HeadTurn,
+            Decision decision{compound ? GestureClass::Mixed:GestureClass::HeadTurn,
                 std::min({ear->coverage,hx->coverage,std::clamp(std::abs(hx->delta)/hx->extent,0.,1.)})};
+            if(compound) {
+                decision.actions={GestureClass::HeadTurn,
+                    vertical->returning ? GestureClass::HeadNod:GestureClass::HeadTilt};
+                decision.strength=std::min(decision.strength,vertical->coverage);
+            }
+            return decision;
         }
         if(hx->extent>=.16 && hx->extent>hy->extent*1.3)
             return {GestureClass::HeadTurn,std::min(hx->coverage,std::clamp(hx->extent/.24,0.,1.))};
@@ -258,25 +347,63 @@ Decision classifyAction(const std::vector<Observation>& samples,bool headOnly) {
         if(!s.local[joint])return {};
         return vertical ? s.local[joint]->y:s.local[joint]->x;
     },.15);};
-    const auto leftFoot=jointAxis(15,false),rightFoot=jointAxis(16,false);
-    const auto leftKnee=jointAxis(13,true),rightKnee=jointAxis(14,true);
-    if(leftFoot&&rightFoot&&leftKnee&&rightKnee && leftFoot->extent>=.3 && rightFoot->extent>=.3
-        && (leftFoot->reversals+rightFoot->reversals)>=2
-        && std::max(leftKnee->extent,rightKnee->extent)>=.12)
-        return {GestureClass::Step,std::min(leftFoot->coverage,rightFoot->coverage)};
     int observed=0;double maximum=0;
-    for(int joint=0;joint<17;++joint) {
+    for(int joint=geometricHead ? 0:5;joint<17;++joint) {
         const auto x=jointAxis(joint,false),y=jointAxis(joint,true);
         if(x&&y) {++observed;maximum=std::max({maximum,x->extent,y->extent});}
     }
-    if(observed>=13 && maximum<.12)return {GestureClass::Static,std::clamp(1.-maximum/.2,0.,1.)};
+    if(observed>=(geometricHead ? 13:8) && maximum<.12)
+        return {GestureClass::Static,std::clamp(1.-maximum/.2,0.,1.)};
     return {};
+}
+
+std::vector<HeadOrientationSample> headSceneEvidence(const MotionWindow& window) {
+    auto samples=window.headOrientations;
+    std::erase_if(samples,[&](const auto& s){return std::isfinite(s.time) && !insideScene(window,s.time);});
+    return samples;
+}
+std::vector<HeadOrientationSample> headMotionEvidence(const MotionWindow& window,double start,double end) {
+    auto samples=headSceneEvidence(window);
+    // Cropping must not lose its reliable shoulder reference just because
+    // unrelated samples elsewhere in the original window were occluded.
+    std::erase_if(samples,[&](const auto& s){return std::isfinite(s.time)
+        && (s.time<start-1e-6 || s.time>end+1e-6);});
+    std::vector<std::optional<double>> roll(samples.size());std::size_t observed=0;
+    for(std::size_t i=0;i<samples.size();++i) {
+        const auto frame=std::lower_bound(window.frames.begin(),window.frames.end(),samples[i].time,
+            [](const auto& f,double t){return f.timestampSeconds<t;});
+        if(frame==window.frames.end() || std::abs(frame->timestampSeconds-samples[i].time)>1e-6
+            || frame->keypoints.size()<7 || frame->keypoints[5].confidence<.65 || frame->keypoints[6].confidence<.65)continue;
+        const auto left=point(*frame,5),right=point(*frame,6);
+        if(left&&right && length(*left,*right)>1e-6) {
+            roll[i]=std::atan2(right->y-left->y,right->x-left->x);++observed;
+        }
+    }
+    // Camera/body roll is independent evidence; subtract it only when a
+    // consistent measured shoulder reference exists across the interval.
+    if(samples.empty() || observed*4<samples.size()*3)return samples;
+    for(std::size_t i=0;i<samples.size();++i) {
+        if(!roll[i]) {samples[i].observed=false;continue;}
+        const double angle=*roll[i],c=std::cos(angle),s=std::sin(angle);
+        const auto r=samples[i].rotation;
+        for(int k=0;k<3;++k) {
+            samples[i].rotation[k]=c*r[k]+s*r[3+k];
+            samples[i].rotation[3+k]=-s*r[k]+c*r[3+k];
+        }
+    }
+    return samples;
 }
 } // namespace
 
-MovementClassification MovementClassifier::classifyForGrouping(const MotionWindow& window,double start,double end,bool headOnly) const {
+MovementClassification MovementClassifier::classifyGeometricForGrouping(const MotionWindow& window,double start,double end,bool headOnly) const {
     MovementClassification result;
     if(!std::isfinite(start)||!std::isfinite(end)||end<start||!insideSceneRange(window,start,end))return result;
+    if(headOnly && !window.headOrientations.empty()) {
+        result=classifyHeadOrientation(headMotionEvidence(window,start,end),start,end);
+        const auto displacement=classify(window,start,end);
+        result.direction=displacement.direction;result.directionConfidence=displacement.directionConfidence;
+        return result;
+    }
     const auto ref=reference(window,start,end);
     std::vector<Observation> observations;std::size_t total=0;double previous=-INFINITY;
     for(const auto& f:window.frames)if(insideScene(window,f.timestampSeconds)
@@ -286,11 +413,84 @@ MovementClassification MovementClassifier::classifyForGrouping(const MotionWindo
         if(auto o=observe(f,ref))observations.push_back(*o);
     }
     if(observations.size()<5 || observations.size()*4<total*3
-        || observations.back().time-observations.front().time<.3)return result;
-    const auto decision=classifyAction(observations,headOnly);
-    if(decision.strength<.65)return result;
+        || observations.back().time-observations.front().time<.3
+        || observations.front().time-start>.35 || end-observations.back().time>.35)return result;
+    const auto decision=classifyAction(observations,headOnly,window.headOrientations.empty());
+    if(decision.strength<.65) {
+        // Cropped body coverage and a visible unclassified body action are
+        // different. Retain independently measured head motion only when no
+        // arm/hip/leg joint has enough temporal coverage for a body decision.
+        bool bodyObservable=false;
+        for(int joint=7;joint<17;++joint) {
+            std::size_t visible=0;
+            for(const auto& frame:window.frames)if(insideScene(window,frame.timestampSeconds)
+                && frame.timestampSeconds>=start-1e-6 && frame.timestampSeconds<=end+1e-6)
+                visible+=bool(point(frame,joint));
+            if(total && visible*4>=total*3) {bodyObservable=true;break;}
+        }
+        if(!headOnly && !bodyObservable && !window.headOrientations.empty()) {
+            auto head=classifyHeadOrientation(headMotionEvidence(window,start,end),start,end);
+            if(head.gesture!=GestureClass::Unknown && head.gesture!=GestureClass::Static
+                && head.gestureConfidence>=.65) {
+                head.headOnlyEvidence=true;
+                const auto displacement=classify(window,start,end);
+                head.direction=displacement.direction;head.directionConfidence=displacement.directionConfidence;
+                return head;
+            }
+        }
+        return result;
+    }
     result.gesture=decision.type;result.gestureConfidence=decision.strength;
+    result.actions=decision.actions;
+    if(!window.headOrientations.empty()) {
+        const auto head=classifyHeadOrientation(headMotionEvidence(window,start,end),start,end);
+        // Body-static evidence excluded facial keypoints above. An unobserved
+        // head therefore cannot certify that the complete person is static.
+        if(result.gesture==GestureClass::Static && head.gesture==GestureClass::Unknown)
+            return {};
+        const bool geometricHead=result.gesture==GestureClass::HeadTurn
+            || result.gesture==GestureClass::HeadTilt || result.gesture==GestureClass::HeadNod;
+        if(geometricHead) {
+            result.gesture=head.gesture;result.gestureConfidence=head.gestureConfidence;
+            result.actions=head.actions;
+        } else if(head.gesture!=GestureClass::Unknown && head.gesture!=GestureClass::Static
+            && result.gesture!=GestureClass::Unknown && result.gesture!=GestureClass::Turn) {
+            // A measured body turn can explain camera-space head rotation.
+            // Other simultaneous body/head actions are independent.
+            if(result.gesture!=GestureClass::Mixed && result.gesture!=GestureClass::Static)
+                result.actions.push_back(result.gesture);
+            if(!head.actions.empty())result.actions.insert(result.actions.end(),head.actions.begin(),head.actions.end());
+            else if(head.gesture!=GestureClass::Mixed)result.actions.push_back(head.gesture);
+            std::sort(result.actions.begin(),result.actions.end());
+            result.actions.erase(std::unique(result.actions.begin(),result.actions.end()),result.actions.end());
+            result.gesture=result.gesture==GestureClass::Static ? head.gesture:GestureClass::Mixed;
+            result.gestureConfidence=std::min(result.gestureConfidence,head.gestureConfidence);
+        }
+    }
     // Screen displacement remains separate from the body-relative action.
+    const auto displacement=classify(window,start,end);
+    result.direction=displacement.direction;result.directionConfidence=displacement.directionConfidence;
+    return result;
+}
+
+MovementClassification MovementClassifier::classifyForGrouping(const MotionWindow& window,double start,double end,bool headOnly) const {
+    auto result=classifyGeometricForGrouping(window,start,end,headOnly);
+    if(headOnly || !insideSceneRange(window,start,end))return result;
+    std::optional<double> walking;
+    for(const auto& evidence:window.videoActions)
+        if(const auto strength=measuredWalking(evidence,window.sourceId,start,end))walking=strength;
+    if(!walking)return result;
+    if(result.gesture==GestureClass::Unknown || result.gesture==GestureClass::Static) {
+        result.gesture=GestureClass::Step;result.actions={GestureClass::Step};
+        result.gestureConfidence=*walking;
+    } else if(result.gesture!=GestureClass::Step) {
+        if(result.gesture!=GestureClass::Mixed)result.actions.push_back(result.gesture);
+        result.actions.push_back(GestureClass::Step);
+        std::sort(result.actions.begin(),result.actions.end());
+        result.actions.erase(std::unique(result.actions.begin(),result.actions.end()),result.actions.end());
+        result.gesture=GestureClass::Mixed;result.gestureConfidence=std::min(result.gestureConfidence,*walking);
+    }
+    result.headOnlyEvidence=false;
     const auto displacement=classify(window,start,end);
     result.direction=displacement.direction;result.directionConfidence=displacement.directionConfidence;
     return result;
@@ -299,27 +499,57 @@ MovementClassification MovementClassifier::classifyForGrouping(const MotionWindo
 MovementClassification MovementClassifier::combineForGrouping(const MovementClassification& a,const MovementClassification& b) {
     MovementClassification result;
     if(a.gesture==GestureClass::Unknown || b.gesture==GestureClass::Unknown
+        || !std::isfinite(a.gestureConfidence) || !std::isfinite(b.gestureConfidence)
         || a.gestureConfidence<.65 || b.gestureConfidence<.65)return result;
     result.gesture=a.gesture==b.gesture ? a.gesture:GestureClass::Mixed;
+    // Facets describe simultaneous actions, not their temporal order. The
+    // two sides can enumerate the same evidence in a different order.
+    auto leftActions=a.actions,rightActions=b.actions;
+    const auto canonicalize=[](auto& actions) {
+        std::sort(actions.begin(),actions.end());
+        actions.erase(std::unique(actions.begin(),actions.end()),actions.end());
+    };
+    canonicalize(leftActions);canonicalize(rightActions);
+    if(leftActions==rightActions)result.actions=std::move(leftActions);
+    result.headOnlyEvidence=(a.headOnlyEvidence||b.headOnlyEvidence)
+        && a.gesture==b.gesture
+        && (result.gesture!=GestureClass::Mixed || (!result.actions.empty() && result.actions==rightActions));
     result.gestureConfidence=std::min(a.gestureConfidence,b.gestureConfidence);
     result.direction=a.direction==b.direction ? a.direction:MovementDirection::Mixed;
     result.directionConfidence=std::min(a.directionConfidence,b.directionConfidence);
     return result;
 }
 
+std::string MovementClassifier::classifyHeadTurnForGrouping(const MotionWindow& window,double start,double end) const {
+    if(!std::isfinite(start)||!std::isfinite(end)||end<start||!insideSceneRange(window,start,end))return "head_turn";
+    return classifyHeadTurnPhase(headMotionEvidence(window,start,end),start,end);
+}
+
 std::string MovementClassifier::classifyPoseForGrouping(const MotionWindow& window,double start,double end,bool headOnly) const {
     const std::string fallback=headOnly ? "head_pose":"body_pose";
     if(!std::isfinite(start)||!std::isfinite(end)||end<start||!insideSceneRange(window,start,end))return fallback;
+    if(headOnly && !window.headOrientations.empty())
+        return classifyHeadPoseOrientation(headSceneEvidence(window),start,end);
     const auto ref=reference(window,start,end);
-    std::vector<std::string> votes;std::size_t total=0;
+    std::vector<std::string> votes;std::size_t total=0;double previous=-INFINITY;
     for(const auto& frame:window.frames)if(insideScene(window,frame.timestampSeconds)
         && frame.timestampSeconds>=start-1e-6 && frame.timestampSeconds<=end+1e-6) {
+        if(!std::isfinite(frame.timestampSeconds)||frame.timestampSeconds<=previous)return fallback;
+        previous=frame.timestampSeconds;
         ++total;const auto o=observe(frame,ref);if(!o)continue;
         std::string vote;
         if(headOnly) {
             if(o->head && point(frame,3) && point(frame,4)) {
                 if(std::abs(o->head->x)<.08)vote="head_front";
                 else if(std::abs(o->head->x)>.25)vote="head_turned";
+            } else if(o->head && o->earVisibility && std::abs(*o->earVisibility)>.9
+                && o->head->x * *o->earVisibility>.25
+                && frame.keypoints[0].confidence>=.75
+                && frame.keypoints[1].confidence>=.75 && frame.keypoints[2].confidence>=.75) {
+                // A strongly observed profile can hide its far ear. Require
+                // agreement with facial displacement; an arbitrary missing
+                // ear or a frontal face is not evidence of a turned head.
+                vote="head_turned";
             }
         } else {
             const auto raised=[&](int arm) {

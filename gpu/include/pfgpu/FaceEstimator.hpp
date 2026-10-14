@@ -10,6 +10,8 @@ struct FaceRecognitionDiagnostics {
     double detectorScore = 0;
     std::array<double, 10> landmarks{};
     std::array<double, 6> canonicalToSource{};
+    bool faceDetected = false;
+    std::array<double, 4> faceBox{}; // x, y, width, height in source pixels
 };
 // YuNet five-landmark detection followed by aligned SFace recognition.
 // Empty output means no unambiguous, sufficiently large face was observed.
@@ -18,12 +20,21 @@ public:
     FaceEstimator(std::string detector, std::string recognizer, Provider provider);
     std::vector<float> infer(const ReIdImage& person, FaceRecognitionDiagnostics* diagnostics = nullptr,
                              double minimumDetectionConfidence = .85,
-                             const std::array<double,2>* expectedNose = nullptr);
+                             const std::array<double,2>* expectedNose = nullptr,
+                             bool forwardAlignmentAudit = false);
     // Optional verification from measured right-eye, left-eye and nose pixels.
     // No detector identity claim: callers must verify the returned descriptor.
     std::vector<float> inferFromPose(const ReIdImage& image,
-        const std::array<double,6>& eyesAndNose,FaceRecognitionDiagnostics* diagnostics = nullptr);
+        const std::array<double,6>& eyesAndNose,FaceRecognitionDiagnostics* diagnostics = nullptr,
+        bool forwardAlignmentAudit = false);
+    // Same conservative detector/association as recognition, without running
+    // an identity model. The returned box is unaligned, suitable for head pose.
+    std::optional<std::array<double,4>> locateFace(const ReIdImage& image,
+        const std::array<double,2>& expectedNose, double minimumDetectionConfidence = .85);
 private:
+    std::vector<float> inferImage(const ReIdImage& image,FaceRecognitionDiagnostics* diagnostics,
+        double minimumDetectionConfidence,const std::array<double,2>* expectedNose,bool recognize,
+        bool forwardAlignmentAudit = false);
     std::string detector_, recognizer_;
     Provider provider_;
 };

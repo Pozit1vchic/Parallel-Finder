@@ -16,8 +16,15 @@ set_target_properties(pf_matcher_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORC
 target_link_libraries(pf_matcher_probe PRIVATE pf::core Qt6::Core)
 
 add_executable(pf_face_probe face_probe.cpp)
+add_executable(pf_face_consensus_probe face_consensus_probe.cpp)
+set_target_properties(pf_face_consensus_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_link_libraries(pf_face_consensus_probe PRIVATE pf::core Qt6::Core)
 set_target_properties(pf_face_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(pf_face_probe PRIVATE pf::gpu Qt6::Core Qt6::Gui)
+
+add_executable(pf_head_pose_probe head_pose_probe.cpp)
+set_target_properties(pf_head_pose_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_link_libraries(pf_head_pose_probe PRIVATE pf::gpu pf::core Qt6::Core Qt6::Gui)
 
 # Explicit scaling controls; these are benchmarks, never semantic ground truth.
 add_executable(pf_dominant_probe dominant_probe.cpp)
@@ -50,3 +57,11 @@ target_link_libraries(pf_cuda_graph_probe PRIVATE pf::gpu Qt6::Core Qt6::Gui)
 add_executable(pf_pose_batch_probe pose_batch_probe.cpp)
 set_target_properties(pf_pose_batch_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(pf_pose_batch_probe PRIVATE pf::gpu Qt6::Core Qt6::Gui)
+
+add_executable(pf_identity_refresh_probe identity_refresh_probe.cpp)
+set_target_properties(pf_identity_refresh_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_link_libraries(pf_identity_refresh_probe PRIVATE pf::core pf::gpu Qt6::Core)
+
+add_executable(pf_video_action_probe video_action_probe.cpp)
+set_target_properties(pf_video_action_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_link_libraries(pf_video_action_probe PRIVATE pf::core pf::gpu Qt6::Core)

@@ -121,6 +121,10 @@ QJsonObject toJson(const Settings& settings)
     json[QStringLiteral("normalizeSize")] = settings.normalizeSize;
     json[QStringLiteral("mirrorPoses")] = settings.mirrorPoses;
     json[QStringLiteral("expandedSearch")] = settings.expandedSearch;
+    json[QStringLiteral("mcpEnabled")] = settings.mcpEnabled;
+    json[QStringLiteral("mcpAllowControl")] = settings.mcpAllowControl;
+    json[QStringLiteral("mcpPort")] = settings.mcpPort;
+    json[QStringLiteral("mcpToken")] = QString::fromStdString(settings.mcpToken);
     return json;
 }
 
@@ -193,6 +197,13 @@ Settings SettingsStore::load(std::string& error) const
     if (mirrorPoses.isBool()) settings.mirrorPoses = mirrorPoses.toBool();
     const auto expandedSearch = json.value(QStringLiteral("expandedSearch"));
     if (expandedSearch.isBool()) settings.expandedSearch = expandedSearch.toBool();
+    if(json["mcpEnabled"].isBool())settings.mcpEnabled=json["mcpEnabled"].toBool();
+    if(json["mcpAllowControl"].isBool())settings.mcpAllowControl=json["mcpAllowControl"].toBool();
+    if(json["mcpPort"].isDouble() && json["mcpPort"].toDouble()==json["mcpPort"].toInt()
+        && json["mcpPort"].toInt()>=1024 && json["mcpPort"].toInt()<=65535)settings.mcpPort=json["mcpPort"].toInt();
+    const auto mcpToken=json["mcpToken"].toString();
+    if(mcpToken.size()==64 && std::all_of(mcpToken.begin(),mcpToken.end(),[](QChar c){return (c>='0'&&c<='9')||(c>='a'&&c<='f');}))
+        settings.mcpToken=mcpToken.toStdString();
     const auto cacheLimit = json.value(QStringLiteral("cacheLimitBytes"));
     if (cacheLimit.isDouble() && cacheLimit.toInteger() > 0) {
         const auto value = cacheLimit.toInteger();

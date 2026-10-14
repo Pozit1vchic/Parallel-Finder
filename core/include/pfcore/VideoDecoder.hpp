@@ -30,6 +30,9 @@ struct VideoInfo {
     // Primary video and all audio codec parameters, including initialization
     // data. Equal signatures allow conservative stream-copy concatenation.
     std::string streamCopySignature;
+    // Same codec/timebase/color/audio admission, without the observed average
+    // frame rate, which can differ between exact VFR intervals of one source.
+    std::string streamCopyCodecSignature;
 };
 
 struct DecodedFrame {
@@ -37,6 +40,17 @@ struct DecodedFrame {
     int height = 0;
     double timestampSeconds = 0.0;
     std::vector<std::uint8_t> rgba;
+};
+
+// Owned native pixels, independent of the decoder's next receive/seek. No
+// FFmpeg types escape the interface. A snapshot can be converted only by its
+// original open decoder; closing/reopening invalidates conversion admission.
+class VideoFrameSnapshot {
+public:
+    double timestampSeconds = 0;
+private:
+    std::shared_ptr<const void> pixels_, source_;
+    friend class VideoDecoder;
 };
 
 struct VideoDecodeOptions {
@@ -51,15 +65,24 @@ struct VideoDecodeOptions {
     int nvidiaDevice = 0;
     int maxWidth = 0;
     int maxHeight = 0;
+    // Explicit audit of parallel swscale. The established serial pixel path
+    // remains the default until complete pixel/PTS and performance validation.
+    int conversionThreads = 1;
+    // Enable validated four-worker conversion only after native-size NVDEC
+    // actually opens for 4K on a machine with at least eight CPU threads.
+    bool autoNvidiaConversion = false;
 };
 
 struct VideoDecodeDiagnostics {
     std::string backend = "cpu";
     std::string fallbackReason;
     int threads = 1;
+    int conversionThreads = 1;
     std::uint64_t decodedFrames = 0;
     std::uint64_t convertedFrames = 0;
     std::uint64_t hardwareDownloads = 0;
+    std::uint64_t reusedDownloadBuffers = 0;
+    double downloadMilliseconds = 0.0;
     double readMilliseconds = 0.0;
     double conversionMilliseconds = 0.0;
 };
@@ -99,6 +122,11 @@ public:
     // the way to one requested preview. Returns false when no retained frame
     // is available (for example after a regular readNext(..., true)).
     bool convertCurrentFrameToRgba(DecodedFrame& frame);
+    // One thread may receive snapshots while another converts them. Geometry
+    // must remain fixed, diagnostics must be queried after both threads join,
+    // and seek/close/reopen require stopping and joining the receiving thread.
+    bool readNextSnapshot(VideoFrameSnapshot& snapshot);
+    bool convertSnapshotToRgba(const VideoFrameSnapshot& snapshot, DecodedFrame& frame);
     void seek(double timestampSeconds);
     void rewind();
 

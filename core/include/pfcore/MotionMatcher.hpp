@@ -1,17 +1,21 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <functional>
 #include <memory>
+#include "pfcore/HeadOrientationSample.hpp"
+#include "pfcore/FaceConsensus.hpp"
+#include "pfcore/VideoActionEvidence.hpp"
 
 namespace pfcore {
 
 enum class MotionSearchStage { Prepare, Footage, Retrieval, Identity, Filter, Compare, Select, Camera, Recovery };
 class MotionSearchReuse {
 public:
-    // Main cache is capped at 256 MiB; an optional unused-shot recovery cache
+    // Main cache is capped at 1 GiB; an optional unused-shot recovery cache
     // has half that budget. Both are released with this analysis session.
     explicit MotionSearchReuse(std::size_t byteBudget=64U*1024U*1024U);
     ~MotionSearchReuse();
@@ -94,11 +98,24 @@ struct MotionWindow {
     // Optional direct source-frame verification, separate from the averaged
     // shot prototype. An explicit foreign face must never hide in its tail.
     std::vector<MeasuredFaceIdentity> measuredFaces;
+    // Direct, model-versioned observations for experimental early verification.
+    std::string directFaceModel;
+    std::vector<DirectFaceSample> directFaces;
+    // Optional result-only refinement. It is excluded from identity matching
+    // and the established motion cache; a separate model-version cache owns it.
+    std::vector<HeadOrientationSample> headOrientations;
+    // Kept in its independent classifier cache, not the expensive pose cache.
+    std::vector<VideoActionEvidence> videoActions;
 };
 
 bool observedIdentityAllows(const MotionWindow& window,double start,double end,bool portrait);
+// Matcher interval endpoints are observed frame timestamps. Determine whether
+// new face notes alter any possible admission, including short recovery poses.
+bool observedIdentityAdmissionChanged(const MotionWindow& window,
+    const std::vector<MeasuredFaceIdentity>& previousNotes);
 
 struct MotionMatcherParams {
+    bool auditDirectFaceConsensus = false;
     bool operator==(const MotionMatcherParams&) const = default;
     // Windows are short sampled gestures, not complete films. Bound quadratic
     // alignment storage even for corrupt or externally constructed input.
@@ -236,6 +253,15 @@ struct MotionMatcherParams {
     double sameSceneContextGapSec = 30.0;
 };
 
+// Pair-comparison audit only: a first failing gate is not proof that the
+// pair is a false positive. Retrieval and final selection are separate stages.
+enum class MotionRejection : std::uint8_t {
+    None, ShotBoundary, SourceOverlap, SameShot, NearbyContext, Identity,
+    HeadIdentity, TemporalSupport, MotionEvidence, BodyVisibility, LimbSupport,
+    ActiveBody, Alignment, SourceGap, Direction, SceneContext, HeadGeometry,
+    StaticGeometry, MeasuredIdentity, CopiedFootage, BodyOnly, SameCamera, Score
+};
+
 struct MotionMatch {
     std::size_t leftIndex = 0;
     std::size_t rightIndex = 0;
@@ -264,6 +290,8 @@ struct MotionMatch {
     // Ambiguous head geometry is ranked by directly observed orientation
     // before mirror-only alternatives, without changing the displayed score.
     double unmirroredSimilarity = -1.0;
+    // Populated by compare(); search reuse does not persist diagnostic data.
+    MotionRejection rejection = MotionRejection::None;
 };
 
 class MotionMatcher {

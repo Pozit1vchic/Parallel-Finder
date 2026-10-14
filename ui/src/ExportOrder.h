@@ -8,8 +8,22 @@
 #include <vector>
 
 namespace pfui {
-// One ordering shared by video and metadata exports. Chronological merge is
-// handled by the cutter separately; it does not change individual clip names.
+inline QString exportClassKey(const QString& value,const QStringList& classOrder) {
+    const auto key=value.section('/',0,0);
+    if(classOrder.isEmpty() || classOrder.contains(key))return key;
+    if(key.contains('+')) {
+        auto actions=key.split('+');actions.sort();
+        if(!actions.contains(QString()) && std::adjacent_find(actions.begin(),actions.end())==actions.end()) {
+            for(const auto& candidate:classOrder) {
+                auto expected=candidate.split('+');expected.sort();
+                if(expected==actions)return candidate;
+            }
+        }
+    }
+    return QStringLiteral("unknown");
+}
+// Shared class ordering for clip numbering and metadata exports. When a
+// class order is supplied, the montage also preserves this input sequence.
 inline std::vector<int> orderedExportIndexes(const QVariantList& indexes,
     const std::vector<pfcore::MotionMatch>& matches, const QVariantList& records,
     int numberingMode, const QStringList& classOrder)
@@ -34,7 +48,7 @@ inline std::vector<int> orderedExportIndexes(const QVariantList& indexes,
         for (const int index : ordered) {
             const auto classification = index < records.size()
                 ? records[index].toMap().value("classification", "unknown").toString().section('/', 0, 0) : QStringLiteral("unknown");
-            auto rank = classOrder.indexOf(classification);
+            auto rank = classOrder.indexOf(exportClassKey(classification,classOrder));
             if(rank<0)rank=classOrder.indexOf(QStringLiteral("unknown"));
             if (rank >= 0) ranks[index] = rank;
         }

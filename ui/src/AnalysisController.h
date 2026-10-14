@@ -20,6 +20,7 @@ namespace pfservices { class RuntimeScratch; }
 #include "ResultClassification.h"
 
 namespace pfui {
+struct VideoActionReviewContext;
 
 class AnalysisController final : public QObject {
     Q_OBJECT
@@ -236,6 +237,7 @@ private:
     int resultCategoryRevision_ = 0;
     std::vector<pfcore::MotionMatch> matches_;
     std::vector<ResultPoseEvidence> resultPoseEvidence_;
+    std::shared_ptr<const VideoActionReviewContext> videoActionContext_;
     double sourceFps_ = 0.0;
     QString status_;
     bool busy_ = false;

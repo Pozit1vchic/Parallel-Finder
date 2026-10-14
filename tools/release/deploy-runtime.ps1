@@ -1,11 +1,13 @@
 param(
     [Parameter(Mandatory=$true)][string]$Stage,
-    [string]$Toolchain = 'D:\msys2\ucrt64'
+    [string]$Toolchain = 'D:\msys2\ucrt64',
+    [string]$ClassifierModelsDirectory = (Join-Path $PSScriptRoot '../../models')
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $stagePath = (Resolve-Path -LiteralPath $Stage).Path
 $bin = Join-Path $Toolchain 'bin'
+& "$PSScriptRoot/stage-classifier-model.ps1" -Stage $stagePath -SourceDirectory $ClassifierModelsDirectory
 & "$bin/windeployqt.exe" --release --no-translations --qmldir "$root/ui/qml" --dir $stagePath "$stagePath/ParallelFinder.exe"
 if ($LASTEXITCODE) { throw 'Development runtime deployment failed' }
 Copy-Item -LiteralPath "$PSScriptRoot/qt.conf" -Destination $stagePath

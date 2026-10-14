@@ -89,8 +89,10 @@ foreach ($mode in $Modes) {
     $stderrStream = $null
     $stderrCapturePath = if ($ReportPath) { $ReportPath + '.stderr.log' } else { '' }
     if ($stderrCapturePath) {
-        $stderrStream = [IO.File]::Open($stderrCapturePath, [IO.FileMode]::Create,
-            [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+        # Do not retain the last few KB during a quiet, long preparation phase.
+        # This is benchmark logging only; application diagnostics are unchanged.
+        $stderrStream = [IO.FileStream]::new($stderrCapturePath, [IO.FileMode]::Create,
+            [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite, 1, [IO.FileOptions]::Asynchronous)
         $stderrTask = $process.StandardError.BaseStream.CopyToAsync($stderrStream)
     } else {
         $stderrTask = $process.StandardError.ReadToEndAsync()

@@ -1,5 +1,6 @@
 #include "AnalysisController.h"
 #include "AppInfo.h"
+#include "VideoActionReview.h"
 #include <pfcore/VideoDecoder.hpp>
 #include <QDir>
 #include <QFileInfo>
@@ -142,8 +143,17 @@ bool AnalysisController::startReviewPreview(int id, const QVariantMap& row, bool
     reviewBusy_ = true; emit reviewBusyChanged();
     const QPointer<AnalysisController> guard(this);
     const auto previewDirectory = std::make_shared<QTemporaryDir>(QDir::tempPath() + "/ParallelFinder-adjust-XXXXXX");
-    reviewWorker_ = std::jthread([guard, row, id, previewDirectory, publish](std::stop_token stop) {
+    std::optional<ResultPoseEvidence> actionEvidence;
+    std::optional<pfcore::MotionMatch> actionMatch;
+    const auto actionContext=videoActionContext_;
+    if(publish && !row.value("classificationManual").toBool() && actionContext
+        && id<static_cast<int>(resultPoseEvidence_.size()) && id<static_cast<int>(matches_.size())
+        && !matches_[id].headOnlyComparison && row.value("matchType").toString()=="motion") {
+        actionEvidence=resultPoseEvidence_[id];actionMatch=matches_[id];
+    }
+    reviewWorker_ = std::jthread([guard, row, id, previewDirectory, publish,actionContext,actionEvidence,actionMatch](std::stop_token stop) mutable {
         QStringList previews; QString error;
+        bool actionsUpdated=false;
         try {
             if (!previewDirectory->isValid()) throw std::runtime_error("Could not create preview folder");
             for (const QString& side : {QString("left"), QString("right")}) {
@@ -155,13 +165,41 @@ bool AnalysisController::startReviewPreview(int id, const QVariantMap& row, bool
                 if (!image.save(path)) throw std::runtime_error("Could not save preview");
                 previews.push_back(QUrl::fromLocalFile(path).toString());
             }
+            if(actionEvidence && actionMatch && !stop.stop_requested()) {
+                pfgpu::PoseEstimatorParams params;params.provider=actionContext->poseProvider;
+                params.profile=actionContext->poseProfile;params.intraOpThreads=4;
+                pfgpu::PoseEstimator pose(actionContext->poseModel.string(),params);
+                auto match=*actionMatch;match.leftIndex=0;match.rightIndex=1;
+                std::vector<pfcore::MotionWindow> windows{(*actionEvidence)[0],(*actionEvidence)[1]};
+                pfcore::VideoDecodeOptions options;options.threads=2;
+                const auto review=reviewMatchedVideoActions(windows,{match},pose,actionContext->poseModel,
+                    actionContext->actionModel,actionContext->cacheDirectory,actionContext->sourceNamespaces,
+                    actionContext->actionProvider,options,[&]{return stop.stop_requested();});
+                if(!review.error.empty())error=QString::fromStdString(review.error);
+                else if(!stop.stop_requested()) {
+                    *actionEvidence={std::move(windows[0]),std::move(windows[1])};actionsUpdated=true;
+                }
+            }
         } catch (const std::exception& e) { error = QString::fromUtf8(e.what()); }
         if (!guard) return;
-        QMetaObject::invokeMethod(guard, [guard, row, id, previews, error, previewDirectory, publish] {
+        QMetaObject::invokeMethod(guard, [guard, row, id, previews, error, previewDirectory, publish,actionsUpdated,actionEvidence] {
             if (!guard) return;
             if (publish && previews.size() == 2 && id < guard->results_.size()) {
                 auto current = guard->results_[id].toMap();
-                if (current.value("leftSource") == row.value("leftSource") && current.value("leftStart") == row.value("leftStart")) {
+                bool sameRange=true;
+                for(const auto key:{"leftSource","rightSource","leftStart","leftEnd","rightStart","rightEnd"})
+                    if(current.value(key)!=row.value(key))sameRange=false;
+                if (sameRange) {
+                    if(actionsUpdated && actionEvidence && id<static_cast<int>(guard->resultPoseEvidence_.size())) {
+                        for(int side=0;side<2;++side)for(const auto& evidence:(*actionEvidence)[side].videoActions) {
+                            auto& history=guard->resultPoseEvidence_[id][side].videoActions;
+                            std::erase_if(history,[&](const auto& old){return old.sourceId==evidence.sourceId
+                                && old.start==evidence.start && old.end==evidence.end;});
+                            history.push_back(evidence);
+                            if(history.size()>32)history.erase(history.begin()+1);
+                        }
+                        classifyResultRange(current,guard->matches_[id],guard->resultPoseEvidence_[id]);
+                    }
                     current.insert("leftPreview", previews[0]); current.insert("rightPreview", previews[1]);
                     guard->reviewPreviewDirectories_[id] = previewDirectory;
                     guard->results_[id] = current; ++guard->resultCategoryRevision_; emit guard->resultCategoriesChanged();

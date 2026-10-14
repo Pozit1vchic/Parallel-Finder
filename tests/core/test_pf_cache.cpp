@@ -117,6 +117,20 @@ TEST(PfCache, WritesReadsAndEvictsVersionedEntries)
     std::filesystem::remove_all(root, ignored);
 }
 
+TEST(PfCache, LongObservationKeysRoundTripAndRemainBounded)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    pfservices::PfCache cache(directory.path().toStdString(), 1024U * 1024U);
+    std::string error;
+    const std::string key = "motion-v43|" + std::string(2048, 'a');
+    const std::vector<std::uint8_t> payload{1, 2, 3};
+    ASSERT_TRUE(cache.putForSource("D:/video.mp4", key, payload, error)) << error;
+    ASSERT_TRUE(cache.get(key));
+    EXPECT_EQ(*cache.get(key), payload);
+    EXPECT_FALSE(cache.put(std::string(16U * 1024U + 1, 'a'), payload, error));
+}
+
 TEST(PfCache, RejectsOversizedEntry)
 {
     const auto root = std::filesystem::temp_directory_path() / "parallel-finder-pfcache-limit-test";

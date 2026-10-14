@@ -2,6 +2,8 @@
 #include "pfcore/detail/PixelPlanes.hpp"
 
 #include <algorithm>
+#include <array>
+#include <mutex>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -18,6 +20,8 @@ extern "C" {
 #include <libavutil/mathematics.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/intreadwrite.h>
+#include <libavutil/opt.h>
+#include <libavutil/imgutils.h>
 #include <libswscale/swscale.h>
 }
 
@@ -82,11 +86,14 @@ const char* cuvidDecoder(AVCodecID codec)
 } // namespace
 
 struct VideoDecoder::Impl {
+    std::mutex conversionMutex;
+    std::shared_ptr<const void> sourceToken;
     AVFormatContext* format = nullptr;
     AVCodecContext* codec = nullptr;
     AVPacket* packet = nullptr;
     AVFrame* decoded = nullptr;
     AVFrame* downloaded = nullptr;
+    int downloadAllocationWidth = 0, downloadAllocationHeight = 0;
     std::vector<std::uint8_t> chromaU, chromaV, luma10;
     SwsContext* scaler = nullptr;
     int scalerSourceWidth = 0;
@@ -132,6 +139,8 @@ struct VideoDecoder::Impl {
         options = {};
         diagnostics = {};
         hardware = false;
+        sourceToken.reset();
+        downloadAllocationWidth = downloadAllocationHeight = 0;
         std::vector<std::uint8_t>().swap(chromaU);
         std::vector<std::uint8_t>().swap(chromaV);
         std::vector<std::uint8_t>().swap(luma10);
@@ -182,7 +191,7 @@ struct VideoDecoder::Impl {
         const auto* software = avcodec_find_decoder(stream->codecpar->codec_id);
         if (!software) throw std::runtime_error("no software decoder for hardware fallback");
         av_frame_unref(decoded);
-        if (downloaded) av_frame_unref(downloaded);
+        { const std::lock_guard lock(conversionMutex); if (downloaded) av_frame_unref(downloaded); }
         frameAvailable = false;
         av_packet_unref(packet);
         const int result = openCodec(software, false);
@@ -198,15 +207,55 @@ struct VideoDecoder::Impl {
 
     void copyCurrentFrameToRgba(DecodedFrame& output)
     {
+        copyFrameToRgba(decoded, output);
+    }
+
+    void copyFrameToRgba(const AVFrame* decoded, DecodedFrame& output)
+    {
+        const std::lock_guard lock(conversionMutex);
         ElapsedMeasurement measurement{diagnostics.conversionMilliseconds};
         const AVFrame* source = decoded;
         AVFrame planarView {};
         if (source->format == AV_PIX_FMT_CUDA) {
+            ElapsedMeasurement downloadMeasurement{diagnostics.downloadMilliseconds};
             if (!downloaded) downloaded = av_frame_alloc();
             if (!downloaded) throw std::runtime_error("allocate hardware download frame failed");
-            av_frame_unref(downloaded);
+            const auto* frames = decoded->hw_frames_ctx
+                ? reinterpret_cast<const AVHWFramesContext*>(decoded->hw_frames_ctx->data) : nullptr;
+            const bool reusable = frames && downloaded->buf[0]
+                && av_buffer_is_writable(downloaded->buf[0])
+                && downloaded->width == decoded->width && downloaded->height == decoded->height
+                && downloaded->format == frames->sw_format
+                && downloadAllocationWidth == frames->width && downloadAllocationHeight == frames->height
+                && downloaded->nb_extended_buf == 0
+                && std::all_of(std::begin(downloaded->buf) + 1, std::end(downloaded->buf),
+                    [](const auto* buffer) { return buffer == nullptr; });
+            if (reusable) {
+                // Keep the owned image allocation, but clear all previous frame
+                // metadata/side data before copying new properties. Repeated
+                // copy_props without unref would accumulate side data.
+                std::array<std::uint8_t*, AV_NUM_DATA_POINTERS> data;
+                std::array<int, AV_NUM_DATA_POINTERS> linesizes;
+                std::copy(std::begin(downloaded->data), std::end(downloaded->data), data.begin());
+                std::copy(std::begin(downloaded->linesize), std::end(downloaded->linesize), linesizes.begin());
+                auto* allocation = downloaded->buf[0];
+                const int format = downloaded->format;
+                downloaded->buf[0] = nullptr;
+                av_frame_unref(downloaded);
+                downloaded->buf[0] = allocation;
+                std::copy(data.begin(), data.end(), std::begin(downloaded->data));
+                std::copy(linesizes.begin(), linesizes.end(), std::begin(downloaded->linesize));
+                downloaded->extended_data = downloaded->data;
+                downloaded->width = decoded->width; downloaded->height = decoded->height;
+                downloaded->format = format;
+                ++diagnostics.reusedDownloadBuffers;
+            } else {
+                av_frame_unref(downloaded);
+            }
             const int transfer = av_hwframe_transfer_data(downloaded, decoded, 0);
             if (transfer < 0) throw std::runtime_error("download GPU frame: " + ffError(transfer));
+            downloadAllocationWidth = frames ? frames->width : 0;
+            downloadAllocationHeight = frames ? frames->height : 0;
             const int props = av_frame_copy_props(downloaded, decoded);
             if (props < 0) throw std::runtime_error("copy hardware frame metadata: " + ffError(props));
             source = downloaded;
@@ -302,7 +351,17 @@ struct VideoDecoder::Impl {
             || scalerTargetWidth != targetWidth || scalerTargetHeight != targetHeight
             || scalerFormat != pixelFormat) {
             if (scaler) sws_freeContext(scaler);
-            scaler = sws_getContext(source->width, source->height,
+            scaler=nullptr;
+            if(options.conversionThreads>1) {
+                scaler=sws_alloc_context();
+                if(!scaler)throw std::runtime_error("allocate pixel converter failed");
+                for(const auto& [key,value]:{std::pair{"srcw",source->width},std::pair{"srch",source->height},
+                    std::pair{"src_format",source->format},std::pair{"dstw",targetWidth},std::pair{"dsth",targetHeight},
+                    std::pair{"dst_format",static_cast<int>(AV_PIX_FMT_RGBA)},std::pair{"sws_flags",static_cast<int>(SWS_FAST_BILINEAR)},
+                    std::pair{"threads",options.conversionThreads}})
+                    if(av_opt_set_int(scaler,key,value,0)<0)throw std::runtime_error("configure threaded pixel converter failed");
+                if(sws_init_context(scaler,nullptr,nullptr)<0)throw std::runtime_error("initialize threaded pixel converter failed");
+            } else scaler = sws_getContext(source->width, source->height,
                 static_cast<AVPixelFormat>(source->format), targetWidth,
                 targetHeight, AV_PIX_FMT_RGBA, SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
             if (!scaler) throw std::runtime_error("create pixel converter failed");
@@ -321,8 +380,33 @@ struct VideoDecoder::Impl {
         output.rgba.resize(pixels * 4U);
         std::uint8_t* destination[] = { output.rgba.data() };
         int stride[] = { output.width * 4 };
-        if (sws_scale(scaler, source->data, source->linesize, 0,
-                      source->height, destination, stride) <= 0) {
+        int scaled=0;
+        if(options.conversionThreads>1) {
+            // The frame API joins its slice workers before returning. Borrowed
+            // decoder/unpacked/vector memory stays alive for the whole call;
+            // reference wrappers own no pixels and never cross this boundary.
+            const auto noFree=[](void*,std::uint8_t*){};
+            const auto deleter=[](AVFrame* frame){av_frame_free(&frame);};
+            std::unique_ptr<AVFrame,decltype(deleter)> input(av_frame_alloc(),deleter),target(av_frame_alloc(),deleter);
+            if(!input || !target)throw std::runtime_error("allocate converter frame failed");
+            input->width=source->width;input->height=source->height;input->format=source->format;
+            std::ptrdiff_t sourceStrides[4];std::size_t sourceSizes[4];
+            for(int i=0;i<4;++i)sourceStrides[i]=source->linesize[i];
+            if(av_image_fill_plane_sizes(sourceSizes,static_cast<AVPixelFormat>(source->format),source->height,sourceStrides)<0)
+                throw std::runtime_error("invalid converter plane sizes");
+            for(int i=0;i<4;++i)if(sourceSizes[i]) {
+                input->data[i]=source->data[i];input->linesize[i]=source->linesize[i];
+                input->buf[i]=av_buffer_create(source->data[i],sourceSizes[i],noFree,nullptr,AV_BUFFER_FLAG_READONLY);
+                if(!input->buf[i])throw std::runtime_error("reference converter input failed");
+            }
+            target->width=output.width;target->height=output.height;target->format=AV_PIX_FMT_RGBA;
+            target->data[0]=output.rgba.data();target->linesize[0]=output.width*4;
+            target->buf[0]=av_buffer_create(output.rgba.data(),output.rgba.size(),noFree,nullptr,0);
+            if(!target->buf[0])throw std::runtime_error("reference converter output failed");
+            scaled=sws_scale_frame(scaler,target.get(),input.get());
+            if(scaled>=0)scaled=output.height;
+        } else scaled=sws_scale(scaler, source->data, source->linesize, 0,source->height, destination, stride);
+        if (scaled<=0) {
             throw std::runtime_error("convert decoded frame to RGBA failed");
         }
 
@@ -368,7 +452,7 @@ void VideoDecoder::open(const std::string& path, VideoDecodeOptions options)
 {
     close();
     if (options.threads < 0 || options.threads > 256 || options.nvidiaDevice < 0
-        || options.maxWidth < 0 || options.maxHeight < 0)
+        || options.maxWidth < 0 || options.maxHeight < 0 || options.conversionThreads<1 || options.conversionThreads>16)
         throw std::invalid_argument("invalid video decoder options");
     impl_->options = options;
     impl_->diagnostics.threads = options.threads > 0 ? std::min(options.threads, 8)
@@ -470,6 +554,7 @@ void VideoDecoder::open(const std::string& path, VideoDecodeOptions options)
     appendStream(stream);
     for (unsigned i = 0; i < format->nb_streams; ++i)
         if (format->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) appendStream(format->streams[i]);
+    impl_->metadata.streamCopyCodecSignature=signature.substr(signature.find(';')+1);
     // Keep source metadata intact: export/preview still refer to the original.
     // Rotated/anamorphic and unvalidated color formats retain the CPU path.
     bool openedHardware = false;
@@ -518,6 +603,12 @@ void VideoDecoder::open(const std::string& path, VideoDecodeOptions options)
     if (!openedHardware && (result = impl_->openCodec(decoder, false)) < 0) {
         close(); throw std::runtime_error("open decoder: " + ffError(result));
     }
+    if(openedHardware && options.autoNvidiaConversion && options.conversionThreads==1
+        && !options.resizeOnNvidia && impl_->metadata.width>=3840 && impl_->metadata.height>=2160
+        && std::thread::hardware_concurrency()>=8)
+        impl_->options.conversionThreads=4;
+    impl_->diagnostics.conversionThreads=impl_->options.conversionThreads;
+    impl_->sourceToken = std::make_shared<const int>(0);
 }
 
 void VideoDecoder::close() noexcept { if (impl_) impl_->reset(); }
@@ -628,6 +719,29 @@ bool VideoDecoder::convertCurrentFrameToRgba(DecodedFrame& output)
         impl_->fallBackToCpu(error.what(), impl_->lastDelivered, true);
         return readNext(output, true);
     }
+    return true;
+}
+
+bool VideoDecoder::readNextSnapshot(VideoFrameSnapshot& snapshot)
+{
+    snapshot = {};
+    DecodedFrame metadata;
+    if (!readNext(metadata, false)) return false;
+    auto* clone = av_frame_clone(impl_->decoded);
+    if (!clone) throw std::runtime_error("retain decoded frame failed");
+    snapshot.pixels_ = std::shared_ptr<AVFrame>(clone, [](AVFrame* frame) { av_frame_free(&frame); });
+    snapshot.source_ = impl_->sourceToken;
+    snapshot.timestampSeconds = metadata.timestampSeconds;
+    return true;
+}
+
+bool VideoDecoder::convertSnapshotToRgba(const VideoFrameSnapshot& snapshot, DecodedFrame& output)
+{
+    if (!snapshot.pixels_) return false;
+    if (!isOpen() || snapshot.source_ != impl_->sourceToken)
+        throw std::invalid_argument("native frame belongs to a different decoder source");
+    output.timestampSeconds = snapshot.timestampSeconds;
+    impl_->copyFrameToRgba(static_cast<const AVFrame*>(snapshot.pixels_.get()), output);
     return true;
 }
 

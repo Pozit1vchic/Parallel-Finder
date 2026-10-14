@@ -47,7 +47,8 @@ int main(int argc, char** argv)
             std::array<double,6> poseAnchors{};
             for(int i=0;i<anchors.size() && i<6;++i)poseAnchors[i]=anchors[i].toDouble();
             const auto features = anchors.size()==6 ? estimator.inferFromPose(inputImage,poseAnchors,&diagnostic)
-                : estimator.infer(inputImage, &diagnostic,item["minimumDetectionConfidence"].toDouble(.85),hint);
+                : estimator.infer(inputImage, &diagnostic,item["minimumDetectionConfidence"].toDouble(.85),hint,
+                                  item["forwardAlignmentAudit"].toBool());
             QJsonArray face, landmarks, transform;
             for (const auto value : features) face.append(value);
             for (const auto value : diagnostic.landmarks) landmarks.append(value);

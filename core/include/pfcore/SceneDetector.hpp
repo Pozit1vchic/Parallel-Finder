@@ -11,6 +11,7 @@
 
 namespace pfcore {
 class VideoDecoder;
+struct VideoDecodeOptions;
 
 // One detected scene/shot boundary inside a single source file.
 // Scene detection is a whole-shot change (cut / fade / strong visual change),
@@ -124,7 +125,23 @@ public:
     // source decoding. Sparse RGB/pose observations themselves stay unchanged.
     std::vector<SceneBoundary> refineSupportedBoundaries(VideoDecoder& decoder,
         std::span<const SceneBoundary> boundaries, std::span<const double> sampleTimes,
-        std::span<const double> poseTimes, const std::function<bool()>& cancelled = {}) const;
+        std::span<const double> poseTimes, const std::function<bool()>& cancelled = {},
+        const std::function<void(std::size_t,std::size_t)>& progress = {},
+        bool requireNativeConfirmation = false) const;
+
+    // Independent ordered partitions use the same interval detector. Merging
+    // preserves the sequential fallback when neighbouring brackets overlap.
+    std::vector<SceneBoundary> refineSupportedBoundariesParallel(const std::string& source,
+        const VideoDecodeOptions& options, std::span<const SceneBoundary> boundaries,
+        std::span<const double> sampleTimes, std::span<const double> poseTimes,
+        std::size_t workers, const std::function<bool()>& cancelled = {},
+        const std::function<void(std::size_t,std::size_t)>& progress = {}) const;
+
+    // Absolute thumbnail discontinuities missed by the adaptive detector are
+    // proposals only. Confirm with native source frames before tracking or
+    // identity averaging; never publish these as scene boundaries directly.
+    std::vector<SceneCutCandidate> highContrastCutCandidates(std::span<const SceneSample> samples,
+        const std::function<bool()>& cancelled = {}) const;
 
     // Existing 16x9 RGB observations suggest where to check native source
     // frames. These brackets are NOT confirmed boundaries. Missing samples
