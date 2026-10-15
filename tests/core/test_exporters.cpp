@@ -6,6 +6,9 @@
 #include <fstream>
 #include <iterator>
 #include <QTemporaryDir>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
 
 namespace {
 
@@ -170,6 +173,79 @@ TEST(Exporters, FcpXmlReferencesEverySourceForMultiSourceProjects)
         }
         EXPECT_EQ(xml.find("<asset id=\"a" + std::to_string(sourceCount + 1) + "\""), std::string::npos);
     }
+}
+
+TEST(Exporters, SingleClipMetadataRetainsDisabledSideAndUsesSurvivingDuration)
+{
+    for(const bool retainLeft:{false,true}) {
+        auto item=sample();
+        item.leftEnabled=retainLeft;item.rightEnabled=!retainLeft;
+        item.leftEndSeconds=4.5;item.rightEndSeconds=9.5;
+        pfexporters::ExportOptions options;options.preserveInputOrder=true;
+        options.format=pfexporters::ExportFormat::Json;
+        const auto json=pfexporters::formatResults({item},options);
+        const auto document=QJsonDocument::fromJson(QByteArray::fromStdString(json));
+        ASSERT_TRUE(document.isObject());
+        const auto row=document.object().value("matches").toArray().first().toObject();
+        EXPECT_EQ(row.value("leftEnabled").toBool(),retainLeft);
+        EXPECT_EQ(row.value("rightEnabled").toBool(),!retainLeft);
+        EXPECT_DOUBLE_EQ(row.value("durationSeconds").toDouble(),retainLeft ? 3.5:5.5);
+        EXPECT_EQ(row.value("left").toObject().value("source").toString(),QStringLiteral("a clip.mp4"));
+        EXPECT_EQ(row.value("right").toObject().value("source").toString(),QStringLiteral("b.csv"));
+        options.format=pfexporters::ExportFormat::Csv;
+        const auto csv=pfexporters::formatResults({item},options);
+        EXPECT_NE(csv.find(",left_enabled,right_enabled\n"),std::string::npos);
+        EXPECT_NE(csv.find(retainLeft ? ",true,false\n":",false,true\n"),std::string::npos);
+        options.format=pfexporters::ExportFormat::Txt;
+        const auto text=pfexporters::formatResults({item},options);
+        EXPECT_NE(text.find(retainLeft ? "B: [disabled] b.csv":"A: [disabled] a clip.mp4"),std::string::npos);
+        EXPECT_NE(text.find(retainLeft ? "Duration: 3.500 s":"Duration: 5.500 s"),std::string::npos);
+    }
+}
+
+TEST(Exporters, TimelineFormatsNeverImportDisabledSidesAndUseSingleClipRange)
+{
+    for(const bool retainLeft:{false,true}) {
+        auto item=sample();item.leftEnabled=retainLeft;item.rightEnabled=!retainLeft;
+        item.leftEndSeconds=4.5;item.rightEndSeconds=9.5;
+        item.leftSourceId="left-side.mp4";item.rightSourceId="right-side.mp4";
+        const auto& kept=retainLeft ? item.leftSourceId:item.rightSourceId;
+        const auto& removed=retainLeft ? item.rightSourceId:item.leftSourceId;
+        pfexporters::ExportOptions options;options.framesPerSecond=24;options.preserveInputOrder=true;
+        for(const auto format:{pfexporters::ExportFormat::Edl,pfexporters::ExportFormat::FcpXml,pfexporters::ExportFormat::Aep}) {
+            options.format=format;
+            const auto content=pfexporters::formatResults({item},options);
+            EXPECT_NE(content.find(kept),std::string::npos);
+            EXPECT_EQ(content.find(removed),std::string::npos);
+            if(format==pfexporters::ExportFormat::Edl)
+                EXPECT_NE(content.find(retainLeft ? "00:00:04:12":"00:00:09:12"),std::string::npos);
+            else if(format==pfexporters::ExportFormat::FcpXml) {
+                EXPECT_NE(content.find(retainLeft ? "duration=\"3.5s\"":"duration=\"5.5s\""),std::string::npos);
+                EXPECT_EQ(content.find("<asset id=\"a2\""),std::string::npos);
+            } else {
+                EXPECT_NE(content.find(retainLeft ? ".outPoint = cursor + 3.5":".outPoint = cursor + 5.5"),std::string::npos);
+                EXPECT_NE(content.find(retainLeft ? "cursor += 3.75":"cursor += 5.75"),std::string::npos);
+            }
+        }
+        item.leftEnabled=false;item.rightEnabled=false;
+        for(const auto format:{pfexporters::ExportFormat::Edl,pfexporters::ExportFormat::FcpXml,pfexporters::ExportFormat::Aep}) {
+            options.format=format;
+            const auto content=pfexporters::formatResults({item},options);
+            EXPECT_EQ(content.find(item.leftSourceId),std::string::npos);
+            EXPECT_EQ(content.find(item.rightSourceId),std::string::npos);
+        }
+    }
+}
+
+TEST(Exporters, AsInVideoOrderingUsesTheSurvivingSideOfSingles)
+{
+    auto first=sample();first.leftEnabled=false;first.leftSourceId="a-removed.mp4";
+    first.rightSourceId="z-survivor.mp4";
+    auto second=sample();second.leftSourceId="b-survivor.mp4";
+    pfexporters::ExportOptions options;options.format=pfexporters::ExportFormat::Json;
+    options.numbering=pfexporters::NumberingMode::AsInVideo;
+    const auto json=pfexporters::formatResults({first,second},options);
+    EXPECT_LT(json.find("b-survivor.mp4"),json.find("z-survivor.mp4"));
 }
 
 } // namespace

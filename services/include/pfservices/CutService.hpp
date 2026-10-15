@@ -40,6 +40,8 @@ struct CutRequest {
     // Zero allows long source scenes; UI cancellation remains responsive.
     // Preview/automation callers may opt into a finite deadline.
     int timeoutMs = 0;
+    // Batch scheduler budget; zero preserves bounded automatic standalone use.
+    unsigned workerThreads = 0;
     // Abort a stuck encoder, not a slowly advancing or long clip. Zero disables.
     int stallTimeoutMs = 120000;
     // Called on the export worker, with encoded seconds relative to this clip.

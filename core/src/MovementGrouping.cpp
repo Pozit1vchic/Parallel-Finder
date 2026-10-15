@@ -49,7 +49,7 @@ bool insideSceneRange(const MotionWindow& window,double start,double end) {
 Reference reference(const MotionWindow& window,double start,double end) {
     std::size_t total=0,hips=0,ears=0;
     for(const auto& f:window.frames)if(insideScene(window,f.timestampSeconds)
-        && f.timestampSeconds>=start-1e-6 && f.timestampSeconds<=end+1e-6) {
+        && f.timestampSeconds>=start-1e-6 && f.timestampSeconds<end-1e-6) {
         ++total;hips+=bool(point(f,11)&&point(f,12));ears+=bool(point(f,3)&&point(f,4));
     }
     return {total>0&&hips*4>=total*3,total>0&&ears*4>=total*3};
@@ -146,6 +146,24 @@ template<class Read> std::optional<Trace> trace(const std::vector<Observation>& 
     for(std::size_t i=1;i<times.size();++i)if(times[i]-times[i-1]>.65)return {};
     auto filtered=values;
     for(std::size_t i=1;i+1<values.size();++i)filtered[i]=median({values[i-1],values[i],values[i+1]});
+    // The clip boundary is not a privileged measurement. Leaving its raw
+    // detector output in the range turns one bad first/last pose into a
+    // sustained action even though every interior sample is stationary.
+    // Use the same three-observation support at both boundaries; a real
+    // action must still be present in the neighbouring observations.
+    const auto [interiorLow,interiorHigh]=std::minmax_element(values.begin()+1,values.end()-1);
+    const bool quietInterior=*interiorHigh-*interiorLow<prominence*.5;
+    const auto supportedEndpoint=[&](double edge,double next,double following) {
+        const double firstStep=next-edge,secondStep=following-next;
+        // Keep a measured continuing trend. Replacing every endpoint by its
+        // neighbour shortens real turns/gait phases and can turn a small but
+        // ambiguous movement into a falsely certain static classification.
+          const bool isolated = quietInterior && std::abs(firstStep) > std::max(.025,4*std::abs(secondStep));
+          return isolated ? median({edge,next,following}) : edge;
+    };
+    filtered.front()=supportedEndpoint(values[0],values[1],values[2]);
+    const auto tail=values.size();
+    filtered.back()=supportedEndpoint(values[tail-1],values[tail-2],values[tail-3]);
     // Robust endpoints and temporal smoothing reject one-frame detector jumps.
     const auto n=std::min<std::size_t>(3,std::max<std::size_t>(1,values.size()/4));
     const double first=median(std::vector<double>(filtered.begin(),filtered.begin()+n));
@@ -367,7 +385,7 @@ std::vector<HeadOrientationSample> headMotionEvidence(const MotionWindow& window
     // Cropping must not lose its reliable shoulder reference just because
     // unrelated samples elsewhere in the original window were occluded.
     std::erase_if(samples,[&](const auto& s){return std::isfinite(s.time)
-        && (s.time<start-1e-6 || s.time>end+1e-6);});
+        && (s.time<start-1e-6 || s.time>=end-1e-6);});
     std::vector<std::optional<double>> roll(samples.size());std::size_t observed=0;
     for(std::size_t i=0;i<samples.size();++i) {
         const auto frame=std::lower_bound(window.frames.begin(),window.frames.end(),samples[i].time,
@@ -407,7 +425,7 @@ MovementClassification MovementClassifier::classifyGeometricForGrouping(const Mo
     const auto ref=reference(window,start,end);
     std::vector<Observation> observations;std::size_t total=0;double previous=-INFINITY;
     for(const auto& f:window.frames)if(insideScene(window,f.timestampSeconds)
-        && f.timestampSeconds>=start-1e-6 && f.timestampSeconds<=end+1e-6) {
+        && f.timestampSeconds>=start-1e-6 && f.timestampSeconds<end-1e-6) {
         if(!std::isfinite(f.timestampSeconds)||f.timestampSeconds<=previous)return result;
         previous=f.timestampSeconds;++total;
         if(auto o=observe(f,ref))observations.push_back(*o);
@@ -424,7 +442,7 @@ MovementClassification MovementClassifier::classifyGeometricForGrouping(const Mo
         for(int joint=7;joint<17;++joint) {
             std::size_t visible=0;
             for(const auto& frame:window.frames)if(insideScene(window,frame.timestampSeconds)
-                && frame.timestampSeconds>=start-1e-6 && frame.timestampSeconds<=end+1e-6)
+                && frame.timestampSeconds>=start-1e-6 && frame.timestampSeconds<end-1e-6)
                 visible+=bool(point(frame,joint));
             if(total && visible*4>=total*3) {bodyObservable=true;break;}
         }
@@ -533,7 +551,7 @@ std::string MovementClassifier::classifyPoseForGrouping(const MotionWindow& wind
     const auto ref=reference(window,start,end);
     std::vector<std::string> votes;std::size_t total=0;double previous=-INFINITY;
     for(const auto& frame:window.frames)if(insideScene(window,frame.timestampSeconds)
-        && frame.timestampSeconds>=start-1e-6 && frame.timestampSeconds<=end+1e-6) {
+        && frame.timestampSeconds>=start-1e-6 && frame.timestampSeconds<end-1e-6) {
         if(!std::isfinite(frame.timestampSeconds)||frame.timestampSeconds<=previous)return fallback;
         previous=frame.timestampSeconds;
         ++total;const auto o=observe(frame,ref);if(!o)continue;
@@ -558,7 +576,14 @@ std::string MovementClassifier::classifyPoseForGrouping(const MotionWindow& wind
             };
             const auto extended=[&](int arm) {
                 return o->reach[arm] && *o->reach[arm]>.94 && o->local[9+arm]
-                    && length(*o->local[9+arm],*o->local[5+arm])>.65;
+                    && length(*o->local[9+arm],*o->local[5+arm])>.65
+                    // A straight elbow also occurs with the hand resting at
+                    // the person's side. That is not an extended-arm pose:
+                    // require observed reach away from the shoulder column
+                    // or a hand near/above shoulder height. The body basis
+                    // keeps this independent of camera translation/roll.
+                    && (std::abs(o->local[9+arm]->x-o->local[5+arm]->x)>.35
+                        || o->local[9+arm]->y<o->local[5+arm]->y+.35);
             };
             if(raised(0)||raised(1))vote="arms_raised";
             else if(o->local[9]&&o->local[10]&&o->local[7]&&o->local[8]

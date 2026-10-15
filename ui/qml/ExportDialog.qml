@@ -17,6 +17,9 @@ Popup {
     readonly property bool losslessExport: qualityChoice === 4
     readonly property int videoBitrateKbps: qualityChoice === 3 ? Math.round(Number(bitrateField.text.replace(",", ".")) * 1000) : 0
     readonly property bool qualityValid: qualityChoice !== 3 || (isFinite(videoBitrateKbps) && videoBitrateKbps >= 1000 && videoBitrateKbps <= 500000)
+    readonly property bool canStartExport: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
+        && (selectedFormat !== "FFMPEG" || selectedCutMode === 1 || qualityValid)
+        && selectedIndexes().length > 0 && outputFolder.trim().length > 0
     readonly property int selectedNumbering: exportNumbering.currentIndex
     readonly property int selectedCutMode: losslessExport ? 2 : mergeChronological ? 0 : cutMode.currentIndex
     readonly property bool mergeChronological: selectedFormat === "FFMPEG" && mergeCheck.checked
@@ -35,12 +38,12 @@ Popup {
         const present = []
         for (const item of root.results) {
             if (root.selectedRows[item.id] !== true || item.hidden) continue
-            const classification = L10n.movementKey(item.classification)
+            const classification = L10n.exportGroupKey(item)
             if (present.indexOf(classification) < 0) present.push(classification)
         }
         const next = classOrderCustomized
             ? classOrder.filter(function(type) { return present.indexOf(type) >= 0 }) : []
-        for (const type of L10n.movementKeysForRows(results)) if (present.indexOf(type) >= 0 && next.indexOf(type) < 0) next.push(type)
+        for (const type of L10n.exportGroupKeys(results)) if (present.indexOf(type) >= 0 && next.indexOf(type) < 0) next.push(type)
         classOrder = next
     }
     function moveClass(index, direction) {
@@ -53,7 +56,10 @@ Popup {
         classOrder = next
     }
     onSelectedRowsChanged: refreshClasses()
-    onResultsChanged: { classOrderCustomized = false; refreshClasses() }
+    // The resultCategoryRevision binding also refreshes this property after a
+    // preview-only edit. Preserve the user's class order until resultsChanged
+    // announces a genuinely new analysis above.
+    onResultsChanged: refreshClasses()
 
     property bool userPositioned: false
     modal: true; focus: true; padding: 0
@@ -87,12 +93,33 @@ Popup {
     }
     Connections {
         target: Analysis
+        function onResultsChanged() {
+            // Result ids belong to one analysis. Never reuse an old selection
+            // or a failed-montage recovery action against a new result set.
+            root.selectedRows = ({})
+            root.selectionOrder = []
+            root.exportStatus = ""
+            root.classOrderCustomized = false
+            root.classOrder = []
+            if (root.visible && !Analysis.exportBusy) root.close()
+        }
         function onExportBusyChanged() { if (Analysis.exportBusy) root.exportStatus = "" }
         function onExportFinished(success, message) { root.exportStatus = message; if (success) root.close() }
     }
     function startExport() {
+        if (!root.canStartExport) {
+            root.exportStatus = Analysis.busy || Analysis.exportBusy || Analysis.reviewBusy
+                ? (L10n.language === "ru" ? "Дождись завершения текущей операции и повтори экспорт." : "Wait for the current operation to finish, then try exporting again.")
+                : (L10n.language === "ru" ? "Выбери результаты, папку и допустимые параметры экспорта." : "Choose results, an output folder and valid export settings.")
+            return false
+        }
         root.exportStatus = ""
-        Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological, root.classOrder, root.encodingQuality, root.selectedFormat === "FFMPEG" && root.selectedCutMode === 0 ? root.videoBitrateKbps : 0, classFoldersCheck.checked)
+        const accepted = Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological, root.classOrder, root.encodingQuality, root.selectedFormat === "FFMPEG" && root.selectedCutMode === 0 ? root.videoBitrateKbps : 0, classFoldersCheck.checked)
+        // The controller can reject a start without emitting exportFinished
+        // (for example when another operation acquires the busy state).
+        if (!accepted && !root.exportStatus)
+            root.exportStatus = L10n.language === "ru" ? "Экспорт не запущен. Проверь выбранные результаты и параметры, затем повтори." : "Export did not start. Check the selected results and settings, then try again."
+        return accepted
     }
     readonly property string runningLabel: Analysis.exportStage === "preparing"
         ? (L10n.language === "ru" ? "Подготовка клипа…" : "Preparing clip…")
@@ -222,7 +249,7 @@ Popup {
             Text {
                 width: parent.width; wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11
                 text: root.losslessExport
-                    ? (L10n.language === "ru" ? "Точная обрезка без потери пикселей и звука. Формат MOV; файлы могут быть большими. Для общего ролика параметры исходников должны совпадать." : "Exact trimming with preserved pixels and audio samples. MOV output; files can be large. Montage sources must have compatible streams.")
+                    ? (L10n.language === "ru" ? "Точная обрезка без потери пикселей и звука. Формат MOV; файлы могут быть большими. Для общего ролика нужны совместимые разрешение, цветовые параметры и звук. При несовместимости можно сохранить отдельные клипы." : "Exact trimming with preserved pixels and audio samples. MOV output; files can be large. A montage needs compatible dimensions, color and audio. Incompatible clips can be exported separately.")
                     : root.selectedCutMode === 1
                     ? (L10n.language === "ru" ? "Качество исходника сохраняется без перекодирования. Начало может захватить контекст от предыдущего ключевого кадра. Для обрезки строго по параллели выбери перекодирование и «Точно». Параметры исходников общего ролика должны совпадать." : "Source quality is preserved without re-encoding. The start may include context from the preceding keyframe. For strict parallel boundaries, choose re-encoding and Exact. Combined-video sources must have compatible streams.")
                     : (L10n.language === "ru" ? "Режим «Точно» обрезает по границам найденной параллели без добавленных секунд. Разрешение сохраняется; максимальное качество увеличивает размер файла. При перекодировании возможны потери." : "Exact mode cuts at the matched parallel boundaries without added seconds. Source resolution is preserved; maximum quality increases file size. Re-encoding can introduce loss.")
@@ -235,7 +262,7 @@ Popup {
         PfTextField { id: prefixField; width: parent.width; text: "frame"; placeholderText: L10n.t("export.prefix"); Accessible.name: L10n.t("export.prefix") }
         Text { font.family: Theme.fontFamily;
             width: parent.width
-            text: root.exportStatus || (root.selectedFormat === "FFMPEG"
+            text: L10n.status(root.exportStatus) || (root.selectedFormat === "FFMPEG"
                 ? (root.losslessExport
                     ? (root.mergeChronological
                         ? (L10n.language === "ru" ? "Один MOV по порядку типов движений с точной обрезкой без потери качества. Точные дубликаты исключаются. Несовместимые исходники не перекодируются автоматически." : "One MOV in movement-type order with exact lossless trimming. Exact duplicates are excluded. Incompatible sources are never automatically re-encoded.")
@@ -246,7 +273,15 @@ Popup {
             font.pixelSize: 11
             wrapMode: Text.WordWrap
         }
-        PfButton { objectName: "startExportButton"; width: parent.width; primary: true; text: Analysis.exportBusy ? root.runningLabel + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal + (Analysis.exportStage === "preparing" ? "" : " · " + Analysis.exportClipProgress + "%") : L10n.t("export.prepare"); enabled: !Analysis.exportBusy && (root.selectedFormat !== "FFMPEG" || root.selectedCutMode === 1 || root.qualityValid) && root.selectedIndexes().length > 0 && root.outputFolder.length > 0; onClicked: root.startExport() }
+        PfButton { objectName: "startExportButton"; width: parent.width; primary: true; text: Analysis.exportBusy ? root.runningLabel + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal + (Analysis.exportStage === "preparing" ? "" : " · " + Analysis.exportClipProgress + "%") : L10n.t("export.prepare"); enabled: root.canStartExport; onClicked: root.startExport() }
+        PfButton {
+            objectName: "exportLosslessSeparateButton"
+            width: parent.width
+            enabled: root.canStartExport
+            visible: !Analysis.exportBusy && root.losslessExport && root.mergeChronological && root.exportStatus.indexOf("compatible") >= 0
+            text: L10n.language === "ru" ? "Сохранить без потерь отдельными клипами" : "Save separate lossless clips"
+            onClicked: { mergeCheck.checked = false; root.startExport() }
+        }
         PfButton { width: parent.width; visible: Analysis.exportBusy; text: L10n.t("export.cancel"); onClicked: Analysis.cancelExport() }
         }
     }

@@ -2,13 +2,65 @@
 
 #include <pfcore/MotionMatcher.hpp>
 #include <QStringList>
+#include <QCryptographicHash>
 #include <QVariantList>
 #include <algorithm>
 #include <tuple>
 #include <vector>
 
 namespace pfui {
+inline QString exportGroupKey(const QVariantMap& record) {
+    const auto group = record.value("manualGroup").toString();
+    return group.isEmpty() ? record.value("classification", "unknown").toString()
+                           : QStringLiteral("group:") + group;
+}
+// Preserve an explicit dialog order, including interleaved custom/ML groups.
+// Other callers can pass their ML-only order: missing custom groups are then
+// inserted before the first ML class, so MCP and GUI exports agree.
+inline QStringList effectiveExportClassOrder(const QVariantList& records,
+    const QStringList& requestedClassOrder)
+{
+    QStringList result;
+    for (const auto& key : requestedClassOrder)
+        if (!key.isEmpty() && !result.contains(key)) result.append(key);
+    QStringList missing;
+    for (const auto& value : records) {
+        const auto record = value.toMap();
+        if (record.value("hidden").toBool()) continue;
+        if (record.value("manualGroup").toString().isEmpty()) continue;
+        const auto key = exportGroupKey(record);
+        if (!result.contains(key) && !missing.contains(key)) missing.append(key);
+    }
+    std::sort(missing.begin(), missing.end());
+    auto insertion = std::find_if(result.begin(), result.end(), [](const QString& key) {
+        return !key.startsWith("group:");
+    }) - result.begin();
+    for (const auto& key : missing) result.insert(insertion++, key);
+    return result;
+}
+inline QString exportGroupFileName(const QString& group)
+{
+    QString slug;
+    const auto codePoints = group.toUcs4();
+    int count = 0;
+    for (const auto point : codePoints) {
+        if (count++ >= 48) break;
+        const auto category = QChar::category(point);
+        const bool forbidden = point < 32 || point == 127
+            || category == QChar::Other_Control || category == QChar::Other_Surrogate
+            || (point < 128 && QStringLiteral("<>:\"/\\|?*").contains(QChar(static_cast<ushort>(point))));
+        const char32_t safePoint = forbidden ? U'_' : point;
+        slug += QString::fromUcs4(&safePoint, 1);
+    }
+    slug = slug.trimmed();
+    while (!slug.isEmpty() && (slug.endsWith('.') || slug.back().isSpace())) slug.chop(1);
+    if (slug.isEmpty()) slug = QStringLiteral("unnamed");
+    const auto digest = QCryptographicHash::hash(group.toUtf8(), QCryptographicHash::Sha256).toHex().left(8);
+    // A fixed prefix also avoids reserved Windows device names such as CON.
+    return QStringLiteral("group_") + slug + '-' + QString::fromLatin1(digest);
+}
 inline QString exportClassKey(const QString& value,const QStringList& classOrder) {
+    if (value.startsWith("group:")) return value;
     const auto key=value.section('/',0,0);
     if(classOrder.isEmpty() || classOrder.contains(key))return key;
     if(key.contains('+')) {
@@ -40,14 +92,19 @@ inline std::vector<int> orderedExportIndexes(const QVariantList& indexes,
     if (numberingMode == 0) std::stable_sort(ordered.begin(), ordered.end(), [&](int left, int right) {
         const auto& a = matches[left];
         const auto& b = matches[right];
-        return std::tie(a.leftSourceId, a.leftStartSeconds, a.rightStartSeconds)
-             < std::tie(b.leftSourceId, b.leftStartSeconds, b.rightStartSeconds);
+        const auto key = [](const auto& match) {
+            return std::tuple{match.leftEnabled ? match.leftSourceId : match.rightSourceId,
+                match.leftEnabled ? match.leftStartSeconds : match.rightStartSeconds,
+                match.rightEnabled ? match.rightSourceId : std::string{},
+                match.rightEnabled ? match.rightStartSeconds : 0.0};
+        };
+        return key(a) < key(b);
     });
     if (!classOrder.isEmpty()) {
         std::vector<qsizetype> ranks(matches.size(), classOrder.size());
         for (const int index : ordered) {
-            const auto classification = index < records.size()
-                ? records[index].toMap().value("classification", "unknown").toString().section('/', 0, 0) : QStringLiteral("unknown");
+            const auto row = index < records.size() ? records[index].toMap() : QVariantMap{};
+            const auto classification = exportGroupKey(row);
             auto rank = classOrder.indexOf(exportClassKey(classification,classOrder));
             if(rank<0)rank=classOrder.indexOf(QStringLiteral("unknown"));
             if (rank >= 0) ranks[index] = rank;

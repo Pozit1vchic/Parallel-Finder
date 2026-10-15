@@ -11,8 +11,9 @@ Item {
     property string side: "left"
     property color accentColor: Theme.accent
     property string title: side === "left" ? "A" : "B"
-    property string previewSource: record ? (side === "left" ? String(record.leftPreview || "") : String(record.rightPreview || "")) : ""
-    property string sourcePath: record ? (side === "left" ? String(record.leftSource || "") : String(record.rightSource || "")) : ""
+    readonly property bool sideRemoved: !!record && record[side + "Removed"] === true
+    property string previewSource: record && !sideRemoved ? (side === "left" ? String(record.leftPreview || "") : String(record.rightPreview || "")) : ""
+    property string sourcePath: record && !sideRemoved ? (side === "left" ? String(record.leftSource || "") : String(record.rightSource || "")) : ""
     property real timestamp: record ? (side === "left" ? Number(record.leftStart || 0) : Number(record.rightStart || 0)) : 0
     property real previewStart: record ? (side === "left" ? Number(record.leftSceneStart !== undefined ? record.leftSceneStart : record.leftStart || 0) : Number(record.rightSceneStart !== undefined ? record.rightSceneStart : record.rightStart || 0)) : 0
     property real previewEnd: record ? (side === "left" ? Number(record.leftSceneEnd !== undefined ? record.leftSceneEnd : record.leftEnd || 0) : Number(record.rightSceneEnd !== undefined ? record.rightSceneEnd : record.rightEnd || 0)) : 0
@@ -27,6 +28,7 @@ Item {
         return previewEnd > timestamp ? Math.min(requestedEnd, previewEnd) : requestedEnd
     }
     readonly property bool previewPlayable: !!record && sourcePath.length > 0 && playbackEnd > playbackStart
+    Text { anchors.centerIn: parent; visible: root.sideRemoved; text: L10n.language === "ru" ? "Сторона удалена · можно заменить" : "Side removed · available for replacement"; color: Theme.textSecondary; font.family: Theme.fontFamily; z: 5 }
     property real zoom: 1.0
     property real panX: 0
     property real panY: 0

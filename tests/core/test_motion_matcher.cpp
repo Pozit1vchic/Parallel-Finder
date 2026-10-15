@@ -2407,6 +2407,70 @@ TEST(MotionMatcher, IndexedFootageProofKeepsAffineAndReflectedCopiesExcluded)
     EXPECT_TRUE(pfcore::MotionMatcher(p).findAllPairs({original,tinted,reflected}).empty());
 }
 
+TEST(MotionMatcher, StrictShiftedFootageUsesOneTransformAndThreeMeasuredSamples)
+{
+    auto original=deanAimingPoseFixture()[0];original.sourceId="shift-original";original.hasSceneIndex=true;
+    original.sceneSequence.clear();
+    for(int n=0;n<3;++n) {
+        const auto pixels=cameraViewFixture(n);
+        original.sceneSequence.insert(original.sceneSequence.end(),pixels.begin(),pixels.end());
+    }
+    original.sceneSequenceTimes={0,.25,.5};
+    const auto shifted=[&](std::array<int,3> offsets,bool tinted) {
+        auto copy=original;copy.sourceId="shift-copy";
+        for(int f=0;f<3;++f)for(int row=0;row<9;++row)for(int x=0;x<16;++x)for(int c=0;c<3;++c) {
+            const int source=x-offsets[f];
+            const float v=source>=0 && source<16 ? original.sceneSequence[f*432+(row*16+source)*3+c] : .37F;
+            copy.sceneSequence[f*432+(row*16+x)*3+c]=tinted ? .85F*v+.04F : v;
+        }
+        return copy;
+    };
+    pfcore::MotionMatcherParams p;p.individualPairs=p.allowStaticFrames=p.requireAppearance=true;
+    const pfcore::MotionMatcher matcher(p);
+    for(int shift:{-1,1})for(bool tinted:{false,true}) {
+        const auto copy=shifted({shift,shift,shift},tinted);
+        EXPECT_DOUBLE_EQ(matcher.compare(original,copy).similarity,0);
+        EXPECT_DOUBLE_EQ(matcher.compare(copy,original).similarity,0);
+        EXPECT_TRUE(matcher.findAllPairs({original,copy}).empty());
+        EXPECT_TRUE(matcher.findAllPairs({copy,original}).empty());
+    }
+    auto moving=shifted({0,1,-1},false);
+    EXPECT_GT(matcher.compare(original,moving).similarity,.8);
+    EXPECT_FALSE(matcher.findAllPairs({original,moving}).empty());
+    for(int matched:{1,2}) {
+        auto partial=shifted({1,1,1},false);
+        for(int f=matched;f<3;++f) {
+            const auto different=cameraViewFixture(4+f);
+            std::copy(different.begin(),different.end(),partial.sceneSequence.begin()+f*432);
+        }
+        EXPECT_GT(matcher.compare(original,partial).similarity,.8);
+        EXPECT_FALSE(matcher.findAllPairs({original,partial}).empty());
+    }
+    auto invalid=shifted({1,1,1},false);
+    invalid.sceneSequenceTimes={.5,.25,0};
+    EXPECT_GT(matcher.compare(original,invalid).similarity,.8);
+    invalid.sceneSequenceTimes={0,0,.5};
+    EXPECT_GT(matcher.compare(original,invalid).similarity,.8);
+    auto flat=original;flat.sourceId="flat-a";flat.sceneSequence.assign(1296,.4F);
+    auto flatCopy=flat;flatCopy.sourceId="flat-b";
+    EXPECT_GT(matcher.compare(flat,flatCopy).similarity,.8);
+    EXPECT_FALSE(matcher.findAllPairs({flat,flatCopy}).empty());
+    // Also exercise exact shifts of measured Soldier pixels, rather than
+    // claiming synthetic block layouts represent every source observation.
+    QFile measured(QString::fromUtf8(PF_TEST_FIXTURE_DIR)+"/soldier-returning-camera-3818-3845.json");
+    ASSERT_TRUE(measured.open(QIODevice::ReadOnly));
+    const auto pixels=QJsonDocument::fromJson(measured.readAll()).array()[0].toObject()["sequence"].toArray();
+    ASSERT_GE(pixels.size(),1296);
+    original.sceneSequence.clear();
+    for(int i=0;i<1296;++i)original.sceneSequence.push_back(pixels[i].toDouble());
+    for(int shift:{-1,1})for(bool tinted:{false,true}) {
+        const auto copy=shifted({shift,shift,shift},tinted);
+        EXPECT_DOUBLE_EQ(matcher.compare(original,copy).similarity,0);
+        EXPECT_DOUBLE_EQ(matcher.compare(copy,original).similarity,0);
+        EXPECT_TRUE(matcher.findAllPairs({original,copy}).empty());
+    }
+}
+
 TEST(MotionMatcher, MeasuredForeignFaceRejectsOnlyTheIntervalContainingIt)
 {
     auto w=deanAimingPoseFixture()[0];

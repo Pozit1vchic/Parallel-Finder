@@ -24,6 +24,17 @@ inline pfcore::MotionWindow groupingEvidence(const pfcore::MotionWindow& source)
 
 inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
                                 const ResultPoseEvidence& evidence) {
+    if (match.leftEnabled != match.rightEnabled) {
+        auto single = match;
+        const bool left = match.leftEnabled;
+        single.leftEnabled = single.rightEnabled = true;
+        single.leftStartSeconds = single.rightStartSeconds = left ? match.leftStartSeconds : match.rightStartSeconds;
+        single.leftEndSeconds = single.rightEndSeconds = left ? match.leftEndSeconds : match.rightEndSeconds;
+        const auto& observed = evidence[left ? 0 : 1];
+        classifyResultRange(row,single,{observed,observed});
+        match.directionLabel=single.directionLabel; match.gestureLabel=single.gestureLabel;
+        return;
+    }
     const pfcore::MovementClassifier classifier;
     const auto a = classifier.classifyForGrouping(evidence[0], match.leftStartSeconds,
                                                   match.leftEndSeconds, match.headOnlyComparison);
@@ -38,7 +49,7 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
     for(const auto action:movement.actions)
         actions.push_back(QString::fromLatin1(pfcore::MovementClassifier::gestureName(action)));
     row.insert("classificationActions",actions);
-    row.insert("classificationPartial",movement.headOnlyEvidence);
+    row.insert("classificationPartial",match.headOnlyComparison || movement.headOnlyEvidence);
     if (row.value("classificationManual").toBool()) return;
     QString classification;
     if (evidence[0].staticFrameSet && evidence[1].staticFrameSet) {

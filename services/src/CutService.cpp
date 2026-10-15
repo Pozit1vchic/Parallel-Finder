@@ -258,7 +258,9 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
         arguments << QStringLiteral("-ss") << seconds(seekStart);
         if (timestampTrim)
             arguments << "-t" << seconds(request.endSeconds - seekStart + 0.25);
-        const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 2, 1u, 8u);
+        const unsigned threads = request.workerThreads ? std::clamp(request.workerThreads, 1u, 8u)
+            : std::clamp(std::thread::hardware_concurrency() / 2, 1u, 8u);
+        arguments << "-filter_threads" << QString::number(threads);
         arguments << QStringLiteral("-threads") << QString::number(threads);
         arguments << QStringLiteral("-i")
                   << QString::fromStdWString(request.inputPath.wstring());

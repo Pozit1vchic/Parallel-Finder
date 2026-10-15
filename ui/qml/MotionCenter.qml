@@ -17,6 +17,8 @@ ColumnLayout {
     property string selectedSource: ""
     property var selectedRecord: null
     signal adjustRequested()
+    signal composeRequested()
+    signal removeSideRequested(string side)
     property bool analysisCompleted: Analysis.analysisCompleted && !Analysis.busy
     readonly property int availableResultCount: Analysis.results.length
     property double analysisStartedMs: Date.now()
@@ -122,7 +124,7 @@ ColumnLayout {
                     text: Analysis.busy
                         ? L10n.status(Analysis.progressStage)
                         : root.selectedRecord
-                            ? (L10n.matchLabel(root.selectedRecord) + " · " + Math.round(Number(root.selectedRecord.similarity || 0) * 100) + "%"
+                            ? (root.selectedRecord.manualPair ? L10n.matchLabel(root.selectedRecord) : L10n.matchLabel(root.selectedRecord) + " · " + Math.round(Number(root.selectedRecord.similarity || 0) * 100) + "%"
                                 + "  •  " + L10n.t("results.sceneSimilarity") + " · " + Math.round(Number(root.selectedRecord.sceneSimilarity || 0) * 100) + "%")
                             : root.analysisCompleted
                                 ? (root.availableResultCount > 0 ? L10n.t("center.completedTitle") : L10n.t("center.noMatchesStatus"))
@@ -193,12 +195,17 @@ ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: 12
                     visible: !!root.selectedRecord
-                    Row {
+                    Column {
                         id: playbackControls
                         anchors.bottom: parent.bottom
-                        height: visible ? 36 : 0
-                        spacing: 8
+                        width: parent.width
+                        height: visible ? implicitHeight : 0
+                        spacing: 4
                         visible: !!root.selectedRecord
+                        Flow {
+                            width: parent.width
+                            height: childrenRect.height
+                            spacing: 8
                         PfButton {
                             objectName: "pairPlaybackButton"
                             compact: true
@@ -208,7 +215,21 @@ ColumnLayout {
                             onClicked: root.togglePair()
                         }
                         PfButton { compact: true; quiet: true; text: Review.t("adjust"); enabled: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy; onClicked: root.adjustRequested() }
-                        Text { text: root.playbackError; color: Theme.textSecondary; width: Math.max(0, stage.width - 440); elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
+                        PfButton { objectName: "composePairButton"; compact: true; quiet: true; text: L10n.language === "ru" ? "Заменить A/B" : "Replace A/B"; enabled: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy; onClicked: root.composeRequested() }
+                        PfButton { compact: true; quiet: true; text: L10n.language === "ru" ? "Убрать A" : "Remove A"; enabled: !!root.selectedRecord && !root.selectedRecord.leftRemoved && !root.selectedRecord.rightRemoved && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy; onClicked: root.removeSideRequested("left") }
+                        PfButton { compact: true; quiet: true; text: L10n.language === "ru" ? "Убрать B" : "Remove B"; enabled: !!root.selectedRecord && !root.selectedRecord.leftRemoved && !root.selectedRecord.rightRemoved && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy; onClicked: root.removeSideRequested("right") }
+                        }
+                        Text {
+                            width: parent.width
+                            visible: root.playbackError.length > 0
+                            text: root.playbackError
+                            color: Theme.textSecondary
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 12
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                        }
                     }
                     Row {
                         anchors.left: parent.left

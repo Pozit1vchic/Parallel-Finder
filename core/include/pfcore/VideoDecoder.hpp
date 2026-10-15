@@ -69,7 +69,8 @@ struct VideoDecodeOptions {
     // remains the default until complete pixel/PTS and performance validation.
     int conversionThreads = 1;
     // Enable validated four-worker conversion only after native-size NVDEC
-    // actually opens for 4K on a machine with at least eight CPU threads.
+    // actually opens for >=3840x1440 pixels (including cinematic/portrait 4K)
+    // on a machine with at least eight CPU threads.
     bool autoNvidiaConversion = false;
 };
 

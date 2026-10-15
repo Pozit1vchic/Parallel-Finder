@@ -2,9 +2,9 @@ param(
     [string]$Toolchain = 'D:\msys2\ucrt64',
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-    [string]$ReleaseTag = '0.1.0-rc.20.5',
+    [string]$ReleaseTag = '0.1.0-rc.21',
     [string]$GitHubTag = '',
-    [string]$ReleaseNotes = 'docs/rc20.5-release-notes.md',
+    [string]$ReleaseNotes = 'docs/rc21-release-notes.md',
     [string]$SigningKey = (Join-Path $env:LOCALAPPDATA 'ParallelFinder/release-signing/update-ed25519-private.pem'),
     [switch]$KeepStaging,
     [switch]$SkipChecks
@@ -35,7 +35,7 @@ try {
     if ($LASTEXITCODE) { throw 'Configure failed' }
     & cmake --build --preset ucrt64-release -j 4
     if ($LASTEXITCODE) { throw 'Build failed' }
-    & "$PSScriptRoot/deploy-runtime.ps1" -Stage (Join-Path $root 'build/ucrt64-release') -Toolchain $Toolchain
+    & "$PSScriptRoot/deploy-runtime.ps1" -Stage (Join-Path $root 'build/ucrt64-release') -Toolchain $Toolchain -ClassifierModelsDirectory $ModelsDirectory
     if (!$SkipChecks) {
     $releaseTestQpa = $env:QT_QPA_PLATFORM
     $releaseTestPlugins = $env:QT_PLUGIN_PATH
@@ -57,7 +57,7 @@ try {
     New-Item -ItemType Directory -Path $stage,$out | Out-Null
     Copy-Item -LiteralPath 'build/ucrt64-release/ParallelFinder.exe' -Destination $stage
     Copy-Item -LiteralPath 'build/ucrt64-release/ParallelFinderUpdater.exe' -Destination $stage
-    Copy-Item -LiteralPath LICENSE,README.md,AUDIT.md -Destination $stage
+    Copy-Item -LiteralPath LICENSE,README.md,AUDIT.md,SKILL.md -Destination $stage
     # Package only versioned documentation; local investigations stay local.
     foreach ($relative in (& git ls-files docs)) {
         $docTarget = Join-Path $stage $relative
@@ -92,7 +92,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $ModelsDirectory $name) -Destination $modelStage
     }
     Copy-Item -LiteralPath "$root/release-models/yolo26m-pose.onnx" -Destination $modelStage
-    & "$PSScriptRoot/stage-classifier-model.ps1" -Stage $stage
+    & "$PSScriptRoot/stage-classifier-model.ps1" -Stage $stage -SourceDirectory $ModelsDirectory
     # Include all locally available notices; provenance/source obligations remain a release gate.
     Copy-Item -LiteralPath "$Toolchain/share/licenses" -Destination (Join-Path $stage 'third-party-licenses') -Recurse
     Copy-Item -LiteralPath "$root/ui/qml/fonts/OFL.txt" -Destination (Join-Path $stage 'third-party-licenses/JetBrainsMono-OFL.txt')

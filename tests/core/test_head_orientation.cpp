@@ -42,6 +42,19 @@ TEST(HeadOrientation, CompoundMovementAndNoiseAreNotSingleAxisActions) {
     EXPECT_EQ(classify(trajectory([](double t){return multiply(axisRotation(1,2*std::sin(30*t)),axisRotation(0,2*std::cos(20*t)));})),pfcore::GestureClass::Static);
     EXPECT_EQ(classify(trajectory([](double t){return axisRotation(1,10*t);})),pfcore::GestureClass::Unknown);
 }
+TEST(HeadOrientation, IsolatedBoundaryEstimateDoesNotInventAHeadAction) {
+    using G=pfcore::GestureClass;
+    for(const int index:{0,19})for(const double initialYaw:{0.,65.}) {
+        auto source=trajectory([](double){return axisRotation(1,0);},axisRotation(1,initialYaw));
+        source[index].rotation=multiply(axisRotation(1,18),
+            multiply(axisRotation(0,16),axisRotation(1,initialYaw)));
+        EXPECT_EQ(classify(source),G::Static) << "boundary index " << index;
+        // A small boundary error must not erase an independently sustained turn.
+        source=trajectory([](double t){return axisRotation(1,40*t);},axisRotation(1,initialYaw));
+        source[index].rotation=multiply(axisRotation(0,16),source[index].rotation);
+        EXPECT_EQ(classify(source),G::HeadTurn) << "boundary index " << index;
+    }
+}
 TEST(HeadOrientation, ExclusiveClipEndDoesNotIncludeTheNextFrame) {
     auto samples=trajectory([](double){return axisRotation(1,0);});
     // The frame at exactly 2 s is outside a clip ending at 2 s. It can

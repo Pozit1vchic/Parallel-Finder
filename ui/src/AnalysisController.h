@@ -181,6 +181,10 @@ public:
     Q_INVOKABLE void setResultReview(const QVariantList& ids, const QString& field, bool value);
     Q_INVOKABLE bool setResultRange(int id, double leftStart, double leftEnd, double rightStart, double rightEnd);
     Q_INVOKABLE bool resetResultRange(int id);
+    Q_INVOKABLE bool replaceResultSide(int targetId, const QString& targetSide, int donorId, const QString& donorSide, bool consumeDonor = false);
+    Q_INVOKABLE bool combineSingleResults(int targetId, int donorId);
+    Q_INVOKABLE bool removeResultSide(int id, const QString& side);
+    Q_INVOKABLE bool setResultGroup(const QVariantList& ids, const QString& group);
     Q_INVOKABLE bool previewResultRange(int id, double leftStart, double rightStart);
     Q_INVOKABLE bool exportFindings(const QString& folder, const QVariantList& ids, int framesPerSide);
 
@@ -201,6 +205,7 @@ signals:
     void exportBusyChanged();
     void reviewBusyChanged();
     void reviewPreviewsReady(int id, double leftStart, double rightStart, const QString& left, const QString& right);
+    void reviewPreviewFailed(int id, double leftStart, double rightStart, const QString& message);
     void exportProgressChanged();
 
 private:
@@ -209,6 +214,7 @@ private:
     std::jthread reviewWorker_;
     bool reviewBusy_ = false;
     std::map<int, std::shared_ptr<QTemporaryDir>> reviewPreviewDirectories_;
+    std::map<int, std::shared_ptr<QTemporaryDir>> reviewOriginalDirectories_;
     std::shared_ptr<QTemporaryDir> reviewDraftDirectory_;
     std::shared_ptr<pfservices::RuntimeScratch> analysisPreviewDirectory_;
     struct ReviewUndoRow {
@@ -216,6 +222,8 @@ private:
         QVariantMap record;
         std::optional<pfcore::MotionMatch> match;
         std::shared_ptr<QTemporaryDir> preview;
+        std::optional<ResultPoseEvidence> evidence;
+        std::shared_ptr<QTemporaryDir> originalPreview;
     };
     std::vector<std::vector<ReviewUndoRow>> reviewUndo_;
     void pushReviewUndo(const QVariantList& ids, bool includeMatch = false);

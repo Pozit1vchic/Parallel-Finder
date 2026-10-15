@@ -655,6 +655,7 @@ QtObject {
     })
 
     function classificationLabel(key) {
+        if (String(key).indexOf("group:") === 0) return String(key).substring(6)
         const parts = String(key || "unknown").split("/")
         return parts.map(function(part) {
             return part.split("+").map(function(action) {return t("class."+(action || "unknown"))}).join(" + ")
@@ -662,9 +663,18 @@ QtObject {
     }
 
     function matchLabel(record) {
+        if (record && (record.leftRemoved || record.rightRemoved)) return language === "ru" ? "Одиночный момент" : "Single moment"
+        if (record && record.manualPair) return language === "ru" ? "Пара собрана вручную" : "Manually composed pair"
         if (record && record.matchType === "pose")
             return t(record.headOnlyComparison ? "results.headSimilarity" : "results.poseSimilarity")
         return t("results.motionSimilarity")
+    }
+    function exportGroupKey(row) { return row.manualGroup ? "group:" + row.manualGroup : movementKey(row.classification) }
+    function exportGroupKeys(rows) {
+        const names = []
+        for (const row of rows) if (row.manualGroup && names.indexOf("group:" + row.manualGroup) < 0) names.push("group:" + row.manualGroup)
+        names.sort(function(a,b) { return a.localeCompare(b) })
+        return names.concat(movementKeysForRows(rows))
     }
 
     function t(key) {
@@ -677,6 +687,16 @@ QtObject {
     // so switching to English never leaves a Russian footer/status behind.
     function status(value) {
         const text = String(value || "")
+        if (language === "ru") {
+            const errors = {
+                "Could not decode frame": "Не удалось прочитать кадр. Проверь доступность исходного видео.",
+                "Could not save preview": "Не удалось сохранить превью. Проверь свободное место.",
+                "Lossless montage requires compatible video and audio streams. Export separate clips or choose re-encoding quality.": "Для общего ролика без потери качества нужны совместимые видео- и аудиопотоки. Экспортируй отдельные клипы или выбери другой режим качества.",
+                "exact lossless clips produced incompatible streams; no lossy fallback was used": "Подготовленные клипы несовместимы для склейки без потери качества. Сохрани их отдельно; сжатие с потерями не применялось.",
+                "export cancelled": "Экспорт отменён"
+            }
+            if (errors[text] !== undefined) return errors[text]
+        }
         if (language !== "en") return text
         if (text.indexOf("Матчер: ") === 0) return "Matcher: " + status(text.substring(8))
         if (text.indexOf("Дополнительный поиск: ") === 0) return "Additional search: " + status(text.substring("Дополнительный поиск: ".length))

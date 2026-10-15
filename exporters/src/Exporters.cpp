@@ -103,9 +103,12 @@ std::vector<pfcore::MotionMatch> orderedMatches(const std::vector<pfcore::Motion
     std::vector<pfcore::MotionMatch> ordered = matches;
     if (mode == NumberingMode::AsInVideo) {
         std::stable_sort(ordered.begin(), ordered.end(), [](const auto& left, const auto& right) {
-            if (left.leftSourceId != right.leftSourceId) return left.leftSourceId < right.leftSourceId;
-            if (std::abs(left.leftStartSeconds - right.leftStartSeconds) > 1e-9)
-                return left.leftStartSeconds < right.leftStartSeconds;
+            const auto& leftSource=left.leftEnabled ? left.leftSourceId:left.rightSourceId;
+            const auto& rightSource=right.leftEnabled ? right.leftSourceId:right.rightSourceId;
+            const double leftStart=left.leftEnabled ? left.leftStartSeconds:left.rightStartSeconds;
+            const double rightStart=right.leftEnabled ? right.leftStartSeconds:right.rightStartSeconds;
+            if (leftSource != rightSource) return leftSource < rightSource;
+            if (std::abs(leftStart - rightStart) > 1e-9) return leftStart < rightStart;
             if (left.rightSourceId != right.rightSourceId) return left.rightSourceId < right.rightSourceId;
             return left.rightStartSeconds < right.rightStartSeconds;
         });
@@ -119,6 +122,14 @@ std::vector<pfcore::MotionMatch> orderedMatches(const std::vector<pfcore::Motion
         });
     }
     return ordered;
+}
+
+double activeDuration(const pfcore::MotionMatch& item)
+{
+    if(item.leftEnabled && item.rightEnabled)return item.durationSeconds;
+    if(item.leftEnabled)return std::max(0.0,item.leftEndSeconds-item.leftStartSeconds);
+    if(item.rightEnabled)return std::max(0.0,item.rightEndSeconds-item.rightStartSeconds);
+    return 0.0;
 }
 
 std::string timecode(double seconds, double fps, bool dropFrame)
@@ -169,7 +180,9 @@ std::string jsonResults(const std::vector<pfcore::MotionMatch>& matches)
                << "      \"index\": " << (i + 1) << ",\n"
                << "      \"similarity\": " << std::setprecision(8) << item.similarity << ",\n"
                << "      \"dtwDistance\": " << item.dtwDistance << ",\n"
-               << "      \"durationSeconds\": " << item.durationSeconds << ",\n"
+               << "      \"durationSeconds\": " << activeDuration(item) << ",\n"
+               << "      \"leftEnabled\": " << (item.leftEnabled ? "true":"false") << ",\n"
+               << "      \"rightEnabled\": " << (item.rightEnabled ? "true":"false") << ",\n"
                << "      \"direction\": \"" << jsonEscape(item.directionLabel) << "\",\n"
                << "      \"gesture\": \"" << jsonEscape(item.gestureLabel) << "\",\n"
                << "      \"rankScore\": " << item.rankScore << ",\n"
@@ -188,16 +201,17 @@ std::string jsonResults(const std::vector<pfcore::MotionMatch>& matches)
 std::string csvResults(const std::vector<pfcore::MotionMatch>& matches)
 {
     std::ostringstream output;
-    output << "index,similarity,rank_score,appearance_similarity,identity_verified,direction,gesture,dtw_distance,duration_seconds,left_source,left_start,left_end,right_source,right_start,right_end\n";
+    output << "index,similarity,rank_score,appearance_similarity,identity_verified,direction,gesture,dtw_distance,duration_seconds,left_source,left_start,left_end,right_source,right_start,right_end,left_enabled,right_enabled\n";
     for (std::size_t i = 0; i < matches.size(); ++i) {
         const auto& item = matches[i];
         output << (i + 1) << ',' << std::setprecision(8) << item.similarity << ','
                << item.rankScore << ',' << item.appearanceSimilarity << ','
                << (item.appearanceVerified ? "true" : "false") << ','
                << csvEscape(item.directionLabel) << ','
-               << csvEscape(item.gestureLabel) << ',' << item.dtwDistance << ',' << item.durationSeconds << ','
+               << csvEscape(item.gestureLabel) << ',' << item.dtwDistance << ',' << activeDuration(item) << ','
                << csvEscape(item.leftSourceId) << ',' << item.leftStartSeconds << ',' << item.leftEndSeconds << ','
-               << csvEscape(item.rightSourceId) << ',' << item.rightStartSeconds << ',' << item.rightEndSeconds << '\n';
+               << csvEscape(item.rightSourceId) << ',' << item.rightStartSeconds << ',' << item.rightEndSeconds << ','
+               << (item.leftEnabled ? "true":"false") << ',' << (item.rightEnabled ? "true":"false") << '\n';
     }
     return output.str();
 }
@@ -211,8 +225,9 @@ std::string textResults(const std::vector<pfcore::MotionMatch>& matches)
                << item.similarity * 100.0 << "%\n"
                << "  Identity: " << (item.appearanceVerified ? "verified" : "pose-only")
                << " (" << std::setprecision(3) << item.appearanceSimilarity << ")\n"
-               << "  A: " << item.leftSourceId << "  " << item.leftStartSeconds << "–" << item.leftEndSeconds << " s\n"
-               << "  B: " << item.rightSourceId << "  " << item.rightStartSeconds << "–" << item.rightEndSeconds << " s\n\n";
+               << "  Duration: " << activeDuration(item) << " s\n"
+               << "  A: " << (item.leftEnabled ? "":"[disabled] ") << item.leftSourceId << "  " << item.leftStartSeconds << "–" << item.leftEndSeconds << " s\n"
+               << "  B: " << (item.rightEnabled ? "":"[disabled] ") << item.rightSourceId << "  " << item.rightStartSeconds << "–" << item.rightEndSeconds << " s\n\n";
     }
     return output.str();
 }
@@ -224,12 +239,18 @@ std::string edlResults(const std::vector<pfcore::MotionMatch>& matches, const Ex
            << (options.dropFrame ? "DROP FRAME" : "NON-DROP FRAME") << "\n\n";
     for (std::size_t i = 0; i < matches.size(); ++i) {
         const auto& item = matches[i];
+        if(!item.leftEnabled && !item.rightEnabled)continue;
+        // Preserve the established one-event-per-result EDL layout. For a
+        // single surviving B clip, its own range replaces the absent A range.
+        const double start=item.leftEnabled ? item.leftStartSeconds:item.rightStartSeconds;
+        const double end=item.leftEnabled ? item.leftEndSeconds:item.rightEndSeconds;
+        const auto& source=item.leftEnabled ? item.leftSourceId:item.rightSourceId;
         output << std::setfill('0') << std::setw(3) << (i + 1) << "  PF      V     C        "
-               << timecode(item.leftStartSeconds, options.framesPerSecond, options.dropFrame) << ' '
-               << timecode(item.leftEndSeconds, options.framesPerSecond, options.dropFrame) << ' '
-               << timecode(item.leftStartSeconds, options.framesPerSecond, options.dropFrame) << ' '
-               << timecode(item.leftEndSeconds, options.framesPerSecond, options.dropFrame) << "\n"
-               << "* FROM CLIP NAME: " << item.leftSourceId << "\n";
+               << timecode(start, options.framesPerSecond, options.dropFrame) << ' '
+               << timecode(end, options.framesPerSecond, options.dropFrame) << ' '
+               << timecode(start, options.framesPerSecond, options.dropFrame) << ' '
+               << timecode(end, options.framesPerSecond, options.dropFrame) << "\n"
+               << "* FROM CLIP NAME: " << source << "\n";
     }
     return output.str();
 }
@@ -238,9 +259,9 @@ std::string fcpxmlResults(const std::vector<pfcore::MotionMatch>& matches, const
 {
     std::vector<std::string> sources;
     for (const auto& item : matches) {
-        if (std::find(sources.begin(), sources.end(), item.leftSourceId) == sources.end())
+        if (item.leftEnabled && std::find(sources.begin(), sources.end(), item.leftSourceId) == sources.end())
             sources.push_back(item.leftSourceId);
-        if (std::find(sources.begin(), sources.end(), item.rightSourceId) == sources.end())
+        if (item.rightEnabled && std::find(sources.begin(), sources.end(), item.rightSourceId) == sources.end())
             sources.push_back(item.rightSourceId);
     }
     std::ostringstream output;
@@ -251,8 +272,8 @@ std::string fcpxmlResults(const std::vector<pfcore::MotionMatch>& matches, const
     for (std::size_t i = 0; i < sources.size(); ++i) {
         double duration = 0.001;
         for (const auto& item : matches) {
-            if (item.leftSourceId == sources[i]) duration = std::max(duration, item.leftEndSeconds);
-            if (item.rightSourceId == sources[i]) duration = std::max(duration, item.rightEndSeconds);
+            if (item.leftEnabled && item.leftSourceId == sources[i]) duration = std::max(duration, item.leftEndSeconds);
+            if (item.rightEnabled && item.rightSourceId == sources[i]) duration = std::max(duration, item.rightEndSeconds);
         }
         output << "<asset id=\"a" << (i + 1) << "\" name=\"" << xmlEscape(sources[i])
                << "\" src=\"" << xmlEscape(fileUri(sources[i])) << "\" start=\"0s\" duration=\""
@@ -266,11 +287,11 @@ std::string fcpxmlResults(const std::vector<pfcore::MotionMatch>& matches, const
             std::find(sources.begin(), sources.end(), item.leftSourceId))) + 1;
         const auto rightAsset = static_cast<std::size_t>(std::distance(sources.begin(),
             std::find(sources.begin(), sources.end(), item.rightSourceId))) + 1;
-        const double pairDuration = std::max(0.001, item.durationSeconds);
-        output << "<asset-clip ref=\"a" << leftAsset << "\" name=\"Pair " << (i + 1)
+        const double pairDuration = std::max(0.001, activeDuration(item));
+        if(item.leftEnabled)output << "<asset-clip ref=\"a" << leftAsset << "\" name=\"Pair " << (i + 1)
                << " A\" duration=\"" << pairDuration << "s\" start=\""
-               << item.leftStartSeconds << "s\"/>\n"
-               << "<asset-clip ref=\"a" << rightAsset << "\" name=\"Pair " << (i + 1)
+               << item.leftStartSeconds << "s\"/>\n";
+        if(item.rightEnabled)output << "<asset-clip ref=\"a" << rightAsset << "\" name=\"Pair " << (i + 1)
                << " B\" duration=\"" << pairDuration << "s\" start=\""
                << item.rightStartSeconds << "s\"/>\n";
     }
@@ -307,18 +328,19 @@ std::string aepResults(const std::vector<pfcore::MotionMatch>& matches, const Ex
         << "  var cursor = 0;\n";
     for (std::size_t i = 0; i < matches.size(); ++i) {
         const auto& item = matches[i];
-        const double duration = std::max(0.001, item.durationSeconds);
-        jsx << "  var a" << i << " = footage('" << jsEscape(item.leftSourceId) << "');\n"
-            << "  var b" << i << " = footage('" << jsEscape(item.rightSourceId) << "');\n"
+        if(!item.leftEnabled && !item.rightEnabled)continue;
+        const double duration = std::max(0.001, activeDuration(item));
+        if(item.leftEnabled)jsx << "  var a" << i << " = footage('" << jsEscape(item.leftSourceId) << "');\n"
             << "  if (a" << i << ") { var la" << i << " = comp.layers.add(a" << i
             << "); la" << i << ".startTime = cursor - " << item.leftStartSeconds
             << "; la" << i << ".inPoint = cursor; la" << i << ".outPoint = cursor + " << duration
-            << "; la" << i << ".name = 'Pair " << (i + 1) << " A'; }\n"
+            << "; la" << i << ".name = 'Pair " << (i + 1) << " A'; }\n";
+        if(item.rightEnabled)jsx << "  var b" << i << " = footage('" << jsEscape(item.rightSourceId) << "');\n"
             << "  if (b" << i << ") { var lb" << i << " = comp.layers.add(b" << i
             << "); lb" << i << ".startTime = cursor - " << item.rightStartSeconds
             << "; lb" << i << ".inPoint = cursor; lb" << i << ".outPoint = cursor + " << duration
-            << "; lb" << i << ".name = 'Pair " << (i + 1) << " B'; }\n"
-            << "  cursor += " << (duration + 0.25) << ";\n";
+            << "; lb" << i << ".name = 'Pair " << (i + 1) << " B'; }\n";
+        jsx << "  cursor += " << (duration + 0.25) << ";\n";
     }
     jsx << "  comp.duration = Math.max(1, cursor);\n"
         << "  comp.comment = 'Parallel Finder: ' + data.matches.length + ' motion pairs';\n"

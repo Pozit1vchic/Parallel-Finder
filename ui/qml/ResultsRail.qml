@@ -33,6 +33,7 @@ Rectangle {
     readonly property var sourceChoices: {
         const sources = [""]
         for (const row of results) for (const side of ["left", "right"]) {
+            if (row[side + "Removed"]) continue
             const source = String(row[side + "Source"] || "")
             if (source && sources.indexOf(source) < 0) sources.push(source)
         }
@@ -143,6 +144,8 @@ Rectangle {
     function compareValues(a, b) {
         let delta = 0
         if (sortCriterion === "classification") {
+            const ga = String(a.manualGroup || ""), gb = String(b.manualGroup || "")
+            if (ga !== gb) return ga && gb ? ga.localeCompare(gb) : ga ? -1 : 1
             delta = classKeys.indexOf(classKey(a)) - classKeys.indexOf(classKey(b))
             if (!delta) return movementSimilarity(b) - movementSimilarity(a) || Number(a.id) - Number(b.id)
         } else if (sortCriterion === "scene")
@@ -167,7 +170,7 @@ Rectangle {
         for (const item of (results || [])) {
             if (reviewFilter === "hidden" ? !item.hidden : item.hidden) continue
             if (reviewFilter === "favorites" && !item.favorite) continue
-            if (!matchesSource(item.leftSource) && !matchesSource(item.rightSource)) continue
+            if ((item.leftRemoved || !matchesSource(item.leftSource)) && (item.rightRemoved || !matchesSource(item.rightSource))) continue
             if (classFilter && classKey(item) !== classFilter) continue
             next.push(item)
         }
@@ -179,10 +182,10 @@ Rectangle {
             let existing = -1
             for (let j = i; j < displayModel.count; ++j)
                 if (Number(displayModel.get(j).entry.id) === Number(next[i].id)) { existing = j; break }
-            if (existing < 0) displayModel.insert(i, {entry: next[i], movementGroup: classKey(next[i])})
+            if (existing < 0) displayModel.insert(i, {entry: next[i], movementGroup: L10n.exportGroupKey(next[i])})
             else {
                 if (existing !== i) displayModel.move(existing, i, 1)
-                displayModel.set(i, {entry: next[i], movementGroup: classKey(next[i])})
+                displayModel.set(i, {entry: next[i], movementGroup: L10n.exportGroupKey(next[i])})
             }
         }
         visibleResults = next
@@ -420,7 +423,7 @@ Rectangle {
             primary: enabled
             onClicked: root.exportRequested(root.exportRows())
         }
-        PfButton { Layout.fillWidth: true; compact: true; quiet: true; visible: root.visibleResults.length > 0 && root.reviewFilter !== "hidden"; text: Review.t("sheet"); onClicked: root.findingsRequested() }
+        PfButton { Layout.fillWidth: true; compact: true; quiet: true; visible: root.visibleResults.length > 0 && root.reviewFilter !== "hidden"; text: L10n.language === "ru" ? "Сортировка вручную" : "Manual sorting"; onClicked: root.findingsRequested() }
 
             }
         }
@@ -443,7 +446,7 @@ Rectangle {
             section.delegate: Text {
                 required property string section
                 width: resultList.width; height: 30; verticalAlignment: Text.AlignVCenter
-                text: L10n.classificationLabel(section) + " · " + root.visibleResults.filter(function(row) { return root.classKey(row) === section }).length
+                text: L10n.classificationLabel(section) + " · " + root.visibleResults.filter(function(row) { return L10n.exportGroupKey(row) === section }).length
                 color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: Font.DemiBold
             }
             add: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionChangeDuration } }
@@ -513,7 +516,7 @@ Rectangle {
                     opacity: modelData.category ? 1 : Number(modelData.id) === root.selectedIndex ? 1 : 0
                     Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration } }
                 }
-                Accessible.name: L10n.matchLabel(modelData) + " " + Math.round(root.movementSimilarity(modelData) * 100) + "%"
+                Accessible.name: modelData.manualPair ? L10n.matchLabel(modelData) : L10n.matchLabel(modelData) + " " + Math.round(root.movementSimilarity(modelData) * 100) + "%"
                 Accessible.role: Accessible.ListItem
 
                 MouseArea {
@@ -571,7 +574,7 @@ Rectangle {
                         Text {
                             font.family: Theme.fontFamily
                             width: parent.width
-                            text: L10n.matchLabel(modelData) + " · " + Math.round(root.movementSimilarity(modelData) * 100) + "%"
+                            text: modelData.manualPair ? L10n.matchLabel(modelData) : L10n.matchLabel(modelData) + " · " + Math.round(root.movementSimilarity(modelData) * 100) + "%"
                             color: Theme.textPrimary
                             font.pixelSize: 11
                             font.weight: Font.DemiBold
@@ -580,6 +583,7 @@ Rectangle {
                         Text {
                             font.family: Theme.fontFamily
                             width: parent.width
+                            visible: !modelData.manualPair
                             text: L10n.t("results.sceneSimilarity") + " · " + Math.round(root.sceneSimilarity(modelData) * 100) + "%"
                             color: Theme.sage
                             font.pixelSize: 10

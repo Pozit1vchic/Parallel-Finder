@@ -604,7 +604,8 @@ void VideoDecoder::open(const std::string& path, VideoDecodeOptions options)
         close(); throw std::runtime_error("open decoder: " + ffError(result));
     }
     if(openedHardware && options.autoNvidiaConversion && options.conversionThreads==1
-        && !options.resizeOnNvidia && impl_->metadata.width>=3840 && impl_->metadata.height>=2160
+        && !options.resizeOnNvidia
+        && std::uint64_t(impl_->metadata.width)*std::uint64_t(impl_->metadata.height)>=3840ull*1440
         && std::thread::hardware_concurrency()>=8)
         impl_->options.conversionThreads=4;
     impl_->diagnostics.conversionThreads=impl_->options.conversionThreads;

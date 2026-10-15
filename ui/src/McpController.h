@@ -1,5 +1,6 @@
 #pragma once
 #include <QObject>
+#include <QJsonArray>
 #include <pfservices/McpHttpServer.hpp>
 
 namespace pfui {
@@ -33,10 +34,14 @@ private:
     QString settingsPath_,error_,token_;
     QJsonValue exportSuccess_{QJsonValue::Null};
     QString exportMessage_;
+    QString resultSet_;
+    QJsonObject draftPreview_;
     bool enabled_=false,allowControl_=false;
     int port_=32145;
     pfservices::McpHttpServer server_;
     void apply();
     void persist();
+    QJsonArray extendedTools() const;
+    QJsonObject callExtendedTool(const QString& name,const QJsonObject& arguments,QJsonArray& images);
 };
 }

@@ -1686,10 +1686,11 @@ bool AnalysisController::exportResults(const QString& format,
                                        const QString& prefix,
                                        const QVariantList& selectedIndexes,
                                        bool mergeChronological,
-                                       const QStringList& classOrder,
+                                       const QStringList& requestedClassOrder,
                                        int encodingQuality, int videoBitrateKbps, bool classFolders)
 {
     if (busy_ || exportBusy_ || reviewBusy_) return false;
+    const auto classOrder=effectiveExportClassOrder(results_,requestedClassOrder);
     if (encodingQuality < 1 || encodingQuality > 51 || videoBitrateKbps < 0 || videoBitrateKbps > 500000) {
         emit exportFinished(false, QStringLiteral("Недопустимое качество или битрейт"));
         return false;
@@ -1712,7 +1713,8 @@ bool AnalysisController::exportResults(const QString& format,
             sourceSummaries_.value(QString::fromStdString(matches_[index].leftSourceId)).toMap().value("frameRate",sourceFps_).toDouble(),
             sourceSummaries_.value(QString::fromStdString(matches_[index].rightSourceId)).toMap().value("frameRate",sourceFps_).toDouble()});
         manuallyAdjusted.push_back(results_[index].toMap().value("manualAdjusted").toBool());
-        selectedClasses.push_back(exportClassKey(results_[index].toMap().value("classification", "unknown").toString(),classOrder));
+        const auto group = results_[index].toMap().value("manualGroup").toString();
+        selectedClasses.push_back(exportClassKey(group.isEmpty() ? results_[index].toMap().value("classification", "unknown").toString() : "group:" + group,classOrder));
     }
     const QString normalized = format.trimmed().toUpper();
     if (normalized == QStringLiteral("FFMPEG")) {
@@ -1739,7 +1741,8 @@ bool AnalysisController::exportResults(const QString& format,
         exportCompleted_ = 0;
         exportClipProgress_ = 0;
         exportStage_ = QStringLiteral("preparing");
-        exportTotal_ = static_cast<int>(selected.size() * 2 + (mergeChronological ? 1 : 0));
+        exportTotal_ = mergeChronological ? 1 : 0;
+        for (const auto& match : selected) exportTotal_ += int(match.leftEnabled) + int(match.rightEnabled);
         emit exportProgressChanged();
         emit exportBusyChanged();
         exportWorker_ = std::jthread([this, selected = std::move(selected), manuallyAdjusted = std::move(manuallyAdjusted), selectedFrameRates, selectedClasses, classOrder, classFolders, folder, requestedPrefix, mode, mergeChronological, encodingQuality, videoBitrateKbps,
@@ -1756,6 +1759,20 @@ bool AnalysisController::exportResults(const QString& format,
         try {
         std::vector<pfservices::CutRequest> jobs;
         jobs.reserve(selected.size() * 2);
+        std::vector<double> clipFractions;
+        std::mutex progressMutex;
+        const auto reportClipProgress = [&](std::size_t index, double fraction) {
+            std::lock_guard lock(progressMutex);
+            if (index >= clipFractions.size()) return;
+            clipFractions[index] = std::max(clipFractions[index],std::clamp(fraction,0.0,1.0));
+            double sum = 0; for (const auto value : clipFractions) sum += value;
+            const int done = static_cast<int>(sum + 1e-8);
+            const int percent = std::clamp(static_cast<int>((sum-done)*100),0,99);
+            QMetaObject::invokeMethod(this,[this,done,percent] {
+                exportCompleted_ = done; exportClipProgress_ = percent;
+                exportStage_ = QStringLiteral("encoding"); emit exportProgressChanged();
+            },Qt::QueuedConnection);
+        };
         std::unordered_map<std::string, std::unique_ptr<pfcore::VideoDecoder>> edgeDecoders;
         std::unordered_map<std::string, double> refinedEnds;
         for (std::size_t index = 0; index < selected.size(); ++index) {
@@ -1770,8 +1787,10 @@ bool AnalysisController::exportResults(const QString& format,
                 pfservices::CutRequest request;
                 request.inputPath = std::filesystem::path(QString::fromStdString(source).toStdWString());
                 const auto type = selectedClasses.at(static_cast<qsizetype>(index));
-                auto fileType=type;fileType.replace('+',QStringLiteral("_plus_"));
-                const QString safeType = isSafeExportPrefix(fileType) ? fileType : QStringLiteral("unknown");
+                auto fileType=type;
+                fileType.replace('+',QStringLiteral("_plus_"));
+                const QString safeType = type.startsWith("group:") ? exportGroupFileName(type.mid(6))
+                    : isSafeExportPrefix(fileType) ? fileType : QStringLiteral("unknown");
                 const auto rank = classOrder.indexOf(type);
                 const auto classFolder = QString::number(rank < 0 ? classOrder.size() + 1 : rank + 1).rightJustified(2, '0') + "_" + safeType;
                 const auto clipFolder = classFolders && !mergeChronological ? QDir(folder).filePath(classFolder) : folder;
@@ -1787,9 +1806,7 @@ bool AnalysisController::exportResults(const QString& format,
                 request.videoBitrateKbps = videoBitrateKbps;
                 const auto jobIndex = jobs.size();
                 request.prepare = [&, source, sceneEnd, refineEdge, jobIndex](pfservices::CutRequest& request) {
-                    QMetaObject::invokeMethod(this, [this, jobIndex, mergeChronological] {
-                        if (!mergeChronological) exportCompleted_ = static_cast<int>(jobIndex);
-                        exportClipProgress_ = 0;
+                    QMetaObject::invokeMethod(this, [this] {
                         exportStage_ = QStringLiteral("preparing");
                         emit exportProgressChanged();
                     }, Qt::QueuedConnection);
@@ -1816,26 +1833,23 @@ bool AnalysisController::exportResults(const QString& format,
                         emit exportProgressChanged();
                     }, Qt::QueuedConnection);
                     const double duration = request.endSeconds - request.startSeconds;
-                    request.progress = [this, jobIndex, duration, lastPercent = -1](double seconds) mutable {
+                    request.progress = [&, jobIndex, duration, lastPercent = -1](double seconds) mutable {
                         const int percent = duration > 0.0
                             ? static_cast<int>(std::clamp(seconds / duration, 0.0, 1.0) * 100.0) : 0;
                         if (percent == lastPercent) return;
                         lastPercent = percent;
-                        QMetaObject::invokeMethod(this, [this, jobIndex, percent] {
-                            exportCompleted_ = static_cast<int>(jobIndex);
-                            exportClipProgress_ = percent;
-                            emit exportProgressChanged();
-                        }, Qt::QueuedConnection);
+                        reportClipProgress(jobIndex,percent/100.0);
                     };
                 };
                 jobs.push_back(std::move(request));
+                clipFractions.push_back(0);
             };
             const auto leftClip = manuallyAdjusted[index] ? pfcore::ParallelClipRange{match.leftStartSeconds, match.leftEndSeconds} : pfcore::parallelClipRange(match.leftStartSeconds, match.leftEndSeconds,
                 match.leftSceneStartSeconds, match.leftSceneEndSeconds,selectedFrameRates[index][0]);
             const auto rightClip = manuallyAdjusted[index] ? pfcore::ParallelClipRange{match.rightStartSeconds, match.rightEndSeconds} : pfcore::parallelClipRange(match.rightStartSeconds, match.rightEndSeconds,
                 match.rightSceneStartSeconds, match.rightSceneEndSeconds,selectedFrameRates[index][1]);
-            enqueue(match.leftSourceId, leftClip.start, leftClip.end, match.leftSceneEndSeconds, QStringLiteral("A"));
-            enqueue(match.rightSourceId, rightClip.start, rightClip.end, match.rightSceneEndSeconds, QStringLiteral("B"));
+            if (match.leftEnabled) enqueue(match.leftSourceId, leftClip.start, leftClip.end, match.leftSceneEndSeconds, QStringLiteral("A"));
+            if (match.rightEnabled) enqueue(match.rightSourceId, rightClip.start, rightClip.end, match.rightSceneEndSeconds, QStringLiteral("B"));
         }
         if (mergeChronological) {
             const auto output = std::filesystem::path(QDir(folder).filePath(requestedPrefix
@@ -1854,13 +1868,7 @@ bool AnalysisController::exportResults(const QString& format,
                 : QString::fromStdString(result.error));
             return;
         }
-        const auto batch = pfservices::runExportQueue(jobs, stop, [this](std::size_t done, std::size_t) {
-            QMetaObject::invokeMethod(this, [this, done] {
-                exportCompleted_ = static_cast<int>(done);
-                exportClipProgress_ = 0;
-                emit exportProgressChanged();
-            }, Qt::QueuedConnection);
-        });
+        const auto batch = pfservices::runExportQueue(jobs, stop);
         int written = 0;
         QStringList failures;
         for (std::size_t i = 0; i < batch.completed.size(); ++i) {
@@ -1982,6 +1990,7 @@ void AnalysisController::inspectFiles(const QStringList& paths)
     reviewUndo_.clear();
     emit resultCategoriesChanged();
     reviewPreviewDirectories_.clear();
+    reviewOriginalDirectories_.clear();
     reviewDraftDirectory_.reset();
     analysisPreviewDirectory_.reset();
     matches_.clear();
@@ -2134,6 +2143,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     reviewUndo_.clear();
     emit resultCategoriesChanged();
     reviewPreviewDirectories_.clear();
+    reviewOriginalDirectories_.clear();
     reviewDraftDirectory_.reset();
     analysisPreviewDirectory_.reset();
     matches_.clear();

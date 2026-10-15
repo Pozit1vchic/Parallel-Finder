@@ -68,6 +68,8 @@ add_executable(pf_tests
     core/test_model_store.cpp
     core/test_provider_store.cpp
     core/test_cut_service.cpp
+    core/test_export_concurrency.cpp
+    core/test_export_order.cpp
     core/test_dominant_person.cpp
     gpu/test_device_info.cpp
     gpu/test_provider.cpp

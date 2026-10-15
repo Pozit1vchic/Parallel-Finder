@@ -83,6 +83,21 @@ MovementClassification classifyHeadOrientation(std::span<const HeadOrientationSa
     for (std::size_t i=1;i+1<path.size();++i)
         for (int axis=0;axis<3;++axis)
             smooth[i][axis]=median(path[i-1][axis],path[i][axis],path[i+1][axis]);
+    // A crop at either end can be less stable than the surrounding poses.
+    // Apply temporal support there too: otherwise an isolated boundary
+    // estimate survives smoothing and manufactures a turn or compound action.
+    for (int axis=0;axis<3;++axis) {
+        double interiorLow=path[1][axis],interiorHigh=interiorLow;
+        for(std::size_t i=1;i+1<path.size();++i){interiorLow=std::min(interiorLow,path[i][axis]);interiorHigh=std::max(interiorHigh,path[i][axis]);}
+        const auto supportedEndpoint=[&](double edge,double next,double following) {
+            const double firstStep=next-edge,secondStep=following-next;
+            const bool isolated=interiorHigh-interiorLow<3 && std::abs(firstStep)>std::max(1.0,4*std::abs(secondStep));
+            return isolated ? median(edge,next,following) : edge;
+        };
+        smooth.front()[axis]=supportedEndpoint(path[0][axis],path[1][axis],path[2][axis]);
+        const auto n=path.size();
+        smooth.back()[axis]=supportedEndpoint(path[n-1][axis],path[n-2][axis],path[n-3][axis]);
+    }
     Vector extent{},delta{};
     for (int axis=0;axis<3;++axis) {
         double low=smooth.front()[axis],high=low;

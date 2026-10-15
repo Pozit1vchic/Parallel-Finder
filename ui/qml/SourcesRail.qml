@@ -100,8 +100,12 @@ Rectangle {
                 id: rootDrop
                 objectName: "sourceDropArea"
                 Layout.fillWidth: true
-                width: parent.width; height: root.sourceFiles.length > 0 ? Math.min(160, Math.max(78, root.sourceFiles.length * 32 + 16)) : 102
-                Behavior on height { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
+                property real preferredDropHeight: root.sourceFiles.length > 0 ? Math.min(160, Math.max(78, root.sourceFiles.length * 32 + 16)) : 102
+                implicitHeight: preferredDropHeight
+                Layout.preferredHeight: preferredDropHeight
+                Layout.minimumHeight: preferredDropHeight
+                Layout.maximumHeight: preferredDropHeight
+                Behavior on preferredDropHeight { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
                 Accessible.name: L10n.t("sources.dropTitle")
                 onDropped: if (drop.hasUrls) root.filesRequested(drop.urls)
                 Rectangle { anchors.fill: parent; radius: Theme.radiusButton; color: parent.containsDrag ? Theme.accentMuted : Theme.well
@@ -154,7 +158,7 @@ Rectangle {
             }
             }
             RowLayout { Layout.fillWidth: true; spacing: 7
-                PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.add"); onClicked: root.filesRequested([]) }
+                PfButton { objectName: "addSourcesButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.add"); onClicked: root.filesRequested([]) }
                 PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.folder"); quiet: true; onClicked: root.folderRequested() }
             }
             RowLayout { Layout.fillWidth: true; spacing: 7

@@ -292,6 +292,9 @@ struct MotionMatch {
     double unmirroredSimilarity = -1.0;
     // Populated by compare(); search reuse does not persist diagnostic data.
     MotionRejection rejection = MotionRejection::None;
+    // Review-only side visibility. Search results always begin with both sides.
+    bool leftEnabled = true;
+    bool rightEnabled = true;
 };
 
 class MotionMatcher {

@@ -1,6 +1,7 @@
 #include "MontageGeometry.hpp"
 #include "ExportDestination.hpp"
 #include <pfservices/MontageExport.hpp>
+#include <pfservices/ExportQueue.hpp>
 #include <pfcore/VideoDecoder.hpp>
 #include <QCoreApplication>
 #include <QDir>
@@ -79,7 +80,16 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         if (streamCopy || exactLossless) {
             for (const auto& clip : clips) {
                 if (cancelled()) return result;
-                if (info(clip.inputPath).streamCopySignature != first.streamCopySignature) {
+                const auto& current = info(clip.inputPath);
+                // Exact lossless re-encodes decoded pixels into a common
+                // lossless codec. Different source codecs/extradata are not a
+                // reason to reject it; verify the prepared streams below.
+                const bool incompatible = streamCopy
+                    ? current.streamCopySignature != first.streamCopySignature
+                    : current.width != first.width || current.height != first.height
+                        || current.sampleAspectRatio != first.sampleAspectRatio
+                        || current.rotationDegrees != first.rotationDegrees;
+                if (incompatible) {
                     result.error = "Lossless montage requires compatible video and audio streams. Export separate clips or choose re-encoding quality.";
                     return result;
                 }
@@ -89,46 +99,57 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         if (!canvas) { result.error = "montage display dimensions exceed the safe limit"; return result; }
         const auto [width, height] = *canvas;
         const double fps = first.frameRate > 0.0 && std::isfinite(first.frameRate) ? first.frameRate : 25.0;
-        const CutService cutter(executable);
         QByteArray manifest("ffconcat version 1.0\n");
         double montageDuration = 0;
         std::string preparedSignature;
+        std::vector<CutRequest> prepared(clips.size());
+        std::vector<double> fractions(clips.size(), 0);
+        std::vector<CutRequest> jobs;
+        jobs.reserve(clips.size());
         for (std::size_t i = 0; i < clips.size(); ++i) {
-            if (cancelled()) return result;
             auto request = clips[i];
-            request.stopToken = stop;
-            if (request.prepare) {
-                auto prepare = std::move(request.prepare);
-                prepare(request);
-                if (cancelled()) return result;
-            }
-            if(exactLossless && (request.mode!=mode || request.maxWidth || request.maxHeight
-                || request.canvasWidth || request.canvasHeight || request.outputFrameRate
-                || request.ensureStereoAudio || request.videoBitrateKbps)) {
-                result.success=false;
-                result.error="exact lossless montage cannot resize, normalize, or limit bitrate";
-                return result;
-            }
-            const QString name = staging.filePath(QString::number(i) + (exactLossless ? ".mov" : ".mp4"));
-            request.outputPath = std::filesystem::path(name.toStdWString());
-            request.mode = mode;
-            request.maxWidth = request.maxHeight = 0;
-            request.canvasWidth = streamCopy || exactLossless ? 0 : width;
-            request.canvasHeight = streamCopy || exactLossless ? 0 : height;
-            request.outputFrameRate = streamCopy || exactLossless ? 0 : fps;
-            request.ensureStereoAudio = !streamCopy && !exactLossless;
-            request.sourceHasAudio = info(request.inputPath).hasAudio;
-            request.stopToken = stop;
-            if (progress) progress(i, clips.size() + 1, 0);
-            request.progress = [&, i, duration = request.endSeconds - request.startSeconds, lastPercent = -1](double seconds) mutable {
-                const int percent = duration > 0 ? static_cast<int>(std::clamp(seconds / duration, 0.0, 1.0) * 100) : 0;
-                if (progress && percent != lastPercent) progress(i, clips.size() + 1, percent);
-                lastPercent = percent;
+            const auto originalPrepare = std::move(request.prepare);
+            request.prepare = [&, i, originalPrepare](CutRequest& ready) {
+                if (originalPrepare) originalPrepare(ready);
+                if (stop.stop_requested()) return;
+                if(exactLossless && (ready.mode!=mode || ready.maxWidth || ready.maxHeight
+                    || ready.canvasWidth || ready.canvasHeight || ready.outputFrameRate
+                    || ready.ensureStereoAudio || ready.videoBitrateKbps))
+                    throw std::runtime_error("exact lossless montage cannot resize, normalize, or limit bitrate");
+                ready.outputPath = std::filesystem::path(staging.filePath(QString::number(i)
+                    + (exactLossless ? ".mov" : ".mp4")).toStdWString());
+                ready.mode = mode;
+                ready.maxWidth = ready.maxHeight = 0;
+                ready.canvasWidth = streamCopy || exactLossless ? 0 : width;
+                ready.canvasHeight = streamCopy || exactLossless ? 0 : height;
+                ready.outputFrameRate = streamCopy || exactLossless ? 0 : fps;
+                ready.ensureStereoAudio = !streamCopy && !exactLossless;
+                ready.sourceHasAudio = info(ready.inputPath).hasAudio;
+                ready.stopToken = stop;
+                ready.progress = [&, i, duration = ready.endSeconds-ready.startSeconds](double seconds) {
+                    fractions[i] = std::max(fractions[i], duration > 0
+                        ? std::clamp(seconds / duration, 0.0, 1.0) : 0);
+                    double total = 0;
+                    for (const auto fraction : fractions) total += fraction;
+                    const auto completed = static_cast<std::size_t>(total);
+                    if (progress) progress(completed, clips.size()+1,
+                        static_cast<int>((total-completed)*100));
+                };
+                prepared[i] = ready;
+                prepared[i].prepare = {};
             };
-            result = cutter.cut(request);
+            jobs.push_back(std::move(request));
+        }
+        if (progress) progress(0, clips.size()+1, 0);
+        const auto batch = runExportQueue(jobs, stop, {}, executable);
+        if (cancelled()) return result;
+        for (std::size_t i = 0; i < batch.completed.size(); ++i) {
+            result = batch.completed[i];
             if (!result.success) return result;
+            const auto& request = prepared[i];
+            const QString name = QString::fromStdWString(result.outputPath.wstring());
             if(exactLossless) {
-                const auto signature=info(request.outputPath).streamCopyCodecSignature;
+                const auto signature=info(result.outputPath).streamCopyCodecSignature;
                 if(i && signature!=preparedSignature) {
                     result.success=false;
                     result.error="exact lossless clips produced incompatible streams; no lossy fallback was used";
@@ -143,14 +164,9 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
                                  : pfcore::mediaPacketDuration(spliceName.toUtf8().toStdString(), stop));
             if (cancelled()) return result;
             montageDuration += clipDuration;
-            // Relative, generated filenames avoid quoting user paths and
-            // keep concat's safe-path check enabled.
             manifest += "file '" + QFileInfo(spliceName).fileName().toUtf8() + "'\n";
-            // A silent VFR clip can begin after zero; concat otherwise uses
-            // that first video PTS as its origin and removes the source gap.
             if(exactLossless)manifest += "inpoint 0\n";
             manifest += "duration " + QByteArray::number(clipDuration, 'f', 9) + "\n";
-            if (progress) progress(i + 1, clips.size() + 1, 0);
         }
         result.success = false;
         const QString list = staging.filePath("clips.ffconcat");

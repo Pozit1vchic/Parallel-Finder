@@ -172,6 +172,9 @@ $RECYCLE.BIN/
 /.update-backup/
 /benchmark-output/
 /research/preserved-evidence-*/
+# Local media, observations and benchmark outputs stay out of source releases.
+/research/*
+!/research/README.md
 /profiling/
 # Source videos belong in external test folders; keep small test fixtures.
 *.mp4

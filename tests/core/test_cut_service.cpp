@@ -1,4 +1,8 @@
 #include "../../services/src/MontageGeometry.hpp"
+#include "../../services/src/ExportQueueInternal.hpp"
+#include <condition_variable>
+#include <atomic>
+#include <chrono>
 #include <gtest/gtest.h>
 
 #include <pfservices/CutService.hpp>
@@ -546,6 +550,37 @@ TEST(MontageExport, LosslessRejectsIncompatibleSourcesWithoutReplacingDestinatio
     const auto resized=pfservices::exportChronologicalMontage({a},losslessOutput.toStdWString(),{},{},ffmpeg.toStdString());
     EXPECT_FALSE(resized.success);EXPECT_NE(resized.error.find("normalize"),std::string::npos);
     {QFile sentinel(losslessOutput);ASSERT_TRUE(sentinel.open(QIODevice::ReadOnly));EXPECT_EQ(sentinel.readAll(),"previous");}
+}
+
+TEST(MontageExport, ExactLosslessAcceptsDifferentSourceCodecsAndPreservesPixels)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg"); ASSERT_FALSE(ffmpeg.isEmpty());
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    const auto run = [&](const QStringList& arguments) {
+        QProcess process; process.start(ffmpeg, arguments);
+        if (!process.waitForFinished(30000) || process.exitCode() != 0) return QByteArray{};
+        return process.readAllStandardOutput();
+    };
+    std::vector<pfservices::CutRequest> clips;
+    QByteArray expected;
+    const auto hashes = [&](const QString& path) {
+        const auto output = run({"-v","error","-i",path,"-map","0:v:0","-f","framemd5","-"});
+        QByteArray values;
+        for (const auto& line : output.split('\n')) if (!line.startsWith('#') && line.contains(',')) values += line.mid(line.lastIndexOf(',')+1).trimmed() + '\n';
+        return values;
+    };
+    for (const auto& codec : {QString("libx264"),QString("mpeg4")}) {
+        const auto path = directory.filePath(codec + ".mp4");
+        run({"-v","error","-f","lavfi","-i","testsrc2=s=160x96:r=24:d=1","-c:v",codec,"-pix_fmt","yuv420p",path});
+        ASSERT_TRUE(QFileInfo::exists(path));
+        const auto sourceHashes = hashes(path); ASSERT_FALSE(sourceHashes.isEmpty()); expected += sourceHashes;
+        pfservices::CutRequest clip; clip.inputPath = path.toStdWString(); clip.endSeconds = 1;
+        clip.mode = pfservices::CutMode::ExactLossless; clips.push_back(clip);
+    }
+    const auto output = directory.filePath("combined.mov");
+    const auto result = pfservices::exportChronologicalMontage(clips,output.toStdWString(),{},{},ffmpeg.toStdString(),true);
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_EQ(hashes(output),expected);
 }
 
 TEST(MontageExport, RejectsEmptyRequestsAndSourceReplacement)
@@ -1434,4 +1469,110 @@ TEST(MontageExport, StreamCopyReorderedFramesMatchSourceAndHaveIncreasingTimesta
         ASSERT_TRUE(grouped.success) << grouped.error;
         EXPECT_EQ(hashes(QString::fromStdWString(grouped.outputPath.wstring())), bHashes + aHashes);
     }
+}
+
+
+TEST(ExportQueue, ReadyFollowersReuseFreedSlotsBeforeSlowFirstAndKeepInputOrder)
+{
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    std::vector<pfservices::CutRequest> jobs(5);
+    const double ends[]{1,2,2,3,4}; // The third job reuses the second encode.
+    for (std::size_t i=0;i<jobs.size();++i) {
+        jobs[i].inputPath="scheduler-fixture.mp4";
+        jobs[i].outputPath=directory.filePath(QString::number(i)+".mp4").toStdWString();
+        jobs[i].endSeconds=ends[i];
+    }
+    std::mutex gate; std::condition_variable changed;
+    bool followerStarted=false, firstTimedOut=false;
+    std::atomic<int> encodedTwos=0;
+    std::vector<std::size_t> progress;
+    const auto batch=pfservices::detail::runExportQueueWithExecutor(jobs,{2,1},
+        [&](const pfservices::CutRequest& request) {
+            if(request.endSeconds==1) {
+                std::unique_lock lock(gate);
+                firstTimedOut=!changed.wait_for(lock,std::chrono::seconds(5),[&]{return followerStarted;});
+            }
+            if(request.endSeconds==3) {
+                {std::lock_guard lock(gate);followerStarted=true;} changed.notify_all();
+            }
+            if(request.endSeconds==2)++encodedTwos;
+            QFile file(QString::fromStdWString(request.outputPath.wstring()));
+            pfservices::CutResult result;
+            result.success=file.open(QIODevice::WriteOnly) && file.write(QByteArray::number(request.endSeconds))>0;
+            return result;
+        },{},[&](std::size_t done,std::size_t total){EXPECT_EQ(total,jobs.size());progress.push_back(done);});
+    ASSERT_EQ(batch.completed.size(),jobs.size());
+    EXPECT_FALSE(firstTimedOut) << "Free worker slots were held behind the slow first clip";
+    EXPECT_EQ(encodedTwos.load(),1); EXPECT_TRUE(batch.completed[2].reused);
+    EXPECT_FALSE(batch.cancelled);
+    for(std::size_t i=0;i<jobs.size();++i) {
+        ASSERT_TRUE(batch.completed[i].success) << batch.completed[i].error;
+        EXPECT_EQ(batch.completed[i].outputPath,jobs[i].outputPath);
+        QFile file(QString::fromStdWString(batch.completed[i].outputPath.wstring()));
+        ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+        EXPECT_EQ(file.readAll(),QByteArray::number(ends[i]));
+        EXPECT_EQ(progress[i],i+1);
+    }
+}
+
+TEST(ExportQueue, ReadyCompletionCanCancelWhileEarlierWorkerIsStillRunning)
+{
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    std::vector<pfservices::CutRequest> jobs(6);
+    for(std::size_t i=0;i<jobs.size();++i) {
+        jobs[i].inputPath="scheduler-fixture.mp4";
+        jobs[i].outputPath=directory.filePath(QString::number(i)+".mp4").toStdWString();
+        jobs[i].endSeconds=i+1;
+    }
+    std::stop_source stop; std::mutex gate; std::condition_variable changed;
+    std::atomic<int> started=0; std::atomic<bool> timedOut=false;
+    std::stop_callback wake(stop.get_token(),[&]{std::lock_guard lock(gate);changed.notify_all();});
+    const auto batch=pfservices::detail::runExportQueueWithExecutor(jobs,{2,1},
+        [&](const pfservices::CutRequest& request) {
+            ++started;
+            pfservices::CutResult result;
+            if(request.endSeconds==1) {
+                std::unique_lock lock(gate);
+                timedOut=!changed.wait_for(lock,std::chrono::seconds(5),[&]{return request.stopToken.stop_requested();});
+                result.cancelled=request.stopToken.stop_requested();
+            } else {
+                QFile file(QString::fromStdWString(request.outputPath.wstring()));
+                result.success=file.open(QIODevice::WriteOnly) && file.write("completed")>0;
+            }
+            return result;
+        },stop.get_token(),[&](std::size_t,std::size_t){stop.request_stop();});
+    EXPECT_TRUE(batch.cancelled); EXPECT_FALSE(timedOut.load()); EXPECT_EQ(started.load(),2);
+    ASSERT_EQ(batch.completed.size(),2u);
+    EXPECT_TRUE(batch.completed[0].cancelled); EXPECT_TRUE(batch.completed[1].success);
+    EXPECT_FALSE(QFileInfo::exists(QString::fromStdWString(jobs[0].outputPath.wstring())));
+    for(std::size_t i=2;i<jobs.size();++i)
+        EXPECT_FALSE(QFileInfo::exists(QString::fromStdWString(jobs[i].outputPath.wstring())));
+}
+
+
+TEST(ExportQueue, PreparationAndUnexpectedWorkerFailuresKeepTheirInputIndexes)
+{
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    std::vector<pfservices::CutRequest> jobs(3);
+    for(std::size_t i=0;i<jobs.size();++i) {
+        jobs[i].inputPath="scheduler-fixture.mp4";
+        jobs[i].outputPath=directory.filePath(QString::number(i)+".mp4").toStdWString();
+        jobs[i].endSeconds=i+1;
+    }
+    jobs[1].prepare=[](auto&){throw std::runtime_error("prepare failed");};
+    const auto batch=pfservices::detail::runExportQueueWithExecutor(jobs,{2,1},
+        [](const pfservices::CutRequest& request) {
+            if(request.endSeconds==1)throw 17; // Exercises future.get(), not the std::exception catch.
+            QFile file(QString::fromStdWString(request.outputPath.wstring()));
+            pfservices::CutResult result;
+            result.success=file.open(QIODevice::WriteOnly) && file.write("completed")>0;
+            return result;
+        });
+    ASSERT_EQ(batch.completed.size(),3u);
+    EXPECT_FALSE(batch.completed[0].success);
+    EXPECT_EQ(batch.completed[0].error,"unexpected export worker failure");
+    EXPECT_FALSE(batch.completed[1].success); EXPECT_EQ(batch.completed[1].error,"prepare failed");
+    EXPECT_TRUE(batch.completed[2].success); EXPECT_EQ(batch.completed[2].outputPath,jobs[2].outputPath);
+    EXPECT_FALSE(QFileInfo::exists(QString::fromStdWString(jobs[0].outputPath.wstring())));
+    EXPECT_FALSE(QFileInfo::exists(QString::fromStdWString(jobs[1].outputPath.wstring())));
 }

@@ -40,6 +40,13 @@ QString timestamp(double value) {
     return QString("%1:%2:%3.%4").arg(ms / 3600000, 2, 10, QChar('0'))
         .arg(ms / 60000 % 60, 2, 10, QChar('0')).arg(ms / 1000 % 60, 2, 10, QChar('0')).arg(ms % 1000, 3, 10, QChar('0'));
 }
+void clearPairVerification(QVariantMap& row, pfcore::MotionMatch& match) {
+    match.similarity=match.rankScore=match.appearanceSimilarity=match.sceneSimilarity=match.dtwDistance=0;
+    match.appearanceVerified=match.faceVerified=false;
+    match.unmirroredSimilarity=-1;
+    for (const auto key : {"similarity","rankScore","appearanceSimilarity","sceneSimilarity"}) row.insert(key,0.0);
+    for (const auto key : {"identityVerified","faceVerified"}) row.insert(key,false);
+}
 }
 
 void AnalysisController::pushReviewUndo(const QVariantList& ids, bool includeMatch) {
@@ -48,10 +55,13 @@ void AnalysisController::pushReviewUndo(const QVariantList& ids, bool includeMat
     for (const auto& value : ids) {
         const int id = value.toInt();
         if (id < 0 || id >= results_.size() || !used.insert(id).second) continue;
-        ReviewUndoRow row{id, results_[id].toMap(), {}, {}};
+        ReviewUndoRow row{id, results_[id].toMap(), {}, {}, {}, {}};
         if (includeMatch && id < static_cast<int>(matches_.size())) row.match = matches_[id];
+        if (includeMatch && id < static_cast<int>(resultPoseEvidence_.size())) row.evidence = resultPoseEvidence_[id];
         const auto preview = reviewPreviewDirectories_.find(id);
         if (preview != reviewPreviewDirectories_.end()) row.preview = preview->second;
+        const auto originalPreview=reviewOriginalDirectories_.find(id);
+        if(originalPreview!=reviewOriginalDirectories_.end()) row.originalPreview=originalPreview->second;
         entry.push_back(std::move(row));
     }
     if (entry.empty()) return;
@@ -71,8 +81,11 @@ QVariantList AnalysisController::undoResultEdit() {
         if (row.id < 0 || row.id >= results_.size()) continue;
         results_[row.id] = row.record;
         if (row.match && row.id < static_cast<int>(matches_.size())) matches_[row.id] = *row.match;
+        if (row.evidence && row.id < static_cast<int>(resultPoseEvidence_.size())) resultPoseEvidence_[row.id] = *row.evidence;
         if (row.preview) reviewPreviewDirectories_[row.id] = std::move(row.preview);
         else reviewPreviewDirectories_.erase(row.id);
+        if(row.originalPreview) reviewOriginalDirectories_[row.id]=std::move(row.originalPreview);
+        else reviewOriginalDirectories_.erase(row.id);
         restored.push_back(row.id);
     }
     ++resultCategoryRevision_; emit resultCategoriesChanged();
@@ -97,6 +110,129 @@ void AnalysisController::setResultReview(const QVariantList& ids, const QString&
     ++resultCategoryRevision_; emit resultCategoriesChanged();
 }
 
+bool AnalysisController::setResultGroup(const QVariantList& ids, const QString& group) {
+    if (busy_ || exportBusy_ || reviewBusy_ || group.size() > 80 || ids.isEmpty()) return false;
+    const auto name = group.trimmed();
+    for (const auto character : name) if (character.category() == QChar::Other_Control) return false;
+    QVariantList changed;
+    for (const auto& value : ids) {
+        bool ok = false; const int id = value.toInt(&ok);
+        if (!ok || id < 0 || id >= results_.size()) return false;
+        if (ok && id >= 0 && id < results_.size() && !changed.contains(id)
+            && results_[id].toMap().value("manualGroup").toString() != name) changed.append(id);
+    }
+    if (changed.isEmpty()) return true;
+    pushReviewUndo(changed);
+    for (const auto& value : changed) {
+        auto row = results_[value.toInt()].toMap(); row.insert("manualGroup",name); results_[value.toInt()] = row;
+    }
+    ++resultCategoryRevision_; emit resultCategoriesChanged(); return true;
+}
+
+bool AnalysisController::removeResultSide(int id, const QString& side) {
+    if (busy_ || exportBusy_ || reviewBusy_ || id < 0 || id >= results_.size()
+        || id >= static_cast<int>(matches_.size()) || (side != "left" && side != "right")) return false;
+    auto row = results_[id].toMap();
+    const auto other = side == "left" ? QString("right") : QString("left");
+    if (row.value(side + "Removed").toBool() || row.value(other + "Removed").toBool()) return false;
+    pushReviewUndo({id},true);
+    row.insert(side + "Removed",true); row.insert("manualPair",true); row.insert("reviewed",false);
+    auto& match = matches_[id];
+    (side == "left" ? match.leftEnabled : match.rightEnabled) = false;
+    clearPairVerification(row,match);
+    for (const auto key : {"similarity", "rankScore", "appearanceSimilarity", "sceneSimilarity"}) row.insert(key,0.0);
+    for (const auto key : {"identityVerified", "faceVerified"}) row.insert(key,false);
+    if (id < static_cast<int>(resultPoseEvidence_.size())) {
+        auto effective = match;
+        const auto& evidence = resultPoseEvidence_[id][other == "left" ? 0 : 1];
+        effective.leftStartSeconds = effective.rightStartSeconds = row.value(other + "ClipStart").toDouble();
+        effective.leftEndSeconds = effective.rightEndSeconds = row.value(other + "ClipEnd").toDouble();
+        classifyResultRange(row,effective,{evidence,evidence});
+    }
+    match.durationSeconds = row.value(other + "ClipEnd").toDouble()-row.value(other + "ClipStart").toDouble();
+    results_[id] = row; ++resultCategoryRevision_; emit resultCategoriesChanged(); return true;
+}
+
+bool AnalysisController::combineSingleResults(int targetId, int donorId) {
+    if (targetId < 0 || donorId < 0 || targetId >= results_.size() || donorId >= results_.size()) return false;
+    const auto target = results_[targetId].toMap(), donor = results_[donorId].toMap();
+    if (target.value("leftRemoved").toBool() == target.value("rightRemoved").toBool()
+        || donor.value("leftRemoved").toBool() == donor.value("rightRemoved").toBool()) return false;
+    return replaceResultSide(targetId,target.value("leftRemoved").toBool()?"left":"right",
+        donorId,donor.value("leftRemoved").toBool()?"right":"left",true);
+}
+
+bool AnalysisController::replaceResultSide(int targetId, const QString& targetSide, int donorId, const QString& donorSide, bool consumeDonor) {
+    if (busy_ || exportBusy_ || reviewBusy_ || targetId == donorId
+        || targetId < 0 || donorId < 0 || targetId >= results_.size() || donorId >= results_.size()
+        || targetId >= static_cast<int>(matches_.size()) || donorId >= static_cast<int>(matches_.size())
+        || (targetSide != "left" && targetSide != "right") || (donorSide != "left" && donorSide != "right")) return false;
+    auto row = results_[targetId].toMap();
+    const auto donor = results_[donorId].toMap();
+    if (row.value("hidden").toBool() || donor.value("hidden").toBool() || donor.value(donorSide + "Removed").toBool()) return false;
+    const auto other = targetSide == "left" ? QString("right") : QString("left");
+    const double start = donor.value(donorSide + "ClipStart").toDouble();
+    const double end = donor.value(donorSide + "ClipEnd").toDouble();
+    if (donor.value(donorSide + "Source").toString().isEmpty() || !std::isfinite(start) || !std::isfinite(end) || end <= start) return false;
+    // Reject replacing a side with the very same interval as its partner.
+    if (donor.value(donorSide + "Source") == row.value(other + "Source")
+        && std::abs(start - row.value(other + "ClipStart").toDouble()) < 1e-6
+        && std::abs(end - row.value(other + "ClipEnd").toDouble()) < 1e-6) return false;
+    if (consumeDonor && (row.value(targetSide + "Removed").toBool() == false
+        || !donor.value((donorSide == "left" ? QString("right") : QString("left")) + "Removed").toBool())) return false;
+    const auto ownedPreviews=std::make_shared<QTemporaryDir>(QDir::tempPath()+"/ParallelFinder-compose-XXXXXX");
+    if(!ownedPreviews->isValid()) return false;
+    for(const auto& side:{QString("left"),QString("right")}) {
+        const auto path=side==targetSide ? donor.value(donorSide+"Preview").toString() : row.value(side+"Preview").toString();
+        if(side!=targetSide && row.value(side+"Removed").toBool()) continue;
+        if(!QFile::copy(localPath(path),ownedPreviews->filePath(side+".png"))) return false;
+    }
+    pushReviewUndo(consumeDonor ? QVariantList{targetId,donorId} : QVariantList{targetId}, true);
+    for (const auto suffix : {"Source", "Preview", "TrackId", "Start", "End", "ClipStart", "ClipEnd", "SceneStart", "SceneEnd"})
+        row.insert(targetSide + suffix, donor.value(donorSide + suffix));
+    // Freeze both currently visible ranges: exporting a manual composition
+    // must not apply the matcher's original automatic edge expansion again.
+    for (const auto& side : {QString("left"), QString("right")}) {
+        row.insert(side + "Start", row.value(side + "ClipStart"));
+        row.insert(side + "End", row.value(side + "ClipEnd"));
+        row.insert(side + "SceneStart", row.value(side + "ClipStart"));
+        row.insert(side + "SceneEnd", row.value(side + "ClipEnd"));
+    }
+    auto& match = matches_[targetId];
+    row.insert(targetSide + "Removed",false);
+    for(const auto& side:{QString("left"),QString("right")})
+        row.insert(side+"Preview",row.value(side+"Removed").toBool() ? QString{} : QUrl::fromLocalFile(ownedPreviews->filePath(side+".png")).toString());
+    reviewPreviewDirectories_[targetId]=ownedPreviews;
+    reviewOriginalDirectories_.erase(targetId);
+    match.leftEnabled = !row.value("leftRemoved").toBool();
+    match.rightEnabled = !row.value("rightRemoved").toBool();
+    match.leftSourceId = row.value("leftSource").toString().toStdString();
+    match.rightSourceId = row.value("rightSource").toString().toStdString();
+    match.leftStartSeconds = match.leftSceneStartSeconds = row.value("leftClipStart").toDouble();
+    match.leftEndSeconds = match.leftSceneEndSeconds = row.value("leftClipEnd").toDouble();
+    match.rightStartSeconds = match.rightSceneStartSeconds = row.value("rightClipStart").toDouble();
+    match.rightEndSeconds = match.rightSceneEndSeconds = row.value("rightClipEnd").toDouble();
+    match.durationSeconds = std::min(match.leftEndSeconds-match.leftStartSeconds, match.rightEndSeconds-match.rightStartSeconds);
+    clearPairVerification(row,match);
+    match.appearanceVerified = match.faceVerified = match.headOnlyComparison = false;
+    row.insert("manualPair", true); row.insert("manualAdjusted", true); row.insert("reviewed", false);
+    for (const auto key : {"similarity", "rankScore", "appearanceSimilarity", "sceneSimilarity"}) row.insert(key, 0.0);
+    for (const auto key : {"identityVerified", "faceVerified", "headOnlyComparison"}) row.insert(key, false);
+    row.remove("originalRange"); row.remove("originalRecord"); row.remove("originalMatchDuration");
+    row.insert("duration", std::max(match.leftEndSeconds, match.rightEndSeconds));
+    row.insert("markers", QVariantList{match.leftStartSeconds,match.leftEndSeconds,match.rightStartSeconds,match.rightEndSeconds});
+    if (targetId < static_cast<int>(resultPoseEvidence_.size()) && donorId < static_cast<int>(resultPoseEvidence_.size())) {
+        resultPoseEvidence_[targetId][targetSide == "left" ? 0 : 1] = resultPoseEvidence_[donorId][donorSide == "left" ? 0 : 1];
+        classifyResultRange(row, match, resultPoseEvidence_[targetId]);
+    }
+    results_[targetId] = row;
+    if (consumeDonor) { auto consumed = donor; consumed.insert("hidden",true); results_[donorId] = consumed; }
+    ++resultCategoryRevision_; emit resultCategoriesChanged();
+    // Regenerate owned previews so later edits to the donor cannot invalidate
+    // a temporary PNG still used by this composition.
+    return startReviewPreview(targetId, row, true);
+}
+
 bool AnalysisController::setResultRange(int id, double ls, double le, double rs, double re) {
     if (busy_ || exportBusy_ || reviewBusy_ || id < 0 || id >= results_.size() || id >= static_cast<int>(matches_.size())) return false;
     auto row = results_[id].toMap();
@@ -108,6 +244,7 @@ bool AnalysisController::setResultRange(int id, double ls, double le, double rs,
         || ls < 0 || rs < 0 || le <= ls || re <= rs || le > limit("left") || re > limit("right")) return false;
     pushReviewUndo({id}, true);
     if (!row.contains("originalRange")) {
+        if(auto existing=reviewPreviewDirectories_.find(id);existing!=reviewPreviewDirectories_.end()) reviewOriginalDirectories_[id]=existing->second;
         row.insert("originalRecord", row);
         row.insert("originalMatchDuration", matches_[id].durationSeconds);
         row.insert("originalRange", QVariantList{row.value("leftClipStart"), row.value("leftClipEnd"), row.value("rightClipStart"), row.value("rightClipEnd")});
@@ -148,6 +285,7 @@ bool AnalysisController::startReviewPreview(int id, const QVariantMap& row, bool
     const auto actionContext=videoActionContext_;
     if(publish && !row.value("classificationManual").toBool() && actionContext
         && id<static_cast<int>(resultPoseEvidence_.size()) && id<static_cast<int>(matches_.size())
+        && !row.value("leftRemoved").toBool() && !row.value("rightRemoved").toBool()
         && !matches_[id].headOnlyComparison && row.value("matchType").toString()=="motion") {
         actionEvidence=resultPoseEvidence_[id];actionMatch=matches_[id];
     }
@@ -157,6 +295,7 @@ bool AnalysisController::startReviewPreview(int id, const QVariantMap& row, bool
         try {
             if (!previewDirectory->isValid()) throw std::runtime_error("Could not create preview folder");
             for (const QString& side : {QString("left"), QString("right")}) {
+                if (row.value(side + "Removed").toBool()) { previews.push_back({}); continue; }
                 if (stop.stop_requested()) break;
                 pfcore::VideoDecoder decoder; pfcore::VideoDecodeOptions options; options.threads = 2;
                 decoder.open(row.value(side + "Source").toString().toStdString(), options);
@@ -184,6 +323,14 @@ bool AnalysisController::startReviewPreview(int id, const QVariantMap& row, bool
         if (!guard) return;
         QMetaObject::invokeMethod(guard, [guard, row, id, previews, error, previewDirectory, publish,actionsUpdated,actionEvidence] {
             if (!guard) return;
+            if(previews.size()!=2) {
+                guard->reviewBusy_=false; emit guard->reviewBusyChanged();
+                if(publish) guard->undoResultEdit();
+                const auto message=error.isEmpty()?QStringLiteral("Could not decode frame"):error;
+                guard->setStatus(message);
+                emit guard->reviewPreviewFailed(id,row.value("leftStart").toDouble(),row.value("rightStart").toDouble(),message);
+                return;
+            }
             if (publish && previews.size() == 2 && id < guard->results_.size()) {
                 auto current = guard->results_[id].toMap();
                 bool sameRange=true;
@@ -221,7 +368,7 @@ bool AnalysisController::resetResultRange(int id) {
     auto original = current.value("originalRecord").toMap();
     if (original.isEmpty()) return false;
     pushReviewUndo({id}, true);
-    for (const QString& key : {QString("favorite"), QString("hidden"), QString("reviewed")})
+    for (const QString& key : {QString("favorite"), QString("hidden"), QString("reviewed"), QString("manualGroup"), QString("manualPair"), QString("leftRemoved"), QString("rightRemoved")})
         if (current.contains(key)) original.insert(key, current.value(key));
     if(current.value("classificationManual").toBool()) {
         original.insert("classification",current.value("classification"));
@@ -233,10 +380,19 @@ bool AnalysisController::resetResultRange(int id) {
     match.leftSceneStartSeconds = original.value("leftSceneStart").toDouble(); match.leftSceneEndSeconds = original.value("leftSceneEnd").toDouble();
     match.rightSceneStartSeconds = original.value("rightSceneStart").toDouble(); match.rightSceneEndSeconds = original.value("rightSceneEnd").toDouble();
     match.durationSeconds = current.value("originalMatchDuration").toDouble();
+    if (current.value("manualPair").toBool()) {
+        clearPairVerification(original,match);
+        original.insert("headOnlyComparison",current.value("headOnlyComparison"));
+        match.headOnlyComparison=current.value("headOnlyComparison").toBool();
+        if (match.leftEnabled != match.rightEnabled) match.durationSeconds = match.leftEnabled
+            ? match.leftEndSeconds-match.leftStartSeconds : match.rightEndSeconds-match.rightStartSeconds;
+    }
     if(id < static_cast<int>(resultPoseEvidence_.size()))
         classifyResultRange(original,match,resultPoseEvidence_[id]);
     results_[id] = original; ++resultCategoryRevision_; emit resultCategoriesChanged();
-    reviewPreviewDirectories_.erase(id);
+    if(auto preview=reviewOriginalDirectories_.find(id);preview!=reviewOriginalDirectories_.end()) {
+        reviewPreviewDirectories_[id]=preview->second; reviewOriginalDirectories_.erase(preview);
+    } else reviewPreviewDirectories_.erase(id);
     return true;
 }
 
@@ -274,12 +430,15 @@ bool AnalysisController::exportFindings(const QString& output, const QVariantLis
                     painter.setPen(QColor("#df824d")); painter.drawLine(margin, top, width - margin, top);
                     painter.setFont(QFont("Segoe UI", 13, QFont::DemiBold)); painter.setPen(QColor("#f5f1ec"));
                     painter.drawText(QRect(margin, top + 12, width - 2 * margin, 30),
-                        QString(ru ? "Пара %1  ·  Сходство %2%" : "Pair %1  ·  Similarity %2%")
-                            .arg(row.value("id").toInt() + 1).arg(qRound(row.value("similarity").toDouble() * 100))
+                        (row.value("manualPair").toBool()
+                            ? QString(ru ? "Результат %1 · Собран вручную" : "Result %1 · Manually composed").arg(row.value("id").toInt()+1)
+                            : QString(ru ? "Пара %1  ·  Сходство %2%" : "Pair %1  ·  Similarity %2%")
+                                .arg(row.value("id").toInt() + 1).arg(qRound(row.value("similarity").toDouble() * 100)))
                             + (row.value("favorite").toBool() ? QStringLiteral("  ★") : QString{})
                             + "  ·  " + row.value("classification", "unknown").toString());
                     for (int sideIndex = 0; sideIndex < 2; ++sideIndex) {
                         const QString side = sideIndex == 0 ? "left" : "right", source = row.value(side + "Source").toString();
+                        if (row.value(side + "Removed").toBool()) continue;
                         pfcore::VideoDecoder decoder; pfcore::VideoDecodeOptions options; options.threads = 2;
                         decoder.open(source.toStdString(), options);
                         const double start = row.value(side + "ClipStart", row.value(side + "Start")).toDouble();

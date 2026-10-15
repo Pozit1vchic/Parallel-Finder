@@ -421,7 +421,9 @@ bool copiedScene(const MotionWindow& a,const MotionWindow& b,bool cameraOnly=fal
     };
     const auto countA=a.sceneSequence.size()/432,countB=b.sceneSequence.size()/432;
     for (const bool mirror:{false,true}) for (const int shift:{0,-1,1,-2,2,-3,3}) {
-      if(shift && !cameraOnly)continue;
+      // One rigid column of cross-file reframing is still a strict pixel
+      // proof. Never borrow the wider returning-portrait thresholds here.
+      if(shift && !cameraOnly && (sameSource || std::abs(shift)>1))continue;
       if (cancelled && cancelled()) return false;
       shiftedA=&cachedStatistics(a.sceneSequence,shift,mirror,false);
       shiftedB=&cachedStatistics(b.sceneSequence,shift,mirror,true);
@@ -453,7 +455,7 @@ bool copiedScene(const MotionWindow& a,const MotionWindow& b,bool cameraOnly=fal
 std::vector<std::uint64_t> copiedFootageCandidates(const std::vector<MotionWindow>& windows,
     const std::vector<std::size_t>& representatives,const MotionSearchControl& control)
 {
-    struct Signature {std::size_t shot;std::array<double,27> features{};};
+    struct Signature {std::size_t shot;std::array<double,27> features{};bool overlap=false;};
     std::vector<Signature> signatures;
     for(std::size_t shot=0;shot<representatives.size();++shot) {
         if(control.cancelled && control.cancelled())return {};
@@ -474,6 +476,24 @@ std::vector<std::uint64_t> copiedFootageCandidates(const std::vector<MotionWindo
             for(int k=0;k<3;++k)std::copy(frames[f+k].begin(),frames[f+k].end(),sig.features.begin()+k*9);
             if(std::all_of(sig.features.begin(),sig.features.end(),[](double v){return std::isfinite(v);}))
                 signatures.push_back(sig);
+        }
+        // A +/-1 column alignment compares the left or right 15-column
+        // overlap. Balanced vertical projections cancel channel bias even
+        // on this odd-width crop; their L1 bound uses the actual 405 values.
+        // Mirror/translation cannot change these vertical signs. The strict
+        // verifier still requires ONE transform across all three samples.
+        for(int crop:{0,1}) {
+            std::vector<std::array<double,9>> overlaps(frames.size());
+            for(std::size_t f=0;f<overlaps.size();++f)
+                for(int row=0;row<9;++row)for(int x=crop;x<crop+15;++x)for(int c=0;c<3;++c)
+                    overlaps[f][3+c]+=(row<4?1:row>4?-1:0)
+                        *w.sceneSequence[f*432+(row*16+x)*3+c]/405.0;
+            for(std::size_t f=0;f+2<overlaps.size();++f) {
+                Signature sig;sig.shot=shot;sig.overlap=true;
+                for(int k=0;k<3;++k)std::copy(overlaps[f+k].begin(),overlaps[f+k].end(),sig.features.begin()+k*9);
+                if(std::all_of(sig.features.begin(),sig.features.end(),[](double v){return std::isfinite(v);}))
+                    signatures.push_back(sig);
+            }
         }
     }
     std::array<std::vector<std::size_t>,27> orders;
@@ -507,7 +527,8 @@ std::vector<std::uint64_t> copiedFootageCandidates(const std::vector<MotionWindo
             for(std::size_t entry=begin;entry<end;++entry) {
                 if(entry%256==0 && control.cancelled && control.cancelled())return {};
                 const auto& b=signatures[orders[best][entry]];
-                if(a.shot>=b.shot)continue;
+                if(a.shot>=b.shot || a.overlap!=b.overlap)continue;
+                if(a.overlap && windows[representatives[a.shot]].sourceId==windows[representatives[b.shot]].sourceId)continue;
                 const auto key=(static_cast<std::uint64_t>(a.shot)<<32U)|b.shot;
                 if(pairs.contains(key))continue;
                 bool possible=true;

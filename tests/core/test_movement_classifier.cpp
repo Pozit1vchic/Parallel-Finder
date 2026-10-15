@@ -168,6 +168,52 @@ pfcore::MotionWindow actionFixture(const std::function<void(pfcore::PoseFrame&,d
 pfcore::GestureClass group(const pfcore::MotionWindow& w) {
     return pfcore::MovementClassifier().classifyForGrouping(w,0,3).gesture;
 }
+double exclusiveFixtureEnd(const pfcore::MotionWindow& window,double inclusiveEnd)
+{
+    if(window.frames.size()<2 || std::abs(inclusiveEnd-window.frames.back().timestampSeconds)>1e-5)
+        return inclusiveEnd;
+    // These recordings store pose observations sampled at 6 FPS, with the
+    // final included PTS as `end`. Use the next observation boundary at the
+    // recorded cadence. No new pose is interpolated, and known shot bounds
+    // remain authoritative if a future fixture provides them.
+    const double period=window.frames.back().timestampSeconds
+        -window.frames[window.frames.size()-2].timestampSeconds;
+    const double next=inclusiveEnd+period;
+    return window.sceneEndSeconds>=0 ? std::min(next,window.sceneEndSeconds):next;
+}
+TEST(MovementGrouping, IsolatedBoundaryPoseDoesNotScatterHeldScenesIntoMotionGroups)
+{
+    using G=pfcore::GestureClass;
+    const pfcore::MovementClassifier classifier;
+    for(const int index:{0,29}) {
+        auto window=actionFixture();
+        window.frames[index].keypoints[0].x+=.7;
+        window.frames[index].keypoints[9].y-=2.;
+        EXPECT_EQ(classifier.classifyForGrouping(window,0,3).gesture,G::Static);
+        EXPECT_EQ(classifier.classifyForGrouping(window,0,3,true).gesture,G::Static);
+        // Missing lower-body observations still cannot establish full-body
+        // stillness, even after removal of a single facial detection outlier.
+        for(auto& frame:window.frames)
+            for(int joint=7;joint<17;++joint)frame.keypoints[joint].confidence=.01;
+        EXPECT_EQ(classifier.classifyForGrouping(window,0,3).gesture,G::Unknown);
+    }
+}
+TEST(MovementGrouping, ExclusiveClipEndCannotSupplyPoseOrMotionEvidence)
+{
+    const pfcore::MovementClassifier classifier;
+    // Exactly three observed frames are sufficient for a stable held pose;
+    // the exported half-open range below contains only two of them.
+    auto window=actionFixture();
+    window.frames.resize(3);
+    for(auto& frame:window.frames)frame.keypoints[9].confidence=frame.keypoints[10].confidence=.01;
+    EXPECT_EQ(classifier.classifyPoseForGrouping(window,0,.2,false),"body_pose");
+    EXPECT_EQ(classifier.classifyPoseForGrouping(window,0,.21,false),"legs_straight");
+    window=actionFixture();window.frames.resize(5);
+    // A head/body action requires five measured temporal samples. The one
+    // at the exclusive end cannot establish coverage missing from the clip.
+    EXPECT_EQ(classifier.classifyForGrouping(window,0,.4).gesture,pfcore::GestureClass::Unknown);
+    EXPECT_EQ(classifier.classifyForGrouping(window,0,.41).gesture,pfcore::GestureClass::Static);
+}
 TEST(MovementGrouping, SeparatesSingleArmRaisesLowersAndOppositeArmActions)
 {
     const auto raise=actionFixture([](auto& f,double t){f.keypoints[9].y-=3*t;});
@@ -281,7 +327,11 @@ TEST(MovementGrouping, RealWalkingTowardAwayAndIntoShopSurvivesHiddenFace)
                 if(transform==3 && joint>=11)point.confidence=.1;
             }
         }
-        const auto result=classifier.classifyForGrouping(window,window.frames.front().timestampSeconds,window.frames.back().timestampSeconds,false);
+        // The recording stores observed PTS, including its last labelled
+        // frame. Convert that inclusive observation range to the classifier's
+        // half-open clip range without discarding a reviewed gait phase.
+        const auto result=classifier.classifyForGrouping(window,window.frames.front().timestampSeconds,
+            exclusiveFixtureEnd(window,window.frames.back().timestampSeconds),false);
         if(transform==3) {
             EXPECT_NE(result.gesture,pfcore::GestureClass::Step);
             EXPECT_EQ(std::find(result.actions.begin(),result.actions.end(),pfcore::GestureClass::Step),result.actions.end());
@@ -396,6 +446,7 @@ TEST(MovementGrouping, RecordedCroppedHeadNeverBorrowsInvisibleHandEvidence)
 TEST(MovementGrouping, GroupsObservedPosesWithoutInventingHiddenBodyPosture)
 {
     const pfcore::MovementClassifier c;
+    EXPECT_EQ(c.classifyPoseForGrouping(actionFixture(),0,3,false),"legs_straight");
     EXPECT_EQ(c.classifyPoseForGrouping(actionFixture(),0,3,true),"head_front");
     EXPECT_EQ(c.classifyPoseForGrouping(actionFixture([](auto& f,double){f.keypoints[0].x=.7;}),0,3,true),"head_turned");
     EXPECT_EQ(c.classifyPoseForGrouping(actionFixture([](auto& f,double){f.keypoints[9].y=-2;}),0,3,false),"arms_raised");
@@ -414,6 +465,22 @@ TEST(MovementGrouping, GroupsObservedPosesWithoutInventingHiddenBodyPosture)
     EXPECT_EQ(c.classifyPoseForGrouping(cropped,0,3,false),"body_pose");
     auto inconsistent=actionFixture([](auto& f,double t){if(t<.5)f.keypoints[9].y=-2;});
     EXPECT_EQ(c.classifyPoseForGrouping(inconsistent,0,3,false),"body_pose");
+}
+TEST(MovementGrouping, RestingStraightArmsDoNotMasqueradeAsReaching)
+{
+    const pfcore::MovementClassifier classifier;
+    for(const bool mirrored:{false,true}) {
+        auto resting=actionFixture([&](auto& frame,double) {
+            if(mirrored)for(auto& point:frame.keypoints)point.x=-point.x;
+        });
+        EXPECT_EQ(classifier.classifyPoseForGrouping(resting,0,3,false),"legs_straight");
+        // A waist-up crop exposes resting arms but provides no evidence for
+        // standing versus sitting. Keep that uncertainty rather than making
+        // the resting straight elbow an editorial reaching category.
+        for(auto& frame:resting.frames)
+            for(int joint=11;joint<17;++joint)frame.keypoints[joint].confidence=.01;
+        EXPECT_EQ(classifier.classifyPoseForGrouping(resting,0,3,false),"body_pose");
+    }
 }
 
 TEST(MovementGrouping, ProfilePoseUsesAgreedOcclusionWithoutGuessingFromMissingEar)
@@ -479,7 +546,11 @@ TEST(MovementGrouping, ReplaysManuallyReviewedElliotAndSoldierScenepacks)
             window.frames.push_back(std::move(f));
         }
         ASSERT_GE(window.frames.size(),5U);
-        const auto start=row["start"].toDouble(),end=row["end"].toDouble();
+        const auto start=row["start"].toDouble();
+        // Historical fixture endpoints name the last included sampled frame;
+        // they are not the exclusive video boundary used by export/grouping.
+        // Keep every labelled observation and every original expected class.
+        const auto end=exclusiveFixtureEnd(window,row["end"].toDouble());
         const bool head=row["headOnly"].toBool();
         for(int transform=0;transform<3;++transform) {
             auto transformed=window;

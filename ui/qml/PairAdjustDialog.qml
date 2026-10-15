@@ -51,6 +51,12 @@ ReviewDialog {
             if (!root.visible || !root.record || Number(root.record.id) !== id || Math.abs(leftStart - root.leftPreviewAt) > 0.000001 || Math.abs(rightStart - root.rightPreviewAt) > 0.000001) return
             root.previewedLeft = leftStart; root.previewedRight = rightStart
             root.previewLeft = left; root.previewRight = right
+            root.errorText = ""
+        }
+        function onReviewPreviewFailed(id, leftStart, rightStart, message) {
+            if (!root.visible || !root.record || Number(root.record.id) !== id || Math.abs(leftStart-root.leftPreviewAt)>0.000001 || Math.abs(rightStart-root.rightPreviewAt)>0.000001) return
+            root.previewedLeft=leftStart; root.previewedRight=rightStart
+            root.errorText=L10n.status(message)
         }
     }
     function loadRange() {

@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <iostream>
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -99,7 +100,8 @@ TEST(VideoDecoder, RealTenBitThreadedConversionPreservesSerialPixelsAndPts)
         if(nvidia && qEnvironmentVariable("PF_TEST_REQUIRE_NVDEC")=="1") {
             ASSERT_EQ(serial.diagnostics().backend,"nvdec");
             ASSERT_EQ(parallel.diagnostics().backend,"nvdec");
-            if(threads==0 && parallel.info().width>=3840 && parallel.info().height>=2160) {
+            if(threads==0 && std::uint64_t(parallel.info().width)*std::uint64_t(parallel.info().height)>=3840ull*1440
+                && std::thread::hardware_concurrency()>=8) {
                 EXPECT_EQ(parallel.diagnostics().conversionThreads,4);
             }
         }
@@ -112,6 +114,43 @@ TEST(VideoDecoder, RealTenBitThreadedConversionPreservesSerialPixelsAndPts)
             }
         }
     }
+}
+
+TEST(VideoDecoder, RealCinematicFourKAutoConversionKeepsPixelsAndReportsTimings)
+{
+    const auto path=qEnvironmentVariable("PF_TEST_10BIT_SOURCE");
+    if(path.isEmpty())GTEST_SKIP()<<"Opt-in real cinematic 4K source";
+    pfcore::VideoDecodeOptions options;options.threads=2;options.preferNvidia=true;
+    options.maxWidth=1280;options.maxHeight=720;
+    pfcore::VideoDecoder serial,parallel;serial.open(path.toStdString(),options);
+    options.autoNvidiaConversion=true;parallel.open(path.toStdString(),options);
+    if(serial.diagnostics().backend!="nvdec" || parallel.diagnostics().backend!="nvdec") {
+        if(qEnvironmentVariable("PF_TEST_REQUIRE_NVDEC")=="1")FAIL()<<parallel.diagnostics().fallbackReason;
+        GTEST_SKIP()<<"NVDEC unavailable";
+    }
+    const auto pixels=std::uint64_t(parallel.info().width)*std::uint64_t(parallel.info().height);
+    const auto expectedThreads=pixels>=3840ull*1440 && std::thread::hardware_concurrency()>=8 ? 4 : 1;
+    ASSERT_EQ(parallel.diagnostics().conversionThreads,expectedThreads);
+    ASSERT_EQ(serial.diagnostics().conversionThreads,1);
+    const auto target=std::min(20.0,serial.info().durationSeconds/4);
+    serial.seek(target);parallel.seek(target);
+    const auto beforeSerial=serial.diagnostics(),beforeParallel=parallel.diagnostics();
+    int frames=0;
+    for(;frames<120;++frames) {
+        pfcore::DecodedFrame a,b;
+        const bool haveSerial=serial.readNext(a),haveParallel=parallel.readNext(b);
+        ASSERT_EQ(haveSerial,haveParallel);
+        if(!haveSerial)break;
+        ASSERT_DOUBLE_EQ(a.timestampSeconds,b.timestampSeconds)<<frames;
+        ASSERT_EQ(a.width,b.width);ASSERT_EQ(a.height,b.height);
+        ASSERT_EQ(a.rgba,b.rgba)<<"frame="<<frames;
+    }
+    ASSERT_GT(frames,0);
+    const auto afterSerial=serial.diagnostics(),afterParallel=parallel.diagnostics();
+    std::cout<<"cinematic4k frames="<<frames<<" source="<<parallel.info().width<<"x"<<parallel.info().height
+        <<" serial_conversion_ms="<<afterSerial.conversionMilliseconds-beforeSerial.conversionMilliseconds
+        <<" auto_conversion_ms="<<afterParallel.conversionMilliseconds-beforeParallel.conversionMilliseconds
+        <<" auto_threads="<<afterParallel.conversionThreads<<'\n';
 }
 
 TEST(VideoDecoder, OpensFixtureReadsFramesAndSeeks)

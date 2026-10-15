@@ -81,6 +81,10 @@ ApplicationWindow {
         findingsDialog.statusText = ""
         findingsDialog.open()
     }
+    function openManualSort() {
+        manualSort.rows = resultsRail.visibleResults.slice()
+        manualSort.open()
+    }
     function runReviewAction(action) {
         const row = selectedRecord, id = row ? Number(row.id) : -1
         if (action === "undo") {
@@ -100,7 +104,7 @@ ApplicationWindow {
         else if (action === "clear") resultsRail.clearSelection()
         else if (action === "play" && row) motionCenter.togglePair()
         else if (action === "adjust" && row) { adjustDialog.record = row; adjustDialog.open() }
-        else if (action === "sheet") openFindings()
+        else if (action === "sheet") openManualSort()
         else if (action === "export" && resultsRail.selectedCount > 0) {
             exportDialog.selectionOrder = resultsRail.visibleResults.map(function(item) { return Number(item.id) })
             exportDialog.selectedRows = resultsRail.exportRows(); exportDialog.open()
@@ -120,8 +124,10 @@ ApplicationWindow {
     }
     ExportDialog { id: exportDialog; rootWindow: root; selectedRows: root.selectedExportRows }
     PairAdjustDialog { id: adjustDialog; rootWindow: root }
+    PairComposeDialog { id: composeDialog; rootWindow: root }
+    ManualSortDialog { id: manualSort; rootWindow: root; onFindingsRequested: root.openFindings() }
     FindingsDialog { id: findingsDialog; rootWindow: root }
-    UpdateDialog { id: updateDialog; rootWindow: root; presentationBlocked: settingsDialog.visible || exportDialog.visible || adjustDialog.visible || findingsDialog.visible }
+    UpdateDialog { id: updateDialog; rootWindow: root; presentationBlocked: manualSort.visible || composeDialog.visible || settingsDialog.visible || exportDialog.visible || adjustDialog.visible || findingsDialog.visible }
 
     Connections {
         target: Analysis
@@ -130,11 +136,11 @@ ApplicationWindow {
             if (!Analysis.busy && root.selectedRecord === null && Analysis.results.length > 0)
                 root.syncResultsSelection()
         }
-        function onResultCategoriesChanged() { root.selectResult(root.selectedResultIndex); Qt.callLater(root.ensureVisibleSelection) }
+        function onResultCategoriesChanged() { root.selectResult(root.selectedResultIndex); if (manualSort.visible) manualSort.rows = resultsRail.visibleResults.slice(); Qt.callLater(root.ensureVisibleSelection) }
     }
 
     function resultKeysEnabled() {
-        if (settingsDialog.visible || exportDialog.visible || updateDialog.visible || fileDialog.visible
+        if (manualSort.visible || composeDialog.visible || settingsDialog.visible || exportDialog.visible || updateDialog.visible || fileDialog.visible
                 || folderDialog.visible || adjustDialog.visible || findingsDialog.visible
                 || Analysis.busy || Analysis.exportBusy || Analysis.reviewBusy) return false
         for (let item = root.activeFocusItem; item; item = item.parent) {
@@ -189,6 +195,8 @@ ApplicationWindow {
                     Layout.fillHeight: true
                     sourceFiles: root.sourceFiles; selectedRecord: root.selectedRecord
                     onAdjustRequested: root.runReviewAction("adjust")
+                    onComposeRequested: { composeDialog.record = root.selectedRecord; composeDialog.open() }
+                    onRemoveSideRequested: function(side) { if (root.selectedRecord) Analysis.removeResultSide(root.selectedRecord.id, side) }
                     selectedSource: sourcesRail.selectedSourceIndex >= 0 ? String(root.sourceFiles[sourcesRail.selectedSourceIndex] || "") : ""
                     onAddRequested: fileDialog.open(); onAnalyzeRequested: Analysis.analyzeFiles(root.sourceFiles)
                 }
@@ -205,7 +213,7 @@ ApplicationWindow {
                     onPairClassRequested: function(index, classification) { Analysis.setResultClassification(root.actionIds(index), classification) }
                     onPairReviewRequested: function(index, field, value) { root.reviewPairs(index, field, value) }
                     onUndoRequested: root.runReviewAction("undo")
-                    onFindingsRequested: root.openFindings()
+                    onFindingsRequested: root.openManualSort()
                     onExportRequested: function(rows) { exportDialog.selectionOrder = resultsRail.visibleResults.map(function(item) { return Number(item.id) }); exportDialog.selectedRows = rows; exportDialog.open() }
                 }
                 }
@@ -224,6 +232,8 @@ ApplicationWindow {
             || (exportDialog.visible && !exportDialog.backdropClosing)
             || (updateDialog.visible && !updateDialog.backdropClosing)
             || (adjustDialog.visible && !adjustDialog.backdropClosing)
+            || (composeDialog.visible && !composeDialog.backdropClosing)
+            || (manualSort.visible && !manualSort.backdropClosing)
             || (findingsDialog.visible && !findingsDialog.backdropClosing)
         property bool warming: !root.startupPresented
         property bool prepared: true
