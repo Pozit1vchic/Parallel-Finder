@@ -111,26 +111,37 @@ try {
         $env:PF_UI_SMOKE_WAIT_BACKEND = '1'
         $smokeLogPath = Join-Path (Split-Path $stage) 'ui-smoke.log'
         $smokeErrorPath = Join-Path (Split-Path $stage) 'ui-smoke-errors.log'
-        $probe = Start-Process -FilePath "$stage/ParallelFinder.exe" -ArgumentList '--pf-ui-smoke' -WorkingDirectory $out -WindowStyle Hidden -PassThru -RedirectStandardOutput $smokeLogPath -RedirectStandardError $smokeErrorPath
+        $probeStart = [Diagnostics.ProcessStartInfo]::new()
+        $probeStart.FileName = Join-Path $stage 'ParallelFinder.exe'
+        $probeStart.Arguments = '--pf-ui-smoke'
+        $probeStart.WorkingDirectory = $out
+        $probeStart.UseShellExecute = $false
+        $probeStart.CreateNoWindow = $true
+        $probeStart.RedirectStandardOutput = $true
+        $probeStart.RedirectStandardError = $true
+        $probe = [Diagnostics.Process]::new()
+        $probe.StartInfo = $probeStart
+        try {
+        [void]$probe.Start()
+        $probeStdout = $probe.StandardOutput.ReadToEndAsync()
+        $probeStderr = $probe.StandardError.ReadToEndAsync()
         if (!$probe.WaitForExit(30000)) {
             $probe.Kill()
             $probe.WaitForExit()
             throw 'Packaged UI startup timed out'
         }
-        # Windows PowerShell/.NET can leave ExitCode unpopulated after only the
-        # timed WaitForExit(Int32) call, especially with redirected streams.
-        # Complete the wait and refresh the Process object before reading it.
         $probe.WaitForExit()
-        $probe.Refresh()
         $probeExitCode = $probe.ExitCode
-        if ($null -eq $probeExitCode) {
-            $details = if (Test-Path -LiteralPath $smokeErrorPath) { Get-Content -LiteralPath $smokeErrorPath -Raw } else { '' }
-            throw "Packaged UI startup finished without an exit code. $details"
-        }
+        $probeStdout.GetAwaiter().GetResult() | Set-Content -LiteralPath $smokeLogPath -Encoding utf8
+        $probeStderr.GetAwaiter().GetResult() | Set-Content -LiteralPath $smokeErrorPath -Encoding utf8
+        $details = "$(Get-Content -LiteralPath $smokeLogPath -Raw)`n$(Get-Content -LiteralPath $smokeErrorPath -Raw)"
         if ($probeExitCode -ne 0) {
-            $details = if (Test-Path -LiteralPath $smokeErrorPath) { Get-Content -LiteralPath $smokeErrorPath -Raw } else { '' }
             throw "Packaged UI startup failed: $probeExitCode. $details"
         }
+        if ($details -notmatch 'ParallelFinder UI smoke: window rendered') {
+            throw "Packaged UI startup did not render a frame. $details"
+        }
+        } finally { $probe.Dispose() }
     } finally {
         foreach ($name in $envNames) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], 'Process') }
     }
