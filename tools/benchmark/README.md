@@ -158,3 +158,22 @@ end-to-end `findAllPairs`, не parsing, inference, previews или ranking.
 При извлечении последовательности по предсказанной паре передавайте
 `extract_visual_sequence.ps1 -PredictedPairReview`: provenance тогда явно
 указывает `matcherIndependent=false`. Эти материалы не заменяют frozen truth.
+
+## Порядок подготовки превью
+
+Опциональная проверка `VideoDecoder.RealPreviewOrderingPreservesFramesAndReportsDecodeWork`
+берёт пары из уже созданного отчёта, повторно декодирует исходные видео в старом
+и сгруппированном по файлу/времени порядке и проверяет SHA-256 изображений и
+временные метки. Она также выводит число декодированных кадров и медиану времени
+трёх чередующихся проходов; это замер только подготовки превью, не полного
+анализа. Используй отчёт с реальными файлами из `D:\for_tests_pf`:
+
+```powershell
+$env:PF_PREVIEW_ORDER_REPORT = 'D:\Parallel-Finder\build\source-all-seven-20261018\report.json'
+$env:PF_PREVIEW_ORDER_LIMIT = '48'
+ctest --test-dir build/ucrt64-release -R '^pf_tests$' --output-on-failure
+Remove-Item Env:PF_PREVIEW_ORDER_REPORT, Env:PF_PREVIEW_ORDER_LIMIT
+```
+
+Без `PF_PREVIEW_ORDER_REPORT` этот тест пропускается и обычный набор не открывает
+видеофайлы пользователя.

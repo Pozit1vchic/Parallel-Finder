@@ -4,9 +4,22 @@
 #include <pfcore/VideoDecoder.hpp>
 #include <pfcore/VideoSampleReader.hpp>
 #include <pfcore/SceneDetector.hpp>
+#include "../../ui/src/PreviewRequestOrder.h"
 
 #include <filesystem>
+#include <list>
+#include <map>
+#include <memory>
+#include <numeric>
+#include <cstdint>
+#include <set>
 #include <QProcess>
+#include <QElapsedTimer>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QCryptographicHash>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <algorithm>
@@ -16,6 +29,7 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <unordered_set>
 
 namespace {
 
@@ -761,6 +775,119 @@ TEST(VideoDecoder, RealTenBitNvidiaPreviewsPreserveFullHdPixelsAndPts)
         ASSERT_EQ(a.width,1920);ASSERT_EQ(a.height,1080);
         ASSERT_EQ(a.rgba,b.rgba)<<"preview target="<<target;
     }
+}
+
+TEST(VideoDecoder, RealPreviewOrderingPreservesFramesAndReportsDecodeWork)
+{
+    const auto reportPath=qEnvironmentVariable("PF_PREVIEW_ORDER_REPORT");
+    if(reportPath.isEmpty())GTEST_SKIP()<<"Opt-in real-source preview order benchmark";
+    QFile report(reportPath);ASSERT_TRUE(report.open(QIODevice::ReadOnly));
+    const auto document=QJsonDocument::fromJson(report.readAll());ASSERT_TRUE(document.isObject());
+    struct Request {std::string source;double seconds=0;};
+    std::vector<Request> requests;
+    std::unordered_set<std::string> seen;
+    for(const auto value:document.object()["results"].toArray()) {
+        const auto row=value.toObject();
+        for(const auto& side:{QStringLiteral("left"),QStringLiteral("right")}) {
+            const auto source=row[side+"Source"].toString().toStdString();
+            const double seconds=std::max(0.,row[side+"Start"].toDouble(-1));
+            if(source.empty() || !std::isfinite(seconds))continue;
+            const auto micros=std::llround(seconds*1'000'000.);
+            const auto key=source+"\n"+std::to_string(micros);
+            if(seen.insert(key).second)requests.push_back({source,micros/1'000'000.});
+        }
+    }
+    ASSERT_GT(requests.size(),1U);
+    const int requestedLimit=qEnvironmentVariableIntValue("PF_PREVIEW_ORDER_LIMIT");
+    if(requestedLimit>1 && requests.size()>static_cast<std::size_t>(requestedLimit)) {
+        std::vector<Request> sample;sample.reserve(requestedLimit);
+        for(int i=0;i<requestedLimit;++i) {
+            const auto index=static_cast<std::size_t>(i)*(requests.size()-1)/(requestedLimit-1);
+            sample.push_back(requests[index]);
+        }
+        requests=std::move(sample);
+    }
+    std::vector<pfui::PreviewRequestOrderKey> keys;keys.reserve(requests.size());
+    for(const auto& request:requests)keys.push_back({request.source,request.seconds});
+    const auto sorted=pfui::previewRenderOrder(keys);
+    std::vector<std::size_t> original(requests.size());
+    std::iota(original.begin(),original.end(),std::size_t{0});
+    struct Pass {std::vector<QByteArray> hashes;std::vector<double> times;std::set<std::string> backends;std::uint64_t decoded=0;double elapsedMs=0;};
+    const auto run=[&](const std::vector<std::size_t>& order) {
+        Pass pass;pass.hashes.resize(requests.size());pass.times.resize(requests.size());
+        std::map<std::string,std::unique_ptr<pfcore::VideoDecoder>> decoders;
+        std::list<std::string> lru;
+        const auto collect=[&](const std::string& source) {
+            const auto found=decoders.find(source);
+            if(found!=decoders.end())pass.decoded+=found->second->diagnostics().decodedFrames;
+        };
+        QElapsedTimer timer;timer.start();
+        for(const auto index:order) {
+            const auto& request=requests[index];
+            auto found=decoders.find(request.source);
+            if(found==decoders.end()) {
+                if(decoders.size()>=2) {
+                    const auto evicted=lru.front();lru.pop_front();collect(evicted);decoders.erase(evicted);
+                }
+                auto decoder=std::make_unique<pfcore::VideoDecoder>();
+                pfcore::VideoDecodeOptions options;options.maxWidth=1920;options.maxHeight=1080;
+                options.minimumNvidiaPixels=1920ULL*1080ULL+1;options.preferNvidia=true;
+                decoder->open(request.source,options);decoder->setRgbaMaxDimensions(1920,1080);
+                pass.backends.insert(decoder->diagnostics().backend);
+                found=decoders.emplace(request.source,std::move(decoder)).first;
+            } else lru.remove(request.source);
+            lru.push_back(request.source);
+            try {
+                auto& decoder=*found->second;decoder.seek(request.seconds);
+                pfcore::DecodedFrame frame;bool available=false;
+                while((available=decoder.readNext(frame,false)) && frame.timestampSeconds+1e-3<request.seconds) {}
+                if(!available || !decoder.convertCurrentFrameToRgba(frame)) {
+                    ADD_FAILURE()<<"Could not decode preview "<<request.source<<" @ "<<request.seconds;
+                    break;
+                }
+                pass.times[index]=frame.timestampSeconds;
+                pass.hashes[index]=QCryptographicHash::hash(
+                    QByteArray(reinterpret_cast<const char*>(frame.rgba.data()),static_cast<qsizetype>(frame.rgba.size())),
+                    QCryptographicHash::Sha256);
+            } catch(const std::exception& error) {
+                ADD_FAILURE()<<"Preview decode failed: "<<error.what();break;
+            }
+        }
+        for(const auto& source:lru)collect(source);
+        pass.elapsedMs=timer.elapsed();
+        return pass;
+    };
+    std::vector<Pass> baselinePasses,optimizedPasses;
+    for(int repeat=0;repeat<3;++repeat) {
+        if(repeat%2==0) {baselinePasses.push_back(run(original));optimizedPasses.push_back(run(sorted));}
+        else {optimizedPasses.push_back(run(sorted));baselinePasses.push_back(run(original));}
+    }
+    const auto& reference=baselinePasses.front();
+    std::vector<double> baselineTimes,optimizedTimes;
+    for(const auto& pass:baselinePasses)baselineTimes.push_back(pass.elapsedMs);
+    for(const auto& pass:optimizedPasses)optimizedTimes.push_back(pass.elapsedMs);
+    std::sort(baselineTimes.begin(),baselineTimes.end());
+    std::sort(optimizedTimes.begin(),optimizedTimes.end());
+    ASSERT_EQ(reference.hashes.size(),requests.size());
+    for(std::size_t i=0;i<requests.size();++i) {
+        ASSERT_FALSE(reference.hashes[i].isEmpty())<<i;
+        for(const auto& pass:baselinePasses) {
+            EXPECT_EQ(pass.hashes[i],reference.hashes[i])<<"baseline iteration="<<i;
+            EXPECT_DOUBLE_EQ(pass.times[i],reference.times[i]);
+        }
+        for(const auto& pass:optimizedPasses) {
+            EXPECT_EQ(pass.hashes[i],reference.hashes[i])<<requests[i].source<<" @ "<<requests[i].seconds;
+            EXPECT_DOUBLE_EQ(pass.times[i],reference.times[i]);
+        }
+    }
+    for(const auto& pass:baselinePasses)EXPECT_EQ(pass.decoded,reference.decoded);
+    for(const auto& pass:optimizedPasses)EXPECT_EQ(pass.decoded,reference.decoded);
+    std::cout<<"PF_PREVIEW_ORDER_BENCH samples="<<requests.size()<<" repeats=3"
+        <<" original_median_ms="<<baselineTimes[1]<<" sorted_median_ms="<<optimizedTimes[1]
+        <<" original_decoded_frames="<<reference.decoded
+        <<" sorted_decoded_frames="<<optimizedPasses.front().decoded<<" backend=";
+    for(const auto& backend:optimizedPasses.front().backends)std::cout<<backend<<',';
+    std::cout<<'\n';
 }
 
 } // namespace

@@ -5,6 +5,7 @@
 #include "EstimatorCache.hpp"
 #include "HeadOrientationReview.h"
 #include "VideoActionReview.h"
+#include "PreviewRequestOrder.h"
 #include <QTimer>
 #include <pfgpu/SessionCache.hpp>
 #include <QCryptographicHash>
@@ -3808,10 +3809,16 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             const auto cachedUrls = pfservices::materializeCachedPreviews(analysisCache.get(), previewKeys,
                 previewDirectory, isCancelled, previewWorkers);
             const auto cacheStageMs = resultTimer.elapsed();
+            std::vector<pfui::PreviewRequestOrderKey> previewOrderKeys;
+            previewOrderKeys.reserve(requests.size());
+            for (const auto& request : requests)
+                previewOrderKeys.push_back({request.source, request.seconds});
+            const auto renderOrder = pfui::previewRenderOrder(previewOrderKeys);
             // No encoder thread is needed when every still is cached (or the
             // result set is empty). Start it only for the first decoded miss.
             std::unique_ptr<pfservices::PreviewWriter> previewWriter;
-            for (std::size_t i = 0; i < requests.size() && !previewDirectory.isEmpty(); ++i) {
+            for (const std::size_t i : renderOrder) {
+                if (previewDirectory.isEmpty()) break;
                 if (isCancelled()) break;
                 auto& request = requests[i];
                 if(analysisCache) {

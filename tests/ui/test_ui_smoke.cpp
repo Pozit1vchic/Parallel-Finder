@@ -21,6 +21,7 @@
 #include <AnalysisController.h>
 #include <McpController.h>
 #include <ResultClassification.h>
+#include <PreviewRequestOrder.h>
 #include <QTcpServer>
 #include <QClipboard>
 #include <QTemporaryDir>
@@ -91,6 +92,7 @@ private slots:
     void sourceWheelDoesNotMoveSettingsRail();
     void movementClassesAndExportOrder();
     void classificationsFollowEditedRange();
+    void previewRequestsRenderBySourceAndTimeWithoutReindexing();
     void staticPoseDisagreementKeepsBothPoses();
     void largeResultSetKeepsClassesContiguous();
     void mcpSettingsExposeWorkingConnection();
@@ -1607,6 +1609,22 @@ void UiSmokeTests::classificationsFollowEditedRange()
     record.insert("classificationManual",true);record.insert("classification","step");
     pfui::classifyResultRange(record,match,evidence);
     QCOMPARE(record.value("classification").toString(),QString("step"));
+}
+
+void UiSmokeTests::previewRequestsRenderBySourceAndTimeWithoutReindexing()
+{
+    const std::vector<pfui::PreviewRequestOrderKey> requests{
+        {"source-b.mp4", 9.0}, {"source-a.mp4", 8.0}, {"source-b.mp4", 1.0},
+        {"source-a.mp4", 3.0}, {"source-a.mp4", 3.0}, {"source-b.mp4", 4.0}};
+    const auto order = pfui::previewRenderOrder(requests);
+    QCOMPARE(order, (std::vector<std::size_t>{3, 4, 1, 2, 5, 0}));
+    for (std::size_t position = 1; position < order.size(); ++position) {
+        const auto& previous = requests[order[position - 1]];
+        const auto& current = requests[order[position]];
+        QVERIFY(previous.source <= current.source);
+        if (previous.source == current.source)
+            QVERIFY(previous.seconds <= current.seconds);
+    }
 }
 
 void UiSmokeTests::mcpSettingsExposeWorkingConnection()
