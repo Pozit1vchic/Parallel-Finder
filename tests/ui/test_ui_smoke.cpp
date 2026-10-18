@@ -80,6 +80,7 @@ private slots:
     void settingsAndNumericTypography();
     void repeatSearchTogglesFromTheActualSidebar();
     void appearancePersistsAndRejectsMissingFonts();
+    void languageTabOffersSixPersistentChoices();
     void customAccentPaletteUpdatesImmediatelyAndPersists();
     void slowSettingsWritesDoNotBlockUiAndKeepOtherSections();
     void appearanceAndVideoInspectionKeepUiResponsive();
@@ -227,8 +228,8 @@ void UiSmokeTests::reviewShortcutsAndMultiSelection()
     QCOMPARE(prefs.value("review").toMap().value("bindings").toMap().value("next").toStringList(), (QStringList{"Ctrl+J"}));
     auto* settings = engine.rootObjects().constFirst()->findChild<QObject*>("settingsDialog");
     QVERIFY(settings); QVERIFY(QMetaObject::invokeMethod(settings, "open"));
-    auto* tabs = settings->findChild<QObject*>("settingsTabs"); QVERIFY(tabs); QCOMPARE(tabs->property("count").toInt(), 3);
-    tabs->setProperty("currentIndex", 2);
+    auto* tabs = settings->findChild<QObject*>("settingsTabs"); QVERIFY(tabs); QCOMPARE(tabs->property("count").toInt(), 4);
+    tabs->setProperty("currentIndex", 3);
     QVERIFY(settings->findChild<QObject*>("settingsHotkeysFlick"));
     QTest::qWait(100);
     auto* mainWindow = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst()); QVERIFY(mainWindow);
@@ -1129,6 +1130,29 @@ void UiSmokeTests::appearancePersistsAndRejectsMissingFonts()
     }
 }
 
+void UiSmokeTests::languageTabOffersSixPersistentChoices()
+{
+    pfui::AppInfo::registerQmlTypes();
+    const auto saved = pfui::AppInfo::instance()->loadPreferences();
+    struct Restore { QVariantMap value; ~Restore() { pfui::AppInfo::instance()->savePreferences(value); } } restore{saved};
+    QQmlApplicationEngine engine;
+    auto* window = loadWindow(engine); QVERIFY(window);
+    auto* popup = window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
+    auto* tabs = popup->findChild<QObject*>("settingsTabs"); QVERIFY(tabs);
+    QCOMPARE(tabs->property("count").toInt(), 4);
+    auto* languageTab = popup->findChild<QObject*>("settingsLanguageTab"); QVERIFY(languageTab);
+    tabs->setProperty("currentIndex", 2);
+    QVERIFY(popup->findChild<QObject*>("settingsLanguagePage"));
+    const QStringList ids{"ru", "en", "ky", "kk", "uk", "tr"};
+    const QStringList names{"Русский", "English", "Кыргызча", "Қазақша", "Українська", "Türkçe"};
+    QCOMPARE(popup->property("languageIds").toStringList(), ids);
+    QCOMPARE(popup->property("languageNames").toStringList(), names);
+    for (const auto& id : ids) {
+        QVERIFY(QMetaObject::invokeMethod(popup, "setLanguage", Q_ARG(QVariant, id)));
+        QCOMPARE(pfui::AppInfo::instance()->loadPreferences().value("language").toString(), id);
+    }
+}
+
 void UiSmokeTests::customAccentPaletteUpdatesImmediatelyAndPersists()
 {
     pfui::AppInfo::registerQmlTypes();
@@ -1146,8 +1170,9 @@ void UiSmokeTests::customAccentPaletteUpdatesImmediatelyAndPersists()
             QTRY_VERIFY(popup->property("opened").toBool());
             auto* tabs = popup->findChild<QObject*>("settingsTabs"); QVERIFY(tabs); tabs->setProperty("currentIndex",1);
             QTest::qWait(250);
-            auto* button = popup->findChild<QObject*>("accentPaletteButton"); QVERIFY(button);
-            QVERIFY(QMetaObject::invokeMethod(button,"clicked"));
+            auto* accentChoice = popup->findChild<QObject*>("appearanceAccentChoice"); QVERIFY(accentChoice);
+            accentChoice->setProperty("currentIndex", 4);
+            QVERIFY(QMetaObject::invokeMethod(accentChoice, "activated", Q_ARG(int, 4)));
             auto* picker = popup->findChild<QObject*>("accentColorPicker"); QVERIFY(picker);
             QTRY_VERIFY(picker->property("opened").toBool());
             auto* hex = picker->findChild<QObject*>("accentPaletteHex"); QVERIFY(hex);
@@ -1155,15 +1180,15 @@ void UiSmokeTests::customAccentPaletteUpdatesImmediatelyAndPersists()
             QVERIFY(QMetaObject::invokeMethod(hex,"textEdited"));
             QCOMPARE(probe->property("accent").value<QColor>().name(),QString("#12abcd"));
             QVERIFY(picker->property("opened").toBool());
-            auto* accentChoice = popup->findChild<QObject*>("appearanceAccentChoice"); QVERIFY(accentChoice);
-            QCOMPARE(accentChoice->property("currentIndex").toInt(),7);
+            QCOMPARE(accentChoice->property("currentIndex").toInt(),4);
             QVERIFY(!probe->property("gradientEnabled").toBool());
             QCOMPARE(probe->property("sage").value<QColor>(), probe->property("accent").value<QColor>());
             QVariant accepted;
             QVERIFY(QMetaObject::invokeMethod(popup,"applyCustomAccent",Q_RETURN_ARG(QVariant,accepted),Q_ARG(QVariant,"invalid")));
             QVERIFY(!accepted.toBool()); QCOMPARE(probe->property("accent").value<QColor>().name(),QString("#12abcd"));
-            accentChoice->setProperty("currentIndex", 8);
-            QVERIFY(QMetaObject::invokeMethod(accentChoice, "activated", Q_ARG(int, 8)));
+            auto* gradientChoice = popup->findChild<QObject*>("appearanceGradientChoice"); QVERIFY(gradientChoice);
+            gradientChoice->setProperty("currentIndex", 4);
+            QVERIFY(QMetaObject::invokeMethod(gradientChoice, "activated", Q_ARG(int, 4)));
             QVERIFY(probe->property("gradientEnabled").toBool());
             QVERIFY(QMetaObject::invokeMethod(popup, "selectAccentTarget", Q_ARG(QVariant, "end")));
             QVERIFY(QMetaObject::invokeMethod(popup,"applyCustomAccent",Q_RETURN_ARG(QVariant,accepted),Q_ARG(QVariant,"#AABBCC")));
@@ -1178,7 +1203,7 @@ void UiSmokeTests::customAccentPaletteUpdatesImmediatelyAndPersists()
             QCOMPARE(probe->property("accentSecondary").value<QColor>().name(),QString("#aabbcc"));
             QVERIFY(probe->property("gradientEnabled").toBool());
             QCOMPARE(probe->property("sage").value<QColor>(), probe->property("accentSecondary").value<QColor>());
-            QCOMPARE(popup->findChild<QObject*>("appearanceAccentChoice")->property("currentIndex").toInt(),8);
+            QCOMPARE(popup->findChild<QObject*>("appearanceGradientChoice")->property("currentIndex").toInt(),4);
         }
     }
 }
@@ -1558,7 +1583,7 @@ void UiSmokeTests::mcpSettingsExposeWorkingConnection()
 {
     pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;auto* window=loadWindow(engine);QVERIFY(window);
     auto* dialog=window->findChild<QObject*>("settingsDialog");QVERIFY(dialog);
-    auto* tabs=window->findChild<QObject*>("settingsTabs");QVERIFY(tabs);tabs->setProperty("currentIndex",2);
+    auto* tabs=window->findChild<QObject*>("settingsTabs");QVERIFY(tabs);tabs->setProperty("currentIndex",0);
     QVERIFY(QMetaObject::invokeMethod(dialog,"open"));
     auto* mcp=engine.singletonInstance<pfui::McpController*>(qmlTypeId("PfUiBridge",1,0,"Mcp"));QVERIFY(mcp);
     const bool wasEnabled=mcp->enabled(),wasControl=mcp->allowControl();const int wasPort=mcp->port();

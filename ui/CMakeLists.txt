@@ -51,6 +51,8 @@ qt_add_qml_module(pfui
         qml/assets/plus.svg
         qml/assets/folder-plus.svg
         qml/assets/settings.svg
+        qml/assets/moon.svg
+        qml/assets/sun.svg
         qml/assets/chevron-left.svg
         qml/assets/chevron-right.svg
         qml/assets/x.svg

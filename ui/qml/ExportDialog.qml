@@ -165,7 +165,7 @@ Popup {
             NumberAnimation { property: "scale"; from: 1; to: 0.97; duration: Theme.motionChangeDuration; easing.type: Easing.InCubic }
         }
     }
-    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    closePolicy: Analysis.exportBusy ? Popup.CloseOnEscape : Popup.CloseOnEscape | Popup.CloseOnPressOutside
     Overlay.modal: Rectangle { color: GraphicsInfo.api === GraphicsInfo.Software ? "#99000000" : "transparent" }
     background: Rectangle {
         transform: Translate { y: root.entranceOffset }
@@ -388,14 +388,14 @@ Popup {
                 spacing: 8
                 PfTextField {
                     id: folderField
-                    width: parent.width - 110
+                    width: parent.width - 96
                     text: root.outputFolder
                     placeholderText: L10n.t("export.folder")
                     Accessible.name: L10n.t("export.folder")
                     onEditingFinished: root.rememberFolder(text)
                 }
                 PfButton {
-                    width: 102
+                    width: 88
                     text: L10n.t("export.chooseFolder")
                     quiet: true
                     enabled: !Analysis.exportBusy

@@ -129,6 +129,7 @@ QtObject {
             "top.analyzing": "Анализируем",
             "top.ready": "Готово к работе",
             "top.settings": "Открыть настройки",
+            "top.theme": "Переключить светлую и тёмную тему",
 
             "sources.title": "Источники",
             "sources.subtitle": "Добавьте материал для сравнения",
@@ -309,8 +310,13 @@ QtObject {
             "settings.resetDone": "Параметры анализа сброшены",
             "settings.tabAnalysis": "Анализ",
             "settings.tabAppearance": "Оформление",
+            "settings.tabLanguage": "Язык",
+            "settings.languageHint": "Выбери язык интерфейса. Для нового профиля используется английский.",
+            "settings.solidColors": "Цвета",
+            "settings.gradients": "Градиенты",
+            "settings.gradientNone": "Без градиента",
             "settings.appearanceTitle": "Оформление интерфейса",
-            "settings.appearanceSubtitle": "Язык, шрифт, акцентная палитра и прозрачность панелей. Изменения применяются сразу.",
+            "settings.appearanceSubtitle": "Шрифт, акцентная палитра и прозрачность панелей. Изменения применяются сразу.",
             "settings.font": "Шрифт интерфейса",
             "settings.fontAdd": "Добавить шрифт",
             "settings.fontLoaded": "Загружен",
@@ -462,6 +468,7 @@ QtObject {
             "top.analyzing": "Analyzing",
             "top.ready": "Ready to work",
             "top.settings": "Open settings",
+            "top.theme": "Toggle light and dark theme",
             "sources.title": "Sources",
             "sources.subtitle": "Add material to compare",
             "sources.loaded": "videos added",
@@ -635,8 +642,13 @@ QtObject {
             "settings.resetDone": "Analysis parameters reset",
             "settings.tabAnalysis": "Analysis",
             "settings.tabAppearance": "Appearance",
+            "settings.tabLanguage": "Language",
+            "settings.languageHint": "Choose the interface language. New profiles start in English.",
+            "settings.solidColors": "Solid colors",
+            "settings.gradients": "Gradients",
+            "settings.gradientNone": "No gradient",
             "settings.appearanceTitle": "Interface appearance",
-            "settings.appearanceSubtitle": "Language, font, accent palette and panel transparency. Changes apply immediately.",
+            "settings.appearanceSubtitle": "Font, accent palette and panel transparency. Changes apply immediately.",
             "settings.font": "Interface font",
             "settings.fontAdd": "Add font",
             "settings.fontLoaded": "Loaded",
@@ -715,7 +727,7 @@ QtObject {
 
     function t(key) {
         const lang = _dict[language] || _dict.en
-        return (key in lang) ? lang[key] : ((_dict.ru && key in _dict.ru) ? _dict.ru[key] : key)
+        return (key in lang) ? lang[key] : ((_dict.en && key in _dict.en) ? _dict.en[key] : key)
     }
 
     // Backend progress is intentionally a compact state machine rather than

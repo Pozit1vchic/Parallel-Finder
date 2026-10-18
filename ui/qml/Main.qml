@@ -119,7 +119,14 @@ ApplicationWindow {
             selectedExportRows = rows
         }
     }
-    Component.onCompleted: root.syncResultsSelection()
+    Component.onCompleted: {
+        root.syncResultsSelection()
+        const preferences = AppInfo.loadPreferences()
+        if (typeof preferences.darkMode === "boolean") Theme.darkMode = preferences.darkMode
+        if (["ru", "en", "ky", "kk", "uk", "tr"].indexOf(preferences.language) >= 0)
+            L10n.language = preferences.language
+        else L10n.language = "en"
+    }
 
     FileDialog { id: fileDialog; title: L10n.t("dialog.chooseVideos"); fileMode: FileDialog.OpenFiles; nameFilters: [L10n.t("dialog.videoFilter"), L10n.t("dialog.allFiles")]; onAccepted: root.addFiles(selectedFiles) }
     FolderDialog { id: folderDialog; title: L10n.t("dialog.chooseFolder"); onAccepted: root.addFolder(selectedFolder) }

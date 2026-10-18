@@ -4,9 +4,10 @@ import QtQuick
 
 QtObject {
     // Palette
-    readonly property color background: "#0C0D10"
+    property bool darkMode: true
+    readonly property color background: darkMode ? "#0C0D10" : "#F2F3F5"
     readonly property color canvas: background
-    readonly property color rail: "#141418"
+    readonly property color rail: darkMode ? "#141418" : "#E8EAEE"
     property real surfaceOpacity: 1.0
     // The slider is intentionally perceptual: dark surfaces otherwise look
     // almost transparent even when the value says 70–80%. Keep 25% as a
@@ -15,15 +16,15 @@ QtObject {
         const normalized = Math.max(0, Math.min(1, (surfaceOpacity - 0.25) / 0.75))
         return 0.30 + 0.70 * Math.pow(normalized, 0.65)
     }
-    property color panel: Qt.rgba(0.071, 0.071, 0.086, surfaceAlpha)
+    property color panel: darkMode ? Qt.rgba(0.071, 0.071, 0.086, surfaceAlpha) : Qt.rgba(1, 1, 1, surfaceAlpha)
     readonly property color heroPanel: panel
-    property color panelAlt: Qt.rgba(0.110, 0.110, 0.133, surfaceAlpha)
+    property color panelAlt: darkMode ? Qt.rgba(0.110, 0.110, 0.133, surfaceAlpha) : Qt.rgba(0.91, 0.92, 0.94, surfaceAlpha)
     readonly property color surfaceRaised: panelAlt
-    readonly property color surfaceMuted: "#27272E"
-    readonly property color well: "#101014"
-    readonly property color border: Qt.rgba(1, 1, 1, 0.06)
-    readonly property color hairline: Qt.rgba(1, 1, 1, 0.10)
-    readonly property color hairlineStrong: "#3F3F46"
+    readonly property color surfaceMuted: darkMode ? "#27272E" : "#DDE0E5"
+    readonly property color well: darkMode ? "#101014" : "#FFFFFF"
+    readonly property color border: darkMode ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(0.08, 0.10, 0.14, 0.10)
+    readonly property color hairline: darkMode ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0.08, 0.10, 0.14, 0.13)
+    readonly property color hairlineStrong: darkMode ? "#3F3F46" : "#B8BDC6"
     property color accent: "#D97757"
     // The global accent normally uses one hue on every result.  The second
     // stop is reserved for an optional two-tone palette and the B preview.
@@ -44,9 +45,9 @@ QtObject {
         const b = accentGradientEnabled ? (accent.b + accentSecondary.b) / 2 : accent.b
         return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.56 ? background : textPrimary
     }
-    readonly property color textPrimary: "#F5F1EC"
-    readonly property color textSecondary: "#A1A1AA"
-    readonly property color textDisabled: "#71717A"
+    readonly property color textPrimary: darkMode ? "#F5F1EC" : "#191B20"
+    readonly property color textSecondary: darkMode ? "#A1A1AA" : "#555B66"
+    readonly property color textDisabled: darkMode ? "#71717A" : "#7B818B"
 
     // Typography
     property string fontFamily: "Segoe UI Variable"
