@@ -462,7 +462,9 @@ TEST(MontageExport, SortsDeduplicatesAndNormalizesMixedSilentAndAudioVideos)
     EXPECT_GT(frame.rgba[2], frame.rgba[0] + 100); // requested blue first
     decoder.seek(1.5);
     ASSERT_TRUE(decoder.readNext(frame));
-    EXPECT_GT(frame.rgba[0], frame.rgba[2] + 100); // red second
+    const auto center = (static_cast<std::size_t>(frame.height / 2) * frame.width
+        + static_cast<std::size_t>(frame.width / 2)) * 4;
+    EXPECT_GT(frame.rgba[center], frame.rgba[center + 2] + 100); // centered red clip in the second slot
     EXPECT_TRUE(QDir(temporary.path()).entryList({".parallelfinder-montage-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
 }
 
