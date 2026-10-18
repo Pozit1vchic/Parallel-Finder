@@ -3697,7 +3697,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             matches = static_cast<int>(foundMatches.size());
             const auto headModel=findLocalModelFile(QStringLiteral("head-pose-6drepnet360.onnx"));
             HeadOrientationReviewStats headReview;
+            qint64 headReviewMs=0;
             if(headModel && faceDetectorPath && !isCancelled()) {
+                const auto headReviewStartedMs=resultTimer.elapsed();
                 std::map<std::string,std::string> namespaces;
                 for(const auto& [source,generation]:sourceGenerations)
                     namespaces.emplace(source,cacheFileFingerprint(source)+"|generation="+generation);
@@ -3724,9 +3726,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS") || !headReview.error.empty())
                     std::fprintf(stderr,"PF_HEAD_REVIEW requested=%zu cached=%zu observed=%zu decoded=%zu error=%s\n",
                         headReview.requested,headReview.cached,headReview.observed,headReview.decoded,headReview.error.c_str());
+                headReviewMs=resultTimer.elapsed()-headReviewStartedMs;
             }
             const auto actionModel=findLocalModelFile(QStringLiteral("ava-slowfast-r50.onnx"));
+            qint64 actionReviewMs=0;
             if(actionModel && pose && !isCancelled()) {
+                const auto actionReviewStartedMs=resultTimer.elapsed();
                 std::map<std::string,std::string> namespaces;
                 for(const auto& [source,generation]:sourceGenerations)
                     namespaces.emplace(source,sequenceCacheKeys[source]+"|generation="+generation);
@@ -3758,6 +3763,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS") || !review.error.empty())
                     std::fprintf(stderr,"PF_ACTION_REVIEW requested=%zu cached=%zu observed=%zu decoded=%zu cuts=%zu unassociated=%zu error=%s\n",
                         review.requested,review.cached,review.observed,review.decoded,review.cuts,review.unassociated,review.error.c_str());
+                actionReviewMs=resultTimer.elapsed()-actionReviewStartedMs;
             }
             const QStringList windowPreviewA = previewA;
             const QStringList windowPreviewB = previewB;
@@ -3806,9 +3812,11 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 requestPreview(item.rightSourceId, item.rightStartSeconds);
             }
             const auto previewWorkers = QThread::idealThreadCount() >= 8 ? 4U : 1U;
+            const auto previewCacheStartedMs=resultTimer.elapsed();
             const auto cachedUrls = pfservices::materializeCachedPreviews(analysisCache.get(), previewKeys,
                 previewDirectory, isCancelled, previewWorkers);
             const auto cacheStageMs = resultTimer.elapsed();
+            const auto previewCacheMs=cacheStageMs-previewCacheStartedMs;
             std::vector<pfui::PreviewRequestOrderKey> previewOrderKeys;
             previewOrderKeys.reserve(requests.size());
             for (const auto& request : requests)
@@ -3817,6 +3825,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             // No encoder thread is needed when every still is cached (or the
             // result set is empty). Start it only for the first decoded miss.
             std::unique_ptr<pfservices::PreviewWriter> previewWriter;
+            const auto previewRenderStartedMs=resultTimer.elapsed();
             for (const std::size_t i : renderOrder) {
                 if (previewDirectory.isEmpty()) break;
                 if (isCancelled()) break;
@@ -3875,14 +3884,16 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             if (previewWriter) previewWriter->finish(); // All PNG/cache writes complete before publication.
             for (auto& request : requests)
                 if (request.encoded.valid()) request.url = request.encoded.get();
+            const auto previewRenderMs=resultTimer.elapsed()-previewRenderStartedMs;
             if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
-                std::fprintf(stderr, "PF_DEBUG_TIMING preview_cache_stage_ms=%lld preview_workers=%u unique_previews=%zu\n",
+                std::fprintf(stderr, "PF_DEBUG_TIMING postrank_preview_prepare_ms=%lld preview_workers=%u unique_previews=%zu\n",
                     static_cast<long long>(cacheStageMs), previewWorkers, requests.size());
             pfservices::PreviewMemo exactPreviews([&](const QString& source, double seconds) {
                 if (isCancelled()) return QString{};
                 const auto found = requestIndex.find(previewKey(source.toStdString(), seconds));
                 return found == requestIndex.end() ? QString{} : requests[found->second].url;
             });
+            const auto recordBuildStartedMs=resultTimer.elapsed();
             for (std::size_t i = 0; i < foundMatches.size(); ++i) {
                 if (isCancelled()) { markCancelled(); break; }
                 auto& item = foundMatches[i];
@@ -3956,12 +3967,18 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert(QStringLiteral("rightPreview"), previewB.back());
                 resultRecords.back() = record;
             }
+            const auto recordBuildMs=resultTimer.elapsed()-recordBuildStartedMs;
             markCancelled();
             foundMatches.resize(static_cast<std::size_t>(resultRecords.size()));
             matches = static_cast<int>(foundMatches.size());
-            if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
-                std::fprintf(stderr, "PF_DEBUG_TIMING previews_ms=%lld rendered_previews=%zu cached_previews=%zu\n",
+            if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
+                std::fprintf(stderr,"PF_DEBUG_TIMING postprocess_breakdown_ms head_review=%lld action_review=%lld preview_cache=%lld preview_decode_encode=%lld record_build=%lld\n",
+                    static_cast<long long>(headReviewMs),static_cast<long long>(actionReviewMs),
+                    static_cast<long long>(previewCacheMs),static_cast<long long>(previewRenderMs),
+                    static_cast<long long>(recordBuildMs));
+                std::fprintf(stderr, "PF_DEBUG_TIMING postrank_total_ms=%lld rendered_previews=%zu cached_previews=%zu\n",
                     static_cast<long long>(resultTimer.elapsed()), renderedPreviews, cachedPreviews);
+            }
         }
         if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
             qInfo().noquote() << "PF_DEBUG_ANALYSIS files=" << files
