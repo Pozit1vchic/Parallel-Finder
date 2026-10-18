@@ -3,6 +3,16 @@ param(
     [string]$SourceDirectory = (Join-Path $PSScriptRoot '../../models')
 )
 $ErrorActionPreference = 'Stop'
+function Get-CanonicalTextSha256([string]$Path) {
+    # Git may materialize tracked text as CRLF on Windows. Compare the audited
+    # LF form while preserving the original license bytes in the release.
+    $text = [IO.File]::ReadAllText($Path).Replace("`r`n", "`n")
+    $bytes = [Text.Encoding]::UTF8.GetBytes($text)
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        return [BitConverter]::ToString($algorithm.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant()
+    } finally { $algorithm.Dispose() }
+}
 $sourceRoot = (Resolve-Path -LiteralPath $SourceDirectory).Path
 $stageRoot = (Resolve-Path -LiteralPath $Stage).Path
 $filename = 'head-pose-6drepnet360.onnx'
@@ -16,7 +26,7 @@ if (!(Test-Path -LiteralPath $sourceModel -PathType Leaf) -or
     throw 'Missing or unverified trained head-orientation model; refusing to package a silent fallback'
 }
 if (!(Test-Path -LiteralPath $sourceLicense -PathType Leaf) -or
-    (Get-FileHash -LiteralPath $sourceLicense -Algorithm SHA256).Hash -ne
+    (Get-CanonicalTextSha256 $sourceLicense) -ne
     '9cbf2690c92d75b75f6c548d96599878cb3692e054b0379d7478db3cd621e8fd') {
     throw 'Missing head-orientation model license'
 }
@@ -51,7 +61,7 @@ if (!(Test-Path -LiteralPath $actionModel -PathType Leaf) -or
     throw 'Missing or unverified trained video-action model'
 }
 if (!(Test-Path -LiteralPath $actionLicense -PathType Leaf) -or
-    (Get-FileHash -LiteralPath $actionLicense -Algorithm SHA256).Hash -ne
+    (Get-CanonicalTextSha256 $actionLicense) -ne
     'eb2e7c520ac305e46ca8345c4efa1f77669a77779fd6f53acd3a9616f2144518') {
     throw 'Missing video-action model license'
 }
