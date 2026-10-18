@@ -14,7 +14,10 @@ function Get-CanonicalTextSha256([string]$Path) {
     } finally { $algorithm.Dispose() }
 }
 function Get-AssetSha256([string]$Path) {
-    if ([IO.Path]::GetExtension($Path) -ieq '.LICENSE') {
+    # Model metadata is validated semantically above; normalize text line
+    # endings here so an existing Windows build-tree copy can be reused.
+    if ([IO.Path]::GetExtension($Path) -ieq '.LICENSE' -or
+        [IO.Path]::GetExtension($Path) -ieq '.json') {
         return Get-CanonicalTextSha256 $Path
     }
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
