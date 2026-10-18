@@ -17,11 +17,20 @@ function New-ReleaseArchive([string]$Directory, [string]$Archive) {
     $output = [IO.Compression.ZipFile]::Open($Archive, [IO.Compression.ZipArchiveMode]::Create)
     try {
         foreach ($file in (Get-ChildItem -LiteralPath $Directory -Recurse -File | Sort-Object FullName)) {
-            $name = [IO.Path]::GetRelativePath($parent, $file.FullName).Replace([IO.Path]::DirectorySeparatorChar, '/')
+            $name = (Get-ReleaseRelativePath $parent $file.FullName).Replace([IO.Path]::DirectorySeparatorChar, '/')
             [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($output, $file.FullName, $name,
                 [IO.Compression.CompressionLevel]::Optimal) | Out-Null
         }
     } finally { $output.Dispose() }
+}
+function Get-ReleaseRelativePath([string]$Base, [string]$Path) {
+    # Windows PowerShell 5.1 runs on .NET Framework, which has no
+    # Path.GetRelativePath; use URI-relative paths for the release manifest.
+    $baseFull = [IO.Path]::GetFullPath($Base).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    $pathFull = [IO.Path]::GetFullPath($Path)
+    $baseUri = [Uri]::new($baseFull)
+    $pathUri = [Uri]::new($pathFull)
+    return [Uri]::UnescapeDataString($baseUri.MakeRelativeUri($pathUri).ToString()).Replace('/', [IO.Path]::DirectorySeparatorChar)
 }
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $bin = Join-Path $Toolchain 'bin'
@@ -152,7 +161,7 @@ try {
     }
     $files = Get-ChildItem -LiteralPath $stage -Recurse -File
     $manifest = foreach ($file in $files) {
-        [pscustomobject]@{Path=[IO.Path]::GetRelativePath($stage,$file.FullName); Bytes=$file.Length; SHA256=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
+        [pscustomobject]@{Path=(Get-ReleaseRelativePath $stage $file.FullName); Bytes=$file.Length; SHA256=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
     }
     $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $stage 'files.sha256.json') -Encoding utf8
     $zip = Join-Path $out "ParallelFinder-$tag-Portable-x64.zip"
