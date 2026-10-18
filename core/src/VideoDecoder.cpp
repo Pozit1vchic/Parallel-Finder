@@ -754,8 +754,12 @@ void VideoDecoder::seek(double timestampSeconds)
         impl_->frameAvailable = false;
     }
     const AVStream* stream = impl_->format->streams[impl_->streamIndex];
-    const int64_t timestamp = static_cast<int64_t>(std::max(0.0, timestampSeconds) / av_q2d(stream->time_base));
-    const int result = av_seek_frame(impl_->format, impl_->streamIndex, timestamp, AVSEEK_FLAG_BACKWARD);
+    const double streamTimestamp = std::max(0.0, timestampSeconds) / av_q2d(stream->time_base);
+    const int64_t timestamp = static_cast<int64_t>(streamTimestamp)
+        + (stream->start_time == AV_NOPTS_VALUE ? 0 : stream->start_time);
+    const int result = avformat_seek_file(impl_->format, impl_->streamIndex,
+        std::numeric_limits<int64_t>::min(), timestamp,
+        std::numeric_limits<int64_t>::max(), AVSEEK_FLAG_BACKWARD);
     if (result < 0) throw std::runtime_error("seek: " + ffError(result));
     avcodec_flush_buffers(impl_->codec); impl_->draining = false;
     // av_seek_frame with BACKWARD lands on the preceding keyframe. Discard
