@@ -7,13 +7,22 @@ param(
     [string]$ChangelogPath
 )
 $ErrorActionPreference = 'Stop'
+function Get-ReleaseRelativePath([string]$Base, [string]$Path) {
+    # Windows PowerShell 5.1 runs on .NET Framework, which has no
+    # Path.GetRelativePath; use URI-relative paths for the signed manifest.
+    $baseFull = [IO.Path]::GetFullPath($Base).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    $pathFull = [IO.Path]::GetFullPath($Path)
+    $baseUri = [Uri]::new($baseFull)
+    $pathUri = [Uri]::new($pathFull)
+    return [Uri]::UnescapeDataString($baseUri.MakeRelativeUri($pathUri).ToString()).Replace('/', [IO.Path]::DirectorySeparatorChar)
+}
 $outputDirectory = Split-Path -Parent $Package
 $manifestPath = Join-Path $outputDirectory 'update.json'
 $signaturePath = Join-Path $outputDirectory 'update.json.sig'
 $publicKey = Join-Path $PSScriptRoot 'update-public-key.pem'
 $files = @(Get-ChildItem -LiteralPath $Stage -Recurse -File | Sort-Object FullName | ForEach-Object {
     [ordered]@{
-        path = [IO.Path]::GetRelativePath($Stage, $_.FullName).Replace([IO.Path]::DirectorySeparatorChar, '/')
+        path = (Get-ReleaseRelativePath $Stage $_.FullName).Replace([IO.Path]::DirectorySeparatorChar, '/')
         size = $_.Length
         sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     }
