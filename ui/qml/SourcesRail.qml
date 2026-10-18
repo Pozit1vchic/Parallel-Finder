@@ -158,7 +158,7 @@ Rectangle {
             }
             }
             RowLayout { Layout.fillWidth: true; spacing: 7
-                PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.add"); onClicked: root.filesRequested([]) }
+                PfButton { objectName: "addSourcesButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.add"); onClicked: root.filesRequested([]) }
                 PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.folder"); quiet: true; onClicked: root.folderRequested() }
             }
             RowLayout { Layout.fillWidth: true; spacing: 7

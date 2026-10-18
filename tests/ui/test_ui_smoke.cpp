@@ -26,6 +26,7 @@
 #include <QTemporaryDir>
 #include <pfservices/SettingsStore.hpp>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QMediaPlayer>
@@ -1328,13 +1329,13 @@ void UiSmokeTests::movementClassesAndExportOrder()
     auto* popup=window->findChild<QObject*>("exportDialog"); QVERIFY(popup);
     popup->setProperty("results",records); popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true}});
     QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"head_pose","raise","step"}));
-    QVERIFY(QMetaObject::invokeMethod(popup,"moveClass",Q_ARG(QVariant,2),Q_ARG(QVariant,-1)));
-    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"head_pose","step","raise"}));
     popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true}});
-    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"step","raise"}));
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"raise","step"}));
     popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true}});
-    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"step","raise","head_pose"}));
-    auto* folders=popup->findChild<QObject*>("exportClassFoldersCheck"); QVERIFY(folders); QVERIFY(folders->property("checked").toBool());
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"head_pose","raise","step"}));
+    // Folder-per-class selection was removed with the compact export flow;
+    // exports use the same class grouping in a single destination.
+    QVERIFY(!popup->findChild<QObject*>("exportClassFoldersCheck"));
     auto* picker=rail->findChild<QObject*>("resultClassPicker"); QVERIFY(picker);
     QSignalSpy requested(rail,SIGNAL(pairClassRequested(int,QString))); QVERIFY(requested.isValid());
     std::function<QQuickItem*(QQuickItem*)> findClassButton = [&](QQuickItem* item) -> QQuickItem* {
@@ -1372,9 +1373,6 @@ void UiSmokeTests::movementClassesAndExportOrder()
         QVariantMap{{"id",5},{"classification","obsolete_type"}},
         QVariantMap{{"id",6},{"classification","head_turn"}},
         QVariantMap{{"id",7},{"classification","turn"}}};
-    // The test replaces the model directly, representing a new analysis. In
-    // production the resultsChanged signal also clears this custom order.
-    popup->setProperty("classOrderCustomized",false);
     rail->setProperty("results",detailed);QTest::qWait(100);
     const auto grouped=values(rail->property("visibleResults")).toList();
     QCOMPARE(grouped.size(),8);
@@ -2174,34 +2172,24 @@ void UiSmokeTests::exportModesAreSelectable()
     QCOMPARE(popup->property("fileBaseName").toString(), QStringLiteral("frame"));
     QVERIFY(QMetaObject::invokeMethod(popup, "open"));
     QTRY_VERIFY(popup->property("opened").toBool());
-    const auto click = [&](const char* name) {
-        auto* button = popup->findChild<QQuickItem*>(name);
-        if (!button) return false;
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
-            button->mapToScene(QPointF(button->width()/2, button->height()/2)).toPoint());
-        return button->property("selected").toBool();
-    };
     QCOMPARE(popup->property("selectedCutMode").toInt(), 0);
-    QVERIFY(click("fastCutButton"));
-    QCOMPARE(popup->property("selectedCutMode").toInt(), 1);
-    QVERIFY(click("exactCutButton"));
+    // Cut mode and numbering are intentionally fixed: exports use exact
+    // matched boundaries and the same stable classification order as results.
     QCOMPARE(popup->property("selectedCutMode").toInt(), 0);
-    QVERIFY(click("sortNumberingButton"));
-    QCOMPARE(popup->property("selectedNumbering").toInt(), 1);
-    QVERIFY(click("videoNumberingButton"));
-    QCOMPARE(popup->property("selectedNumbering").toInt(), 0);
+    QVERIFY(!popup->findChild<QQuickItem*>("fastCutButton"));
+    QVERIFY(!popup->findChild<QQuickItem*>("exactCutButton"));
+    auto* quality = popup->findChild<QObject*>("exportQualityMode"); QVERIFY(quality);
+    QCOMPARE(quality->property("count").toInt(), 3);
     auto* merge = popup->findChild<QObject*>("mergeChronologicalCheck");
     QVERIFY(merge);
     merge->setProperty("checked", true);
     QVERIFY(popup->property("mergeChronological").toBool());
     QCOMPARE(popup->property("selectedCutMode").toInt(), 0);
-    QVERIFY(!popup->findChild<QQuickItem*>("fastCutButton")->isEnabled());
     const auto capture = qEnvironmentVariable("PF_UI_CAPTURE_DIR");
     if (!capture.isEmpty()) { QDir().mkpath(capture); QTest::qWait(150); QVERIFY(window->grabWindow().save(capture + "/montage-export.png")); }
     merge->setProperty("checked", false);
-    auto* quality = popup->findChild<QObject*>("exportQualityMode"); QVERIFY(quality);
-    quality->setProperty("currentIndex", 4);
-    QVERIFY(QMetaObject::invokeMethod(quality, "activated", Q_ARG(int, 4)));
+    quality->setProperty("currentIndex", 0);
+    QVERIFY(QMetaObject::invokeMethod(quality, "activated", Q_ARG(int, 0)));
     QVERIFY(popup->property("losslessExport").toBool());
     QCOMPARE(popup->property("selectedCutMode").toInt(), 2);
     merge->setProperty("checked", true);
@@ -2376,7 +2364,9 @@ Item {
     QVERIFY(center && rail);
     std::function<bool(QQuickItem*, const QString&)> containsLabel =
         [&](QQuickItem* item, const QString& prefix) {
-            if (item->property("text").toString().startsWith(prefix)) return true;
+            const auto visibleText = item->property("text").toString()
+                .remove(QRegularExpression(QStringLiteral("<[^>]*>")));
+            if (visibleText.startsWith(prefix)) return true;
             for (auto* child : item->childItems())
                 if (containsLabel(child, prefix)) return true;
             return false;

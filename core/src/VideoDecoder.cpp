@@ -758,7 +758,12 @@ void VideoDecoder::seek(double timestampSeconds)
     const int result = av_seek_frame(impl_->format, impl_->streamIndex, timestamp, AVSEEK_FLAG_BACKWARD);
     if (result < 0) throw std::runtime_error("seek: " + ffError(result));
     avcodec_flush_buffers(impl_->codec); impl_->draining = false;
-    impl_->lastDelivered = impl_->recoveryTarget = -std::numeric_limits<double>::infinity();
+    // av_seek_frame with BACKWARD lands on the preceding keyframe. Discard
+    // decoded preroll until the requested presentation timestamp instead of
+    // returning an earlier frame to previews or export verification.
+    impl_->recoveryTarget = std::max(0.0, timestampSeconds);
+    impl_->recoveryIncludeTarget = true;
+    impl_->lastDelivered = -std::numeric_limits<double>::infinity();
 }
 
 void VideoDecoder::rewind() { seek(0.0); }

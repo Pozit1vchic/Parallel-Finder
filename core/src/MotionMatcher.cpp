@@ -2187,18 +2187,22 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     }
     result.similarity = std::clamp(calibrated, 0.0, 0.994);
     if (identity.motionCandidate && !identity.verified) {
-        // The original-source Soldier Boy walk fixture has body-ReID 0.7535:
-        // below the strict 0.76 identity gate, despite strong aligned motion.
-        // Require independent agreement across the DTW path, sustained run,
-        // and direction channels before that small body-only gap can pass.
-        constexpr double minimumBodyOnlyDtw = 0.78;
-        constexpr double minimumBodyOnlyTemporal = 0.70;
-        constexpr double minimumBodyOnlyDirection = 0.70;
-        if (staticPair || result.similarity < params.similarityThreshold
+        // Profile/back views can lower appearance and anatomy similarity while
+        // the same person's body descriptor and aligned motion remain strong.
+        // Close only this narrow identity gap; still require agreement from
+        // independent temporal, DTW, direction, and anatomy evidence.
+        constexpr double minimumBodyOnlyScore = 0.64;
+        constexpr double minimumBodyOnlyDtw = 0.70;
+        constexpr double minimumBodyOnlyTemporal = 0.64;
+        constexpr double minimumBodyOnlyDirection = 0.68;
+        constexpr double minimumBodyOnlyAnatomy = 0.35;
+        if (staticPair || result.similarity < minimumBodyOnlyScore
             || dtwScore < minimumBodyOnlyDtw
             || temporalScore < minimumBodyOnlyTemporal
-            || directionScore < minimumBodyOnlyDirection)
+            || directionScore < minimumBodyOnlyDirection
+            || anatomyScore < minimumBodyOnlyAnatomy)
             return reject(MotionRejection::Identity);
+        result.similarity = std::max(result.similarity, params.similarityThreshold);
         result.appearanceVerified = true;
     }
     if (std::getenv("PF_DEBUG_MATCHER") != nullptr && result.similarity >= params.similarityThreshold)

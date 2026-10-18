@@ -171,7 +171,7 @@ TEST(VideoDecoder, OpensFixtureReadsFramesAndSeeks)
     decoder.seek(0.5);
     pfcore::DecodedFrame afterSeek;
     ASSERT_TRUE(decoder.readNext(afterSeek));
-    EXPECT_GE(afterSeek.timestampSeconds, 0.0);
+    EXPECT_GE(afterSeek.timestampSeconds, 0.5 - 1e-6);
 }
 
 TEST(VideoDecoder, RejectsMissingFile)

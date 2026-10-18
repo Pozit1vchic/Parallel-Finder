@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import QtQuick.Effects
-import Qt.labs.settings
+import QtCore
 import PfUi
 import PfUiBridge
 
@@ -55,11 +55,17 @@ Popup {
             const classification = L10n.movementKey(item.classification)
             if (present.indexOf(classification) < 0) present.push(classification)
         }
-        const ordered = []
-        for (const type of L10n.movementTypes)
-            if (present.indexOf(type) >= 0 && ordered.indexOf(type) < 0) ordered.push(type)
-        for (const type of present) if (ordered.indexOf(type) < 0) ordered.push(type)
-        classOrder = ordered
+        function rank(key) {
+            return Math.min.apply(null, key.split("+").map(function(action) {
+                const index = L10n.movementTypes.indexOf(action)
+                return index < 0 ? L10n.movementTypes.length : index
+            }))
+        }
+        classOrder = present.sort(function(a, b) {
+            return rank(a) - rank(b)
+                || a.split("+").length - b.split("+").length
+                || a.localeCompare(b)
+        })
     }
     function selectedIndexes() {
         return root.results

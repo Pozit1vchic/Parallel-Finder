@@ -735,19 +735,22 @@ std::vector<SceneViewObservation> sampleSceneViews(VideoDecoder& decoder,
         // Avoid decoding the same long HEVC GOP again for neighbouring shots.
         // Conversion and PTS admission stay identical to independent seeks.
         const bool seeked=!available || r.target-frame.timestampSeconds>seekCostSeconds;
-        std::size_t traversed=0;
+        const auto decodedBeforeSeek = decoder.diagnostics().decodedFrames;
         if(seeked) {
             decoder.seek(r.target); available=false; currentPixels.clear();
         }
         while(!available || frame.timestampSeconds+1e-6<r.target) {
             if(cancelled && cancelled())return result;
             if(!decoder.readNext(frame,false)) {available=false;break;}
-            available=true;currentPixels.clear();++traversed;
+            available=true;currentPixels.clear();
         }
         // Learn actual keyframe-to-target work. A 10-second GOP should not
         // be reconstructed for every target three seconds apart. PTS/pixel
         // admission stays unchanged; sparse gaps still seek instead of scanning.
-        if(adaptiveSeek && seeked && available)seekCostSeconds=std::clamp(traversed/fps,2.0,30.0);
+        if(adaptiveSeek && seeked && available) {
+            const auto decoded = decoder.diagnostics().decodedFrames - decodedBeforeSeek;
+            seekCostSeconds=std::clamp(double(decoded)/fps,2.0,30.0);
+        }
         if(available && frame.timestampSeconds>=r.start && frame.timestampSeconds<=r.end+1e-6) {
             if(currentPixels.empty() && decoder.convertCurrentFrameToRgba(frame))
                 currentPixels=sceneViewDescriptor({frame.timestampSeconds,frame.width,frame.height,frame.rgba});

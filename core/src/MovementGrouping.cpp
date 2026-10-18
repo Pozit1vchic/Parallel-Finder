@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include <iterator>
+#include <numbers>
 #include <optional>
 
 namespace pfcore {
@@ -184,7 +185,7 @@ bool supportedHeadMotion(const Trace& motion) {
     // Pose landmarks jitter around a stationary face. A range-only test turns
     // that jitter into a head turn; require either a sustained endpoint shift
     // or one clearly supported out-and-back action.
-    return std::abs(motion.delta)>=std::max(.08,motion.extent*.45)
+    return (motion.reversals==0 && std::abs(motion.delta)>=std::max(.08,motion.extent*.45))
         || (motion.returning && motion.reversals==1 && motion.extent>=.22);
 }
 struct Decision {
@@ -333,7 +334,8 @@ Decision classifyAction(const std::vector<Observation>& samples,bool headOnly,bo
         return vertical ? s.head->y:s.head->x;
     },.075);};
     const auto hx=head(false),hy=head(true);
-    if(geometricHead && hx&&hy) {
+    if(hx&&hy) {
+      if(geometricHead) {
         const auto ear=trace(samples,[](const Observation& s){return s.earVisibility;},.5);
         // Foreshortened eye separation makes the vertical nose ratio grow
         // during yaw too. A sustained ear occlusion agreeing with lateral
@@ -359,11 +361,13 @@ Decision classifyAction(const std::vector<Observation>& samples,bool headOnly,bo
         if(hy->extent>=.16 && hy->extent>hx->extent*1.3 && supportedHeadMotion(*hy))
             return {hy->returning ? GestureClass::HeadNod:GestureClass::HeadTilt,
                 std::min(hy->coverage,std::clamp(hy->extent/.24,0.,1.))};
+      }
         // Keep the stillness boundary aligned with the movement threshold:
         // otherwise the interval between normal landmark jitter and a real
         // head action becomes a large bucket of false "unknown" results.
-        if(headOnly && hx->extent<.12 && hy->extent<.12)
+        if(headOnly && hx->extent<(geometricHead?.08:.12) && hy->extent<(geometricHead?.08:.12)) {
             return {GestureClass::Static,std::min(hx->coverage,hy->coverage)};
+        }
     }
     if(headOnly)return {};
     const auto jointAxis=[&](int joint,bool vertical) {return trace(samples,[&](const Observation& s)->std::optional<double> {
@@ -420,9 +424,35 @@ std::vector<HeadOrientationSample> headMotionEvidence(const MotionWindow& window
     }
     return samples;
 }
+bool smallUncertainHeadDrift(const MotionWindow& window,double start,double end) {
+    const auto samples=headMotionEvidence(window,start,end);
+    std::vector<const HeadOrientationSample*> observed;
+    for(const auto& sample:samples)if(sample.observed
+        && std::all_of(sample.rotation.begin(),sample.rotation.end(),[](double value){return std::isfinite(value);}))
+        observed.push_back(&sample);
+    if(observed.size()<5 || observed.back()->time-observed.front()->time<.3)return false;
+    double maximum=0;
+    for(std::size_t i=0;i<observed.size();++i)for(std::size_t j=i+1;j<observed.size();++j) {
+        const auto& a=observed[i]->rotation;const auto& b=observed[j]->rotation;
+        double trace=0;
+        for(int row=0;row<3;++row)for(int column=0;column<3;++column)
+            trace+=a[row*3+column]*b[row*3+column];
+        const double cosine=std::clamp((trace-1.)*.5,-1.,1.);
+        maximum=std::max(maximum,std::acos(cosine)*180./std::numbers::pi);
+    }
+    // The orientation model deliberately abstains in the 8–12 degree band.
+    // At grouping time, treat this sub-action drift as static only when the
+    // tracked body is also stable; larger or unobserved motion stays unknown.
+    return maximum>=8. && maximum<12.;
+}
 MovementClassification classifyHeadWithGeometricFallback(const MotionWindow& window,
     const std::vector<Observation>& observations,double start,double end) {
     auto result=classifyHeadOrientation(headMotionEvidence(window,start,end),start,end);
+    if(result.gesture==GestureClass::Unknown && !window.headOrientations.empty()) {
+        const bool anyObserved=std::any_of(window.headOrientations.begin(),window.headOrientations.end(),
+            [&](const auto& sample){return sample.time>=start-1e-6 && sample.time<end-1e-6 && sample.observed;});
+        if(!anyObserved)return result;
+    }
     if(result.gesture==GestureClass::Unknown) {
         // The learned orientation has an intentional uncertainty band. When
         // the face and shoulders are still observable, geometric evidence can
@@ -451,6 +481,9 @@ MovementClassification MovementClassifier::classifyGeometricForGrouping(const Mo
             learnedHead.directionConfidence=displacement.directionConfidence;
             return learnedHead;
         }
+        const bool anyObserved=std::any_of(window.headOrientations.begin(),window.headOrientations.end(),
+            [&](const auto& sample){return sample.time>=start-1e-6 && sample.time<end-1e-6 && sample.observed;});
+        if(!anyObserved)return learnedHead;
     }
     const auto ref=reference(window,start,end);
     std::vector<Observation> observations;std::size_t total=0;double previous=-INFINITY;
@@ -472,10 +505,15 @@ MovementClassification MovementClassifier::classifyGeometricForGrouping(const Mo
         return result;
     }
     if(headOnly) {
-        const auto decision=classifyAction(observations,true,true);
+        const auto decision=classifyAction(observations,true,window.headOrientations.empty());
         result.gesture=decision.type;
         result.gestureConfidence=decision.strength;
         result.actions=decision.actions;
+        if(result.gesture==GestureClass::Unknown && hasLearnedHead
+            && smallUncertainHeadDrift(window,start,end)) {
+            result.gesture=GestureClass::Static;
+            result.gestureConfidence=learnedHead.gestureConfidence;
+        }
         if(result.gesture==GestureClass::Unknown && hasLearnedHead)result=learnedHead;
         const auto displacement=classify(window,start,end);
         result.direction=displacement.direction;result.directionConfidence=displacement.directionConfidence;
@@ -512,7 +550,8 @@ MovementClassification MovementClassifier::classifyGeometricForGrouping(const Mo
         const auto head=classifyHeadWithGeometricFallback(window,observations,start,end);
         // Body-static evidence excluded facial keypoints above. An unobserved
         // head therefore cannot certify that the complete person is static.
-        if(result.gesture==GestureClass::Static && head.gesture==GestureClass::Unknown)
+        if(result.gesture==GestureClass::Static && head.gesture==GestureClass::Unknown
+            && !smallUncertainHeadDrift(window,start,end))
             return {};
         const bool geometricHead=result.gesture==GestureClass::HeadTurn
             || result.gesture==GestureClass::HeadTilt || result.gesture==GestureClass::HeadNod;
