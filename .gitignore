@@ -1,5 +1,6 @@
 # Build output
 /build/
+/build-*/
 /out/
 /dist/
 /release/
@@ -104,9 +105,11 @@ compile_commands.json
 
 # Test source and small fixtures belong in the repository.
 /tests/artifacts/
+/Testing/
 coverage/
 *.gcda
 *.gcno
+*.gcov
 *.profraw
 /artifacts/
 .env
@@ -140,6 +143,8 @@ audit*.md
 !/AUDIT.md
 !/docs/release-audit.md
 !/docs/analysis-audit-2026-10-10.md
+!/docs/memory-audit.md
+!/docs/video-action-audit-2026-10-14.md
 !/tools/benchmark/audit_project.ps1
 !/tools/benchmark/check_reference_pairs.ps1
 !/tools/benchmark/install_face_models.ps1

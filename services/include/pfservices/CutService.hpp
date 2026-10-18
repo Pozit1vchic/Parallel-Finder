@@ -2,10 +2,12 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <stop_token>
 #include <mutex>
 #include <optional>
 #include <functional>
+#include <QString>
 #include <pfservices/FfmpegCapabilities.hpp>
 
 namespace pfservices {
@@ -13,9 +15,14 @@ namespace pfservices {
 enum class CutMode {
     Exact,
     Fast,
-    // Exact decoded pixels/samples in MOV; no format conversion or lossy fallback.
+    // Pixel/audio-preserving re-encode. Kept after the existing values so
+    // older callers that pass Exact=0 or Fast=1 remain source-compatible.
     ExactLossless,
 };
+
+// Supported video containers for user initiated exports. Exact lossless
+// output is restricted to MOV to preserve decoded pixels and audio samples.
+[[nodiscard]] bool isSupportedVideoContainer(std::string_view extension);
 
 struct CutRequest {
     std::filesystem::path inputPath;
@@ -27,7 +34,8 @@ struct CutRequest {
     int quality = 18;
     int videoBitrateKbps = 0;
     // Optional output ceiling. Zero leaves the source dimensions unchanged.
-    // Resizing requires Exact mode because Fast mode stream-copies frames.
+    // Resizing requires Exact re-encoding because Fast stream-copies and
+    // ExactLossless preserves the source pixel dimensions.
     int maxWidth = 0;
     int maxHeight = 0;
     // Internal montage normalization. Ordinary clips leave these unset.
@@ -36,12 +44,16 @@ struct CutRequest {
     double outputFrameRate = 0.0;
     bool ensureStereoAudio = false;
     bool sourceHasAudio = true;
+    // Optional in-picture label for a result transition. Burned into the
+    // output video, so it requires re-encoding and cannot be pixel-lossless.
+    QString transitionSignature;
+    // Queue-assigned share of the machine's encoder threads. Zero keeps the
+    // standalone CutService default based on the logical CPU count.
+    unsigned workerThreads = 0;
     std::stop_token stopToken;
     // Zero allows long source scenes; UI cancellation remains responsive.
     // Preview/automation callers may opt into a finite deadline.
     int timeoutMs = 0;
-    // Batch scheduler budget; zero preserves bounded automatic standalone use.
-    unsigned workerThreads = 0;
     // Abort a stuck encoder, not a slowly advancing or long clip. Zero disables.
     int stallTimeoutMs = 120000;
     // Called on the export worker, with encoded seconds relative to this clip.

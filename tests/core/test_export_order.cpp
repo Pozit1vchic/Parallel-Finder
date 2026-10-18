@@ -6,13 +6,48 @@ TEST(ExportOrder, MissingGroupsPrecedeMachineClassesButExplicitOrderIsKept)
     const QVariantList records{
         QVariantMap{{"manualGroup","Zeta"}}, QVariantMap{{"manualGroup","Alpha"}},
         QVariantMap{{"manualGroup","Hidden"},{"hidden",true}}, QVariantMap{{"classification","step"}}};
-    EXPECT_EQ(pfui::effectiveExportClassOrder(records,{"step","unknown"}),
-        (QStringList{"group:Alpha","group:Zeta","step","unknown"}));
-    EXPECT_EQ(pfui::effectiveExportClassOrder(records,{"step","group:Zeta","unknown"}),
-        (QStringList{"group:Alpha","step","group:Zeta","unknown"}));
-    EXPECT_EQ(pfui::effectiveExportClassOrder(records,{"group:Zeta","group:Alpha","step"}),
+    const QVariantList selected{0,1,2,3};
+    EXPECT_EQ(pfui::effectiveExportClassOrder(records,{"step","unknown"},selected),
+        (QStringList{"group:Alpha","group:Zeta","step"}));
+    EXPECT_EQ(pfui::effectiveExportClassOrder(records,{"step","group:Zeta","unknown"},selected),
+        (QStringList{"group:Alpha","step","group:Zeta"}));
+    EXPECT_EQ(pfui::effectiveExportClassOrder(records,{"group:Zeta","group:Alpha","step"},selected),
         (QStringList{"group:Zeta","group:Alpha","step"}));
-    EXPECT_TRUE(pfui::effectiveExportClassOrder({QVariantMap{{"classification","step"}}},{}).isEmpty());
+    EXPECT_TRUE(pfui::effectiveExportClassOrder(
+        QVariantList{QVariantMap{{"classification","step"}},QVariantMap{{"classification","wave"}}}, {}, {0}).isEmpty());
+}
+
+TEST(ExportOrder, UnselectedGroupsDoNotShiftSelectedFolderPrefixes)
+{
+    const QVariantList records{
+        QVariantMap{{"manualGroup","Not selected"}},
+        QVariantMap{{"classification","head_turn_away"}},
+        QVariantMap{{"classification","step"}},
+        QVariantMap{{"manualGroup","Also not selected"}}};
+    const QStringList classifierOrder{"head_turn_away","head_turn_back","head_turn","turn",
+        "head_front","head_turned","head_pose","arms_raised","arms_extended","arms_folded",
+        "legs_bent","legs_straight","body_pose","pose_mismatch","head_nod","head_tilt",
+        "raise","lower","raise_lower","wave","push","pull","reach_return","step","static","mixed","unknown"};
+
+    // The caller supplies the complete classifier order but exports only the
+    // selected step result. Previously, the unselected manual groups were
+    // prepended and caused this class to be named 03_step instead of 01_step.
+    const auto stepOnly = pfui::effectiveExportClassOrder(records,classifierOrder,{2});
+    EXPECT_EQ(stepOnly,QStringList{"step"});
+    EXPECT_EQ(stepOnly.indexOf("step")+1,1);
+
+    // UI's default order is manual groups first, then classifier classes;
+    // the export helper must produce that same sequence for selected rows.
+    const QVariantList mixed{
+        QVariantMap{{"manualGroup","Editorial"}},
+        QVariantMap{{"classification","step"}},
+        QVariantMap{{"manualGroup","Hidden from this export"}},
+        QVariantMap{{"classification","head_turn_away"}}};
+    const auto uiDefault = pfui::effectiveExportClassOrder(mixed,classifierOrder,{0,1,3});
+    EXPECT_EQ(uiDefault,(QStringList{"group:Editorial","head_turn_away","step"}));
+    const auto userOrder = pfui::effectiveExportClassOrder(mixed,
+        {"step","group:Editorial","head_turn_away"},{0,1,3});
+    EXPECT_EQ(userOrder,(QStringList{"step","group:Editorial","head_turn_away"}));
 }
 
 TEST(ExportOrder, GroupFolderPreservesUnicodeAndAvoidsUnsafeNamesAndCollisions)
@@ -43,7 +78,7 @@ TEST(ExportOrder, SingleRightSideUsesItsOwnSourceAndTime)
     matches[2].leftSourceId="a-source";matches[2].leftStartSeconds=0;
     const QVariantList records{QVariantMap{{"manualGroup","Turn"}},QVariantMap{{"manualGroup","Turn"}},QVariantMap{{"classification","step"}}};
     EXPECT_EQ(pfui::orderedExportIndexes({0,1,2},matches,records,0,{}),(std::vector<int>{2,0,1}));
-    const auto order=pfui::effectiveExportClassOrder(records,{"step","unknown"});
+    const auto order=pfui::effectiveExportClassOrder(records,{"step","unknown"},{0,1,2});
     EXPECT_EQ(pfui::orderedExportIndexes({0,1,2},matches,records,0,order),(std::vector<int>{0,1,2}));
     EXPECT_EQ(pfui::exportGroupKey(QVariantMap{{"manualGroup","turn/away"}}),QString("group:turn/away"));
 }

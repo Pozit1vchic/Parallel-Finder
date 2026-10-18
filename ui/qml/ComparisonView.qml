@@ -33,7 +33,7 @@ Item {
     property real panX: 0
     property real panY: 0
     property real pairSignalPhase: 0
-    readonly property bool transitionRunning: pairSignal.running || frameReveal.running
+    readonly property bool transitionRunning: pairSignal.running
     signal frameUnavailable(string side)
     signal previewRequested()
     signal playbackFinished()
@@ -57,18 +57,12 @@ Item {
         from: 1; to: 0; duration: Theme.motionRevealDuration
         easing.type: Easing.OutCubic
     }
-    NumberAnimation {
-        id: frameReveal
-        target: frameImage; property: "opacity"
-        from: 0.35; to: 1; duration: Theme.motionChangeDuration
-        easing.type: Easing.OutCubic
-    }
     Connections {
         target: Theme
         function onReducedMotionChanged() {
             if (!Theme.reducedMotion) return
-            pairSignal.stop(); frameReveal.stop()
-            root.pairSignalPhase = 0; frameImage.opacity = 1
+            pairSignal.stop()
+            root.pairSignalPhase = 0
         }
     }
     function preparePlayback() {
@@ -126,15 +120,6 @@ Item {
                     if (mediaStatus === MediaPlayer.EndOfMedia) root.playbackFinished()
                 }
                 onErrorOccurred: function(error, errorString) { root.playbackFailed(errorString); root.stopPlayback() }
-            }
-        }
-    }
-    Timer {
-        interval: 25; repeat: true; running: root.playing
-        onTriggered: {
-            if (player && player.position >= root.playbackEnd * 1000) {
-                root.pausePlayback()
-                root.playbackFinished()
             }
         }
     }
@@ -236,11 +221,7 @@ Item {
                         smooth: true
                         mipmap: true
                         visible: status === Image.Ready && !root.videoMode
-                        onStatusChanged: {
-                            if (status === Image.Error) root.frameUnavailable(root.side)
-                            else if (status === Image.Ready && !Theme.reducedMotion) frameReveal.restart()
-                            else opacity = 1
-                        }
+                        onStatusChanged: if (status === Image.Error) root.frameUnavailable(root.side)
                     }
                     Loader {
                         id: videoLoader
@@ -317,6 +298,15 @@ Item {
                     enabled: root.previewPlayable && (!root.videoMode || root.playbackReady)
                     onClicked: root.previewRequested()
                 }
+            }
+        }
+    }
+    Timer {
+        interval: 25; repeat: true; running: root.playing
+        onTriggered: {
+            if (player && player.position >= root.playbackEnd * 1000) {
+                root.pausePlayback()
+                root.playbackFinished()
             }
         }
     }

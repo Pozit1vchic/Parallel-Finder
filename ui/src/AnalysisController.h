@@ -167,7 +167,10 @@ public:
                                    const QVariantList& selectedIndexes,
                                    bool mergeChronological = false,
                                    const QStringList& classOrder = {},
-                                   int encodingQuality = 18, int videoBitrateKbps = 0, bool classFolders = false);
+                                   int encodingQuality = 18, int videoBitrateKbps = 0, bool classFolders = false,
+                                   bool signEachTransition = false,
+                                   const QString& container = QStringLiteral("mp4"),
+                                   int maxWidth = 0, int maxHeight = 0);
     Q_INVOKABLE void setResultClassification(const QVariantList& ids, const QString& classification);
     Q_INVOKABLE bool exportTheme(const QString& path, const QVariantMap& theme) const;
     Q_INVOKABLE QVariantMap importTheme(const QString& path) const;

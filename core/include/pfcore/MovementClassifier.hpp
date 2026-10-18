@@ -40,12 +40,10 @@ struct MovementClassification {
     GestureClass gesture = GestureClass::Unknown;
     double directionConfidence = 0.0;
     double gestureConfidence = 0.0;
-    // Independently observed actions. Empty means the broad class cannot
-    // safely be decomposed; it must not invent facets for ambiguous motion.
+    // Atomic movement evidence retained when more than one action overlaps.
+    // This gives result grouping a stable shared facet instead of putting all
+    // composite movements into one broad "mixed" bucket.
     std::vector<GestureClass> actions;
-    // A measured head action retained when body joints are unobservable.
-    // It does not claim that the rest of the scene contains no other action.
-    bool headOnlyEvidence = false;
 };
 
 class MovementClassifier {
@@ -55,12 +53,14 @@ public:
     // probability. Unobservable/ambiguous actions remain Unknown.
     [[nodiscard]] MovementClassification classifyForGrouping(const MotionWindow& window,
         double start, double end, bool headOnly=false) const;
+    [[nodiscard]] MovementClassification classifyGeometricForGrouping(const MotionWindow& window,
+        double start, double end, bool headOnly=false) const;
+    [[nodiscard]] std::string classifyHeadTurnForGrouping(const MotionWindow& window,
+        double start, double end) const;
     [[nodiscard]] static MovementClassification combineForGrouping(
         const MovementClassification& left, const MovementClassification& right);
     [[nodiscard]] std::string classifyPoseForGrouping(const MotionWindow& window,
         double start, double end, bool headOnly) const;
-    [[nodiscard]] std::string classifyHeadTurnForGrouping(const MotionWindow& window,
-        double start, double end) const;
     [[nodiscard]] MovementClassification classify(const MotionWindow& window) const;
     [[nodiscard]] MovementClassification classify(const MotionWindow& window, double start, double end) const;
     [[nodiscard]] MovementClassification classify(const MotionWindow& left,
@@ -70,9 +70,6 @@ public:
 
     static const char* directionName(MovementDirection value) noexcept;
     static const char* gestureName(GestureClass value) noexcept;
-private:
-    MovementClassification classifyGeometricForGrouping(const MotionWindow& window,
-        double start,double end,bool headOnly) const;
 };
 
 } // namespace pfcore

@@ -20,6 +20,29 @@ ReviewDialog {
     readonly property bool bothSingles: !!record && !!donor && (Boolean(record.leftRemoved) !== Boolean(record.rightRemoved)) && (Boolean(donor.leftRemoved) !== Boolean(donor.rightRemoved))
     property bool preparing: false
 
+    function fileName(path) {
+        const parts = String(path || "").replace(/\\/g, "/").split("/")
+        return parts[parts.length - 1] || (russian ? "источник неизвестен" : "unknown source")
+    }
+    function timecode(seconds) {
+        const total = Math.max(0, Number(seconds) || 0)
+        const hours = Math.floor(total / 3600)
+        const minutes = Math.floor((total % 3600) / 60)
+        const secs = Math.floor(total % 60)
+        return [hours, minutes, secs].map(function(value) { return String(value).padStart(2, "0") }).join(":")
+    }
+    function pairChoiceLabel(row) {
+        const left = row.leftRemoved ? (russian ? "A удалена" : "A removed") : "A " + fileName(row.leftSource) + " · " + timecode(row.leftStart)
+        const right = row.rightRemoved ? (russian ? "B удалена" : "B removed") : "B " + fileName(row.rightSource) + " · " + timecode(row.rightStart)
+        return "№ " + (Number(row.id) + 1) + " · " + L10n.classificationLabel(row.classification) + " · " + left + " ↔ " + right
+    }
+    function sideChoiceLabel(row, side, removed) {
+        const letter = side === "left" ? "A" : "B"
+        const name = side === "left" ? row.leftSource : row.rightSource
+        const start = side === "left" ? row.leftStart : row.rightStart
+        return letter + (removed ? (russian ? " · удалено" : " · removed") : " · " + fileName(name) + " · " + timecode(start))
+    }
+
     function refreshCurrentRecords() {
         if (!visible || !record) return
         const current = Analysis.results.find(function(row) { return row.id === root.record.id })
@@ -99,7 +122,7 @@ ReviewDialog {
             spacing: 10
             Text {
                 Layout.fillWidth: true
-                text: root.bothSingles ? (root.russian ? "Два оставленных момента станут одной парой. Второй одиночный результат скроется; объединение можно отменить." : "The two retained moments become one pair. The donor single is hidden; combining can be undone.") : (root.russian ? "Возьми момент из другой пары и замени A или B. Исходная пара сохранится." : "Take a moment from another pair and replace A or B. The source pair stays intact.")
+                text: root.bothSingles ? (root.russian ? "Оставшиеся моменты объединятся; исходные пары можно восстановить." : "The remaining moments will be combined; the original pairs can be restored.") : (root.russian ? "Выбери сторону и момент из другой пары. Исходная пара сохранится." : "Choose a side and a moment from another pair. The original pair stays intact.")
                 color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 13
                 wrapMode: Text.WordWrap
             }
@@ -108,15 +131,15 @@ ReviewDialog {
                 spacing: 12
                 ColumnLayout {
                     Layout.fillWidth: true
-                    Text { text: root.russian ? "1 · Куда вставить" : "1 · Replace"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                    Text { text: root.russian ? "Заменить сторону" : "Replace side"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
                     PfComboBox { id: targetChoice; objectName: "composeTargetChoice"; enabled: !root.bothSingles; Layout.fillWidth: true; model: root.russian ? ["Сторона A", "Сторона B"] : ["Side A", "Side B"] }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
-                    Text { text: root.russian ? "2 · Из какой пары" : "2 · Source pair"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                    Text { text: root.russian ? "Источник" : "Source"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
                     PfComboBox {
                         id: donorChoice; objectName: "composeDonorChoice"; Layout.fillWidth: true
-                        model: root.candidates.map(function(row) { return "№ " + (Number(row.id) + 1) + " · " + L10n.classificationLabel(row.classification) })
+                        model: root.candidates.map(function(row) { return root.pairChoiceLabel(row) })
                     }
                 }
             }
@@ -135,10 +158,10 @@ ReviewDialog {
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
-                        Text { Layout.fillWidth: true; text: root.russian ? "3 · Какой момент взять" : "3 · Source moment"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
+                        Text { Layout.fillWidth: true; text: root.russian ? "Момент" : "Moment"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
                         PfComboBox {
                             id: donorSideChoice; objectName: "composeDonorSideChoice"; Layout.fillWidth: true; enabled: !root.bothSingles
-                            model: ["A" + (root.donor && root.donor.leftRemoved ? (root.russian ? " · удалено" : " · removed") : ""), "B" + (root.donor && root.donor.rightRemoved ? (root.russian ? " · удалено" : " · removed") : "")]
+                            model: root.donor ? [root.sideChoiceLabel(root.donor, "left", root.donor.leftRemoved), root.sideChoiceLabel(root.donor, "right", root.donor.rightRemoved)] : ["A", "B"]
                         }
                     }
                 }
@@ -184,7 +207,7 @@ ReviewDialog {
             }
             RowLayout {
                 Layout.fillWidth: true; spacing: 12
-                Text { Layout.fillWidth: true; text: root.russian ? "Границы момента сохранятся. Замену можно отменить." : "The clip boundaries stay intact. You can undo the replacement."; color: Theme.textSecondary; wrapMode: Text.WordWrap; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                Item { Layout.fillWidth: true }
                 PfButton {
                     objectName: "composeApplyButton"
                     text: root.bothSingles ? (root.russian ? "Объединить моменты" : "Combine moments") : (root.russian ? "Применить замену" : "Apply replacement")

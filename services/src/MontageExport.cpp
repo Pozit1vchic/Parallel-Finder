@@ -24,7 +24,8 @@
 namespace pfservices {
 CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
     const std::filesystem::path& output, std::stop_token stop,
-    MontageProgress progress, const std::string& executable, bool preserveInputOrder)
+    MontageProgress progress, const std::string& executable, bool preserveInputOrder,
+    int maxWidth, int maxHeight)
 {
     CutResult result;
     const auto cancelled = [&] {
@@ -38,11 +39,25 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
     if (clips.empty() || output.empty()) { result.error = "no montage clips or output"; return result; }
     const auto mode=clips.front().mode;
     const bool exactLossless=mode==CutMode::ExactLossless;
-    if(exactLossless && QString::fromStdWString(output.extension().wstring()).toLower()!=".mov") {
-        result.error="exact lossless montage requires a MOV destination";
+    const QString outputExtension = QString::fromStdWString(output.extension().wstring()).toLower();
+    if (!isSupportedVideoContainer(outputExtension.toStdString())) {
+        result.error = "unsupported video container; choose MP4, MOV, MKV, or WebM";
+        return result;
+    }
+    if (maxWidth < 0 || maxHeight < 0 || maxWidth == 1 || maxHeight == 1
+        || maxWidth > 32768 || maxHeight > 32768) {
+        result.error = "invalid maximum output dimensions";
+        return result;
+    }
+    if (exactLossless && (outputExtension != ".mov" || maxWidth || maxHeight)) {
+        result.error="exact lossless montage requires MOV without a resolution limit";
         return result;
     }
     const bool streamCopy = clips.front().mode == CutMode::Fast;
+    if (streamCopy && (maxWidth || maxHeight)) {
+        result.error = "resolution cap requires exact re-encoding";
+        return result;
+    }
     if (std::any_of(clips.begin(), clips.end(), [mode](const auto& clip) {
         return clip.mode != mode;
     })) { result.error = "montage clips must use the same cut mode"; return result; }
@@ -95,7 +110,7 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
                 }
             }
         }
-        const auto canvas = detail::montageCanvas(first);
+        const auto canvas = detail::montageCanvas(first, maxWidth, maxHeight);
         if (!canvas) { result.error = "montage display dimensions exceed the safe limit"; return result; }
         const auto [width, height] = *canvas;
         const double fps = first.frameRate > 0.0 && std::isfinite(first.frameRate) ? first.frameRate : 25.0;
@@ -117,7 +132,7 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
                     || ready.ensureStereoAudio || ready.videoBitrateKbps))
                     throw std::runtime_error("exact lossless montage cannot resize, normalize, or limit bitrate");
                 ready.outputPath = std::filesystem::path(staging.filePath(QString::number(i)
-                    + (exactLossless ? ".mov" : ".mp4")).toStdWString());
+                    + outputExtension).toStdWString());
                 ready.mode = mode;
                 ready.maxWidth = ready.maxHeight = 0;
                 ready.canvasWidth = streamCopy || exactLossless ? 0 : width;
@@ -157,7 +172,7 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
                 }
                 preparedSignature=signature;
             }
-            const QString spliceName = streamCopy ? staging.filePath(QString::number(i) + "-splice.mp4") : name;
+            const QString spliceName = streamCopy ? staging.filePath(QString::number(i) + "-splice" + outputExtension) : name;
             const double clipDuration = streamCopy
                 ? pfcore::prepareStreamCopySplice(name.toUtf8().toStdString(), spliceName.toUtf8().toStdString(), stop)
                 : (exactLossless ? request.endSeconds-request.startSeconds
@@ -183,11 +198,14 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             else program = QStandardPaths::findExecutable(program);
         }
         QProcess process;
-        const QString combinedPath=staging.filePath(exactLossless ? "combined.mov" : "combined.mp4");
+        const QString combinedPath=staging.filePath(QStringLiteral("combined") + outputExtension);
         process.setProgram(program);
-        process.setArguments({"-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-nostats", "-progress", "pipe:1",
-            "-f", "concat", "-safe", "1", "-auto_convert", streamCopy ? "0" : "1", "-i", list, "-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart",
-            combinedPath});
+        QStringList muxArguments{"-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-nostats", "-progress", "pipe:1",
+            "-f", "concat", "-safe", "1", "-auto_convert", streamCopy ? "0" : "1", "-i", list, "-map", "0:v:0", "-map", "0:a?", "-c", "copy"};
+        if (outputExtension == ".mp4" || outputExtension == ".mov")
+            muxArguments << "-movflags" << "+faststart";
+        muxArguments << combinedPath;
+        process.setArguments(muxArguments);
         if(exactLossless) {
             auto arguments=process.arguments();arguments.prepend("-copyts");process.setArguments(arguments);
         }

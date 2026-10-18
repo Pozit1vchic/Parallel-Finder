@@ -2,70 +2,149 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import QtQuick.Effects
+import Qt.labs.settings
 import PfUi
 import PfUiBridge
 
 Popup {
     id: root
     objectName: "exportDialog"
+
     property bool backdropClosing: false
-    onAboutToShow: { backdropClosing = false; if (!Analysis.exportBusy) exportStatus = ""; centerInWindow(); Qt.callLater(restoreQualityChoice) }
-    onAboutToHide: backdropClosing = true
-    property int qualityChoice: 1
-    function restoreQualityChoice() { qualityMode.currentIndex = qualityChoice }
-    readonly property int encodingQuality: [14, 18, 22, 18, 18][qualityChoice]
-    readonly property bool losslessExport: qualityChoice === 4
-    readonly property int videoBitrateKbps: qualityChoice === 3 ? Math.round(Number(bitrateField.text.replace(",", ".")) * 1000) : 0
-    readonly property bool qualityValid: qualityChoice !== 3 || (isFinite(videoBitrateKbps) && videoBitrateKbps >= 1000 && videoBitrateKbps <= 500000)
-    readonly property bool canStartExport: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
-        && (selectedFormat !== "FFMPEG" || selectedCutMode === 1 || qualityValid)
-        && selectedIndexes().length > 0 && outputFolder.trim().length > 0
-    readonly property int selectedNumbering: exportNumbering.currentIndex
-    readonly property int selectedCutMode: losslessExport ? 2 : mergeChronological ? 0 : cutMode.currentIndex
-    readonly property bool mergeChronological: selectedFormat === "FFMPEG" && mergeCheck.checked
-    readonly property string selectedFormat: ["FFMPEG", "JSON", "CSV", "TXT"][exportFormat.currentIndex] || "FFMPEG"
-    readonly property string fileBaseName: prefixField.text
+    property bool userPositioned: false
+    property bool baseNameCustomized: false
     property real entranceOffset: 0
     property var rootWindow
     property var selectedRows: ({})
     property var selectionOrder: []
-    property string outputFolder: ""
+    property string outputFolder: exportPreferences.lastOutputFolder
     property string exportStatus: ""
     property var results: { Analysis.resultCategoryRevision; return Analysis.results }
     property var classOrder: []
-    property bool classOrderCustomized: false
+
+    property int qualityChoice: 1 // lossless, high, custom
+    readonly property bool losslessExport: qualityChoice === 0
+    readonly property bool customQuality: qualityChoice === 2
+    readonly property bool mergeChronological: selectedFormat === "FFMPEG" && mergeCheck.checked
+    readonly property string selectedFormat: ["FFMPEG", "JSON", "CSV", "TXT"][exportFormat.currentIndex] || "FFMPEG"
+    readonly property string fileBaseName: prefixField.text.trim()
+    readonly property string selectedContainer: containerMode.currentIndex >= 0
+        ? ["mp4", "mov", "mkv", "webm"][containerMode.currentIndex] : "mp4"
+    readonly property int selectedCutMode: losslessExport ? 2 : 0
+    readonly property int encodingQuality: 18
+    readonly property int videoBitrateKbps: customQuality
+        ? Math.round(Number(bitrateField.text.replace(",", ".")) * 1000) : 0
+    readonly property int maxWidth: customQuality ? parsedDimension(widthField.text) : 0
+    readonly property int maxHeight: customQuality ? parsedDimension(heightField.text) : 0
+    readonly property bool qualityValid: !customQuality
+        || (isFinite(videoBitrateKbps) && videoBitrateKbps >= 1000 && videoBitrateKbps <= 500000
+            && maxWidth >= 0 && maxHeight >= 0)
+
+    function defaultBaseName() { return mergeCheck.checked ? "frame_combined" : "frame" }
+    function parsedDimension(value) {
+        const raw = String(value || "").trim()
+        if (raw.length === 0) return 0
+        const parsed = Number(raw)
+        return Number.isFinite(parsed) && parsed >= 2 && parsed <= 32768 ? Math.round(parsed) : -1
+    }
+    function restoreQualityChoice() { qualityMode.currentIndex = qualityChoice }
     function refreshClasses() {
         const present = []
         for (const item of root.results) {
             if (root.selectedRows[item.id] !== true || item.hidden) continue
-            const classification = L10n.exportGroupKey(item)
+            const classification = L10n.movementKey(item.classification)
             if (present.indexOf(classification) < 0) present.push(classification)
         }
-        const next = classOrderCustomized
-            ? classOrder.filter(function(type) { return present.indexOf(type) >= 0 }) : []
-        for (const type of L10n.exportGroupKeys(results)) if (present.indexOf(type) >= 0 && next.indexOf(type) < 0) next.push(type)
-        classOrder = next
+        const ordered = []
+        for (const type of L10n.movementTypes)
+            if (present.indexOf(type) >= 0 && ordered.indexOf(type) < 0) ordered.push(type)
+        for (const type of present) if (ordered.indexOf(type) < 0) ordered.push(type)
+        classOrder = ordered
     }
-    function moveClass(index, direction) {
-        const target = index + direction
-        if (index < 0 || target < 0 || target >= classOrder.length) return
-        const next = classOrder.slice()
-        const color = next.splice(index, 1)[0]
-        next.splice(target, 0, color)
-        classOrderCustomized = true
-        classOrder = next
+    function selectedIndexes() {
+        return root.results
+            .filter(function(row) { return root.selectedRows[row.id] === true && !row.hidden })
+            .map(function(row) { return Number(row.id) })
     }
+    function localFolderPath(value) {
+        if (value && value.toLocalFile) {
+            const local = value.toLocalFile()
+            if (local && local.length > 0) return local
+        }
+        let text = String(value || "")
+        if (text.toLowerCase().startsWith("file:")) {
+            try { text = decodeURIComponent(text.replace(/^file:\/\//i, "")) }
+            catch (error) { text = text.replace(/^file:\/\//i, "") }
+        }
+        if (/^\/[A-Za-z]:/.test(text)) text = text.slice(1)
+        return text
+    }
+    function rememberFolder(value) {
+        const folder = localFolderPath(value).trim()
+        outputFolder = folder
+        if (folder.length > 0) exportPreferences.lastOutputFolder = folder
+    }
+    function chooseFolder() {
+        if (root.outputFolder.length > 0)
+            folderDialog.currentFolder = "file:///" + root.outputFolder.replace(/\\/g, "/")
+        folderDialog.open()
+    }
+    function setHighQuality() {
+        qualityChoice = 1
+        qualityMode.currentIndex = 1
+    }
+    function startExport() {
+        root.exportStatus = ""
+        // Always use exact boundaries and the classifier's stable type order.
+        // Lossless is an exact MOV export; ordinary/custom quality re-encodes.
+        Analysis.exportResults(
+            root.selectedFormat,
+            0,
+            root.selectedCutMode,
+            root.outputFolder,
+            root.fileBaseName,
+            root.selectedIndexes(),
+            root.mergeChronological,
+            root.classOrder,
+            root.encodingQuality,
+            root.videoBitrateKbps,
+            false,
+            signTransitionsCheck.checked,
+            root.selectedContainer,
+            root.maxWidth,
+            root.maxHeight)
+    }
+
+    readonly property string runningLabel: Analysis.exportStage === "preparing"
+        ? (L10n.language === "ru" ? "Подготовка клипа…" : "Preparing clip…")
+        : Analysis.exportStage === "finalizing"
+            ? (L10n.language === "ru" ? "Сборка ролика…" : "Assembling video…")
+            : L10n.t("export.running")
+
+    Settings {
+        id: exportPreferences
+        category: "Export"
+        property string lastOutputFolder: ""
+    }
+
+    onAboutToShow: {
+        backdropClosing = false
+        if (!Analysis.exportBusy) exportStatus = ""
+        if (!baseNameCustomized) prefixField.text = defaultBaseName()
+        centerInWindow()
+        Qt.callLater(restoreQualityChoice)
+    }
+    onAboutToHide: backdropClosing = true
     onSelectedRowsChanged: refreshClasses()
-    // The resultCategoryRevision binding also refreshes this property after a
-    // preview-only edit. Preserve the user's class order until resultsChanged
-    // announces a genuinely new analysis above.
     onResultsChanged: refreshClasses()
 
-    property bool userPositioned: false
-    modal: true; focus: true; padding: 0
+    modal: true
+    focus: true
+    padding: 0
     width: Math.min(600, rootWindow ? rootWindow.width - 40 : 560)
     height: Math.min(700, rootWindow ? rootWindow.height - 32 : 660)
-    x: 0; y: 0
+    x: 0
+    y: 0
     transformOrigin: Item.Center
     enter: Transition {
         ParallelAnimation {
@@ -83,72 +162,35 @@ Popup {
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     Overlay.modal: Rectangle { color: GraphicsInfo.api === GraphicsInfo.Software ? "#99000000" : "transparent" }
     background: Rectangle {
-        transform: Translate { y: root.entranceOffset } color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairline; layer.enabled: GraphicsInfo.api !== GraphicsInfo.Software; layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.shadowOverlay; shadowOpacity: 0.78; shadowBlur: 1.0; shadowHorizontalOffset: 0; shadowVerticalOffset: 20 } }
+        transform: Translate { y: root.entranceOffset }
+        color: Theme.heroPanel
+        radius: Theme.radiusOverlay
+        border.color: Theme.hairline
+        layer.enabled: GraphicsInfo.api !== GraphicsInfo.Software
+        layer.effect: MultiEffect {
+            shadowEnabled: true
+            shadowColor: Theme.shadowOverlay
+            shadowOpacity: 0.78
+            shadowBlur: 1.0
+            shadowHorizontalOffset: 0
+            shadowVerticalOffset: 20
+        }
+    }
+
     FolderDialog {
         id: folderDialog
         title: L10n.t("export.chooseFolder")
-        onAccepted: {
-            root.outputFolder = root.localFolderPath(selectedFolder)
-        }
+        onAccepted: root.rememberFolder(selectedFolder)
     }
     Connections {
         target: Analysis
-        function onResultsChanged() {
-            // Result ids belong to one analysis. Never reuse an old selection
-            // or a failed-montage recovery action against a new result set.
-            root.selectedRows = ({})
-            root.selectionOrder = []
-            root.exportStatus = ""
-            root.classOrderCustomized = false
-            root.classOrder = []
-            if (root.visible && !Analysis.exportBusy) root.close()
-        }
         function onExportBusyChanged() { if (Analysis.exportBusy) root.exportStatus = "" }
-        function onExportFinished(success, message) { root.exportStatus = message; if (success) root.close() }
-    }
-    function startExport() {
-        if (!root.canStartExport) {
-            root.exportStatus = Analysis.busy || Analysis.exportBusy || Analysis.reviewBusy
-                ? (L10n.language === "ru" ? "Дождись завершения текущей операции и повтори экспорт." : "Wait for the current operation to finish, then try exporting again.")
-                : (L10n.language === "ru" ? "Выбери результаты, папку и допустимые параметры экспорта." : "Choose results, an output folder and valid export settings.")
-            return false
+        function onExportFinished(success, message) {
+            root.exportStatus = message
+            if (success) root.close()
         }
-        root.exportStatus = ""
-        const accepted = Analysis.exportResults(root.selectedFormat, exportNumbering.currentIndex, root.selectedCutMode, root.outputFolder, prefixField.text, root.selectedIndexes(), root.mergeChronological, root.classOrder, root.encodingQuality, root.selectedFormat === "FFMPEG" && root.selectedCutMode === 0 ? root.videoBitrateKbps : 0, classFoldersCheck.checked)
-        // The controller can reject a start without emitting exportFinished
-        // (for example when another operation acquires the busy state).
-        if (!accepted && !root.exportStatus)
-            root.exportStatus = L10n.language === "ru" ? "Экспорт не запущен. Проверь выбранные результаты и параметры, затем повтори." : "Export did not start. Check the selected results and settings, then try again."
-        return accepted
     }
-    readonly property string runningLabel: Analysis.exportStage === "preparing"
-        ? (L10n.language === "ru" ? "Подготовка клипа…" : "Preparing clip…")
-        : Analysis.exportStage === "finalizing"
-            ? (L10n.language === "ru" ? "Сборка ролика…" : "Assembling video…")
-            : L10n.t("export.running")
-    function selectedIndexes() {
-        const selected = root.results.filter(function(row) { return root.selectedRows[row.id] === true && !row.hidden }).map(function(row) { return Number(row.id) })
-        const ordered = selectionOrder.filter(function(id) { return selected.indexOf(Number(id)) >= 0 }).map(Number)
-        for (const id of selected) if (ordered.indexOf(id) < 0) ordered.push(id)
-        return ordered
-    }
-    function localFolderPath(value) {
-        if (value && value.toLocalFile) {
-            const local = value.toLocalFile()
-            if (local && local.length > 0) return local
-        }
-        let text = String(value || "")
-        if (text.toLowerCase().startsWith("file:")) {
-            try { text = decodeURIComponent(text.replace(/^file:\/\//i, "")) } catch (error) { text = text.replace(/^file:\/\//i, "") }
-        }
-        if (/^\/[A-Za-z]:/.test(text)) text = text.slice(1)
-        return text
-    }
-    function chooseFolder() {
-        if (root.outputFolder.length > 0)
-            folderDialog.currentFolder = "file:///" + root.outputFolder.replace(/\\/g, "/")
-        folderDialog.open()
-    }
+
     contentItem: Flickable {
         transform: Translate { y: root.entranceOffset }
         clip: true
@@ -156,133 +198,279 @@ Popup {
         contentHeight: exportColumn.height + 48
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-        Column { id: exportColumn; x: 24; y: 24; width: parent.width - 48; spacing: 14
-        Item { width: parent.width; height: 56
-            Column { anchors.left: parent.left; anchors.top: parent.top; width: parent.width - 42; spacing: 4
-                Text { text: L10n.t("export.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 25 }
-                Text { font.family: Theme.fontFamily; text: root.selectedIndexes().length + " " + L10n.t("export.selected"); color: Theme.textSecondary; font.pixelSize: 12 }
-            }
-            PfIconButton { anchors.right: parent.right; anchors.top: parent.top; iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"; accessibleName: L10n.t("common.close"); onClicked: root.close() }
-            MouseArea {
-                anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.rightMargin: 42
-                property real pressX
-                property real pressY
-                property real startX
-                property real startY
-                cursorShape: Qt.SizeAllCursor
-                onPressed: { pressX = mouse.x; pressY = mouse.y; startX = root.x; startY = root.y }
-                onPositionChanged: if (pressed && rootWindow) {
-                    root.userPositioned = true
-                    root.x = Math.max(12, Math.min(rootWindow.width - root.width - 12, startX + mouse.x - pressX))
-                    root.y = Math.max(12, Math.min(rootWindow.height - root.height - 12, startY + mouse.y - pressY))
-                }
-            }
-        }
-        Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-        Text { font.family: Theme.fontFamily; text: L10n.t("export.format"); color: Theme.textSecondary; font.pixelSize: 11 }
-        PfComboBox { id: exportFormat; width: parent.width; model: [L10n.t("export.videoFormat"), "JSON", "CSV", "TXT"]; currentIndex: 0; Accessible.name: L10n.t("export.format") }
-        PfCheckBox {
-            id: mergeCheck
-            objectName: "mergeChronologicalCheck"
-            width: parent.width
-            visible: root.selectedFormat === "FFMPEG"
-            enabled: !Analysis.exportBusy
-            text: L10n.language === "ru" ? "Один общий ролик по порядку классов" : "One combined video in movement-type order"
-        }
+
         Column {
-            objectName: "exportClassOrderPanel"
-            width: parent.width; spacing: 6; visible: root.classOrder.length > 0
-            enabled: !Analysis.exportBusy
-            Text { text: L10n.language === "ru" ? "Порядок типов движений" : "Movement-type order"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
-            Repeater {
-                model: root.classOrder
-                delegate: Rectangle {
-                    required property int index
-                    required property string modelData
-                    width: parent.width; height: 36; radius: Theme.radiusButton
-                    color: Theme.well; border.color: Theme.hairline
-                    Row {
-                        anchors.fill: parent; anchors.margins: 4; spacing: 8
-                        Text { width: parent.width - 78; height: 28; verticalAlignment: Text.AlignVCenter; text: L10n.classificationLabel(modelData); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12 }
-                        PfButton { objectName: "exportClassUp" + index; width: 28; height: 28; text: "↑"; Accessible.name: L10n.t("export.moveUp"); enabled: index > 0; onClicked: root.moveClass(index, -1) }
-                        PfButton { objectName: "exportClassDown" + index; width: 28; height: 28; text: "↓"; Accessible.name: L10n.t("export.moveDown"); enabled: index < root.classOrder.length - 1; onClicked: root.moveClass(index, 1) }
+            id: exportColumn
+            x: 24
+            y: 24
+            width: parent.width - 48
+            spacing: 11
+
+            Item {
+                width: parent.width
+                height: 54
+                Column {
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    width: parent.width - 42
+                    spacing: 4
+                    Text {
+                        text: L10n.t("export.title")
+                        color: Theme.textPrimary
+                        font.family: Theme.displayFont
+                        font.pixelSize: 25
+                    }
+                    Text {
+                        text: root.selectedIndexes().length + " " + L10n.t("export.selected")
+                        color: Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                    }
+                }
+                PfIconButton {
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    iconSource: "qrc:/qt/qml/PfUi/qml/assets/x.svg"
+                    accessibleName: L10n.t("common.close")
+                    onClicked: root.close()
+                }
+                MouseArea {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.rightMargin: 42
+                    property real pressX
+                    property real pressY
+                    property real startX
+                    property real startY
+                    cursorShape: Qt.SizeAllCursor
+                    onPressed: {
+                        pressX = mouse.x; pressY = mouse.y
+                        startX = root.x; startY = root.y
+                    }
+                    onPositionChanged: if (pressed && rootWindow) {
+                        root.userPositioned = true
+                        root.x = Math.max(12, Math.min(rootWindow.width - root.width - 12, startX + mouse.x - pressX))
+                        root.y = Math.max(12, Math.min(rootWindow.height - root.height - 12, startY + mouse.y - pressY))
                     }
                 }
             }
-            Text { width: parent.width; text: L10n.language === "ru" ? "Типы идут сверху вниз для клипов и общего ролика. Нумерация сквозная; внутри типа клипы следуют выбранному порядку." : "Types run top to bottom for separate clips and the combined video. Clip numbers are continuous; clips within each type follow the selected order."; wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
-        }
-        PfCheckBox {
-            id: classFoldersCheck; objectName: "exportClassFoldersCheck"; checked: true
-            visible: root.selectedFormat === "FFMPEG" && !root.mergeChronological
-            enabled: !Analysis.exportBusy
-            text: L10n.language === "ru" ? "Папки по типам движений и тип в имени клипа" : "Movement-type folders and type in clip names"
-        }
-        Text { font.family: Theme.fontFamily; text: L10n.t("export.numbering"); color: Theme.textSecondary; font.pixelSize: 11 }
-            Row { width: parent.width; spacing: 8; enabled: !root.mergeChronological
-                PfButton { width: (parent.width - 8) / 2; objectName: "videoNumberingButton"; text: L10n.t("export.asVideo"); selected: exportNumbering.currentIndex === 0; onClicked: exportNumbering.currentIndex = 0 }
-                PfButton { width: (parent.width - 8) / 2; objectName: "sortNumberingButton"; text: L10n.t("export.bySort"); selected: exportNumbering.currentIndex === 1; onClicked: exportNumbering.currentIndex = 1 }
-            }
-        ComboBox { id: exportNumbering; visible: false; model: [0, 1]; currentIndex: 0 }
-        Text { font.family: Theme.fontFamily; text: L10n.t("export.cutMode"); color: Theme.textSecondary; font.pixelSize: 11 }
-        Row { width: parent.width; spacing: 8; enabled: !root.mergeChronological && !root.losslessExport && !Analysis.exportBusy
-            PfButton { width: (parent.width - 8) / 2; objectName: "exactCutButton"; text: L10n.t("export.exact"); selected: root.selectedCutMode !== 1; onClicked: cutMode.currentIndex = 0 }
-            PfButton { width: (parent.width - 8) / 2; objectName: "fastCutButton"; text: L10n.t("export.fast"); selected: root.selectedCutMode === 1; onClicked: cutMode.currentIndex = 1 }
-        }
-        ComboBox { id: cutMode; visible: false; model: [0, 1]; currentIndex: 0 }
-        Column {
-            width: parent.width; spacing: 8; visible: root.selectedFormat === "FFMPEG"
-            enabled: !Analysis.exportBusy
-            Text { text: L10n.language === "ru" ? "Качество видео" : "Video quality"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
-            PfComboBox {
-                id: qualityMode; objectName: "exportQualityMode"; width: parent.width; currentIndex: 1
-                Component.onCompleted: Qt.callLater(root.restoreQualityChoice)
-                onModelChanged: Qt.callLater(root.restoreQualityChoice)
-                onActivated: function(index) { root.qualityChoice = index }
-                enabled: root.selectedCutMode === 0 || root.losslessExport
-                model: L10n.language === "ru" ? ["Максимальное", "Высокое · рекомендуется", "Баланс качества и размера", "Свой битрейт", "Без потери качества · точная обрезка · MOV"] : ["Maximum", "High · recommended", "Balance quality and size", "Custom bitrate", "No quality loss · exact trim · MOV"]
-            }
-            Row {
-                width: parent.width; spacing: 8; visible: root.selectedCutMode === 0 && qualityChoice === 3
-                PfTextField { id: bitrateField; objectName: "exportBitrateField"; width: parent.width - 60; text: "30"; validator: DoubleValidator { bottom: 1; top: 500; decimals: 3; locale: "en_US" } Accessible.name: L10n.language === "ru" ? "Битрейт видео" : "Video bitrate" }
-                Text { width: 52; height: bitrateField.height; verticalAlignment: Text.AlignVCenter; text: L10n.language === "ru" ? "Мбит/с" : "Mbps"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
-            }
+            Rectangle { width: parent.width; height: 1; color: Theme.hairline }
+
             Text {
-                width: parent.width; wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11
-                text: root.losslessExport
-                    ? (L10n.language === "ru" ? "Точная обрезка без потери пикселей и звука. Формат MOV; файлы могут быть большими. Для общего ролика нужны совместимые разрешение, цветовые параметры и звук. При несовместимости можно сохранить отдельные клипы." : "Exact trimming with preserved pixels and audio samples. MOV output; files can be large. A montage needs compatible dimensions, color and audio. Incompatible clips can be exported separately.")
-                    : root.selectedCutMode === 1
-                    ? (L10n.language === "ru" ? "Качество исходника сохраняется без перекодирования. Начало может захватить контекст от предыдущего ключевого кадра. Для обрезки строго по параллели выбери перекодирование и «Точно». Параметры исходников общего ролика должны совпадать." : "Source quality is preserved without re-encoding. The start may include context from the preceding keyframe. For strict parallel boundaries, choose re-encoding and Exact. Combined-video sources must have compatible streams.")
-                    : (L10n.language === "ru" ? "Режим «Точно» обрезает по границам найденной параллели без добавленных секунд. Разрешение сохраняется; максимальное качество увеличивает размер файла. При перекодировании возможны потери." : "Exact mode cuts at the matched parallel boundaries without added seconds. Source resolution is preserved; maximum quality increases file size. Re-encoding can introduce loss.")
+                text: L10n.t("export.format")
+                color: Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: 11
             }
-        }
-        Row { width: parent.width; spacing: 8
-            PfTextField { id: folderField; width: parent.width - 110; text: root.outputFolder; placeholderText: L10n.t("export.folder"); Accessible.name: L10n.t("export.folder"); onEditingFinished: root.outputFolder = text }
-            PfButton { width: 102; text: L10n.t("export.chooseFolder"); quiet: true; onClicked: root.chooseFolder() }
-        }
-        PfTextField { id: prefixField; width: parent.width; text: "frame"; placeholderText: L10n.t("export.prefix"); Accessible.name: L10n.t("export.prefix") }
-        Text { font.family: Theme.fontFamily;
-            width: parent.width
-            text: L10n.status(root.exportStatus) || (root.selectedFormat === "FFMPEG"
-                ? (root.losslessExport
+            PfComboBox {
+                id: exportFormat
+                width: parent.width
+                model: [L10n.t("export.videoFormat"), "JSON", "CSV", "TXT"]
+                currentIndex: 0
+                Accessible.name: L10n.t("export.format")
+            }
+
+            PfCheckBox {
+                id: mergeCheck
+                objectName: "mergeChronologicalCheck"
+                width: parent.width
+                visible: root.selectedFormat === "FFMPEG"
+                enabled: !Analysis.exportBusy
+                text: L10n.language === "ru" ? "Объединить в один ролик" : "Combine into one video"
+                onCheckedChanged: if (!root.baseNameCustomized) prefixField.text = root.defaultBaseName()
+            }
+
+            Column {
+                width: parent.width
+                spacing: 7
+                visible: root.selectedFormat === "FFMPEG"
+                enabled: !Analysis.exportBusy
+
+                Text {
+                    text: L10n.language === "ru" ? "Качество видео" : "Video quality"
+                    color: Theme.textSecondary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 11
+                }
+                PfComboBox {
+                    id: qualityMode
+                    objectName: "exportQualityMode"
+                    width: parent.width
+                    currentIndex: root.qualityChoice
+                    model: L10n.language === "ru"
+                        ? ["Без потери качества", "Высокое", "Свой битрейт и разрешение"]
+                        : ["Lossless", "High", "Custom bitrate and resolution"]
+                    Accessible.name: L10n.language === "ru" ? "Качество видео" : "Video quality"
+                    onModelChanged: Qt.callLater(root.restoreQualityChoice)
+                    onActivated: function(index) {
+                        if (index === 0 && signTransitionsCheck.checked) {
+                            root.setHighQuality()
+                            return
+                        }
+                        root.qualityChoice = index
+                        if (index === 0) containerMode.currentIndex = 1
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 7
+                    visible: root.customQuality
+                    PfTextField {
+                        id: bitrateField
+                        objectName: "exportBitrateField"
+                        width: (parent.width - 14) / 3
+                        text: "30"
+                        placeholderText: L10n.language === "ru" ? "Мбит/с" : "Mbps"
+                        validator: DoubleValidator { bottom: 1; top: 500; decimals: 3; locale: "en_US" }
+                        Accessible.name: L10n.language === "ru" ? "Битрейт, мегабит в секунду" : "Bitrate, megabits per second"
+                    }
+                    PfTextField {
+                        id: widthField
+                        objectName: "exportMaxWidthField"
+                        width: (parent.width - 14) / 3
+                        placeholderText: L10n.language === "ru" ? "Ширина, px" : "Width, px"
+                        validator: IntValidator { bottom: 2; top: 32768 }
+                        Accessible.name: L10n.language === "ru" ? "Максимальная ширина в пикселях" : "Maximum width in pixels"
+                    }
+                    PfTextField {
+                        id: heightField
+                        objectName: "exportMaxHeightField"
+                        width: (parent.width - 14) / 3
+                        placeholderText: L10n.language === "ru" ? "Высота, px" : "Height, px"
+                        validator: IntValidator { bottom: 2; top: 32768 }
+                        Accessible.name: L10n.language === "ru" ? "Максимальная высота в пикселях" : "Maximum height in pixels"
+                    }
+                }
+                Text {
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    color: Theme.textSecondary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 10
+                    text: root.losslessExport
+                        ? (L10n.language === "ru"
+                            ? "Точная обрезка без потерь. Доступен контейнер MOV; общий ролик требует совместимых потоков."
+                            : "Exact cuts without quality loss. MOV only; a combined video requires compatible streams.")
+                        : signTransitionsCheck.checked
+                            ? (L10n.language === "ru"
+                                ? "Подпись добавляется в видео и требует перекодирования. Границы обрезки остаются точными."
+                                : "The label is burned into each video and requires re-encoding. Cut boundaries stay exact.")
+                            : (L10n.language === "ru"
+                                ? "Точная обрезка по границам найденных сцен. Высокое качество сохраняет исходное разрешение."
+                                : "Exact cuts at matched scene boundaries. High quality keeps the source resolution.")
+                }
+            }
+
+            PfCheckBox {
+                id: signTransitionsCheck
+                objectName: "signEachTransitionCheck"
+                width: parent.width
+                visible: root.selectedFormat === "FFMPEG"
+                enabled: !Analysis.exportBusy
+                text: L10n.language === "ru" ? "Подписать каждый переход" : "Label every transition"
+                tooltipText: L10n.language === "ru"
+                    ? "В начале каждого клипа появятся его номер и тип движения. Для надписи потребуется перекодирование."
+                    : "Each clip starts with its number and movement type. Adding text requires re-encoding."
+                onCheckedChanged: if (checked && root.losslessExport) root.setHighQuality()
+            }
+
+            Row {
+                width: parent.width
+                spacing: 8
+                PfTextField {
+                    id: folderField
+                    width: parent.width - 110
+                    text: root.outputFolder
+                    placeholderText: L10n.t("export.folder")
+                    Accessible.name: L10n.t("export.folder")
+                    onEditingFinished: root.rememberFolder(text)
+                }
+                PfButton {
+                    width: 102
+                    text: L10n.t("export.chooseFolder")
+                    quiet: true
+                    enabled: !Analysis.exportBusy
+                    onClicked: root.chooseFolder()
+                }
+            }
+
+            Row {
+                width: parent.width
+                spacing: 7
+                PfTextField {
+                    id: prefixField
+                    objectName: "exportBaseNameField"
+                    width: root.selectedFormat === "FFMPEG" ? parent.width - containerMode.width - 22 : parent.width
+                    text: root.defaultBaseName()
+                    placeholderText: L10n.language === "ru" ? "Имя файла" : "File name"
+                    Accessible.name: L10n.language === "ru" ? "Имя файла без расширения" : "File name without extension"
+                    onTextEdited: root.baseNameCustomized = true
+                }
+                Text {
+                    visible: root.selectedFormat === "FFMPEG"
+                    width: 8
+                    height: prefixField.height
+                    text: "|"
+                    color: Theme.textDisabled
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    verticalAlignment: Text.AlignVCenter
+                    horizontalAlignment: Text.AlignHCenter
+                }
+                PfComboBox {
+                    id: containerMode
+                    objectName: "exportContainerMode"
+                    visible: root.selectedFormat === "FFMPEG"
+                    width: 84
+                    model: [".mp4", ".mov", ".mkv", ".webm"]
+                    currentIndex: 0
+                    Accessible.name: L10n.language === "ru" ? "Контейнер видео" : "Video container"
+                    enabled: !Analysis.exportBusy && !root.losslessExport
+                    onActivated: function(index) {
+                        if (root.losslessExport && index !== 1) root.setHighQuality()
+                    }
+                }
+            }
+
+            Text {
+                width: parent.width
+                text: root.exportStatus || (root.selectedFormat === "FFMPEG"
                     ? (root.mergeChronological
-                        ? (L10n.language === "ru" ? "Один MOV по порядку типов движений с точной обрезкой без потери качества. Точные дубликаты исключаются. Несовместимые исходники не перекодируются автоматически." : "One MOV in movement-type order with exact lossless trimming. Exact duplicates are excluded. Incompatible sources are never automatically re-encoded.")
-                        : (L10n.language === "ru" ? "Отдельные MOV по типам движений с точной обрезкой без потери качества изображения и звука. Размер файлов может быть большим." : "Separate MOV clips grouped by movement type, with exact trimming and lossless picture and sound. Files may be large."))
-                    : L10n.t(root.mergeChronological ? "export.mergeHint" : "export.ffmpegHint"))
-                : L10n.t("export.hint"))
-            color: root.exportStatus ? Theme.accent : Theme.textSecondary
-            font.pixelSize: 11
-            wrapMode: Text.WordWrap
-        }
-        PfButton { objectName: "startExportButton"; width: parent.width; primary: true; text: Analysis.exportBusy ? root.runningLabel + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal + (Analysis.exportStage === "preparing" ? "" : " · " + Analysis.exportClipProgress + "%") : L10n.t("export.prepare"); enabled: root.canStartExport; onClicked: root.startExport() }
-        PfButton {
-            objectName: "exportLosslessSeparateButton"
-            width: parent.width
-            enabled: root.canStartExport
-            visible: !Analysis.exportBusy && root.losslessExport && root.mergeChronological && root.exportStatus.indexOf("compatible") >= 0
-            text: L10n.language === "ru" ? "Сохранить без потерь отдельными клипами" : "Save separate lossless clips"
-            onClicked: { mergeCheck.checked = false; root.startExport() }
-        }
-        PfButton { width: parent.width; visible: Analysis.exportBusy; text: L10n.t("export.cancel"); onClicked: Analysis.cancelExport() }
+                        ? (L10n.language === "ru"
+                            ? "Общий ролик собирается по типам движений."
+                            : "The combined video follows movement-type order.")
+                        : (L10n.language === "ru"
+                            ? "Клипы идут группами по типу движения. Одинаковые имена получают номер в скобках."
+                            : "Clips are grouped by movement type. Duplicate names receive a number in parentheses."))
+                    : L10n.t("export.hint"))
+                color: root.exportStatus ? Theme.accent : Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: 10
+                wrapMode: Text.WordWrap
+            }
+
+            PfButton {
+                objectName: "startExportButton"
+                width: parent.width
+                primary: true
+                text: Analysis.exportBusy
+                    ? root.runningLabel + " " + Analysis.exportCompleted + "/" + Analysis.exportTotal
+                        + (Analysis.exportStage === "preparing" ? "" : " · " + Analysis.exportClipProgress + "%")
+                    : L10n.t("export.prepare")
+                enabled: !Analysis.exportBusy && root.qualityValid
+                    && root.fileBaseName.length > 0 && root.selectedIndexes().length > 0
+                    && root.outputFolder.length > 0
+                onClicked: root.startExport()
+            }
+            PfButton {
+                width: parent.width
+                visible: Analysis.exportBusy
+                text: L10n.t("export.cancel")
+                onClicked: Analysis.cancelExport()
+            }
         }
     }
 

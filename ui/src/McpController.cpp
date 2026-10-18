@@ -17,7 +17,7 @@ namespace pfui {
 namespace {
 QString freshKey(){QString value;for(int i=0;i<8;++i)value+=QString::number(QRandomGenerator::system()->generate(),16).rightJustified(8,'0');return value;}
 QJsonObject rpcError(const QJsonValue& id,int code,const QString& message){return {{"jsonrpc","2.0"},{"id",id},{"error",QJsonObject{{"code",code},{"message",message}}}};}
-const QStringList classes{"head_turn_away","head_turn_back","head_turn","turn","head_front","head_turned","head_pose","arms_raised","arms_extended","arms_folded","legs_bent","legs_straight","body_pose","head_nod","head_tilt","raise","lower","raise_lower","wave","push","pull","reach_return","step","static","mixed","unknown"};
+const QStringList classes{"head_turn_away","head_turn_back","head_turn","turn","head_front","head_turned","head_pose","arms_raised","arms_extended","arms_folded","legs_bent","legs_straight","body_pose","pose_mismatch","head_nod","head_tilt","raise","lower","raise_lower","wave","push","pull","reach_return","step","static","mixed","unknown"};
 QJsonObject schema(const QJsonObject& properties={},const QJsonArray& required={}){return {{"type","object"},{"properties",properties},{"required",required},{"additionalProperties",false}};}
 QJsonObject tool(const QString& name,const QString& description,const QJsonObject& input,bool readOnly){return {{"name",name},{"description",description},{"inputSchema",input},{"annotations",QJsonObject{{"readOnlyHint",readOnly},{"destructiveHint",name=="pf_start_analysis"},{"openWorldHint",false}}}};}
 QJsonObject type(const char* value){return {{"type",value}};}

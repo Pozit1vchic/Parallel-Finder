@@ -70,6 +70,12 @@ ApplicationWindow {
             selectedExportRows = rows
         }
     }
+    function markPairViewed(id) {
+        const target = Number(id)
+        if (target < 0 || Analysis.busy || Analysis.reviewBusy || Analysis.exportBusy) return
+        const row = (Analysis.results || []).find(function(item) { return Number(item.id) === target })
+        if (row && !row.reviewed) Analysis.setResultReview([target], "reviewed", true)
+    }
     function ensureVisibleSelection() {
         if (!resultsRail.visibleResults.some(function(row) { return Number(row.id) === root.selectedResultIndex }))
             root.selectResult(resultsRail.visibleResults.length ? Number(resultsRail.visibleResults[0].id) : -1)
@@ -95,7 +101,6 @@ ApplicationWindow {
             })
         }
         else if (action === "nextUnreviewed") resultsRail.selectNextUnreviewed()
-        else if (action === "reviewed" && row) reviewPairs(id, "reviewed", !row.reviewed)
         else if (action === "next") resultsRail.selectNext()
         else if (action === "previous") resultsRail.selectPrevious()
         else if (action === "hide" && row) reviewPairs(id, "hidden", !row.hidden)
@@ -210,6 +215,7 @@ ApplicationWindow {
                     selectedRows: root.selectedExportRows; selectedIndex: root.selectedResultIndex
                     onExportSelectionChanged: function(rows) { root.selectedExportRows = rows }
                     onResultSelected: function(index) { root.selectResult(index) }
+                    onPairOpened: function(index) { root.markPairViewed(index) }
                     onPairClassRequested: function(index, classification) { Analysis.setResultClassification(root.actionIds(index), classification) }
                     onPairReviewRequested: function(index, field, value) { root.reviewPairs(index, field, value) }
                     onUndoRequested: root.runReviewAction("undo")

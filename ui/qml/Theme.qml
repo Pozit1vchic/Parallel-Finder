@@ -24,14 +24,26 @@ QtObject {
     readonly property color border: Qt.rgba(1, 1, 1, 0.06)
     readonly property color hairline: Qt.rgba(1, 1, 1, 0.10)
     readonly property color hairlineStrong: "#3F3F46"
-    property color accent: "#D97757"             // terracotta / A
+    property color accent: "#D97757"
+    // The global accent normally uses one hue on every result.  The second
+    // stop is reserved for an optional two-tone palette and the B preview.
+    property color accentSecondary: accent
+    property bool accentGradientEnabled: false
     readonly property color accentBright: Qt.lighter(accent, 1.12)
     readonly property color accentPressed: Qt.darker(accent, 1.25)
     readonly property color accentMuted: Qt.rgba(accent.r, accent.g, accent.b, 0.12)
-    property color sage: "#7C9885"              // sage / B
+    // Keep the old token names as aliases so every QML component follows the
+    // user's global theme instead of introducing a fixed green for side B.
+    readonly property color sage: accentSecondary
     readonly property color sageBright: Qt.lighter(sage, 1.18)
     readonly property color sagePressed: Qt.darker(sage, 1.25)
     readonly property color sageMuted: Qt.rgba(sage.r, sage.g, sage.b, 0.11)
+    readonly property color accentForeground: {
+        const r = accentGradientEnabled ? (accent.r + accentSecondary.r) / 2 : accent.r
+        const g = accentGradientEnabled ? (accent.g + accentSecondary.g) / 2 : accent.g
+        const b = accentGradientEnabled ? (accent.b + accentSecondary.b) / 2 : accent.b
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.56 ? background : textPrimary
+    }
     readonly property color textPrimary: "#F5F1EC"
     readonly property color textSecondary: "#A1A1AA"
     readonly property color textDisabled: "#71717A"
@@ -45,6 +57,11 @@ QtObject {
     readonly property int motionDuration: reducedMotion ? 0 : 120
     readonly property int motionChangeDuration: reducedMotion ? 0 : 180
     readonly property int motionRevealDuration: reducedMotion ? 0 : 420
+    readonly property int motionPopupDuration: reducedMotion ? 0 : 220
+    readonly property int motionCardDuration: reducedMotion ? 0 : 320
+    readonly property int motionPopupOffset: reducedMotion ? 0 : 8
+    readonly property real motionPopupScale: reducedMotion ? 1 : 0.965
+    readonly property real motionCardScale: reducedMotion ? 1 : 0.986
     readonly property int fontSizeSmall: 12
     readonly property int fontSizeBody: 13
     readonly property int fontSizeTitle: 18

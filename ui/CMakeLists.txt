@@ -10,8 +10,7 @@ set(PFUI_QML_FILES
     qml/ReviewDialog.qml
     qml/HotkeysPage.qml
     qml/PairAdjustDialog.qml
-      qml/PairComposeDialog.qml
-      qml/ManualSortDialog.qml
+    qml/PairComposeDialog.qml
     qml/PairTimeline.qml
     qml/FindingsDialog.qml
     qml/Main.qml
@@ -69,11 +68,9 @@ target_sources(pfui PRIVATE
     src/AppInfo.cpp
     src/DiscordPresence.cpp
     src/AnalysisController.cpp
-    src/HeadOrientationReview.cpp
-    src/VideoActionReview.cpp
     src/ReviewActions.cpp
     src/McpController.cpp
-    src/McpTools.cpp
+    src/McpController.h
 )
 target_link_libraries(pfui PUBLIC pf::core pf::gpu pf::services pf::exporters pfupdate)
 

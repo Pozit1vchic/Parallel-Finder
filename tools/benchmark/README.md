@@ -55,7 +55,7 @@ $env:PF_DEBUG_POSE = '1'     # форма выхода YOLO и confidence
 $env:PF_DEBUG_POSES_JSON = 'D:\Parallel-Finder\build\windows.json'
 # Выполните run_analysis_smoke.ps1 с нужным видео и моделями.
 $env:PF_DEBUG_MATCHER = '1'
-./build/ucrt64-release/pf_matcher_probe.exe build/windows.json 10 22
+./build/ucrt64-release/tools/pf_matcher_probe.exe build/windows.json 10 22
 ```
 
 Probe использует реальный код сравнения с параметрами быстрого desktop-профиля

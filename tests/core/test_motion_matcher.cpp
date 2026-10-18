@@ -802,7 +802,6 @@ TEST(MotionMatcher, IdenticalNormalizedMotionScoresHighly)
     EXPECT_LT(match.similarity, 0.995);
 }
 
-
 TEST(MotionMatcher, MirrorInvariantComparisonRecoversReflectedMotion)
 {
     const auto left = window("left", 0.0, false);
@@ -1791,6 +1790,48 @@ TEST(MotionMatcher, RepeatedGestureAtDifferentTempo)
     EXPECT_GT(pfcore::MotionMatcher().compare(left, right).similarity, 0.78);
 }
 
+TEST(MotionMatcher, ShortShoulderOcclusionRetainsMeasuredMotionButLongGapDoesNot)
+{
+    const auto cocoGesture=[](const char* source,double offset,int missingBegin,int missingEnd) {
+        auto result=gestureWindow(source,offset,false);
+        // Keep a short active slice of the fixture so a 3-sample hole divides
+        // it into two sub-six-frame runs unless the measured torso origin is
+        // retained through the gap.
+        result.frames=std::vector<pfcore::PoseFrame>(result.frames.begin()+9,result.frames.begin()+21);
+        for(auto& frame:result.frames) {
+            const auto& sourcePoints=frame.keypoints;
+            std::vector<pfcore::Keypoint> coco(17,{0,0,0});
+            coco[5]={-.5,0,1};coco[6]={.5,0,1}; // stable bilateral shoulder anchors
+            coco[7]=sourcePoints[2];coco[8]=sourcePoints[3];
+            coco[9]=sourcePoints[4];coco[10]=sourcePoints[5];
+            frame.keypoints=std::move(coco);
+        }
+        for(int frameIndex=missingBegin;frameIndex<=missingEnd;++frameIndex)
+            result.frames[static_cast<std::size_t>(frameIndex)].keypoints[6].confidence=.1;
+        return result;
+    };
+
+    pfcore::MotionMatcherParams params;params.candidateThreshold=.30;params.similarityThreshold=.70;
+    params.minTemporalFrames=6;params.minTemporalDurationSec=.5;
+    const auto clear=cocoGesture("clear",0,-1,-2);
+    const auto shortOcclusion=cocoGesture("short-occlusion",8,4,6);
+    const auto retained=pfcore::MotionMatcher(params).compare(clear,shortOcclusion);
+    EXPECT_EQ(retained.rejection,pfcore::MotionRejection::None);
+    EXPECT_GE(retained.similarity,params.similarityThreshold);
+    EXPECT_LE(retained.rightStartSeconds,shortOcclusion.frames[4].timestampSeconds);
+    EXPECT_GE(retained.rightEndSeconds,shortOcclusion.frames[6].timestampSeconds);
+    EXPECT_EQ(pfcore::MotionMatcher(params).findAllPairs({clear,shortOcclusion}).size(),1U);
+
+    // A longer loss of the measured shoulder anchor cannot be bridged from
+    // the actor's remaining joints. This is the same gesture as `clear`, not
+    // an intentionally different negative action.
+    const auto longOcclusion=cocoGesture("long-occlusion",16,4,8);
+    const auto unsupported=pfcore::MotionMatcher(params).compare(clear,longOcclusion);
+    EXPECT_EQ(unsupported.rejection,pfcore::MotionRejection::MotionEvidence);
+    EXPECT_LT(unsupported.similarity,params.similarityThreshold);
+    EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs({clear,longOcclusion}).empty());
+}
+
 TEST(MotionMatcher, MissingCocoJointsDoNotPoisonCandidateIndex)
 {
     pfcore::MotionWindow left;
@@ -2040,6 +2081,104 @@ TEST(MotionMatcher, VerifiedBodyMotionIsNotCrowdedOutByAHigherScoringHeldPose)
     ASSERT_EQ(selected.size(),1U);
     EXPECT_LT(selected[0].leftIndex,2U);EXPECT_LT(selected[0].rightIndex,2U);
     EXPECT_FALSE(selected[0].headOnlyComparison);
+}
+
+TEST(MotionMatcher, CrossSourceBodyIdentityGapNeedsStrongMotionCorroboration)
+{
+    auto motion=recordedPoseFixture("soldier-cross-source-walking.json",false,true);
+    ASSERT_EQ(motion.size(),2U);
+    for(auto& window:motion) {
+        window.faceEmbedding.clear();
+        window.faceConfidence=0;
+    }
+
+    pfcore::MotionMatcherParams params;
+    params.individualPairs=params.allowStaticFrames=params.requireAppearance=true;
+    params.similarityThreshold=.70;
+    params.minAppearanceSimilarity=.76;
+    params.minMotionBodyIdentitySimilarity=.72;
+    params.minTemporalFrames=6;
+    params.timeWeight=.10;
+    const pfcore::MotionMatcher matcher(params);
+
+    // Both windows are reviewed original-source shots of Soldier Boy walking
+    // toward camera (Gen V and The Boys S03). Their real body prototypes score
+    // 0.7535, just below the strict identity threshold; pose alignment and
+    // sustained direction independently corroborate this moving pair.
+    const auto supported=matcher.compare(motion[0],motion[1]);
+    EXPECT_EQ(supported.rejection,pfcore::MotionRejection::None);
+    EXPECT_TRUE(supported.appearanceVerified);
+    EXPECT_FALSE(supported.faceVerified);
+    EXPECT_NEAR(supported.appearanceSimilarity,.75349,.001);
+    EXPECT_GE(supported.similarity,params.similarityThreshold);
+    EXPECT_EQ(matcher.findAllPairs(motion).size(),1U)
+        << "the relaxed body proposal must also survive retrieval";
+
+    // Keep the same body identity score but remove the temporal action. A
+    // weak body-only proposal must not be reported as a match by itself.
+    auto held=motion[1];
+    const auto heldPose=held.frames.front().keypoints;
+    for(auto& frame:held.frames)frame.keypoints=heldPose;
+    const auto unsupported=matcher.compare(motion[0],held);
+    EXPECT_NE(unsupported.rejection,pfcore::MotionRejection::None);
+    EXPECT_FALSE(unsupported.appearanceVerified);
+    EXPECT_LT(unsupported.similarity,params.similarityThreshold);
+    EXPECT_TRUE(matcher.findAllPairs({motion[0],held}).empty());
+
+    // Matching pose and gait cannot override clearly unrelated body identity.
+    // Build a deterministic orthogonal prototype at the same dimensionality
+    // as the measured OSNet descriptors, with no face observations on either
+    // side. This exercises both direct comparison and the search retrieval
+    // path without relaxing the identity gate.
+    auto unrelated=motion[1];
+    const auto& reference=motion[0].appearanceEmbedding;
+    ASSERT_FALSE(reference.empty());
+    unrelated.appearanceEmbedding.assign(reference.size(),0.0F);
+    std::size_t basis=0;
+    for(std::size_t i=1;i<reference.size();++i)
+        if(std::abs(reference[i])<std::abs(reference[basis]))basis=i;
+    unrelated.appearanceEmbedding[basis]=1.0F;
+    const double projection=reference[basis]; // fixture descriptors are L2-normalized
+    for(std::size_t i=0;i<reference.size();++i)
+        unrelated.appearanceEmbedding[i]-=static_cast<float>(projection*reference[i]);
+    const auto rejectedUnrelated=matcher.compare(motion[0],unrelated);
+    EXPECT_EQ(rejectedUnrelated.rejection,pfcore::MotionRejection::Identity);
+    EXPECT_LT(rejectedUnrelated.appearanceSimilarity,params.minMotionBodyIdentitySimilarity);
+    EXPECT_DOUBLE_EQ(rejectedUnrelated.similarity,0.0);
+    EXPECT_TRUE(matcher.findAllPairs({motion[0],unrelated}).empty());
+}
+
+TEST(MotionMatcher, CrossSourceWalkingWithHiddenFaceSurvivesProfileProjection)
+{
+    auto motion=recordedPoseFixture("soldier-cross-source-walking.json",false,true);
+    ASSERT_EQ(motion.size(),2U);
+    for(auto& window:motion) { window.faceEmbedding.clear();window.faceConfidence=0; }
+    auto profile=motion[1];
+    // Approximate a side/back camera projection by foreshortening the body
+    // across the image plane around its hip center. The measured gait and
+    // identity descriptor remain from the real scene-pack observation.
+    for(auto& frame:profile.frames) {
+        if(frame.keypoints.size()!=17)continue;
+        const auto& leftHip=frame.keypoints[11];const auto& rightHip=frame.keypoints[12];
+        if(leftHip.confidence<.5 || rightHip.confidence<.5)continue;
+        const double center=(leftHip.x+rightHip.x)*.5;
+        for(auto& point:frame.keypoints) {
+            if(point.confidence<.1 || !std::isfinite(point.x))continue;
+            point.x=center+(point.x-center)*.55;
+        }
+        for(std::size_t joint=0;joint<5;++joint)frame.keypoints[joint].confidence=0;
+    }
+    pfcore::MotionMatcherParams params;
+    params.individualPairs=params.requireAppearance=true;
+    params.similarityThreshold=.70;params.minAppearanceSimilarity=.76;
+    params.minMotionBodyIdentitySimilarity=.72;params.minTemporalFrames=6;params.timeWeight=.10;
+    params.mirrorInvariant=true;
+    const auto matcher=pfcore::MotionMatcher(params);
+    const auto match=matcher.compare(motion[0],profile);
+    EXPECT_EQ(match.rejection,pfcore::MotionRejection::None);
+    EXPECT_FALSE(match.faceVerified);
+    EXPECT_GE(match.similarity,params.similarityThreshold);
+    EXPECT_EQ(matcher.findAllPairs({motion[0],profile}).size(),1U);
 }
 
 TEST(MotionMatcher, IndividualCoverageRecoversTwoPairsFromAGreedyBlockedPath)

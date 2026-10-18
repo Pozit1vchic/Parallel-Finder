@@ -20,6 +20,7 @@
 #include <ExportOrder.h>
 #include <AnalysisController.h>
 #include <McpController.h>
+#include <ResultClassification.h>
 #include <QTcpServer>
 #include <QClipboard>
 #include <QTemporaryDir>
@@ -88,6 +89,7 @@ private slots:
     void sourceWheelDoesNotMoveSettingsRail();
     void movementClassesAndExportOrder();
     void classificationsFollowEditedRange();
+    void staticPoseDisagreementKeepsBothPoses();
     void largeResultSetKeepsClassesContiguous();
     void mcpSettingsExposeWorkingConnection();
     void exportClassOrderControlsFileNumbering();
@@ -103,7 +105,7 @@ private slots:
     void exportReopenClearsCancelledStatus();
     void movementFilterRespectsSelectionAndVisibleRows();
     void largeExportBackdropKeepsWorkspaceGeometry();
-    void advancedOpensOnFirstClickAndStatusTranslates();
+    void analysisControlsAreUnifiedAndStatusTranslates();
     void directMlDownloadIntegration();
     void cacheFolderAcceptsLocalFileUrls();
     void staticResultsShowPlaybackControls();
@@ -208,6 +210,10 @@ void UiSmokeTests::reviewShortcutsAndMultiSelection()
     QVERIFY(review);
     const auto variant = [](const QVariant& value) { return value.metaType() == QMetaType::fromType<QJSValue>() ? value.value<QJSValue>().toVariant() : value; };
     QVERIFY(QMetaObject::invokeMethod(review, "reset"));
+    bool hasManualReviewedAction = false;
+    for (const auto& action : variant(review->property("actions")).toList())
+        hasManualReviewedAction = hasManualReviewedAction || action.toMap().value("id").toString() == "reviewed";
+    QVERIFY(!hasManualReviewedAction);
     QCOMPARE(variant(review->property("bindings")).toMap().value("hide").toStringList(), (QStringList{"Del", "Backspace"}));
     QVariant result;
     QVERIFY(QMetaObject::invokeMethod(review, "assign", Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, "next"), Q_ARG(QVariant, 0), Q_ARG(QVariant, "Ctrl+J")));
@@ -528,6 +534,19 @@ void UiSmokeTests::realReviewAdjustAndFindings()
     QVERIFY(QMetaObject::invokeMethod(window, "selectResult", Q_ARG(QVariant, first)));
     QTest::qWait(250);
     auto* card = findVisual(window->contentItem(), "resultCard" + QString::number(first)); QVERIFY(card);
+    QVERIFY(!findVisual(window->contentItem(), "reviewedPairButton" + QString::number(first)));
+    const bool wasReviewed = analysis->results()[first].toMap().value("reviewed").toBool();
+    if (wasReviewed) {
+        analysis->setResultReview({first}, "reviewed", false);
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->results()[first].toMap().value("reviewed").toBool(), 5000);
+    }
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+        card->mapToScene(QPointF(card->width() * .5, card->height() * .5)).toPoint());
+    QTRY_VERIFY_WITH_TIMEOUT(analysis->results()[first].toMap().value("reviewed").toBool(), 5000);
+    QVERIFY(!analysis->undoResultEdit().isEmpty());
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->results()[first].toMap().value("reviewed").toBool(), 5000);
+    if (wasReviewed) analysis->setResultReview({first}, "reviewed", true);
+    card = findVisual(window->contentItem(), "resultCard" + QString::number(first)); QVERIFY(card);
     QCOMPARE(card->z(), 2.0);
     const auto variantRows = rail->property("visibleResults").value<QJSValue>().toVariant().toList();
     if (variantRows.size() > 1) {
@@ -1119,7 +1138,7 @@ void UiSmokeTests::customAccentPaletteUpdatesImmediatelyAndPersists()
         auto* window = loadWindow(engine); QVERIFY(window);
         auto* popup = window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
         QQmlComponent component(&engine);
-        component.setData("import QtQuick\nimport PfUi\nItem { property color accent: Theme.accent }",QUrl());
+        component.setData("import QtQuick\nimport PfUi\nItem { property color accent: Theme.accent; property color accentSecondary: Theme.accentSecondary; property color sage: Theme.sage; property bool gradientEnabled: Theme.accentGradientEnabled }",QUrl());
         std::unique_ptr<QObject> probe(component.create()); QVERIFY(probe);
         if (!pass) {
             QVERIFY(QMetaObject::invokeMethod(popup,"open"));
@@ -1135,16 +1154,30 @@ void UiSmokeTests::customAccentPaletteUpdatesImmediatelyAndPersists()
             QVERIFY(QMetaObject::invokeMethod(hex,"textEdited"));
             QCOMPARE(probe->property("accent").value<QColor>().name(),QString("#12abcd"));
             QVERIFY(picker->property("opened").toBool());
-            QCOMPARE(popup->findChild<QObject*>("appearanceAccentChoice")->property("currentIndex").toInt(),4);
+            auto* accentChoice = popup->findChild<QObject*>("appearanceAccentChoice"); QVERIFY(accentChoice);
+            QCOMPARE(accentChoice->property("currentIndex").toInt(),7);
+            QVERIFY(!probe->property("gradientEnabled").toBool());
+            QCOMPARE(probe->property("sage").value<QColor>(), probe->property("accent").value<QColor>());
             QVariant accepted;
             QVERIFY(QMetaObject::invokeMethod(popup,"applyCustomAccent",Q_RETURN_ARG(QVariant,accepted),Q_ARG(QVariant,"invalid")));
             QVERIFY(!accepted.toBool()); QCOMPARE(probe->property("accent").value<QColor>().name(),QString("#12abcd"));
+            accentChoice->setProperty("currentIndex", 8);
+            QVERIFY(QMetaObject::invokeMethod(accentChoice, "activated", Q_ARG(int, 8)));
+            QVERIFY(probe->property("gradientEnabled").toBool());
+            QVERIFY(QMetaObject::invokeMethod(popup, "selectAccentTarget", Q_ARG(QVariant, "end")));
+            QVERIFY(QMetaObject::invokeMethod(popup,"applyCustomAccent",Q_RETURN_ARG(QVariant,accepted),Q_ARG(QVariant,"#AABBCC")));
+            QVERIFY(accepted.toBool());
+            QCOMPARE(probe->property("accentSecondary").value<QColor>().name(), QString("#aabbcc"));
+            QCOMPARE(probe->property("sage").value<QColor>(), probe->property("accentSecondary").value<QColor>());
             const auto capture = qEnvironmentVariable("PF_UI_CAPTURE_DIR");
             if (!capture.isEmpty()) { QDir().mkpath(capture); QTest::qWait(250); QVERIFY(window->grabWindow().save(capture+"/accent-palette.png")); }
             QVERIFY(QMetaObject::invokeMethod(picker,"close")); QVERIFY(QMetaObject::invokeMethod(popup,"close"));
         } else {
             QCOMPARE(probe->property("accent").value<QColor>().name(),QString("#12abcd"));
-            QCOMPARE(popup->findChild<QObject*>("appearanceAccentChoice")->property("currentIndex").toInt(),4);
+            QCOMPARE(probe->property("accentSecondary").value<QColor>().name(),QString("#aabbcc"));
+            QVERIFY(probe->property("gradientEnabled").toBool());
+            QCOMPARE(probe->property("sage").value<QColor>(), probe->property("accentSecondary").value<QColor>());
+            QCOMPARE(popup->findChild<QObject*>("appearanceAccentChoice")->property("currentIndex").toInt(),8);
         }
     }
 }
@@ -1310,6 +1343,11 @@ void UiSmokeTests::movementClassesAndExportOrder()
         return nullptr;
     };
     auto* classButton=findClassButton(window->contentItem()); QVERIFY(classButton);
+    QCOMPARE(classButton->property("width").toInt(), 34);
+    auto* classButtonLabel = classButton->findChild<QObject*>("resultClassButtonLabel0"); QVERIFY(classButtonLabel);
+    QCOMPARE(classButtonLabel->property("text").toString(), QStringLiteral("Тип"));
+    QVERIFY(classButtonLabel->property("width").toReal() > 0.0);
+    QVERIFY(classButtonLabel->property("height").toReal() > 0.0);
     QVERIFY(QMetaObject::invokeMethod(classButton,"clicked")); QTRY_VERIFY(picker->property("opened").toBool());
     QVERIFY(picker->property("x").toDouble()>window->width()/2.0);
     QVERIFY(picker->property("x").toDouble()+picker->property("width").toDouble()<=window->width()-7);
@@ -1358,7 +1396,54 @@ void UiSmokeTests::movementClassesAndExportOrder()
     QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"turn+step","unknown"}));
     rail->setProperty("classFilter","turn+step");QTest::qWait(100);
     QCOMPARE(values(rail->property("visibleResults")).toList().size(),2);
+    const QVariantList mismatchedPoses{
+        QVariantMap{{"id",0},{"classification","pose_mismatch/arms_raised+legs_straight"}},
+        QVariantMap{{"id",1},{"classification","pose_mismatch/legs_straight+arms_raised"}}};
+    rail->setProperty("results",mismatchedPoses);popup->setProperty("results",mismatchedPoses);
+    popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true}});QTest::qWait(100);
+    QVERIFY(values(rail->property("classChoices")).toStringList().contains("pose_mismatch"));
+    rail->setProperty("classFilter","pose_mismatch");QTest::qWait(100);
+    QCOMPARE(values(rail->property("visibleResults")).toList().size(),2);
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),QStringList{"pose_mismatch"});
 }
+void UiSmokeTests::staticPoseDisagreementKeepsBothPoses()
+{
+    const auto poseWindow=[](const std::function<void(pfcore::PoseFrame&)>& edit) {
+        pfcore::MotionWindow window;window.staticFrameSet=true;
+        for(int i=0;i<=10;++i) {
+            pfcore::PoseFrame frame;frame.timestampSeconds=i*.1;
+            frame.keypoints={{0,-2},{-.5,-2.5},{.5,-2.5},{-1,-2},{1,-2},
+                {-2,0},{2,0},{-2,1.5},{2,1.5},{-2,3},{2,3},
+                {-1,4},{1,4},{-1,6},{1,6},{-1,8},{1,8}};
+            if(edit)edit(frame);
+            window.frames.push_back(std::move(frame));
+        }
+        return window;
+    };
+    const auto classifyPair=[&](const pfcore::MotionWindow& left,const pfcore::MotionWindow& right,bool headOnly) {
+        pfcore::MotionMatch match;match.leftStartSeconds=match.rightStartSeconds=0;
+        match.leftEndSeconds=match.rightEndSeconds=1;match.headOnlyComparison=headOnly;
+        QVariantMap row;
+        pfui::classifyResultRange(row,match,{pfui::groupingEvidence(left),pfui::groupingEvidence(right)});
+        return row.value("classification").toString();
+    };
+
+    const auto armsRaised=poseWindow([](pfcore::PoseFrame& frame) {
+        frame.keypoints[9].y=-2;frame.keypoints[10].y=-2;
+    });
+    const auto straightLegs=poseWindow({});
+    QCOMPARE(classifyPair(armsRaised,straightLegs,false),QString("pose_mismatch/arms_raised+legs_straight"));
+    QCOMPARE(classifyPair(straightLegs,armsRaised,false),QString("pose_mismatch/arms_raised+legs_straight"));
+    QCOMPARE(classifyPair(straightLegs,straightLegs,false),QString("legs_straight"));
+    const auto uncertainPose=poseWindow([](pfcore::PoseFrame& frame) {
+        for(auto& point:frame.keypoints)point.confidence=0.;
+    });
+    QCOMPARE(classifyPair(armsRaised,uncertainPose,false),QString("body_pose"));
+
+    const auto headTurned=poseWindow([](pfcore::PoseFrame& frame){frame.keypoints[0].x=.7;});
+    QCOMPARE(classifyPair(straightLegs,headTurned,true),QString("pose_mismatch/head_front+head_turned"));
+}
+
 void UiSmokeTests::classificationsFollowEditedRange()
 {
     pfcore::MotionWindow window;
@@ -1505,7 +1590,7 @@ void UiSmokeTests::largeResultSetKeepsClassesContiguous()
     }
     rail->setProperty("results",rows);popup->setProperty("results",rows);popup->setProperty("selectedRows",selected);
     rail->setProperty("selectedIndex",0);
-    QTest::qWait(100);
+    QTRY_VERIFY(!rail->property("bulkUpdating").toBool());
     std::function<QQuickItem*(QQuickItem*)> findPartialLabel=[&](QQuickItem* item)->QQuickItem* {
         if(item->objectName()=="resultManualClassLabel0")return item;
         for(auto* child:item->childItems())if(auto* found=findPartialLabel(child))return found;
@@ -1852,19 +1937,26 @@ void UiSmokeTests::resultNavigationStopsAtEnds()
     component.setData("import QtQuick\nimport PfUi\nResultsRail { width: 280; height: 500; results: [{id: 1, similarity: 0.8}, {id: 2, similarity: 0.9}]; onResultSelected: function(index) { selectedIndex = index } }", QUrl());
     std::unique_ptr<QObject> rail(component.create());
     QVERIFY2(rail != nullptr, qPrintable(component.errorString()));
+    QSignalSpy opened(rail.get(), SIGNAL(pairOpened(int))); QVERIFY(opened.isValid());
     QVERIFY(QMetaObject::invokeMethod(rail.get(), "selectNext"));
     QCOMPARE(rail->property("selectedIndex").toInt(), 2);
+    QCOMPARE(opened.count(), 1); QCOMPARE(opened.last().first().toInt(), 2);
     QVERIFY(QMetaObject::invokeMethod(rail.get(), "selectNext"));
     QCOMPARE(rail->property("selectedIndex").toInt(), 1);
+    QCOMPARE(opened.count(), 2); QCOMPARE(opened.last().first().toInt(), 1);
     QVERIFY(QMetaObject::invokeMethod(rail.get(), "selectNext"));
     QCOMPARE(rail->property("selectedIndex").toInt(), 1);
+    QCOMPARE(opened.count(), 2);
     QVERIFY(QMetaObject::invokeMethod(rail.get(), "selectPrevious"));
     QCOMPARE(rail->property("selectedIndex").toInt(), 2);
+    QCOMPARE(opened.count(), 3); QCOMPARE(opened.last().first().toInt(), 2);
     QVERIFY(QMetaObject::invokeMethod(rail.get(), "selectPrevious"));
     QCOMPARE(rail->property("selectedIndex").toInt(), 2);
+    QCOMPARE(opened.count(), 3);
     QVERIFY(QMetaObject::invokeMethod(rail.get(), "selectNext"));
     QVERIFY(QMetaObject::invokeMethod(rail.get(), "goToTop"));
     QCOMPARE(rail->property("selectedIndex").toInt(), 2);
+    QCOMPARE(opened.count(), 5); QCOMPARE(opened.last().first().toInt(), 2);
 }
 
 
@@ -1908,26 +2000,51 @@ void UiSmokeTests::sourceSearchAndUnreviewedNavigation()
     component.setData("import QtQuick\nimport PfUi\nResultsRail { width: 286; height: 800; onResultSelected: function(id) { selectedIndex = id } }",QUrl());
     std::unique_ptr<QObject> rail(component.create()); QVERIFY2(rail,qPrintable(component.errorString()));
     const auto values = [](const QVariant& value) { return value.metaType() == QMetaType::fromType<QJSValue>() ? value.value<QJSValue>().toVariant() : value; };
+    QSignalSpy opened(rail.get(), SIGNAL(pairOpened(int))); QVERIFY(opened.isValid());
     QVariantList rows{
         QVariantMap{{"id",0},{"similarity",.9},{"reviewed",true},{"leftSource","D:/clips/Alpha.mp4"},{"rightSource","D:/clips/Beta.mp4"}},
         QVariantMap{{"id",1},{"similarity",.8},{"leftSource","D:/clips/Gamma.mp4"},{"rightSource","D:/clips/Alpha.mp4"}},
         QVariantMap{{"id",2},{"similarity",.7},{"leftSource","D:/clips/Beta.mp4"},{"rightSource","D:/clips/Gamma.mp4"}}};
     rail->setProperty("results",rows); rail->setProperty("selectedIndex",0);
     QVERIFY(QMetaObject::invokeMethod(rail.get(),"selectNextUnreviewed")); QCOMPARE(rail->property("selectedIndex").toInt(),1);
+    QCOMPARE(opened.count(),1); QCOMPARE(opened.last().first().toInt(),1);
     QVERIFY(QMetaObject::invokeMethod(rail.get(),"selectNextUnreviewed")); QCOMPARE(rail->property("selectedIndex").toInt(),2);
+    QCOMPARE(opened.count(),2); QCOMPARE(opened.last().first().toInt(),2);
     QVERIFY(QMetaObject::invokeMethod(rail.get(),"selectNextUnreviewed")); QCOMPARE(rail->property("selectedIndex").toInt(),1);
+    QCOMPARE(opened.count(),3); QCOMPARE(opened.last().first().toInt(),1);
+    const int openedBeforeFilterChanges = opened.count();
     rail->setProperty("sourceQuery","ALPHA");
     QCOMPARE(values(rail->property("visibleResults")).toList().size(),2);
+    QCOMPARE(opened.count(),openedBeforeFilterChanges);
     QSignalSpy selected(rail.get(),SIGNAL(exportSelectionChanged(QVariant))); QVERIFY(selected.isValid());
     QVERIFY(QMetaObject::invokeMethod(rail.get(),"selectAll"));
     const auto selection = values(selected.last()[0]).toMap(); QCOMPARE(selection.size(),2); QVERIFY(selection.contains("0") && selection.contains("1"));
     rail->setProperty("sourceQuery",""); rail->setProperty("sourceFilter","D:/clips/Gamma.mp4");
     const auto filtered = values(rail->property("visibleResults")).toList(); QCOMPARE(filtered.size(),2);
     QCOMPARE(filtered[0].toMap().value("id").toInt(),1); QCOMPARE(filtered[1].toMap().value("id").toInt(),2);
+    QCOMPARE(opened.count(),openedBeforeFilterChanges);
     for (auto& row : rows) { auto record = row.toMap(); record.insert("reviewed",true); row = record; }
     rail->setProperty("results",rows); const int current = rail->property("selectedIndex").toInt();
     QVERIFY(QMetaObject::invokeMethod(rail.get(),"selectNextUnreviewed")); QCOMPARE(rail->property("selectedIndex").toInt(),current);
     QVERIFY(!rail->property("reviewNotice").toString().isEmpty());
+    QCOMPARE(opened.count(),openedBeforeFilterChanges);
+
+    auto* review = engine.singletonInstance<QObject*>(qmlTypeId("PfUi",1,0,"Review")); QVERIFY(review);
+    QVERIFY(QMetaObject::invokeMethod(review,"setMulti",Q_ARG(QVariant,false)));
+    QVERIFY(QMetaObject::invokeMethod(rail.get(),"selectCard",Q_ARG(QVariant,1),Q_ARG(QVariant,0)));
+    QCOMPARE(opened.count(),openedBeforeFilterChanges + 1);
+    QCOMPARE(opened.last().first().toInt(),1);
+
+    QVariantList manyRows;
+    for (int id = 0; id < 24; ++id)
+        manyRows.push_back(QVariantMap{{"id",id},{"similarity",.9 - id * .01},{"leftSource","A.mp4"},{"rightSource","B.mp4"}});
+    rail->setProperty("sourceFilter",""); rail->setProperty("height",320); rail->setProperty("results",manyRows);
+    auto* list = rail->findChild<QObject*>("resultList"); QVERIFY(list);
+    QTRY_VERIFY(list->property("contentHeight").toReal() > list->property("height").toReal());
+    const int openedBeforeScroll = opened.count();
+    list->setProperty("contentY",40.0);
+    QTRY_VERIFY(list->property("contentY").toReal() > 0.0);
+    QCOMPARE(opened.count(),openedBeforeScroll);
 }
 
 void UiSmokeTests::resultArrowKeysWorkAfterSourceButtonFocus()
@@ -1964,6 +2081,10 @@ void UiSmokeTests::resultArrowKeysWorkAfterSourceButtonFocus()
     // Sorting must never steal arrows, even before the user clicks a card.
     auto* sort = window->findChild<QQuickItem*>("resultSortCombo");
     QVERIFY(sort);
+    auto* filters = window->findChild<QObject*>("resultFiltersMenu");
+    QVERIFY(filters);
+    QVERIFY(QMetaObject::invokeMethod(filters, "open"));
+    QTRY_VERIFY(filters->property("opened").toBool());
     const auto sortIndex = sort->property("currentIndex").toInt();
     window->setProperty("selectedRecord", QVariantMap{{"id", 2}});
     window->setProperty("selectedResultIndex", 2);
@@ -2013,6 +2134,10 @@ void UiSmokeTests::selectsAllResultsWithoutDisplayLimit()
     QCOMPARE(selection.size(), 200);
     QVERIFY(selection.contains("0"));
     QVERIFY(selection.contains("199"));
+    QVERIFY(rail->findChild<QObject*>("openResultSelectionButton"));
+    QVERIFY(rail->findChild<QObject*>("openResultFiltersButton"));
+    QVERIFY(rail->findChild<QObject*>("resultSelectionMenu"));
+    QVERIFY(rail->findChild<QObject*>("resultFiltersMenu"));
     QVERIFY(rail->findChild<QObject*>("clearResultsSelectionButton")->property("enabled").toBool());
     QVERIFY(!rail->findChild<QObject*>("selectAllResultsButton")->property("enabled").toBool());
     auto* sort = rail->findChild<QObject*>("resultSortCombo");
@@ -2032,6 +2157,9 @@ void UiSmokeTests::selectsAllResultsWithoutDisplayLimit()
     QVERIFY(QMetaObject::invokeMethod(rail.get(), "clearSelection"));
     QCOMPARE(rail->property("selectedRows").value<QJSValue>().toVariant().toMap().size(), 0);
     QVERIFY(!rail->findChild<QObject*>("clearResultsSelectionButton")->property("enabled").toBool());
+    QTRY_VERIFY(!rail->property("bulkUpdating").toBool());
+    auto* list = rail->findChild<QObject*>("resultList"); QVERIFY(list);
+    QCOMPARE(list->property("count").toInt(), 200);
 }
 
 void UiSmokeTests::exportModesAreSelectable()
@@ -2151,7 +2279,7 @@ void UiSmokeTests::largeExportBackdropKeepsWorkspaceGeometry()
     if (!capture.isEmpty()) QVERIFY(window->grabWindow().save(capture + "/workspace-ultrawide-600.png"));
 }
 
-void UiSmokeTests::advancedOpensOnFirstClickAndStatusTranslates()
+void UiSmokeTests::analysisControlsAreUnifiedAndStatusTranslates()
 {
     pfui::AppInfo::registerQmlTypes();
     auto* analysis = pfui::AnalysisController::instance();
@@ -2162,19 +2290,30 @@ void UiSmokeTests::advancedOpensOnFirstClickAndStatusTranslates()
     auto* window = loadWindow(engine);
     QVERIFY(window);
     auto* sources = window->findChild<QObject*>("sourcesRail");
-    auto* section = sources->findChild<QQuickItem*>("advancedSection");
-    QVERIFY(section);
-    auto* button = section->findChild<QQuickItem*>("disclosureButton");
-    QVERIFY(button);
-    QQuickItem* flick = section->parentItem();
-    while (flick && !flick->property("contentY").isValid()) flick = flick->parentItem();
-    QVERIFY(flick);
-    flick->setProperty("contentY", section->y() - 30);
-    QTest::qWait(100);
-    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
-        button->mapToScene(QPointF(button->width()/2, button->height()/2)).toPoint());
-    QTRY_VERIFY(sources->property("advancedOpen").toBool());
-    QVERIFY(section->property("expanded").toBool());
+    QVERIFY(sources);
+    QVERIFY(!sources->findChild<QQuickItem*>("advancedSection"));
+    auto* model = sources->findChild<QQuickItem*>("poseModelComboBox"); QVERIFY(model);
+    QVERIFY(model->isVisible());
+    auto* processing = sources->findChild<QQuickItem*>("frameProcessingCard"); QVERIFY(processing);
+    QVERIFY(processing->findChild<QQuickItem*>("processingFastButton"));
+    QVERIFY(processing->findChild<QQuickItem*>("processingMediumButton"));
+    QVERIFY(processing->findChild<QQuickItem*>("processingMaximumButton"));
+    QVERIFY(!sources->findChild<QQuickItem*>("accuracyPresetFastButton"));
+    QVERIFY(!sources->findChild<QQuickItem*>("accuracyPresetBalancedButton"));
+    auto* settings = window->findChild<QObject*>("settingsDialog"); QVERIFY(settings);
+    auto* multi = settings->findChild<QQuickItem*>("multiSelectCheck"); QVERIFY(multi);
+    auto* hotkeys = settings->findChild<QQuickItem*>("settingsHotkeysTab"); QVERIFY(hotkeys);
+    QVERIFY(!hotkeys->findChild<QQuickItem*>("multiSelectCheck"));
+    const QString originalQuality = analysis->qualityProfile();
+    const QString originalAccuracy = analysis->accuracyPreset();
+    const auto restoreModes = qScopeGuard([&] {
+        analysis->setQualityProfile(originalQuality);
+        analysis->setAccuracyPreset(originalAccuracy);
+    });
+    auto* maximum = processing->findChild<QQuickItem*>("processingMaximumButton");
+    QVERIFY(QMetaObject::invokeMethod(maximum, "clicked"));
+    QCOMPARE(analysis->qualityProfile(), QStringLiteral("maximum"));
+    QCOMPARE(analysis->accuracyPreset(), QStringLiteral("precise"));
     QQmlComponent component(&engine);
     component.setData("import QtQuick\nimport PfUi\nItem { function setLanguage(v) { L10n.language = v } }", QUrl());
     std::unique_ptr<QObject> control(component.create());
@@ -2293,7 +2432,16 @@ MotionCenter {
     auto* left = center->findChild<QObject*>("leftComparison");
     auto* right = center->findChild<QObject*>("rightComparison");
     auto* pair = center->findChild<QObject*>("pairPlaybackButton");
-    QVERIFY(left && right && pair);
+    auto* configure = center->findChild<QObject*>("configurePairButton");
+    auto* actions = center->findChild<QObject*>("pairActionsMenu");
+    QVERIFY(left && right && pair && configure && actions);
+    QVERIFY(configure->property("primary").toBool());
+    QVERIFY(configure->property("motionEmphasis").toBool());
+    QVERIFY(center->findChild<QObject*>("adjustPairAction"));
+    QVERIFY(center->findChild<QObject*>("replacePairAction"));
+    QVERIFY(center->findChild<QObject*>("keepOnlyAAction"));
+    QVERIFY(center->findChild<QObject*>("keepOnlyBAction"));
+    QVERIFY(!center->findChild<QObject*>("composePairButton"));
     auto* leftPlay = left->findChild<QObject*>("previewPlayButton");
     auto* rightPlay = right->findChild<QObject*>("previewPlayButton");
     QVERIFY(leftPlay && rightPlay);

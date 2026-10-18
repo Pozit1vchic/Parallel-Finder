@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import QtQuick.Effects
 import QtQuick.Layouts
 import PfUi
 import PfUiBridge
@@ -121,14 +120,24 @@ ColumnLayout {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.min(parent.width * 0.58, implicitWidth)
-                    text: Analysis.busy
-                        ? L10n.status(Analysis.progressStage)
-                        : root.selectedRecord
-                            ? (root.selectedRecord.manualPair ? L10n.matchLabel(root.selectedRecord) : L10n.matchLabel(root.selectedRecord) + " · " + Math.round(Number(root.selectedRecord.similarity || 0) * 100) + "%"
-                                + "  •  " + L10n.t("results.sceneSimilarity") + " · " + Math.round(Number(root.selectedRecord.sceneSimilarity || 0) * 100) + "%")
-                            : root.analysisCompleted
-                                ? (root.availableResultCount > 0 ? L10n.t("center.completedTitle") : "")
-                                : root.sourceFiles.length > 0 ? L10n.t("center.readyStatus") : L10n.t("center.waiting")
+                    textFormat: root.selectedRecord && !root.selectedRecord.manualPair && !Analysis.busy ? Text.RichText : Text.PlainText
+                    text: {
+                        if (Analysis.busy) return L10n.status(Analysis.progressStage)
+                        if (root.selectedRecord) {
+                            if (root.selectedRecord.manualPair) return L10n.matchLabel(root.selectedRecord)
+                            const matchScore = Math.round(Number(root.selectedRecord.similarity || 0) * 100)
+                            const sceneScore = Math.round(Number(root.selectedRecord.sceneSimilarity || 0) * 100)
+                            const matchAccent = String(Theme.accent)
+                            const sceneAccent = String(Theme.sage)
+                            return L10n.matchLabel(root.selectedRecord)
+                                + " · <span style=\"font-family:'" + Theme.monoFont + "'; font-size:14px; font-weight:600; color:" + matchAccent + "\">" + matchScore + "%</span>"
+                                + "  •  " + L10n.t("results.sceneSimilarity")
+                                + " · <span style=\"font-family:'" + Theme.monoFont + "'; font-size:14px; font-weight:600; color:" + sceneAccent + "\">" + sceneScore + "%</span>"
+                        }
+                        return root.analysisCompleted
+                            ? (root.availableResultCount > 0 ? L10n.t("center.completedTitle") : "")
+                            : root.sourceFiles.length > 0 ? L10n.t("center.readyStatus") : L10n.t("center.waiting")
+                    }
                     color: Analysis.busy ? Theme.accent : Theme.textSecondary
                     font.pixelSize: 10
                     verticalAlignment: Text.AlignVCenter
@@ -177,7 +186,6 @@ ColumnLayout {
                     y: 1
                     radius: 3
                     color: Analysis.busy ? Theme.accent : Theme.sage
-                    Behavior on width { enabled: !Theme.reducedMotion && Analysis.progress > 0; NumberAnimation { duration: Theme.motionRevealDuration; easing.type: Easing.OutCubic } }
                     Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionChangeDuration } }
                 }
             }
@@ -206,18 +214,28 @@ ColumnLayout {
                             width: parent.width
                             height: childrenRect.height
                             spacing: 8
-                        PfButton {
-                            objectName: "pairPlaybackButton"
-                            compact: true
-                            text: root.pendingPlayback ? L10n.t("timeline.loadingFrame") : (root.pairedPlayback && (leftView.playing || rightView.playing) ? L10n.t("preview.pause") : L10n.t("preview.playPair"))
-                            enabled: !root.pendingPlayback
-                                     && leftView.previewPlayable && rightView.previewPlayable
-                            onClicked: root.togglePair()
-                        }
-                        PfButton { compact: true; quiet: true; text: Review.t("adjust"); enabled: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy; onClicked: root.adjustRequested() }
-                        PfButton { objectName: "composePairButton"; compact: true; quiet: true; text: L10n.language === "ru" ? "Заменить A/B" : "Replace A/B"; enabled: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy; onClicked: root.composeRequested() }
-                        PfButton { compact: true; quiet: true; text: L10n.language === "ru" ? "Убрать A" : "Remove A"; enabled: !!root.selectedRecord && !root.selectedRecord.leftRemoved && !root.selectedRecord.rightRemoved && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy; onClicked: root.removeSideRequested("left") }
-                        PfButton { compact: true; quiet: true; text: L10n.language === "ru" ? "Убрать B" : "Remove B"; enabled: !!root.selectedRecord && !root.selectedRecord.leftRemoved && !root.selectedRecord.rightRemoved && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy; onClicked: root.removeSideRequested("right") }
+                            PfButton {
+                                objectName: "pairPlaybackButton"
+                                compact: true
+                                text: root.pendingPlayback ? L10n.t("timeline.loadingFrame") : (root.pairedPlayback && (leftView.playing || rightView.playing) ? L10n.t("preview.pause") : L10n.t("preview.playPair"))
+                                enabled: !root.pendingPlayback
+                                         && leftView.previewPlayable && rightView.previewPlayable
+                                onClicked: root.togglePair()
+                            }
+                            PfButton {
+                                id: configurePairButton
+                                objectName: "configurePairButton"
+                                compact: true
+                                quiet: true
+                                primary: true
+                                motionEmphasis: true
+                                text: Review.t("configurePair") + "  ▾"
+                                enabled: !!root.selectedRecord && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
+                                onClicked: {
+                                    pairActions.anchorItem = configurePairButton
+                                    pairActions.open()
+                                }
+                            }
                         }
                         Text {
                             width: parent.width
@@ -340,6 +358,96 @@ ColumnLayout {
                             font.pixelSize: 11
                         }
                     }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: pairActions
+        objectName: "pairActionsMenu"
+        parent: Overlay.overlay
+        property Item anchorItem: null
+        function placeAtAnchor() {
+            if (!anchorItem || !parent) return
+            const point = anchorItem.mapToItem(parent, 0, anchorItem.height)
+            x = Math.max(8, Math.min(point.x, parent.width - width - 8))
+            y = Math.max(8, Math.min(point.y, parent.height - height - 8))
+        }
+        onOpened: placeAtAnchor()
+        width: 250
+        padding: 10
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        transformOrigin: Item.TopLeft
+        background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairlineStrong }
+        enter: Transition {
+            enabled: !Theme.reducedMotion
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "scale"; from: Theme.motionPopupScale; to: 1; duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "y"; from: pairActions.y - Theme.motionPopupOffset; to: pairActions.y; duration: Theme.motionPopupDuration; easing.type: Easing.OutQuint }
+            }
+        }
+        exit: Transition {
+            enabled: !Theme.reducedMotion
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; to: 0; duration: Theme.motionChangeDuration; easing.type: Easing.InCubic }
+                NumberAnimation { property: "scale"; to: 0.985; duration: Theme.motionChangeDuration; easing.type: Easing.InCubic }
+                NumberAnimation { property: "y"; to: pairActions.y - 4; duration: Theme.motionChangeDuration; easing.type: Easing.InCubic }
+            }
+        }
+        contentItem: ColumnLayout {
+            spacing: 6
+            PfButton {
+                objectName: "adjustPairAction"
+                Layout.fillWidth: true
+                compact: true
+                primary: true
+                quiet: true
+                text: Review.t("adjust")
+                enabled: !!root.selectedRecord && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
+                onClicked: { pairActions.close(); root.adjustRequested() }
+            }
+            PfButton {
+                objectName: "replacePairAction"
+                Layout.fillWidth: true
+                compact: true
+                quiet: true
+                text: Review.t("replaceSides")
+                enabled: !!root.selectedRecord && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
+                onClicked: { pairActions.close(); root.composeRequested() }
+            }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.hairline; Layout.topMargin: 4; Layout.bottomMargin: 2 }
+            Text {
+                Layout.fillWidth: true
+                text: Review.t("pairContents")
+                color: Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: 10
+                font.weight: Font.DemiBold
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+                PfButton {
+                    objectName: "keepOnlyAAction"
+                    Layout.fillWidth: true
+                    compact: true
+                    quiet: true
+                    text: Review.t("keepOnlyA")
+                    enabled: !!root.selectedRecord && !root.selectedRecord.leftRemoved && !root.selectedRecord.rightRemoved
+                        && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
+                    onClicked: { pairActions.close(); root.removeSideRequested("right") }
+                }
+                PfButton {
+                    objectName: "keepOnlyBAction"
+                    Layout.fillWidth: true
+                    compact: true
+                    quiet: true
+                    text: Review.t("keepOnlyB")
+                    enabled: !!root.selectedRecord && !root.selectedRecord.leftRemoved && !root.selectedRecord.rightRemoved
+                        && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
+                    onClicked: { pairActions.close(); root.removeSideRequested("left") }
                 }
             }
         }

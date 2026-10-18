@@ -14,5 +14,6 @@ using MontageProgress = std::function<void(std::size_t completed, std::size_t to
 // incompatible input or prepared streams fail without a lossy fallback.
 CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
     const std::filesystem::path& output, std::stop_token stop = {},
-    MontageProgress progress = {}, const std::string& executable = "ffmpeg", bool preserveInputOrder = false);
+    MontageProgress progress = {}, const std::string& executable = "ffmpeg", bool preserveInputOrder = false,
+    int maxWidth = 0, int maxHeight = 0);
 }

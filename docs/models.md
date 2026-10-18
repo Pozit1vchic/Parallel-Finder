@@ -58,7 +58,7 @@ pwsh -File tools/release/prepare-model-packages.ps1 -OutputDirectory 'D:\Paralle
 Скрипт копирует уже существующие ONNX, сверяет копии, формирует каталог.
 Он не проверяет качество распознавания или совместимость графа. Для проверки
 каждой модели тестами проекта задайте `PF_TEST_MODEL_ASSET` равным полному пути
-и запустите `pf_tests.exe --gtest_filter=PoseEstimator.RunsReleaseAssetWhenRequested`.
+и запустите `build/ucrt64-release/tests/pf_tests.exe --gtest_filter=PoseEstimator.RunsReleaseAssetWhenRequested`.
 Тест делает реальный CPU-inference на синтетическом кадре; это не оценка качества.
 
 Для публикации через GitHub CLI после `gh auth login`:

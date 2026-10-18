@@ -42,6 +42,51 @@ Vector increment(const Matrix& current, const Matrix& previous) {
 double median(double a,double b,double c) {
     return a+b+c-std::min({a,b,c})-std::max({a,b,c});
 }
+
+// A pose estimator can jitter far enough to exceed the angular range of a
+// small head action, especially when the person is nearly frontal. Range by
+// itself is therefore not proof of motion. Accept a clear displacement, or
+// one supported out-and-back excursion; repeated direction changes remain
+// uncertain instead of becoming a head turn or a compound movement.
+bool supportedMotion(const std::vector<Vector>& path,int axis,double extent,double delta) {
+    // Check temporal consistency before trusting endpoint displacement. The
+    // integrated rotation-vector path can drift during repeated small pose
+    // oscillations even when the estimator returns to the same pose; endpoint
+    // delta alone would turn that drift into a supported action.
+    if(path.size()<5)return std::abs(delta)>=std::max(8.,extent*.45);
+
+    constexpr double prominence=4.;
+    double extreme=path.front()[axis];
+    double firstExtreme=extreme;
+    int direction=0,reversals=0;
+    double firstLeg=0,secondLeg=0;
+    for(const auto& point:path) {
+        const double value=point[axis];
+        if(direction==0) {
+            if(std::abs(value-path.front()[axis])>=prominence) {
+                direction=value>path.front()[axis]?1:-1;
+                extreme=value;
+            }
+        } else if((value-extreme)*direction>=0) {
+            extreme=value;
+            if(reversals==0)firstExtreme=extreme;
+            else secondLeg=std::max(secondLeg,std::abs(extreme-firstExtreme));
+        } else if((extreme-value)*direction>=prominence) {
+            ++reversals;
+            if(reversals>1)return false;
+            firstLeg=std::abs(extreme-path.front()[axis]);
+            firstExtreme=extreme;
+            direction=-direction;
+            extreme=value;
+        }
+    }
+    const double supportedEnd=median(path[path.size()-1][axis],
+        path[path.size()-2][axis],path[path.size()-3][axis]);
+    if(reversals==1)secondLeg=std::max(secondLeg,std::abs(supportedEnd-firstExtreme));
+    if(std::abs(delta)>=std::max(8.,extent*.45))return true;
+    if(extent<16.)return false;
+    return firstLeg>=8. && secondLeg>=8.;
+}
 } // namespace
 
 MovementClassification classifyHeadOrientation(std::span<const HeadOrientationSample> input,
@@ -111,16 +156,19 @@ MovementClassification classifyHeadOrientation(std::span<const HeadOrientationSa
     }
     const double yaw=extent[1],tilt=std::max(extent[0],extent[2]);
     const double maximum=std::max(yaw,tilt);
+    const bool supportedYaw=supportedMotion(smooth,1,yaw,delta[1]);
+    const int tiltAxis=extent[0]>=extent[2]?0:2;
+    const bool supportedTilt=supportedMotion(smooth,tiltAxis,tilt,delta[tiltAxis]);
     if (maximum<8.) result.gesture=GestureClass::Static;
     else if (maximum<12.) return result; // explicit uncertainty band
-    else if (std::min(yaw,tilt)>=12.) {
+    else if (std::min(yaw,tilt)>=12. && supportedYaw && supportedTilt) {
         result.gesture=GestureClass::Mixed;
         const bool nod=extent[0]>=12. && extent[0]>extent[2]*1.5
             && std::abs(delta[0])<extent[0]*.35;
         result.actions={GestureClass::HeadTurn,nod ? GestureClass::HeadNod:GestureClass::HeadTilt};
     }
-    else if (yaw>=12. && yaw>tilt*1.5) result.gesture=GestureClass::HeadTurn;
-    else if (tilt>=12. && tilt>yaw*1.5) {
+    else if (yaw>=12. && yaw>tilt*1.5 && supportedYaw) result.gesture=GestureClass::HeadTurn;
+    else if (tilt>=12. && tilt>yaw*1.5 && supportedTilt) {
         const bool nod=extent[0]>=12. && extent[0]>extent[2]*1.5
             && std::abs(delta[0])<extent[0]*.35;
         result.gesture=nod ? GestureClass::HeadNod:GestureClass::HeadTilt;

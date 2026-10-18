@@ -99,5 +99,5 @@ if __name__=='__main__':
     p=argparse.ArgumentParser()
     p.add_argument('--normal',type=Path,required=True)
     p.add_argument('--repeat',type=Path,required=True)
-    p.add_argument('--probe',type=Path,default=Path('build/ucrt64-release/pf_matcher_probe.exe'))
+    p.add_argument('--probe',type=Path,default=Path('build/ucrt64-release/tools/pf_matcher_probe.exe'))
     a=p.parse_args();verify(a.normal,a.repeat,a.probe)

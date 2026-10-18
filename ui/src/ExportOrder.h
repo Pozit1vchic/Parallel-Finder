@@ -14,19 +14,43 @@ inline QString exportGroupKey(const QVariantMap& record) {
     return group.isEmpty() ? record.value("classification", "unknown").toString()
                            : QStringLiteral("group:") + group;
 }
+inline QString exportClassKey(const QString& value, const QStringList& classOrder);
 // Preserve an explicit dialog order, including interleaved custom/ML groups.
 // Other callers can pass their ML-only order: missing custom groups are then
 // inserted before the first ML class, so MCP and GUI exports agree.
 inline QStringList effectiveExportClassOrder(const QVariantList& records,
-    const QStringList& requestedClassOrder)
+    const QStringList& requestedClassOrder, const QVariantList& selectedIndexes)
 {
+    QVariantList selectedRecords;
+    std::vector<bool> seen(static_cast<std::size_t>(records.size()), false);
+    for (const auto& value : selectedIndexes) {
+        bool ok = false;
+        const int index = value.toInt(&ok);
+        if (!ok || index < 0 || index >= records.size() || seen[static_cast<std::size_t>(index)]) continue;
+        seen[static_cast<std::size_t>(index)] = true;
+        const auto record = records[index].toMap();
+        if (!record.value("hidden").toBool()) selectedRecords.append(record);
+    }
+
     QStringList result;
-    for (const auto& key : requestedClassOrder)
-        if (!key.isEmpty() && !result.contains(key)) result.append(key);
+    // The caller may supply a complete classifier order (for example MCP's
+    // stable taxonomy), while the user exports only a few classes. Keep the
+    // explicit relative order, but remove groups with no selected rows so
+    // unselected categories cannot shift folder prefixes or montage ranks.
+    for (const auto& key : requestedClassOrder) {
+        if (key.isEmpty() || result.contains(key)) continue;
+        const bool selected = std::any_of(selectedRecords.cbegin(), selectedRecords.cend(), [&](const QVariant& value) {
+            const auto record = value.toMap();
+            const auto group = exportGroupKey(record);
+            return group.startsWith(QStringLiteral("group:"))
+                ? group == key : exportClassKey(group, requestedClassOrder) == key;
+        });
+        if (selected) result.append(key);
+    }
+
     QStringList missing;
-    for (const auto& value : records) {
+    for (const auto& value : selectedRecords) {
         const auto record = value.toMap();
-        if (record.value("hidden").toBool()) continue;
         if (record.value("manualGroup").toString().isEmpty()) continue;
         const auto key = exportGroupKey(record);
         if (!result.contains(key) && !missing.contains(key)) missing.append(key);

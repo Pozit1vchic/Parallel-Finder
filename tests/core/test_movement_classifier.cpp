@@ -9,6 +9,7 @@
 #include <cmath>
 #include <functional>
 #include <limits>
+#include <map>
 #include <numbers>
 #include <QFile>
 #include <QJsonDocument>
@@ -381,9 +382,21 @@ TEST(MovementGrouping, PlantedFeetDuringRealShovelingAndThrowingAreNotWalking)
     }
 }
 
-TEST(MovementGrouping, SeparatesTorsoRotationFromUniformZoom)
+TEST(MovementGrouping, ShoulderChangeAloneIsNotEnoughToClassifyATorsoTurn)
 {
-    EXPECT_EQ(group(actionFixture([](auto& f,double t){f.keypoints[5].x+=1.4*t;f.keypoints[6].x-=1.4*t;})),pfcore::GestureClass::Turn);
+    const auto shouldersOnly=actionFixture([](auto& f,double t){
+        f.keypoints[5].x+=1.4*t;f.keypoints[6].x-=1.4*t;
+    });
+    EXPECT_EQ(group(shouldersOnly),pfcore::GestureClass::Unknown);
+
+    // A genuine turn changes projected shoulder and hip widths together,
+    // while the torso length remains stable. This preserves an independently
+    // supported trunk turn after removing the old leg-visibility shortcut.
+    const auto coordinatedTurn=actionFixture([](auto& f,double t){
+        const double projection=1.-.55*t;
+        for(int joint=5;joint<17;++joint)f.keypoints[joint].x*=projection;
+    });
+    EXPECT_EQ(group(coordinatedTurn),pfcore::GestureClass::Turn);
 }
 TEST(MovementGrouping, SuddenLeftRightPoseSwapIsNotAContinuousBodyTurn)
 {
@@ -527,6 +540,43 @@ TEST(MovementGrouping, RemainsStableUnderNoiseMirroringAndPartialReferenceDropou
         EXPECT_EQ(group(w),pfcore::GestureClass::Raise)<<variant;
     }
 }
+TEST(MovementGrouping, StillHeadJitterDoesNotBecomeHeadMotionOrUnknown)
+{
+    using G=pfcore::GestureClass;
+    auto window=actionFixture([](auto& frame,double t) {
+        // Small landmark drift around a held frontal pose stays below the
+        // action threshold after normalization to the ear/shoulder scale.
+        frame.keypoints[0].x+=.1*std::sin(8*std::numbers::pi*t);
+    });
+    for(const auto& frame:window.frames) {
+        const double yaw=10.*frame.timestampSeconds/3.*std::numbers::pi/180.;
+        const double c=std::cos(yaw),s=std::sin(yaw);
+        window.headOrientations.push_back({frame.timestampSeconds,{c,0,s,0,1,0,-s,0,c},true});
+    }
+
+    const pfcore::MovementClassifier classifier;
+    const auto wholePerson=classifier.classifyForGrouping(window,0,3,false);
+    const auto headOnly=classifier.classifyForGrouping(window,0,3,true);
+    EXPECT_EQ(wholePerson.gesture,G::Static);
+    EXPECT_EQ(headOnly.gesture,G::Static);
+    EXPECT_TRUE(wholePerson.actions.empty());
+    EXPECT_TRUE(headOnly.actions.empty());
+
+    const auto pair=pfcore::MovementClassifier::combineForGrouping(wholePerson,headOnly);
+    EXPECT_EQ(pair.gesture,G::Static);
+    EXPECT_TRUE(pair.actions.empty());
+}
+TEST(MovementGrouping, UnsupportedAlternatingFaceJitterDoesNotBecomeAHeadTurn)
+{
+    auto window=actionFixture([](auto& frame,double t) {
+        // Several large reversals resemble estimator chatter or a shake,
+        // not a single sustained turn. No head-shake class exists yet.
+        frame.keypoints[0].x+=.7*std::sin(6*std::numbers::pi*t);
+    });
+    const auto result=pfcore::MovementClassifier().classifyForGrouping(window,0,3,true);
+    EXPECT_NE(result.gesture,pfcore::GestureClass::HeadTurn);
+    EXPECT_NE(result.gesture,pfcore::GestureClass::Mixed);
+}
 TEST(MovementGrouping, ReplaysManuallyReviewedElliotAndSoldierScenepacks)
 {
     QFile file(QString::fromUtf8(PF_TEST_FIXTURE_DIR)+"/scenepack-movement-grouping.json");
@@ -564,6 +614,54 @@ TEST(MovementGrouping, ReplaysManuallyReviewedElliotAndSoldierScenepacks)
             EXPECT_EQ(actual,row["expected"].toString().toStdString())<<transform;
         }
     }
+}
+TEST(MovementGrouping, SoldierScenepackConfusionMatrixContainsOnlyReviewedSoldierCases)
+{
+    QFile file(QString::fromUtf8(PF_TEST_FIXTURE_DIR)+"/scenepack-movement-grouping.json");
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const auto cases=QJsonDocument::fromJson(file.readAll()).array();
+    const pfcore::MovementClassifier classifier;
+    std::map<std::string,std::map<std::string,int>> confusion;
+    int soldierCases=0;
+    for(const auto value:cases) {
+        const auto row=value.toObject();
+        if(row["source"].toString()!=QStringLiteral("soldier"))continue;
+        ++soldierCases;
+        pfcore::MotionWindow window;
+        for(const auto valueFrame:row["frames"].toArray()) {
+            const auto source=valueFrame.toObject();pfcore::PoseFrame frame;
+            frame.timestampSeconds=source["time"].toDouble();
+            for(const auto point:source["points"].toArray()) {
+                const auto p=point.toArray();
+                frame.keypoints.push_back({p[0].toDouble(),p[1].toDouble(),p[2].toDouble()});
+            }
+            window.frames.push_back(std::move(frame));
+        }
+        const auto start=row["start"].toDouble();
+        const auto end=exclusiveFixtureEnd(window,row["end"].toDouble());
+        const bool headOnly=row["headOnly"].toBool();
+        const auto expected=row["expected"].toString().toStdString();
+        for(int transform=0;transform<3;++transform) {
+            auto observed=window;
+            if(transform)for(auto& frame:observed.frames)for(auto& point:frame.keypoints) {
+                point.x=(transform==1 ? -1.7:1.7)*point.x+100;
+                point.y=1.7*point.y-50;
+            }
+            const auto actual=row["pose"].toBool()
+                ? classifier.classifyPoseForGrouping(observed,start,end,headOnly)
+                : std::string(pfcore::MovementClassifier::gestureName(
+                    classifier.classifyForGrouping(observed,start,end,headOnly).gesture));
+            ++confusion[expected][actual];
+            EXPECT_EQ(actual,expected)<<row["name"].toString().toStdString()<<" transform="<<transform;
+        }
+    }
+    ASSERT_EQ(soldierCases,5);
+    // Every Soldier Boy label currently available for this replay is a
+    // manually reviewed diagonal case. Elliot and Batya fixtures are excluded.
+    EXPECT_EQ(confusion["static"]["static"],6);
+    EXPECT_EQ(confusion["head_turn"]["head_turn"],3);
+    EXPECT_EQ(confusion["unknown"]["unknown"],3);
+    EXPECT_EQ(confusion["head_front"]["head_front"],3);
 }
 TEST(MovementGrouping, RecordedHeadTurnRemainsRecognizableWhenAnEarBecomesOccluded)
 {
@@ -700,7 +798,9 @@ TEST(MovementGrouping, IndependentSimultaneousActionsDoNotHideBehindOneClass)
     EXPECT_EQ(classifier.classifyForGrouping(armOnly,0,3,false).gesture,pfcore::GestureClass::Raise);
     const auto compound=classifier.classifyForGrouping(source,0,3,false);
     const auto single=classifier.classifyForGrouping(armOnly,0,3,false);
-    EXPECT_TRUE(pfcore::MovementClassifier::combineForGrouping(compound,single).actions.empty());
+    const auto shared=pfcore::MovementClassifier::combineForGrouping(compound,single);
+    EXPECT_EQ(shared.gesture,pfcore::GestureClass::Raise);
+    EXPECT_EQ(shared.actions,(std::vector<pfcore::GestureClass>{pfcore::GestureClass::Raise}));
 }
 TEST(MovementGrouping, UnclassifiedVisibleHandActionCannotBecomeIsolatedHeadTurn)
 {
@@ -715,7 +815,7 @@ TEST(MovementGrouping, UnclassifiedVisibleHandActionCannotBecomeIsolatedHeadTurn
     for(auto& frame:window.frames)frame.keypoints[9].confidence=0;
     EXPECT_EQ(classifier.classifyForGrouping(window,0,3,false).gesture,pfcore::GestureClass::HeadTurn);
 }
-TEST(MovementGrouping, PairFacetsIgnoreEnumerationOrderButRequireFiniteEvidence)
+TEST(MovementGrouping, PairFacetsIntersectRegardlessOfOrderAndRequireFiniteEvidence)
 {
     using G=pfcore::GestureClass;
     pfcore::MovementClassification left,right;
@@ -727,7 +827,9 @@ TEST(MovementGrouping, PairFacetsIgnoreEnumerationOrderButRequireFiniteEvidence)
     EXPECT_EQ(combined.actions,left.actions);
     EXPECT_EQ(combined.gesture,G::Mixed);
     right.actions={G::Lower,G::HeadTurn};
-    EXPECT_TRUE(pfcore::MovementClassifier::combineForGrouping(left,right).actions.empty());
+    const auto mismatchedCompound=pfcore::MovementClassifier::combineForGrouping(left,right);
+    EXPECT_EQ(mismatchedCompound.gesture,G::HeadTurn);
+    EXPECT_EQ(mismatchedCompound.actions,(std::vector<G>{G::HeadTurn}));
     for(double invalid:{std::numeric_limits<double>::quiet_NaN(),
                         std::numeric_limits<double>::infinity(),
                         -std::numeric_limits<double>::infinity()}) {
@@ -735,6 +837,44 @@ TEST(MovementGrouping, PairFacetsIgnoreEnumerationOrderButRequireFiniteEvidence)
         EXPECT_EQ(pfcore::MovementClassifier::combineForGrouping(left,right).gesture,G::Unknown);
         EXPECT_EQ(pfcore::MovementClassifier::combineForGrouping(right,left).gesture,G::Unknown);
     }
+}
+TEST(MovementGrouping, DifferentActionsAcrossPairSidesDoNotBecomeCompositeMovement)
+{
+    using G=pfcore::GestureClass;
+    pfcore::MovementClassification left,right;
+    left.gesture=G::HeadTurn;left.gestureConfidence=.9;
+    right.gesture=G::Static;right.gestureConfidence=.95;
+    EXPECT_EQ(pfcore::MovementClassifier::combineForGrouping(left,right).gesture,G::Unknown);
+    EXPECT_EQ(pfcore::MovementClassifier::combineForGrouping(right,left).gesture,G::Unknown);
+
+    right.gesture=G::Raise;right.gestureConfidence=.9;
+    EXPECT_EQ(pfcore::MovementClassifier::combineForGrouping(left,right).gesture,G::Unknown);
+}
+TEST(MovementGrouping, KeepsOnlyActionsMeasuredOnBothParallelViews)
+{
+    using G=pfcore::GestureClass;
+    pfcore::MovementClassification compound,single;
+    compound.gesture=G::Mixed;compound.gestureConfidence=.92;
+    compound.actions={G::Step,G::Turn};
+    single.gesture=G::Step;single.gestureConfidence=.88;
+
+    const auto forward=pfcore::MovementClassifier::combineForGrouping(compound,single);
+    const auto reverse=pfcore::MovementClassifier::combineForGrouping(single,compound);
+    for(const auto& result:{forward,reverse}) {
+        EXPECT_EQ(result.gesture,G::Step);
+        EXPECT_EQ(result.actions,(std::vector<G>{G::Step}));
+    }
+
+    single.gesture=G::Raise;
+    EXPECT_EQ(pfcore::MovementClassifier::combineForGrouping(compound,single).gesture,G::Unknown);
+    EXPECT_TRUE(pfcore::MovementClassifier::combineForGrouping(compound,single).actions.empty());
+
+    pfcore::MovementClassification stillA,stillB;
+    stillA.gesture=stillB.gesture=G::Static;
+    stillA.gestureConfidence=stillB.gestureConfidence=.9;
+    const auto still=pfcore::MovementClassifier::combineForGrouping(stillA,stillB);
+    EXPECT_EQ(still.gesture,G::Static);
+    EXPECT_TRUE(still.actions.empty());
 }
 TEST(MovementGrouping, LearnedHeadEvidenceControlsHeadAndSeparatesIndependentArmMotion)
 {
@@ -787,7 +927,9 @@ TEST(MovementGrouping, IndependentArmMotionRetainsBothMeasuredHeadActions)
     EXPECT_EQ(body.gesture,G::Mixed);
     EXPECT_EQ(body.actions,(std::vector<G>{G::Raise,G::HeadTurn,G::HeadTilt}));
     EXPECT_EQ(pfcore::MovementClassifier::combineForGrouping(body,body).actions,body.actions);
-    EXPECT_TRUE(pfcore::MovementClassifier::combineForGrouping(head,body).actions.empty());
+    const auto sharedHead=pfcore::MovementClassifier::combineForGrouping(head,body);
+    EXPECT_EQ(sharedHead.gesture,G::Mixed);
+    EXPECT_EQ(sharedHead.actions,(std::vector<G>{G::HeadTurn,G::HeadTilt}));
 }
 TEST(MovementGrouping, LearnedOrientationDoesNotInheritContradictoryGeometricHeadFacets)
 {

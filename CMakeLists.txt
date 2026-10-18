@@ -20,6 +20,15 @@ endif()
 
 include(CTest)
 
+# Keep the launch/package directory clean: only the desktop app and its
+# updater belong beside the runtime DLLs. Test runners and diagnostics stay in
+# dedicated folders so developers can still build and run the complete suite.
+function(pf_set_executable_output_group target group)
+    set_target_properties(${target} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/${group}"
+    )
+endfunction()
+
 find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 QuickDialogs2 Qml Gui Network Multimedia)
 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 find_package(LibArchive REQUIRED)

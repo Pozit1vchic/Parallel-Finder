@@ -4,7 +4,7 @@ import QtQuick
 
 QtObject {
     property string language: "en"
-    readonly property var movementTypes: ["head_turn_away", "head_turn_back", "head_turn", "turn", "head_front", "head_turned", "head_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "body_pose", "head_nod", "head_tilt", "raise", "lower", "raise_lower", "wave", "push", "pull", "reach_return", "step", "static", "mixed", "unknown"]
+    readonly property var movementTypes: ["head_turn_away", "head_turn_back", "head_turn", "turn", "head_front", "head_turned", "head_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "body_pose", "pose_mismatch", "head_nod", "head_tilt", "raise", "lower", "raise_lower", "wave", "push", "pull", "reach_return", "step", "static", "mixed", "unknown"]
     function movementKey(value) {
         const key=String(value || "unknown").split("/")[0]
         if (movementTypes.indexOf(key)>=0) return key
@@ -54,6 +54,7 @@ QtObject {
             "colors.gold": "Золотой",
             "class.head_pose": "Положение головы",
             "class.body_pose": "Положение тела",
+            "class.pose_mismatch": "Разные статичные позы",
             "class.head_front": "Голова прямо",
             "class.head_turned": "Голова повёрнута",
             "class.arms_raised": "Рука поднята",
@@ -82,6 +83,13 @@ QtObject {
             "class.right": "Вправо",
             "class.toward_camera": "К камере",
             "class.away_from_camera": "От камеры",
+            "direction.left": "Влево",
+            "direction.right": "Вправо",
+            "direction.toward_camera": "К камере",
+            "direction.away_from_camera": "От камеры",
+            "direction.static": "Без перемещения",
+            "direction.mixed": "Смешанное направление",
+            "direction.unknown": "Направление не определено",
 
             "updates.title": "Обновление Parallel Finder",
             "updates.channel": "Канал обновлений",
@@ -160,7 +168,7 @@ QtObject {
             "search.quality": "Качество анализа",
             "search.frameProcessing": "Обработка кадров",
             "search.accuracyGroup": "Режим точности",
-            "search.accuracyHint": "Готовый профиль меняет пороги и ранжирование одним нажатием.",
+            "search.accuracyHint": "Режим одновременно задаёт обработку кадров и профиль поиска параллелей.",
             "search.presetFast": "Быстрый поиск",
             "search.presetBalanced": "Баланс",
             "search.presetPrecise": "Высокая точность",
@@ -245,6 +253,8 @@ QtObject {
             "results.export": "Экспорт",
             "results.selectAll": "Выбрать все",
             "results.clearSelection": "Снять выбор",
+            "results.filtersAndOrder": "Фильтры и порядок",
+            "results.resetFilters": "Сбросить фильтры",
 
             "settings.windowTitle": "Настройки Parallel Finder",
             "settings.saveFailed": "Не удалось сохранить настройки: проверьте доступ к AppData.",
@@ -300,7 +310,7 @@ QtObject {
             "settings.tabAnalysis": "Анализ",
             "settings.tabAppearance": "Оформление",
             "settings.appearanceTitle": "Оформление интерфейса",
-            "settings.appearanceSubtitle": "Язык, шрифт, акцентный цвет и прозрачность панелей. Изменения применяются сразу.",
+            "settings.appearanceSubtitle": "Язык, шрифт, акцентная палитра и прозрачность панелей. Изменения применяются сразу.",
             "settings.font": "Шрифт интерфейса",
             "settings.fontAdd": "Добавить шрифт",
             "settings.fontLoaded": "Загружен",
@@ -312,6 +322,13 @@ QtObject {
             "settings.accentBlue": "Синий",
             "settings.accentViolet": "Фиолетовый",
             "settings.accentTeal": "Бирюзовый",
+            "settings.accentSunset": "Закат",
+            "settings.accentOcean": "Океан",
+            "settings.accentAurora": "Северное сияние",
+            "settings.accentCustom": "Свой цвет",
+            "settings.accentCustomGradient": "Свой градиент",
+            "settings.accentStopStart": "Цвет 1",
+            "settings.accentStopEnd": "Цвет 2",
             "settings.surfaceOpacity": "Прозрачность панелей",
             "settings.surfaceOpacityHint": "25% — лёгкие панели, 100% — плотные. Шкала откалибрована по восприятию, поэтому средние значения остаются читаемыми.",
             "settings.resetAppearance": "Сбросить оформление",
@@ -371,6 +388,7 @@ QtObject {
             "colors.gold": "Gold",
             "class.head_pose": "Head position",
             "class.body_pose": "Body position",
+            "class.pose_mismatch": "Different static poses",
             "class.head_front": "Head facing forward",
             "class.head_turned": "Head turned",
             "class.arms_raised": "Arm raised",
@@ -399,6 +417,13 @@ QtObject {
             "class.right": "Right",
             "class.toward_camera": "Toward camera",
             "class.away_from_camera": "Away from camera",
+            "direction.left": "Left",
+            "direction.right": "Right",
+            "direction.toward_camera": "Toward camera",
+            "direction.away_from_camera": "Away from camera",
+            "direction.static": "No displacement",
+            "direction.mixed": "Mixed direction",
+            "direction.unknown": "Direction unknown",
 
             "updates.title": "Update Parallel Finder",
             "updates.channel": "Update channel",
@@ -474,7 +499,7 @@ QtObject {
             "search.quality": "Analysis quality",
             "search.frameProcessing": "Frame processing",
             "search.accuracyGroup": "Accuracy mode",
-            "search.accuracyHint": "A preset changes thresholds and ranking in one click.",
+            "search.accuracyHint": "The mode sets frame processing and the parallel-search profile together.",
             "search.presetFast": "Quick search",
             "search.presetBalanced": "Balanced",
             "search.presetPrecise": "High precision",
@@ -555,6 +580,8 @@ QtObject {
             "results.export": "Export",
             "results.selectAll": "Select all",
             "results.clearSelection": "Clear selection",
+            "results.filtersAndOrder": "Filters and order",
+            "results.resetFilters": "Reset filters",
             "settings.windowTitle": "Parallel Finder settings",
             "settings.saveFailed": "Could not save preferences. Check access to AppData.",
             "settings.reducedMotion": "Disable interface animations",
@@ -609,7 +636,7 @@ QtObject {
             "settings.tabAnalysis": "Analysis",
             "settings.tabAppearance": "Appearance",
             "settings.appearanceTitle": "Interface appearance",
-            "settings.appearanceSubtitle": "Language, font, accent color and panel transparency. Changes apply immediately.",
+            "settings.appearanceSubtitle": "Language, font, accent palette and panel transparency. Changes apply immediately.",
             "settings.font": "Interface font",
             "settings.fontAdd": "Add font",
             "settings.fontLoaded": "Loaded",
@@ -621,6 +648,13 @@ QtObject {
             "settings.accentBlue": "Blue",
             "settings.accentViolet": "Violet",
             "settings.accentTeal": "Teal",
+            "settings.accentSunset": "Sunset",
+            "settings.accentOcean": "Ocean",
+            "settings.accentAurora": "Aurora",
+            "settings.accentCustom": "Custom color",
+            "settings.accentCustomGradient": "Custom gradient",
+            "settings.accentStopStart": "Color 1",
+            "settings.accentStopEnd": "Color 2",
             "settings.surfaceOpacity": "Panel transparency",
             "settings.surfaceOpacityHint": "25% keeps panels light; 100% makes them solid. The scale is perceptually tuned so middle values stay readable.",
             "settings.resetAppearance": "Reset appearance",
@@ -657,8 +691,10 @@ QtObject {
     function classificationLabel(key) {
         if (String(key).indexOf("group:") === 0) return String(key).substring(6)
         const parts = String(key || "unknown").split("/")
-        return parts.map(function(part) {
-            return part.split("+").map(function(action) {return t("class."+(action || "unknown"))}).join(" + ")
+        const poseMismatch = parts[0] === "pose_mismatch"
+        return parts.map(function(part,index) {
+            const prefix = index > 0 && !poseMismatch ? "direction." : "class."
+            return part.split("+").map(function(action) {return t(prefix+(action || "unknown"))}).join(" + ")
         }).join(" · ")
     }
 

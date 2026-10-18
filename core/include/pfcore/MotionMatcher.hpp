@@ -237,6 +237,10 @@ struct MotionMatcherParams {
     bool requireAppearance = false;
     // Required appearance fails closed on absent/weak identity evidence.
     double minAppearanceSimilarity = 0.80;
+    // Cross-source moving pairs may use a lower body-ReID proposal threshold
+    // only when the final motion alignment independently corroborates identity.
+    // Static poses and same-source track changes never use this fallback.
+    double minMotionBodyIdentitySimilarity = 0.72;
     // Kept for settings compatibility. Appearance is an identity gate only;
     // it deliberately never inflates the user-visible motion similarity.
     double appearanceWeight = 0.0;

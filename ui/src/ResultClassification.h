@@ -3,6 +3,7 @@
 #include <pfcore/MovementClassifier.hpp>
 #include <QVariantMap>
 #include <QStringList>
+#include <algorithm>
 #include <array>
 
 namespace pfui {
@@ -58,8 +59,20 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
         const auto right = classifier.classifyPoseForGrouping(evidence[1], match.rightStartSeconds,
                                                                match.rightEndSeconds, match.headOnlyComparison);
         const std::string fallback = match.headOnlyComparison ? "head_pose" : "body_pose";
-        classification = QString::fromStdString(left == right ? left
-            : (left == fallback || right == fallback ? fallback : std::string("mixed")));
+        if (left == right) {
+            classification = QString::fromStdString(left);
+        } else if (left != fallback && right != fallback) {
+            // Static evidence can be confidently different on each side. Keep
+            // that disagreement visible and sorted together, with both poses
+            // shown as detail instead of silently calling it a neutral pose.
+            const auto poses = std::minmax(left, right);
+            classification = QStringLiteral("pose_mismatch/%1+%2")
+                .arg(QString::fromStdString(poses.first), QString::fromStdString(poses.second));
+        } else {
+            // A fallback label means at least one side lacks enough evidence
+            // for a specific pose; do not turn uncertainty into a mismatch.
+            classification = QString::fromStdString(fallback);
+        }
     } else {
         classification = QString::fromStdString(match.gestureLabel + "/" + match.directionLabel);
         auto groupingActions=actions;

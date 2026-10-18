@@ -551,7 +551,12 @@ bool differentTrackSegment(const MotionWindow& left, const MotionWindow& right)
 }
 
 struct IdentityEvidence { bool available = false; bool verified = false; bool face = false; double score = 0;
-    bool directConsensus = false; };
+    bool directConsensus = false; bool motionCandidate = false; };
+
+bool identityCandidate(const IdentityEvidence& identity)
+{
+    return identity.verified || identity.motionCandidate;
+}
 
 // Overlapping motion/static chunks retain the same identity prototypes.
 // Intern only exactly equal usable descriptors, not tracks or approximate
@@ -646,7 +651,17 @@ IdentityEvidence identityEvidence(const MotionWindow& left, const MotionWindow& 
         && left.appearanceConfidence >= params.minAppearanceEvidence
         && right.appearanceConfidence >= params.minAppearanceEvidence;
     const double score = body ? appearanceCosine(left.appearanceEmbedding, right.appearanceEmbedding) : 0;
-    return {body, body && score >= params.minAppearanceSimilarity, false, score};
+    const bool verified = body && score >= params.minAppearanceSimilarity;
+    // A back/profile view often weakens an otherwise useful OSNet prototype.
+    // Keep a narrow, cross-source moving-pair proposal band, then require
+    // strong aligned motion before the pair can count as identity-verified.
+    // A confident face disagreement has already returned above and cannot
+    // enter this fallback.
+    const bool motionCandidate = body && !verified
+        && !left.staticFrameSet && !right.staticFrameSet
+        && left.sourceId != right.sourceId
+        && score >= params.minMotionBodyIdentitySimilarity;
+    return {body, verified, false, score, false, motionCandidate};
 }
 
 bool separateVerifiedShots(const MotionWindow& left, const MotionWindow& right,
@@ -698,7 +713,51 @@ std::vector<NormalizedPose> normalizePoses(const MotionWindow& window,
         std::nth_element(torsoScales.begin(), middle, torsoScales.end());
         torsoScale = *middle;
     }
-    for (const PoseFrame& frame : window.frames) {
+    // With a stable torso scale, one missed shoulder used to discard the
+    // entire observed skeleton frame. That creates avoidable holes in profile
+    // and rear views even when hips and limbs remain visible. Interpolate only
+    // the coordinate origin across short, ordered gaps; never synthesize joint
+    // positions, extrapolate at the ends, or bridge a longer occlusion.
+    std::vector<std::optional<std::pair<double,double>>> shoulderCenters(window.frames.size());
+    if (torsoScale > 0.0) {
+        for (std::size_t i=0;i<window.frames.size();++i) {
+            const auto& frame=window.frames[i];
+            if (frame.keypoints.size()!=17) continue;
+            const auto& left=frame.keypoints[5];const auto& right=frame.keypoints[6];
+            if (!std::isfinite(left.confidence) || !(left.confidence>=kMinimumKeypointConfidence)
+                || !std::isfinite(right.confidence) || !(right.confidence>=kMinimumKeypointConfidence)
+                || !std::isfinite(left.x) || !std::isfinite(left.y)
+                || !std::isfinite(right.x) || !std::isfinite(right.y)) continue;
+            shoulderCenters[i]=std::pair{left.x*.5+right.x*.5,left.y*.5+right.y*.5};
+        }
+        constexpr double maximumInterpolatedGapSeconds=.35;
+        for(std::size_t left=0;left<shoulderCenters.size();) {
+            if(!shoulderCenters[left]) {++left;continue;}
+            std::size_t right=left+1;
+            while(right<shoulderCenters.size() && !shoulderCenters[right])++right;
+            if(right==shoulderCenters.size())break;
+            const double start=window.frames[left].timestampSeconds;
+            const double end=window.frames[right].timestampSeconds;
+            const double span=end-start;
+            bool ordered=std::isfinite(start) && std::isfinite(end) && span>0.0
+                && span<=maximumInterpolatedGapSeconds+1e-9;
+            for(std::size_t i=left+1;ordered && i<=right;++i)
+                ordered=std::isfinite(window.frames[i].timestampSeconds)
+                    && window.frames[i].timestampSeconds>window.frames[i-1].timestampSeconds;
+            if(ordered && right>left+1) {
+                const auto a=*shoulderCenters[left],b=*shoulderCenters[right];
+                for(std::size_t i=left+1;i<right;++i) {
+                    const double t=(window.frames[i].timestampSeconds-start)/span;
+                    if(!(t>0.0 && t<1.0))break;
+                    shoulderCenters[i]=std::pair{a.first+(b.first-a.first)*t,
+                                                  a.second+(b.second-a.second)*t};
+                }
+            }
+            left=right;
+        }
+    }
+    for (std::size_t frameIndex=0;frameIndex<window.frames.size();++frameIndex) {
+        const PoseFrame& frame=window.frames[frameIndex];
         if (frame.keypoints.empty()) {
             normalized.emplace_back();
             continue;
@@ -722,16 +781,12 @@ std::vector<NormalizedPose> normalizePoses(const MotionWindow& window,
         cx /= weight;
         cy /= weight;
         if (torsoScale > 0.0 && frame.keypoints.size() == 17) {
-            const auto& a = frame.keypoints[5];
-            const auto& b = frame.keypoints[6];
-            if (!(a.confidence >= kMinimumKeypointConfidence)
-                || !(b.confidence >= kMinimumKeypointConfidence)
-                || !std::isfinite(a.x + a.y + b.x + b.y)) {
+            if (!shoulderCenters[frameIndex]) {
                 normalized.emplace_back();
                 continue;
             }
-            cx = (a.x + b.x) * 0.5;
-            cy = (a.y + b.y) * 0.5;
+            cx = shoulderCenters[frameIndex]->first;
+            cy = shoulderCenters[frameIndex]->second;
         }
         double scale = 1.0;
         if (normalizeSize) {
@@ -1471,7 +1526,6 @@ TemporalAlignment alignTemporal(const std::vector<Descriptor>& left,
     return result;
 }
 
-
 double velocityDirectionScore(const AlignedDescriptors& left,
                               const AlignedDescriptors& right)
 {
@@ -1895,7 +1949,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     // A required identity check must fail closed: missing/weak evidence is
     // not proof that two motions belong to the same person. Body appearance
     // can supply evidence, but must not silently bypass this gate.
-    if ((crossTrack || params.requireAppearance) && !identity.verified)
+    if ((crossTrack || params.requireAppearance) && !identityCandidate(identity))
         return reject(MotionRejection::Identity);
     if (left.sourceId == right.sourceId
         && std::abs(result.leftStartSeconds - result.rightStartSeconds)
@@ -2132,6 +2186,21 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         calibrated = 0.949;
     }
     result.similarity = std::clamp(calibrated, 0.0, 0.994);
+    if (identity.motionCandidate && !identity.verified) {
+        // The original-source Soldier Boy walk fixture has body-ReID 0.7535:
+        // below the strict 0.76 identity gate, despite strong aligned motion.
+        // Require independent agreement across the DTW path, sustained run,
+        // and direction channels before that small body-only gap can pass.
+        constexpr double minimumBodyOnlyDtw = 0.78;
+        constexpr double minimumBodyOnlyTemporal = 0.70;
+        constexpr double minimumBodyOnlyDirection = 0.70;
+        if (staticPair || result.similarity < params.similarityThreshold
+            || dtwScore < minimumBodyOnlyDtw
+            || temporalScore < minimumBodyOnlyTemporal
+            || directionScore < minimumBodyOnlyDirection)
+            return reject(MotionRejection::Identity);
+        result.appearanceVerified = true;
+    }
     if (std::getenv("PF_DEBUG_MATCHER") != nullptr && result.similarity >= params.similarityThreshold)
         std::fprintf(stderr, "PF_DEBUG_MOTION_SCORE a=%zu b=%zu dtw=%.4f temporal=%.4f direction=%.4f anatomy=%.4f active=%.4f score=%.4f\n",
             leftIndex, rightIndex, dtwScore, temporalScore, directionScore, anatomyScore,
@@ -2189,6 +2258,8 @@ void MotionMatcher::setParams(MotionMatcherParams params)
         throw std::invalid_argument("MotionMatcher: invalid temporal parameters");
     if (!(params.minAppearanceSimilarity >= -1.0
           && params.minAppearanceSimilarity <= 1.0)
+        || !(params.minMotionBodyIdentitySimilarity >= -1.0
+             && params.minMotionBodyIdentitySimilarity <= 1.0)
         || !(params.appearanceWeight >= 0.0 && params.appearanceWeight <= 1.0)
         || !(params.minAppearanceEvidence >= 0.0 && params.minAppearanceEvidence <= 1.0)
         || !(params.minFaceSimilarity >= 0.0 && params.minFaceSimilarity <= 1.0)
@@ -2643,13 +2714,13 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
           constexpr std::size_t localMemoLimit=8192;
           const auto allowed = [&](std::size_t i,std::size_t j) {
             if(!needsIdentity(i,j))return true;
-            if(serial)return evidence(i,j).verified;
+            if(serial)return identityCandidate(evidence(i,j));
             const auto a=identityPrototypes[i],b=identityPrototypes[j];
             const auto key=(static_cast<std::uint64_t>(std::min(a,b))<<32U)|std::max(a,b);
-            if(const auto f=localIdentity.find(key);f!=localIdentity.end())return f->second.verified;
+            if(const auto f=localIdentity.find(key);f!=localIdentity.end())return identityCandidate(f->second);
             const auto value=identityEvidence(windows[i],windows[j],params_);
             if(localIdentity.size()<localMemoLimit)localIdentity.emplace(key,value);
-            return value.verified;
+            return identityCandidate(value);
           };
           for(auto position=begin;position<end;++position) {
             if(cancelled())break;
@@ -2788,7 +2859,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 for (const auto neighbour : neighbours) {
                     const std::size_t j = neighbour.id;
                     if (i == j || j >= windows.size() || sameKnownShot(i, j)) continue;
-                    if (!lookupEvidence(i,j).verified) continue;
+                    if (!identityCandidate(lookupEvidence(i,j))) continue;
                     if (windows[j].hasSceneIndex && shotSlots[shotOf[j]]++ >= neighboursPerShot) continue;
                     const auto left = std::min(i, j);
                     const auto right = std::max(i, j);

@@ -17,9 +17,6 @@ Flickable {
         id: body; width: parent.width; spacing: 12
         Text { text: Review.t("hotkeys"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
         Text { Layout.fillWidth: true; text: Review.t("keysHint"); wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
-        PfCheckBox { objectName: "multiSelectCheck"; text: Review.t("multi"); checked: Review.multiSelect; onToggled: Review.setMulti(checked) }
-        Text { Layout.fillWidth: true; text: Review.t("multiHint"); wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
-        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hairline }
         Text { visible: !!root.errorText; Layout.fillWidth: true; text: root.errorText; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
         ColumnLayout {
             Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.maximumWidth: body.width; spacing: 4

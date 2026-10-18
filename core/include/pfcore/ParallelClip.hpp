@@ -10,6 +10,24 @@ struct ParallelClipRange {
     double end = 0;
 };
 
+// Track observations can end before a shot does. Use the enclosing shot
+// boundary for export refinement; the observation end only limits pose data.
+inline double sceneBoundaryEnd(double sceneStart, double sceneEnd, double fallbackEnd)
+{
+    if (std::isfinite(sceneStart) && sceneStart >= 0.0
+        && std::isfinite(sceneEnd) && sceneEnd > sceneStart) return sceneEnd;
+    return fallbackEnd;
+}
+
+inline bool sceneBoundaryMayNeedRefinement(double clipStart, double clipEnd,
+                                           double sceneEnd, double toleranceSeconds = 0.35)
+{
+    return std::isfinite(clipStart) && std::isfinite(clipEnd) && std::isfinite(sceneEnd)
+        && std::isfinite(toleranceSeconds) && toleranceSeconds >= 0.0
+        && clipEnd > clipStart && sceneEnd > clipStart
+        && sceneEnd <= clipEnd + toleranceSeconds;
+}
+
 // Export only the supported match. Do not pad a short parallel with unrelated
 // seconds or truncate a long one. A single sampled pose gets one frame.
 inline ParallelClipRange parallelClipRange(double matchStart, double matchEnd,

@@ -10,8 +10,6 @@ Rectangle {
     objectName: "sourcesRail"
     property var sourceFiles: []
     property int selectedSourceIndex: -1
-    property bool advancedOpen: false
-    property string accuracyPreset: Analysis.accuracyPreset
     property var modelFiles: [
         "yolov8n-pose.onnx", "yolov8s-pose.onnx", "yolov8m-pose.onnx", "yolov8l-pose.onnx", "yolov8x-pose.onnx",
         "yolo11n-pose.onnx", "yolo11s-pose.onnx", "yolo11m-pose.onnx", "yolo11l-pose.onnx", "yolo11x-pose.onnx",
@@ -80,14 +78,20 @@ Rectangle {
         }
     }
 
-    function markCustom() { Analysis.accuracyPreset = "custom" }
+    function applyProcessingPreset(preset) {
+        Analysis.qualityProfile = preset
+        // Keep the matcher profile aligned with the sampling/quality choice.
+        // Fast, medium and maximum map to the corresponding established
+        // matcher profiles without exposing low-level thresholds in the UI.
+        root.applyAccuracyPreset(preset === "fast" ? "fast" : preset === "medium" ? "balanced" : "precise")
+    }
 
     Flickable {
         id: sourceFlick
         objectName: "sourceOptionsFlick"
         anchors.fill: parent; anchors.margins: 16; anchors.bottomMargin: 100; clip: true; contentWidth: width; contentHeight: Math.max(content.implicitHeight, content.childrenRect.height) + 18
         boundsBehavior: Flickable.StopAtBounds
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff }
         ColumnLayout {
             id: content; width: parent.width; spacing: 10
             RowLayout { Layout.fillWidth: true; height: 42
@@ -100,12 +104,8 @@ Rectangle {
                 id: rootDrop
                 objectName: "sourceDropArea"
                 Layout.fillWidth: true
-                property real preferredDropHeight: root.sourceFiles.length > 0 ? Math.min(160, Math.max(78, root.sourceFiles.length * 32 + 16)) : 102
-                implicitHeight: preferredDropHeight
-                Layout.preferredHeight: preferredDropHeight
-                Layout.minimumHeight: preferredDropHeight
-                Layout.maximumHeight: preferredDropHeight
-                Behavior on preferredDropHeight { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
+                width: parent.width; height: root.sourceFiles.length > 0 ? Math.min(160, Math.max(78, root.sourceFiles.length * 32 + 16)) : 102
+                Behavior on height { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
                 Accessible.name: L10n.t("sources.dropTitle")
                 onDropped: if (drop.hasUrls) root.filesRequested(drop.urls)
                 Rectangle { anchors.fill: parent; radius: Theme.radiusButton; color: parent.containsDrag ? Theme.accentMuted : Theme.well
@@ -129,7 +129,7 @@ Rectangle {
                         event.accepted = true
                     }
                 }
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff }
                 Accessible.name: L10n.t("sources.title")
                 Keys.onUpPressed: { root.selectedSourceIndex = Math.max(0, root.selectedSourceIndex < 0 ? 0 : root.selectedSourceIndex - 1); positionViewAtIndex(root.selectedSourceIndex, ListView.Contain); event.accepted = true }
                 Keys.onDownPressed: { root.selectedSourceIndex = Math.min(root.sourceFiles.length - 1, root.selectedSourceIndex < 0 ? 0 : root.selectedSourceIndex + 1); positionViewAtIndex(root.selectedSourceIndex, ListView.Contain); event.accepted = true }
@@ -158,34 +158,24 @@ Rectangle {
             }
             }
             RowLayout { Layout.fillWidth: true; spacing: 7
-                PfButton { objectName: "addSourcesButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.add"); onClicked: root.filesRequested([]) }
+                PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.add"); onClicked: root.filesRequested([]) }
                 PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.folder"); quiet: true; onClicked: root.folderRequested() }
             }
             RowLayout { Layout.fillWidth: true; spacing: 7
                 PfButton { objectName: "clearSourcesButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.clear"); quiet: true; enabled: root.sourceFiles.length > 0; onClicked: root.clearRequested() }
                 PfButton { objectName: "removeSourceButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.remove"); quiet: true; enabled: root.selectedSourceIndex >= 0 && root.selectedSourceIndex < root.sourceFiles.length; onClicked: root.removeRequested(root.selectedSourceIndex) }
             }
-            Rectangle { Layout.fillWidth: true; width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: accuracyCard.implicitHeight + 24
-                Column { id: accuracyCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
-                    Text { font.family: Theme.fontFamily; text: L10n.t("search.accuracyGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                    Text { font.family: Theme.fontFamily; width: parent.width; text: L10n.t("search.accuracyHint"); color: Theme.textDisabled; font.pixelSize: 10; wrapMode: Text.WordWrap }
-                    GridLayout { width: parent.width; columns: 2; columnSpacing: 6; rowSpacing: 6
-                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.presetFast"); selected: root.accuracyPreset === "fast"; onClicked: root.applyAccuracyPreset("fast") }
-                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.presetBalanced"); selected: root.accuracyPreset === "balanced"; onClicked: root.applyAccuracyPreset("balanced") }
-                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.columnSpan: 2; compact: true; text: L10n.t("search.presetPrecise"); selected: root.accuracyPreset === "precise"; onClicked: root.applyAccuracyPreset("precise") }
-                    }
-                }
-            }
-            Rectangle { Layout.fillWidth: true; width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: qualityCard.implicitHeight + 24
+            Rectangle { objectName: "frameProcessingCard"; Layout.fillWidth: true; width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: qualityCard.implicitHeight + 24
                 Column { id: qualityCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
                     RowLayout { width: parent.width
                         Text { font.family: Theme.fontFamily; Layout.fillWidth: true; text: L10n.t("search.frameProcessing"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold; elide: Text.ElideRight }
                         Text { font.family: Theme.fontFamily; text: Analysis.qualityProfile === "fast" ? L10n.t("search.fast") : Analysis.qualityProfile === "medium" ? L10n.t("search.medium") : L10n.t("search.maximum"); color: Theme.sage; font.pixelSize: 10 }
                     }
-                    GridLayout { width: parent.width; columns: 2; columnSpacing: 6; rowSpacing: 6
-                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.fast"); selected: Analysis.qualityProfile === "fast"; onClicked: Analysis.qualityProfile = "fast" }
-                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.medium"); selected: Analysis.qualityProfile === "medium"; onClicked: Analysis.qualityProfile = "medium" }
-                        PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.columnSpan: 2; compact: true; text: L10n.t("search.maximum"); selected: Analysis.qualityProfile === "maximum"; onClicked: Analysis.qualityProfile = "maximum" }
+                    Text { font.family: Theme.fontFamily; width: parent.width; text: L10n.t("search.accuracyHint"); color: Theme.textDisabled; font.pixelSize: 10; wrapMode: Text.WordWrap }
+                    GridLayout { width: parent.width; columns: 3; columnSpacing: 6; rowSpacing: 6
+                        PfButton { objectName: "processingFastButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.fast"); selected: Analysis.qualityProfile === "fast"; onClicked: root.applyProcessingPreset("fast") }
+                        PfButton { objectName: "processingMediumButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.medium"); selected: Analysis.qualityProfile === "medium"; onClicked: root.applyProcessingPreset("medium") }
+                        PfButton { objectName: "processingMaximumButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; text: L10n.t("search.maximum"); selected: Analysis.qualityProfile === "maximum"; onClicked: root.applyProcessingPreset("maximum") }
                     }
                     PfCheckBox { text: L10n.t("search.normalize"); tooltipText: L10n.t("search.normalizeHint"); checked: Analysis.normalizeSize; onToggled: Analysis.normalizeSize = checked }
                     PfCheckBox { text: L10n.t("search.mirror"); tooltipText: L10n.t("search.mirrorHint"); checked: Analysis.mirrorPoses; onToggled: Analysis.mirrorPoses = checked }
@@ -259,76 +249,43 @@ Rectangle {
                 enabled: !Analysis.busy
                 onToggled: Analysis.expandedSearch = checked
             }
-            CollapsibleSection {
-                objectName: "advancedSection"
-                Layout.fillWidth: true
-                width: parent.width
-                title: L10n.t("search.advanced")
-                expanded: root.advancedOpen
-                onToggled: function(nextExpanded) { root.advancedOpen = nextExpanded }
-                Text { font.family: Theme.fontFamily;
-                    width: parent.width
-                    text: L10n.t("search.advancedHint")
-                    color: Theme.textSecondary
-                    font.pixelSize: 10
-                    wrapMode: Text.WordWrap
-                }
-                Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: modelCard.implicitHeight + 24
-                    Column { id: modelCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
-                        Text { font.family: Theme.fontFamily; text: L10n.t("settings.poseModel"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        PfComboBox {
-                            id: modelCombo
-                            objectName: "poseModelComboBox"
-                            width: parent.width
-                            model: root.modelLabels
-                            enabled: !Analysis.modelDownloading
-                            function syncModelChoice() {
-                                const selected = root.modelFiles.indexOf(Analysis.modelChoice)
-                                currentIndex = selected >= 0 ? selected : root.modelFiles.indexOf("yolo26m-pose.onnx")
-                            }
-                            Component.onCompleted: Qt.callLater(syncModelChoice)
-                            onModelChanged: Qt.callLater(syncModelChoice)
-                            Connections {
-                                target: Analysis
-                                function onSettingsChanged() { Qt.callLater(modelCombo.syncModelChoice) }
-                            }
-                            Accessible.name: L10n.t("settings.poseModel")
-                            onActivated: Analysis.selectModel(root.modelFiles[currentIndex])
+            Rectangle { Layout.fillWidth: true; width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: modelCard.implicitHeight + 24
+                Column { id: modelCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
+                    Text { font.family: Theme.fontFamily; text: L10n.t("settings.poseModel"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                    PfComboBox {
+                        id: modelCombo
+                        objectName: "poseModelComboBox"
+                        width: parent.width
+                        model: root.modelLabels
+                        enabled: !Analysis.modelDownloading
+                        function syncModelChoice() {
+                            const selected = root.modelFiles.indexOf(Analysis.modelChoice)
+                            currentIndex = selected >= 0 ? selected : root.modelFiles.indexOf("yolo26m-pose.onnx")
                         }
-                        Text { font.family: Theme.fontFamily;
-                            width: parent.width
-                            text: Analysis.modelDownloading
-                                ? (L10n.t("settings.modelDownloading") + "\n" + Analysis.modelDownloadingName
-                                   + " · " + Math.round(Analysis.modelDownloadProgress * 100) + "%")
-                                : (Analysis.modelStatus.length ? L10n.t(Analysis.modelStatus) : L10n.t("settings.modelHint"))
-                            color: Analysis.modelDownloading ? Theme.accent : Theme.textSecondary
-                            font.pixelSize: 10; wrapMode: Text.WordWrap; maximumLineCount: 4; clip: true
+                        Component.onCompleted: Qt.callLater(syncModelChoice)
+                        onModelChanged: Qt.callLater(syncModelChoice)
+                        Connections {
+                            target: Analysis
+                            function onSettingsChanged() { Qt.callLater(modelCombo.syncModelChoice) }
                         }
-                        ProgressBar {
-                            width: parent.width
-                            visible: Analysis.modelDownloading
-                            value: Analysis.modelDownloadProgress
-                            indeterminate: Analysis.modelDownloading && Analysis.modelDownloadProgress <= 0
-                            Accessible.name: L10n.t("settings.modelDownloading")
-                        }
+                        Accessible.name: L10n.t("settings.poseModel")
+                        onActivated: Analysis.selectModel(root.modelFiles[currentIndex])
                     }
-                }
-                Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: sceneCard.implicitHeight + 24
-                    Column { id: sceneCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
-                        Text { font.family: Theme.fontFamily; text: L10n.t("search.sceneGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        PfSliderField { width: parent.width; label: L10n.t("search.sceneThreshold"); from: 8; to: 60; stepSize: 1; value: Analysis.sceneThreshold; decimals: 0; integer: true; tooltipText: L10n.t("search.sceneThresholdHint"); Accessible.name: L10n.t("search.sceneThreshold"); onValueEdited: Analysis.setSceneThreshold(nextValue) }
+                    Text { font.family: Theme.fontFamily;
+                        width: parent.width
+                        text: Analysis.modelDownloading
+                            ? (L10n.t("settings.modelDownloading") + "\n" + Analysis.modelDownloadingName
+                               + " · " + Math.round(Analysis.modelDownloadProgress * 100) + "%")
+                            : (Analysis.modelStatus.length ? L10n.t(Analysis.modelStatus) : L10n.t("settings.modelHint"))
+                        color: Analysis.modelDownloading ? Theme.accent : Theme.textSecondary
+                        font.pixelSize: 10; wrapMode: Text.WordWrap; maximumLineCount: 4; clip: true
                     }
-                }
-                Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: similarityCard.implicitHeight + 24
-                    Column { id: similarityCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
-                        Text { font.family: Theme.fontFamily; text: L10n.t("search.similarityGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        PfSliderField { width: parent.width; label: L10n.t("search.similarity"); from: 0.5; to: 0.99; stepSize: 0.01; value: Analysis.similarityThreshold; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("search.similarityHint"); Accessible.name: L10n.t("search.similarity"); onValueEdited: { root.markCustom(); Analysis.similarityThreshold = nextValue } }
-                    }
-                }
-                Rectangle { width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: spacingCard.implicitHeight + 24
-                    Column { id: spacingCard; anchors.fill: parent; anchors.margins: 12; spacing: 9
-                        Text { font.family: Theme.fontFamily; text: L10n.t("search.spacingGroup"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        PfSliderField { width: parent.width; label: L10n.t("search.repeatGap"); from: 0; to: 30; stepSize: 0.5; value: Analysis.repeatGap; decimals: 1; suffix: L10n.t("common.seconds"); tooltipText: L10n.t("search.repeatGapHint"); Accessible.name: L10n.t("search.repeatGap"); onValueEdited: { root.markCustom(); Analysis.repeatGap = nextValue } }
+                    ProgressBar {
+                        width: parent.width
+                        visible: Analysis.modelDownloading
+                        value: Analysis.modelDownloadProgress
+                        indeterminate: Analysis.modelDownloading && Analysis.modelDownloadProgress <= 0
+                        Accessible.name: L10n.t("settings.modelDownloading")
                     }
                 }
             }
@@ -371,9 +328,10 @@ Rectangle {
                 }
             }
             Text { font.family: Theme.fontFamily;
+                visible: Analysis.busy
                 width: parent.width; text: Analysis.busy
                     ? L10n.status(Analysis.progressStage) + " · " + Math.round(Analysis.progress * 100) + "%"
-                    : L10n.status(Analysis.status)
+                    : ""
                 color: Analysis.busy ? Theme.accent : Theme.textDisabled; font.pixelSize: 9
                 elide: Text.ElideRight
             }

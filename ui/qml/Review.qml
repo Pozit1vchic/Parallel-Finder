@@ -21,13 +21,11 @@ QtObject {
         {id: "clear", ru: "Снять выделение", en: "Clear selection", keys: ["Ctrl+Shift+A"]},
         {id: "color0", ru: "Убрать цвет", en: "Clear color", keys: ["0"]},
         {id: "undo", ru: "Отменить последнее действие", en: "Undo last action", keys: ["Ctrl+Z"]},
-        {id: "nextUnreviewed", ru: "Следующая неразобранная пара", en: "Next unreviewed pair", keys: ["N"]},
-        {id: "reviewed", ru: "Разобрано / не разобрано", en: "Toggle reviewed", keys: ["R"]}
+        {id: "nextUnreviewed", ru: "Следующая неразобранная пара", en: "Next unreviewed pair", keys: ["N"]}
     ]
     readonly property var words: ({
         undo: ["Отменить", "Undo"], nextUnreviewed: ["Следующая неразобранная", "Next unreviewed"],
         reviewed: ["Разобрано", "Reviewed"], unreviewed: ["Не разобрано", "Unreviewed"],
-        reviewedHint: ["Отметить как разобранную; цвет и избранное не меняются", "Mark as reviewed; color and favorite stay unchanged"],
         allReviewed: ["Все показанные пары разобраны", "All visible pairs are reviewed"],
         sourceSearch: ["Поиск по имени сценпака…", "Search scene pack name…"],
         allSources: ["Все сценпаки", "All scene packs"], sourceHint: ["Ищем по обеим сторонам A/B. «Выбрать все» выделяет только показанные пары.", "Search covers both A/B sources. Select all marks only visible pairs."],
@@ -40,6 +38,10 @@ QtObject {
         all: ["Все", "All"], favorites: ["Избранное", "Favorites"], hidden: ["Удалённые", "Removed"],
         remove: ["Удалить пару", "Remove pair"], restore: ["Восстановить пару", "Restore pair"],
         favorite: ["Избранное", "Favorite"], adjust: ["Подстроить пару", "Adjust pair"],
+        configurePair: ["Настроить пару", "Configure pair"], replaceSides: ["Заменить A/B", "Replace A/B"],
+        pairContents: ["Состав пары", "Pair contents"],
+        keepOnlyA: ["Оставить только A", "Keep A only"], keepOnlyB: ["Оставить только B", "Keep B only"],
+        selection: ["Выбор", "Selection"], selectionHint: ["Действие применяется только к показанным парам.", "Actions apply only to visible pairs."],
         sheet: ["Лист находок", "Contact sheet"], sheetHint: ["Парные ряды кадров с таймкодами. Большой список делится на изображения по 4 пары.", "Paired frame rows with timestamps. Large lists are split into images of 4 pairs."],
         scope: ["Пары для листа", "Pairs to include"], visible: ["Все показанные пары", "All visible pairs"], marked: ["Только отмеченные", "Marked pairs only"],
         frames: ["Кадров на каждой стороне", "Frames on each side"], folder: ["Папка для изображений", "Image folder"],

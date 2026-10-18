@@ -42,6 +42,19 @@ TEST(HeadOrientation, CompoundMovementAndNoiseAreNotSingleAxisActions) {
     EXPECT_EQ(classify(trajectory([](double t){return multiply(axisRotation(1,2*std::sin(30*t)),axisRotation(0,2*std::cos(20*t)));})),pfcore::GestureClass::Static);
     EXPECT_EQ(classify(trajectory([](double t){return axisRotation(1,10*t);})),pfcore::GestureClass::Unknown);
 }
+TEST(HeadOrientation, RepeatedPoseEstimatorJitterDoesNotBecomeHeadTurnOrMixed) {
+    // The angular range is intentionally above the old 12-degree action
+    // threshold on both axes, but the changing directions do not form one
+    // supported turn/tilt or a single out-and-back action.
+    const auto jitter=trajectory([](double t) {
+        const double yaw=8.*std::sin(4.*std::numbers::pi*t);
+        const double pitch=8.*std::sin(6.*std::numbers::pi*t);
+        return multiply(axisRotation(1,yaw),axisRotation(0,pitch));
+    });
+    EXPECT_EQ(classify(jitter),pfcore::GestureClass::Unknown);
+    const auto result=pfcore::classifyHeadOrientation(jitter,0,2);
+    EXPECT_TRUE(result.actions.empty());
+}
 TEST(HeadOrientation, IsolatedBoundaryEstimateDoesNotInventAHeadAction) {
     using G=pfcore::GestureClass;
     for(const int index:{0,19})for(const double initialYaw:{0.,65.}) {

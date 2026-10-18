@@ -120,6 +120,22 @@ set_tests_properties(app_smoke PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
 
+foreach(target IN ITEMS
+        pf_discord_tests
+        pf_head_review_tests
+        pf_video_action_review_tests
+        pf_mcp_tests
+        pf_update_tests
+        pf_update_worker_test
+        pf_update_application_stub
+        pf_ffmpeg_stall_stub
+        pf_tests
+        pfui_tests)
+    if(TARGET ${target})
+        pf_set_executable_output_group(${target} tests)
+    endif()
+endforeach()
+
 # A packaged checkout may have qt.conf restricting Plugins to the app folder,
 # which deliberately deploys only the Windows platform plugin. Headless tests
 # must explicitly use the SDK's offscreen plugin rather than showing a fatal

@@ -55,6 +55,25 @@ TEST(ParallelClip, LongGestureIsNotTruncated)
     EXPECT_DOUBLE_EQ(clip.end, 20);
 }
 
+TEST(ParallelClip, EarlyTrackEndDoesNotReplaceTheShotBoundary)
+{
+    const double shotStart = 8.0;
+    const double shotEnd = 12.0;
+    const double lastTrackObservation = 9.2;
+    const double exportBoundary = pfcore::sceneBoundaryEnd(
+        shotStart, shotEnd, lastTrackObservation);
+    const auto clip = pfcore::parallelClipRange(8.5, 9.4, shotStart, exportBoundary);
+
+    EXPECT_DOUBLE_EQ(exportBoundary, shotEnd);
+    EXPECT_FALSE(pfcore::sceneBoundaryMayNeedRefinement(8.5, 9.4, exportBoundary));
+    EXPECT_DOUBLE_EQ(clip.start, 8.5);
+    EXPECT_DOUBLE_EQ(clip.end, 9.4);
+
+    // A real shot edge just after the requested interval still receives native
+    // frame refinement, so sparse sampling does not leak the next shot.
+    EXPECT_TRUE(pfcore::sceneBoundaryMayNeedRefinement(10.5, 11.8, 12.0));
+}
+
 TEST(ParallelClip, StaticMatchAndUnknownSceneStillHaveBoundedContext)
 {
     const auto clip = pfcore::parallelClipRange(10, 10, -1, -1);
@@ -1277,6 +1296,23 @@ TEST(CutService, FastModeCannotResize)
     EXPECT_EQ(result.error, "resolution cap requires exact cut mode");
 }
 
+TEST(CutService, RestrictsExportsToTheSupportedVideoContainers)
+{
+    for (const auto* extension : {"mp4", ".MOV", "mkv", "webm"})
+        EXPECT_TRUE(pfservices::isSupportedVideoContainer(extension)) << extension;
+    for (const auto* extension : {"wav", ".avi", "exe", ""})
+        EXPECT_FALSE(pfservices::isSupportedVideoContainer(extension)) << extension;
+
+    pfservices::CutService cutter("unused-ffmpeg");
+    pfservices::CutRequest request;
+    request.inputPath = "missing.mp4";
+    request.outputPath = "out.avi";
+    request.endSeconds = 1;
+    const auto result = cutter.cut(request);
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.error, "unsupported video container; choose MP4, MOV, MKV, or WebM");
+}
+
 TEST(CutService, ExplicitQualityAndBitrateAreAppliedToEveryEncoder)
 {
     const auto has = [](const std::vector<std::string>& args, const std::string& flag, const std::string& value) {
@@ -1302,6 +1338,12 @@ TEST(CutService, ExplicitQualityAndBitrateAreAppliedToEveryEncoder)
         if (encoder == "h264_qsv") { EXPECT_TRUE(has(quality, "-global_quality", "14")); }
         EXPECT_EQ(std::count(bitrate.begin(), bitrate.end(), "-b:v"), 1);
     }
+    const auto vp9 = pfservices::CutService::videoEncodingArguments("libvpx-vp9", 20, 0, 6);
+    const auto vp9Bitrate = pfservices::CutService::videoEncodingArguments("libvpx-vp9", 20, 8000, 6);
+    EXPECT_TRUE(has(vp9, "-crf", "20"));
+    EXPECT_TRUE(has(vp9, "-b:v", "0"));
+    EXPECT_TRUE(has(vp9Bitrate, "-b:v", "8000k"));
+    EXPECT_FALSE(has(vp9Bitrate, "-crf", "20"));
 }
 
 TEST(CutService, SelectedQualityAndBitrateProduceDecodableClipsWithoutResizing)
@@ -1332,12 +1374,59 @@ TEST(CutService, SelectedQualityAndBitrateProduceDecodableClipsWithoutResizing)
     pfcore::VideoDecoder custom; custom.open(request.outputPath.string());
     EXPECT_EQ(custom.info().width, original.info().width);
     EXPECT_TRUE(custom.readNext(frame));
+    request.mode = pfservices::CutMode::Exact;
+    request.videoBitrateKbps = 0;
+    request.maxWidth = 80;
+    request.maxHeight = 60;
+    request.outputPath = folder.filePath("bounded.mp4").toStdWString();
+    const auto bounded = cutter.cut(request);
+    ASSERT_TRUE(bounded.success) << bounded.error;
+    pfcore::VideoDecoder boundedDecoder; boundedDecoder.open(request.outputPath.string());
+    EXPECT_LE(boundedDecoder.info().width, 80);
+    EXPECT_LE(boundedDecoder.info().height, 60);
+    EXPECT_LE(boundedDecoder.info().width, original.info().width);
+    EXPECT_LE(boundedDecoder.info().height, original.info().height);
+    request.maxWidth = 1000;
+    request.maxHeight = 1000;
+    request.outputPath = folder.filePath("not-upscaled.mp4").toStdWString();
+    const auto notUpscaled = cutter.cut(request);
+    ASSERT_TRUE(notUpscaled.success) << notUpscaled.error;
+    pfcore::VideoDecoder notUpscaledDecoder; notUpscaledDecoder.open(request.outputPath.string());
+    EXPECT_EQ(notUpscaledDecoder.info().width, original.info().width);
+    EXPECT_EQ(notUpscaledDecoder.info().height, original.info().height);
     request.outputPath = folder.filePath("copy.mp4").toStdWString(); request.mode = pfservices::CutMode::Fast;
+    request.maxWidth = request.maxHeight = 0;
     const auto copied = cutter.cut(request);
     ASSERT_TRUE(copied.success) << copied.error;
     EXPECT_EQ(std::find(copied.arguments.begin(), copied.arguments.end(), "-b:v"), copied.arguments.end());
     request.quality = 52; EXPECT_FALSE(cutter.cut(request).success);
     request.quality = 18; request.videoBitrateKbps = 500001; EXPECT_FALSE(cutter.cut(request).success);
+}
+
+TEST(CutService, ReencodesAllSupportedContainersWhenEncodersAreAvailable)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    if (ffmpeg.isEmpty()) GTEST_SKIP();
+    const auto capabilities = pfservices::FfmpegCapabilities::probe(ffmpeg.toStdString());
+    if (std::find(capabilities.videoEncoders.begin(), capabilities.videoEncoders.end(), "libvpx-vp9")
+            == capabilities.videoEncoders.end()
+        || std::find(capabilities.audioEncoders.begin(), capabilities.audioEncoders.end(), "libopus")
+            == capabilities.audioEncoders.end()) GTEST_SKIP() << "FFmpeg lacks the WebM encoders";
+    QTemporaryDir folder;
+    ASSERT_TRUE(folder.isValid());
+    pfservices::CutService cutter(ffmpeg.toStdString());
+    for (const auto* extension : {"mp4", "mov", "mkv", "webm"}) {
+        pfservices::CutRequest request;
+        request.inputPath = std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4";
+        request.outputPath = folder.filePath(QStringLiteral("cut.") + extension).toStdWString();
+        request.endSeconds = .5;
+        const auto result = cutter.cut(request);
+        ASSERT_TRUE(result.success) << extension << ": " << result.error;
+        pfcore::VideoDecoder decoded;
+        ASSERT_NO_THROW(decoded.open(request.outputPath.string()));
+        pfcore::DecodedFrame frame;
+        EXPECT_TRUE(decoded.readNext(frame)) << extension;
+    }
 }
 
 TEST(MontageExport, CanvasChecksAspectRatioOverflowAndRotation) {
@@ -1346,12 +1435,42 @@ TEST(MontageExport, CanvasChecksAspectRatioOverflowAndRotation) {
     const auto normal = pfservices::detail::montageCanvas(info);
     ASSERT_TRUE(normal);
     EXPECT_EQ(*normal, (std::pair<int,int>{2880,1080}));
+    const auto capped = pfservices::detail::montageCanvas(info, 1440, 720);
+    ASSERT_TRUE(capped);
+    EXPECT_EQ(*capped, (std::pair<int,int>{1440,540}));
+    EXPECT_FALSE(pfservices::detail::montageCanvas(info, 1, 0));
+    EXPECT_FALSE(pfservices::detail::montageCanvas(info, 40000, 0));
     info.rotationDegrees = 90;
     EXPECT_EQ(*pfservices::detail::montageCanvas(info), (std::pair<int,int>{1080,2880}));
     info.sampleAspectRatio = 1e12;
     EXPECT_FALSE(pfservices::detail::montageCanvas(info));
     info.sampleAspectRatio = std::numeric_limits<double>::infinity();
     EXPECT_FALSE(pfservices::detail::montageCanvas(info));
+}
+
+TEST(MontageExport, ResolutionLimitReachesTheEncodedMontageWithoutUpscaling)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    if (ffmpeg.isEmpty()) GTEST_SKIP();
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    pfcore::VideoDecoder source;
+    const auto sourcePath = std::filesystem::path(PF_TEST_FIXTURE_DIR) / "tiny.mp4";
+    source.open(sourcePath.string());
+    pfservices::CutRequest request;
+    request.inputPath = sourcePath;
+    request.startSeconds = 0;
+    request.endSeconds = .5;
+    request.mode = pfservices::CutMode::Exact;
+    request.sourceHasAudio = source.info().hasAudio;
+    const auto output = directory.filePath("bounded montage.mp4");
+    const auto montage = pfservices::exportChronologicalMontage({request}, output.toStdWString(),
+        {}, {}, ffmpeg.toStdString(), true, 80, 60);
+    ASSERT_TRUE(montage.success) << montage.error;
+    pfcore::VideoDecoder decoded; decoded.open(output.toStdString());
+    EXPECT_LE(decoded.info().width, 80);
+    EXPECT_LE(decoded.info().height, 60);
+    EXPECT_LE(decoded.info().width, source.info().width);
+    EXPECT_LE(decoded.info().height, source.info().height);
 }
 
 TEST(ExportQueue, ExistingNamesAndCancelledReservationsPreserveAllPreviousFiles)

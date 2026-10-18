@@ -143,6 +143,7 @@ int main(int argc, char** argv)
         PF_NUMBER(maxComparisonThreads);
         PF_NUMBER(staticPoseSimilarityThreshold); PF_NUMBER(staticArticulationSimilarityThreshold);
         PF_NUMBER(minAppearanceSimilarity); PF_NUMBER(minFaceSimilarity); PF_NUMBER(sameSceneContextThreshold);
+        PF_NUMBER(minMotionBodyIdentitySimilarity);
         PF_NUMBER(minHeadFaceSimilarity);
         PF_NUMBER(sameSourceGapFloorSec); PF_NUMBER(minMotionRange); PF_NUMBER(motionDeltaThreshold);
         PF_NUMBER(dtwBand); PF_NUMBER(sakoeChibaRatio); PF_NUMBER(minActiveTransitionRatio);

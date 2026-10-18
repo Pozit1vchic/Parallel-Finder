@@ -16,6 +16,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
+#include <QHash>
 #include <QImage>
 #include <QElapsedTimer>
 #include <QFile>
@@ -25,6 +26,7 @@
 #include <QUrl>
 #include <QStandardPaths>
 #include <QSaveFile>
+#include <QSet>
 #include <QQmlEngine>
 #include <QThread>
 #include <QVariantMap>
@@ -105,6 +107,66 @@ bool isSafeExportPrefix(const QString& value)
         }
     }
     return true;
+}
+
+bool isSafeVideoBaseName(const QString& value)
+{
+    if (value.isEmpty() || value == QStringLiteral(".") || value == QStringLiteral("..")
+        || value.size() > 120 || value.endsWith(QLatin1Char('.')) || value.endsWith(QLatin1Char(' ')))
+        return false;
+    for (const QChar character : value) {
+        if (character.category() == QChar::Other_Control
+            || QStringLiteral("<>:\"/\\|?*").contains(character)) return false;
+    }
+    const QString deviceName = value.section(QLatin1Char('.'), 0, 0).toUpper();
+    static const QSet<QString> reservedDevices{
+        QStringLiteral("CON"), QStringLiteral("PRN"), QStringLiteral("AUX"), QStringLiteral("NUL"),
+        QStringLiteral("COM1"), QStringLiteral("COM2"), QStringLiteral("COM3"), QStringLiteral("COM4"),
+        QStringLiteral("COM5"), QStringLiteral("COM6"), QStringLiteral("COM7"), QStringLiteral("COM8"), QStringLiteral("COM9"),
+        QStringLiteral("LPT1"), QStringLiteral("LPT2"), QStringLiteral("LPT3"), QStringLiteral("LPT4"),
+        QStringLiteral("LPT5"), QStringLiteral("LPT6"), QStringLiteral("LPT7"), QStringLiteral("LPT8"), QStringLiteral("LPT9")};
+    return !reservedDevices.contains(deviceName);
+}
+
+QString exportMovementLabel(QString classification, bool russian)
+{
+    static const QHash<QString, QString> ru{
+        {"head_turn_away", "Отворачивает голову"}, {"head_turn_back", "Поворачивает голову обратно"},
+        {"head_turn", "Поворот головы"}, {"turn", "Поворот тела"}, {"head_front", "Голова прямо"},
+        {"head_turned", "Голова повёрнута"}, {"head_pose", "Положение головы"},
+        {"arms_raised", "Рука поднята"}, {"arms_extended", "Рука выпрямлена"},
+        {"arms_folded", "Руки скрещены"}, {"legs_bent", "Ноги согнуты"},
+        {"legs_straight", "Ноги выпрямлены"}, {"body_pose", "Положение тела"},
+        {"pose_mismatch", "Разные статичные позы"}, {"head_nod", "Кивок головы"},
+        {"head_tilt", "Наклон головы"}, {"raise", "Подъём руки"}, {"lower", "Опускание руки"},
+        {"raise_lower", "Подъём и опускание руки"}, {"wave", "Взмах"},
+        {"push", "Разгибание руки"}, {"pull", "Сгибание руки"},
+        {"reach_return", "Разгибание и возврат руки"}, {"step", "Шаг"},
+        {"static", "Без движения"}, {"mixed", "Смешанное движение"}, {"unknown", "Не определено"}
+    };
+    static const QHash<QString, QString> en{
+        {"head_turn_away", "Turns head away"}, {"head_turn_back", "Turns head back"},
+        {"head_turn", "Head turn"}, {"turn", "Body turn"}, {"head_front", "Head facing forward"},
+        {"head_turned", "Head turned"}, {"head_pose", "Head position"},
+        {"arms_raised", "Arm raised"}, {"arms_extended", "Arm extended"},
+        {"arms_folded", "Arms crossed"}, {"legs_bent", "Legs bent"},
+        {"legs_straight", "Legs straight"}, {"body_pose", "Body position"},
+        {"pose_mismatch", "Different static poses"}, {"head_nod", "Head nod"},
+        {"head_tilt", "Head tilt"}, {"raise", "Raise arm"}, {"lower", "Lower arm"},
+        {"raise_lower", "Arm raise and lower"}, {"wave", "Wave"},
+        {"push", "Arm extension"}, {"pull", "Arm flexion"},
+        {"reach_return", "Arm extension and return"}, {"step", "Step"},
+        {"static", "Still"}, {"mixed", "Mixed movement"}, {"unknown", "Unknown"}
+    };
+    const auto language = russian ? ru : en;
+    const QStringList parts = classification.section(QLatin1Char('/'), 0, 0).split(QLatin1Char('+'));
+    QStringList labels;
+    for (const auto& part : parts) {
+        QString fallback = part;
+        fallback.replace(QLatin1Char('_'), QLatin1Char(' '));
+        labels.push_back(language.value(part, fallback));
+    }
+    return labels.join(QStringLiteral(" + "));
 }
 
 std::filesystem::path userModelsRoot()
@@ -1660,7 +1722,7 @@ void AnalysisController::setSceneThreshold(double value)
 void AnalysisController::setResultClassification(const QVariantList& ids, const QString& classification)
 {
     if (busy_ || exportBusy_ || reviewBusy_) return;
-    const QStringList allowed{"head_turn_away", "head_turn_back", "head_pose", "head_front", "head_turned", "body_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "head_turn", "head_nod", "head_tilt", "push", "pull", "reach_return", "raise", "lower", "raise_lower", "turn", "step", "wave", "static", "mixed", "unknown"};
+    const QStringList allowed{"head_turn_away", "head_turn_back", "head_pose", "head_front", "head_turned", "body_pose", "pose_mismatch", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "head_turn", "head_nod", "head_tilt", "push", "pull", "reach_return", "raise", "lower", "raise_lower", "turn", "step", "wave", "static", "mixed", "unknown"};
     if (!allowed.contains(classification)) return;
     QVariantList changed;
     for (const auto& value : ids) {
@@ -1687,12 +1749,19 @@ bool AnalysisController::exportResults(const QString& format,
                                        const QVariantList& selectedIndexes,
                                        bool mergeChronological,
                                        const QStringList& requestedClassOrder,
-                                       int encodingQuality, int videoBitrateKbps, bool classFolders)
+                                       int encodingQuality, int videoBitrateKbps, bool classFolders,
+                                       bool signEachTransition, const QString& requestedContainer,
+                                       int maxWidth, int maxHeight)
 {
     if (busy_ || exportBusy_ || reviewBusy_) return false;
-    const auto classOrder=effectiveExportClassOrder(results_,requestedClassOrder);
+    const auto classOrder=effectiveExportClassOrder(results_,requestedClassOrder,selectedIndexes);
     if (encodingQuality < 1 || encodingQuality > 51 || videoBitrateKbps < 0 || videoBitrateKbps > 500000) {
         emit exportFinished(false, QStringLiteral("Недопустимое качество или битрейт"));
+        return false;
+    }
+    if (maxWidth < 0 || maxHeight < 0 || maxWidth == 1 || maxHeight == 1
+        || maxWidth > 32768 || maxHeight > 32768) {
+        emit exportFinished(false, QStringLiteral("Недопустимое максимальное разрешение"));
         return false;
     }
     auto ordered = orderedExportIndexes(selectedIndexes, matches_, results_, numberingMode, classOrder);
@@ -1706,7 +1775,10 @@ bool AnalysisController::exportResults(const QString& format,
     std::vector<bool> manuallyAdjusted;
     std::vector<std::array<double,2>> selectedFrameRates;
     QStringList selectedClasses;
+    QStringList selectedTransitionTypes;
     manuallyAdjusted.reserve(ordered.size());
+    selectedTransitionTypes.reserve(static_cast<qsizetype>(ordered.size()));
+    const bool russian = AppInfo::instance()->loadPreferences().value(QStringLiteral("language")).toString() == QStringLiteral("ru");
     for (const int index : ordered) {
         selected.push_back(matches_[index]);
         selectedFrameRates.push_back({
@@ -1715,22 +1787,54 @@ bool AnalysisController::exportResults(const QString& format,
         manuallyAdjusted.push_back(results_[index].toMap().value("manualAdjusted").toBool());
         const auto group = results_[index].toMap().value("manualGroup").toString();
         selectedClasses.push_back(exportClassKey(group.isEmpty() ? results_[index].toMap().value("classification", "unknown").toString() : "group:" + group,classOrder));
+        selectedTransitionTypes.push_back(group.isEmpty()
+            ? exportMovementLabel(results_[index].toMap().value("classification", "unknown").toString(), russian)
+            : group);
     }
     const QString normalized = format.trimmed().toUpper();
+    if (signEachTransition && normalized != QStringLiteral("FFMPEG")) {
+        emit exportFinished(false, QStringLiteral("Transition signatures are available only for video exports"));
+        return false;
+    }
+    if (signEachTransition && cutMode != 0) {
+        emit exportFinished(false, QStringLiteral("Transition signatures require re-encoding; choose High quality instead of lossless or fast export"));
+        return false;
+    }
     if (normalized == QStringLiteral("FFMPEG")) {
+        QString container = requestedContainer.trimmed().toLower();
+        if (container.startsWith(QLatin1Char('.'))) container.remove(0, 1);
+        if (!pfservices::isSupportedVideoContainer(container.toStdString())) {
+            emit exportFinished(false, QStringLiteral("Выберите контейнер MP4, MOV, MKV или WebM"));
+            return false;
+        }
+        if (cutMode < 0 || cutMode > 2) {
+            emit exportFinished(false, QStringLiteral("Недопустимый режим обрезки"));
+            return false;
+        }
+        if ((maxWidth > 0 || maxHeight > 0) && cutMode != 0) {
+            emit exportFinished(false, QStringLiteral("Ограничение разрешения требует перекодирования"));
+            return false;
+        }
+        if (videoBitrateKbps > 0 && cutMode != 0) {
+            emit exportFinished(false, QStringLiteral("Свой битрейт требует перекодирования"));
+            return false;
+        }
+        if (cutMode == 2 && container != QStringLiteral("mov")) {
+            emit exportFinished(false, QStringLiteral("Экспорт без потери качества доступен в контейнер MOV"));
+            return false;
+        }
         const QString folder = localPathFromInput(outputFolder);
         if (folder.isEmpty()) {
-            emit exportFinished(false, QStringLiteral("Выберите папку для MP4-клипов"));
+            emit exportFinished(false, QStringLiteral("Выберите папку для видео"));
             return false;
         }
-        QString requestedPrefix = prefix.trimmed().isEmpty()
+        const QString requestedBaseName = prefix.trimmed().isEmpty()
             ? QStringLiteral("frame") : prefix.trimmed();
-        if (!isSafeExportPrefix(requestedPrefix)) {
+        if (!isSafeVideoBaseName(requestedBaseName)) {
             emit exportFinished(false, QStringLiteral(
-                "Префикс содержит недопустимые символы: разрешены буквы, цифры, ., _ и -"));
+                "Название файла содержит недопустимые символы"));
             return false;
         }
-        if (!requestedPrefix.endsWith(QLatin1Char('_'))) requestedPrefix += QLatin1Char('_');
         if (!QDir().mkpath(folder)) {
             emit exportFinished(false, QStringLiteral("Не удалось создать папку экспорта: ") + folder);
             return false;
@@ -1745,7 +1849,7 @@ bool AnalysisController::exportResults(const QString& format,
         for (const auto& match : selected) exportTotal_ += int(match.leftEnabled) + int(match.rightEnabled);
         emit exportProgressChanged();
         emit exportBusyChanged();
-        exportWorker_ = std::jthread([this, selected = std::move(selected), manuallyAdjusted = std::move(manuallyAdjusted), selectedFrameRates, selectedClasses, classOrder, classFolders, folder, requestedPrefix, mode, mergeChronological, encodingQuality, videoBitrateKbps,
+        exportWorker_ = std::jthread([this, selected = std::move(selected), manuallyAdjusted = std::move(manuallyAdjusted), selectedFrameRates, selectedClasses, selectedTransitionTypes, classOrder, classFolders, signEachTransition, russian, folder, requestedBaseName, container, maxWidth, maxHeight, mode, mergeChronological, encodingQuality, videoBitrateKbps,
                                      sceneThreshold = sceneThreshold_](std::stop_token stop) {
         const auto finish = [this](bool success, const QString& message) {
             QMetaObject::invokeMethod(this, [this, success, message] {
@@ -1795,15 +1899,21 @@ bool AnalysisController::exportResults(const QString& format,
                 const auto classFolder = QString::number(rank < 0 ? classOrder.size() + 1 : rank + 1).rightJustified(2, '0') + "_" + safeType;
                 const auto clipFolder = classFolders && !mergeChronological ? QDir(folder).filePath(classFolder) : folder;
                 request.outputPath = std::filesystem::path((QDir(clipFolder).filePath(
-                    requestedPrefix + ordinal + "_" + (classFolders ? safeType + "_" : QString{}) + side
-                    + (mode==pfservices::CutMode::ExactLossless ? ".mov" : ".mp4"))).toStdWString());
+                    requestedBaseName + QLatin1Char('.') + container)).toStdWString());
                 request.startSeconds = std::max(0.0, start);
                 request.endSeconds = end;
                 const bool refineEdge = !manuallyAdjusted[index] && mode != pfservices::CutMode::Fast
-                    && sceneEnd > start && sceneEnd <= end + 0.35;
+                    && pfcore::sceneBoundaryMayNeedRefinement(start, end, sceneEnd);
                 request.mode = mode;
                 request.quality = encodingQuality;
                 request.videoBitrateKbps = videoBitrateKbps;
+                request.maxWidth = maxWidth;
+                request.maxHeight = maxHeight;
+                if (signEachTransition) {
+                    const QString labelPrefix = russian ? QStringLiteral("Параллель") : QStringLiteral("Parallel");
+                    request.transitionSignature = QStringLiteral("%1 %2 · %3 · %4")
+                        .arg(labelPrefix, ordinal, selectedTransitionTypes.at(static_cast<qsizetype>(index)), side);
+                }
                 const auto jobIndex = jobs.size();
                 request.prepare = [&, source, sceneEnd, refineEdge, jobIndex](pfservices::CutRequest& request) {
                     QMetaObject::invokeMethod(this, [this] {
@@ -1852,8 +1962,8 @@ bool AnalysisController::exportResults(const QString& format,
             if (match.rightEnabled) enqueue(match.rightSourceId, rightClip.start, rightClip.end, match.rightSceneEndSeconds, QStringLiteral("B"));
         }
         if (mergeChronological) {
-            const auto output = std::filesystem::path(QDir(folder).filePath(requestedPrefix
-                + (mode==pfservices::CutMode::ExactLossless ? "combined.mov" : "combined.mp4")).toStdWString());
+            const auto output = std::filesystem::path(QDir(folder).filePath(
+                requestedBaseName + QLatin1Char('.') + container).toStdWString());
             const auto result = pfservices::exportChronologicalMontage(std::move(jobs), output, stop,
                 [this](std::size_t done, std::size_t total, int percent) {
                     QMetaObject::invokeMethod(this, [this, done, total, percent] {
@@ -1863,7 +1973,7 @@ bool AnalysisController::exportResults(const QString& format,
                         exportStage_ = done + 1 == total ? QStringLiteral("finalizing") : QStringLiteral("encoding");
                         emit exportProgressChanged();
                     }, Qt::QueuedConnection);
-                }, "ffmpeg", !classOrder.isEmpty());
+                }, "ffmpeg", !classOrder.isEmpty(), maxWidth, maxHeight);
             finish(result.success, result.success ? QStringLiteral("Video: ") + QString::fromStdWString(result.outputPath.wstring())
                 : QString::fromStdString(result.error));
             return;
@@ -3147,8 +3257,11 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                 window.trackId = track.id;
                                 window.sceneIndex = sceneIndex;
                                 window.hasSceneIndex = true;
-                                window.sceneStartSeconds = supportedStart;
-                                window.sceneEndSeconds = supportedEnd;
+                                // Pose support may end when a track leaves the frame; it is
+                                // not the shot boundary used to validate/refine exported cuts.
+                                window.sceneStartSeconds = sceneStart;
+                                window.sceneEndSeconds = pfcore::sceneBoundaryEnd(
+                                    sceneStart, sceneEnd, supportedEnd);
                                 const auto appearance = averageAppearance(track, supportedStart, supportedEnd);
                                 window.appearanceEmbedding = appearance.embedding;
                                 window.appearanceConfidence = appearance.confidence;

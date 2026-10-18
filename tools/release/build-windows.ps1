@@ -3,7 +3,6 @@ param(
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
     [string]$ReleaseTag = '0.1.0-rc.22',
-    [string]$BuildDirectory = 'build/ucrt64-release',
     [string]$GitHubTag = '',
     [string]$ReleaseNotes = 'docs/rc22-release-notes.md',
     [string]$SigningKey = (Join-Path $env:LOCALAPPDATA 'ParallelFinder/release-signing/update-ed25519-private.pem'),
@@ -32,11 +31,11 @@ $tag = $ReleaseTag
 if ($GitHubTag -and $GitHubTag.TrimStart('v') -cne $tag.TrimStart('v')) { throw 'GitHubTag must match ReleaseTag except for the optional v prefix' }
 Push-Location $root
 try {
-    & cmake --preset ucrt64-release -B $BuildDirectory "-DPF_RELEASE_LABEL=$tag"
+    & cmake --preset ucrt64-release "-DPF_RELEASE_LABEL=$tag"
     if ($LASTEXITCODE) { throw 'Configure failed' }
-    & cmake --build $BuildDirectory -j 4
+    & cmake --build --preset ucrt64-release -j 4
     if ($LASTEXITCODE) { throw 'Build failed' }
-    & "$PSScriptRoot/deploy-runtime.ps1" -Stage (Join-Path $root $BuildDirectory) -Toolchain $Toolchain -ClassifierModelsDirectory $ModelsDirectory
+    & "$PSScriptRoot/deploy-runtime.ps1" -Stage (Join-Path $root 'build/ucrt64-release') -Toolchain $Toolchain
     if (!$SkipChecks) {
     $releaseTestQpa = $env:QT_QPA_PLATFORM
     $releaseTestPlugins = $env:QT_PLUGIN_PATH
@@ -45,7 +44,7 @@ try {
         # The deployed qt.conf deliberately only exposes app-local plugins;
         # development tests also need the toolchain's offscreen plugin.
         $env:QT_PLUGIN_PATH = Join-Path $Toolchain 'share/qt6/plugins'
-        & ctest --test-dir $BuildDirectory --output-on-failure
+        & ctest --preset ucrt64-release --output-on-failure
         if ($LASTEXITCODE) { throw 'Tests failed: refusing to package' }
     } finally {
         $env:QT_QPA_PLATFORM = $releaseTestQpa
@@ -56,9 +55,9 @@ try {
     $stage = Join-Path $root "build/package-$run/ParallelFinder"
     $out = Join-Path $root "release/$tag-$run"
     New-Item -ItemType Directory -Path $stage,$out | Out-Null
-    Copy-Item -LiteralPath (Join-Path $BuildDirectory 'ParallelFinder.exe') -Destination $stage
-    Copy-Item -LiteralPath (Join-Path $BuildDirectory 'ParallelFinderUpdater.exe') -Destination $stage
-    Copy-Item -LiteralPath LICENSE,README.md,AUDIT.md,SKILL.md -Destination $stage
+    Copy-Item -LiteralPath 'build/ucrt64-release/ParallelFinder.exe' -Destination $stage
+    Copy-Item -LiteralPath 'build/ucrt64-release/ParallelFinderUpdater.exe' -Destination $stage
+    Copy-Item -LiteralPath LICENSE,README.md,AUDIT.md -Destination $stage
     # Package only versioned documentation; local investigations stay local.
     foreach ($relative in (& git ls-files docs)) {
         $docTarget = Join-Path $stage $relative
@@ -93,7 +92,6 @@ try {
         Copy-Item -LiteralPath (Join-Path $ModelsDirectory $name) -Destination $modelStage
     }
     Copy-Item -LiteralPath "$root/release-models/yolo26m-pose.onnx" -Destination $modelStage
-    & "$PSScriptRoot/stage-classifier-model.ps1" -Stage $stage -SourceDirectory $ModelsDirectory
     # Include all locally available notices; provenance/source obligations remain a release gate.
     Copy-Item -LiteralPath "$Toolchain/share/licenses" -Destination (Join-Path $stage 'third-party-licenses') -Recurse
     Copy-Item -LiteralPath "$root/ui/qml/fonts/OFL.txt" -Destination (Join-Path $stage 'third-party-licenses/JetBrainsMono-OFL.txt')
@@ -159,7 +157,7 @@ try {
         $previousPackageDirectory = $env:PF_UPDATE_PACKAGE_DIRECTORY
         try {
             $env:PF_UPDATE_PACKAGE_DIRECTORY = $out
-            & (Join-Path $root (Join-Path $BuildDirectory 'pf_update_tests.exe')) signedReleaseArchiveInstalls -o "$(Join-Path $verification 'archive-install-test.txt'),txt"
+            & (Join-Path $root 'build/ucrt64-release/tests/pf_update_tests.exe') signedReleaseArchiveInstalls -o "$(Join-Path $verification 'archive-install-test.txt'),txt"
             if ($LASTEXITCODE) { throw 'Signed release archive failed updater extraction/health verification' }
         } finally { $env:PF_UPDATE_PACKAGE_DIRECTORY = $previousPackageDirectory }
     }

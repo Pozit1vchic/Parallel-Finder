@@ -108,7 +108,6 @@ ReviewDialog {
                         Layout.fillWidth: true
                         PfButton { compact: true; quiet: true; Layout.fillWidth: true; text: "−1 " + (L10n.language === "ru" ? "кадр" : "frame"); onClicked: root.step(modelData, -1) }
                         PfButton { compact: true; quiet: true; Layout.fillWidth: true; text: "+1 " + (L10n.language === "ru" ? "кадр" : "frame"); onClicked: root.step(modelData, 1) }
-                        PfButton { compact: true; quiet: true; text: "▶"; Accessible.name: Review.t("preview"); onClicked: modelData === "left" ? leftPreview.togglePlayback() : rightPreview.togglePlayback() }
                     }
                 }
             }

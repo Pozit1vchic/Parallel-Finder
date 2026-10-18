@@ -33,14 +33,21 @@ Popup {
         L10n.t("settings.providerTensorRt"),
         L10n.t("settings.providerCpu")
     ]
-    readonly property var accentIds: ["orange", "blue", "violet", "teal"]
+    readonly property var accentIds: ["orange", "blue", "violet", "teal", "sunset", "ocean", "aurora"]
     readonly property var accentLabels: [
         L10n.t("settings.accentOrange"),
         L10n.t("settings.accentBlue"),
         L10n.t("settings.accentViolet"),
         L10n.t("settings.accentTeal"),
-        L10n.language === "ru" ? "Свой цвет" : "Custom color"
+        L10n.t("settings.accentSunset"),
+        L10n.t("settings.accentOcean"),
+        L10n.t("settings.accentAurora"),
+        L10n.t("settings.accentCustom"),
+        L10n.t("settings.accentCustomGradient")
     ]
+    property string accentPickerTarget: "start"
+    readonly property int customAccentIndex: accentIds.length
+    readonly property int customGradientIndex: accentIds.length + 1
     modal: true
     focus: true
     padding: 0
@@ -81,12 +88,15 @@ Popup {
         property string customFontPath: ""
         property real surfaceOpacity: 1.0
         property string accentColor: "orange"
+        property string customAccentStart: "#5D8DDE"
+        property string customAccentEnd: "#A679D6"
         property bool reducedMotion: false
         function persist() {
             if (!loaded) return
             if (!AppInfo.savePreferences(Object.assign({}, AppInfo.loadPreferences(), {language: language, fontFamily: fontFamily,
                 customFontPath: customFontPath, surfaceOpacity: surfaceOpacity,
-                accentColor: accentColor, reducedMotion: reducedMotion})))
+                accentColor: accentColor, customAccentStart: customAccentStart,
+                customAccentEnd: customAccentEnd, reducedMotion: reducedMotion})))
                 root.themeStatus = L10n.t("settings.saveFailed")
         }
         onLanguageChanged: persist()
@@ -94,6 +104,8 @@ Popup {
         onCustomFontPathChanged: persist()
         onSurfaceOpacityChanged: persist()
         onAccentColorChanged: persist()
+        onCustomAccentStartChanged: persist()
+        onCustomAccentEndChanged: persist()
         onReducedMotionChanged: persist()
     }
     FontLoader {
@@ -129,6 +141,8 @@ Popup {
         if (typeof saved.customFontPath === "string") customizationStore.customFontPath = saved.customFontPath
         if (typeof saved.surfaceOpacity === "number") customizationStore.surfaceOpacity = Math.max(0.25, Math.min(1, saved.surfaceOpacity))
         if (typeof saved.accentColor === "string") customizationStore.accentColor = saved.accentColor
+        if (/^#[0-9a-fA-F]{6}$/.test(String(saved.customAccentStart || ""))) customizationStore.customAccentStart = String(saved.customAccentStart).toUpperCase()
+        if (/^#[0-9a-fA-F]{6}$/.test(String(saved.customAccentEnd || ""))) customizationStore.customAccentEnd = String(saved.customAccentEnd).toUpperCase()
         if (typeof saved.reducedMotion === "boolean") customizationStore.reducedMotion = saved.reducedMotion
         L10n.language = customizationStore.language
         Theme.reducedMotion = customizationStore.reducedMotion
@@ -150,7 +164,7 @@ Popup {
     onOpened: {
         centerInWindow()
         AppInfo.rescanProviders()
-        appearanceAccentChoice.currentIndex = root.accentIds.indexOf(customizationStore.accentColor) >= 0 ? root.accentIds.indexOf(customizationStore.accentColor) : 4
+        appearanceAccentChoice.currentIndex = root.selectedAccentIndex()
         // Prevent the close icon or first tab from receiving an orange focus
         // ring just because the popup was opened with the mouse.
         Qt.callLater(function() { root.forceActiveFocus() })
@@ -174,6 +188,8 @@ Popup {
         Theme.surfaceOpacity = 1.0
         Theme.reducedMotion = false
         customizationStore.reducedMotion = false
+        customizationStore.customAccentStart = "#5D8DDE"
+        customizationStore.customAccentEnd = "#A679D6"
         root.applyAccent("orange")
         customizationStore.fontFamily = Theme.fontFamily
         customizationStore.customFontPath = ""
@@ -198,15 +214,51 @@ Popup {
         if (id === "teal") return "#54B7A5"
         return "#D97757"
     }
+    function selectedAccentIndex() {
+        const index = root.accentIds.indexOf(customizationStore.accentColor)
+        if (index >= 0) return index
+        return customizationStore.accentColor === "customGradient" ? root.customGradientIndex : root.customAccentIndex
+    }
     function applyAccent(id) {
-        const normalized = root.accentIds.indexOf(id) >= 0 ? id : /^#[0-9a-fA-F]{6}$/.test(String(id)) ? String(id).toUpperCase() : "orange"
-        Theme.accent = root.accentValue(normalized)
-        customizationStore.accentColor = normalized
-        appearanceAccentChoice.currentIndex = root.accentIds.indexOf(normalized) >= 0 ? root.accentIds.indexOf(normalized) : 4
+        const isHex = /^#[0-9a-fA-F]{6}$/.test(String(id))
+        if (isHex) customizationStore.customAccentStart = String(id).toUpperCase()
+        const key = root.accentIds.indexOf(id) >= 0 || id === "custom" || id === "customGradient"
+            ? id : isHex ? "custom" : "orange"
+        let start = root.accentValue(key === "custom" ? customizationStore.customAccentStart : key)
+        let end = start
+        let gradient = false
+        if (key === "sunset") { start = "#EF8B72"; end = "#B36ACB"; gradient = true }
+        else if (key === "ocean") { start = "#5895E8"; end = "#54C7B0"; gradient = true }
+        else if (key === "aurora") { start = "#55B7A3"; end = "#9B82E8"; gradient = true }
+        else if (key === "customGradient") {
+            start = customizationStore.customAccentStart
+            end = customizationStore.customAccentEnd
+            gradient = true
+        }
+        Theme.accent = start
+        Theme.accentSecondary = end
+        Theme.accentGradientEnabled = gradient
+        customizationStore.accentColor = key
+        appearanceAccentChoice.currentIndex = root.selectedAccentIndex()
+    }
+    function selectAccentTarget(target) {
+        root.accentPickerTarget = target
+        root.refreshAccentPalette()
+    }
+    function paletteTargetColor() {
+        return root.accentPickerTarget === "end" ? Theme.accentSecondary : Theme.accent
     }
     function applyCustomAccent(value) {
         if (!/^#[0-9a-fA-F]{6}$/.test(String(value))) return false
-        applyAccent(value)
+        const normalized = String(value).toUpperCase()
+        if (root.accentPickerTarget === "end") {
+            customizationStore.customAccentEnd = normalized
+            customizationStore.accentColor = "customGradient"
+        } else {
+            customizationStore.customAccentStart = normalized
+            if (customizationStore.accentColor !== "customGradient") customizationStore.accentColor = "custom"
+        }
+        root.applyAccent(customizationStore.accentColor)
         return true
     }
     Popup {
@@ -219,8 +271,38 @@ Popup {
         enter: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionDuration } }
         exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.motionDuration } }
         contentItem: Column {
-            width: 246
+            width: 276
             spacing: 10
+            Row {
+                width: parent.width
+                spacing: 6
+                PfButton {
+                    objectName: "accentGradientStartButton"
+                    width: (parent.width - 6) / 2
+                    compact: true
+                    selected: root.accentPickerTarget === "start"
+                    text: L10n.t("settings.accentStopStart") + " · " + String(Theme.accent).toUpperCase()
+                    onClicked: root.selectAccentTarget("start")
+                }
+                PfButton {
+                    objectName: "accentGradientEndButton"
+                    width: (parent.width - 6) / 2
+                    compact: true
+                    selected: root.accentPickerTarget === "end"
+                    text: L10n.t("settings.accentStopEnd") + " · " + String(Theme.accentSecondary).toUpperCase()
+                    onClicked: root.selectAccentTarget("end")
+                }
+            }
+            Rectangle {
+                width: parent.width
+                height: 7
+                radius: height / 2
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0; color: Theme.accent }
+                    GradientStop { position: 1; color: Theme.accentSecondary }
+                }
+            }
             Row {
             spacing: 6
             Repeater {
@@ -235,7 +317,7 @@ Popup {
                     ToolTip.text: Accessible.name
                     background: Rectangle { radius: 6; color: modelData || Theme.well; border.color: parent.hovered ? Theme.accent : Theme.hairlineStrong; border.width: 1 }
                     contentItem: Text { text: ""; color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                    onClicked: { root.applyAccent(root.accentIds[index]); hexField.text = String(Theme.accent).toUpperCase(); hueSlider.value = Theme.accent.hsvHue; colorPlane.saturation = Theme.accent.hsvSaturation; colorPlane.brightness = Theme.accent.hsvValue }
+                    onClicked: { root.applyAccent(root.accentIds[index]); root.refreshAccentPalette() }
                 }
             }
             }
@@ -295,9 +377,10 @@ Popup {
         onAboutToShow: root.refreshAccentPalette()
     }
     function refreshAccentPalette() {
-        hexField.text = String(Theme.accent).toUpperCase()
-        hueSlider.value = Theme.accent.hsvHue < 0 ? 0 : Theme.accent.hsvHue
-        colorPlane.saturation = Theme.accent.hsvSaturation; colorPlane.brightness = Theme.accent.hsvValue
+        const selected = root.paletteTargetColor()
+        hexField.text = String(selected).toUpperCase()
+        hueSlider.value = selected.hsvHue < 0 ? 0 : selected.hsvHue
+        colorPlane.saturation = selected.hsvSaturation; colorPlane.brightness = selected.hsvValue
     }
     function openAccentPalette(item) {
         const point = item.mapToItem(Overlay.overlay, 0, item.height)
@@ -531,6 +614,8 @@ Popup {
                         PfSliderField { Layout.fillWidth: true; label: L10n.t("settings.cacheLimit"); from: 0.25; to: 128; stepSize: 0.25; value: Analysis.cacheLimitGb; decimals: 2; suffix: "GB"; tooltipText: L10n.t("settings.cacheLimitHint"); Accessible.name: L10n.t("settings.cacheLimit"); onValueEdited: Analysis.setCacheLimitGb(nextValue) }
                         PfSliderField { Layout.fillWidth: true; label: L10n.t("settings.processingThreads"); from: 0; to: 64; stepSize: 1; value: Analysis.processingThreads; decimals: 0; integer: true; tooltipText: L10n.t("settings.processingThreadsHint"); Accessible.name: L10n.t("settings.processingThreads"); onValueEdited: Analysis.setProcessingThreads(Math.round(nextValue)) }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.systemHint"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                        PfCheckBox { objectName: "multiSelectCheck"; Layout.fillWidth: true; text: Review.t("multi"); checked: Review.multiSelect; onToggled: Review.setMulti(checked) }
+                        Text { Layout.fillWidth: true; text: Review.t("multiHint"); wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
                         Text { Layout.fillWidth: true; text: "MCP"; color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfCheckBox { objectName: "mcpEnabledCheck"; text: L10n.language === "ru" ? "Включить MCP-сервер" : "Enable MCP server"; checked: Mcp.enabled; onToggled: Mcp.enabled = checked }
                         Text { Layout.fillWidth: true; text: L10n.language === "ru" ? "Подключай помощника к результатам и ходу анализа. Сервер доступен только на этом компьютере, пока приложение открыто." : "Connect an assistant to results and analysis progress. Available only on this computer while the app is open."; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
@@ -574,8 +659,38 @@ Popup {
                         Text { text: L10n.t("settings.accentColor"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout {
                             width: parent.width; spacing: 8
-                            PfComboBox { id: appearanceAccentChoice; objectName: "appearanceAccentChoice"; Layout.fillWidth: true; model: root.accentLabels; currentIndex: root.accentIds.indexOf(customizationStore.accentColor) >= 0 ? root.accentIds.indexOf(customizationStore.accentColor) : 4; Accessible.name: L10n.t("settings.accentColor"); onActivated: if (currentIndex < 4) root.applyAccent(root.accentIds[currentIndex]); else root.openAccentPalette(this) }
-                            PfButton { objectName: "accentPaletteButton"; compact: true; text: L10n.language === "ru" ? "Палитра" : "Palette"; onClicked: root.openAccentPalette(this) }
+                            PfComboBox {
+                                id: appearanceAccentChoice
+                                objectName: "appearanceAccentChoice"
+                                Layout.fillWidth: true
+                                model: root.accentLabels
+                                currentIndex: root.selectedAccentIndex()
+                                Accessible.name: L10n.t("settings.accentColor")
+                                onActivated: {
+                                    if (currentIndex < root.accentIds.length) root.applyAccent(root.accentIds[currentIndex])
+                                    else if (currentIndex === root.customAccentIndex) {
+                                        root.applyAccent("custom")
+                                        root.selectAccentTarget("start")
+                                        root.openAccentPalette(this)
+                                    } else {
+                                        root.applyAccent("customGradient")
+                                        root.selectAccentTarget("start")
+                                        root.openAccentPalette(this)
+                                    }
+                                }
+                            }
+                            PfButton { objectName: "accentPaletteButton"; compact: true; text: L10n.language === "ru" ? "Настроить" : "Customize"; onClicked: { root.selectAccentTarget("start"); root.openAccentPalette(this) } }
+                        }
+                        Rectangle {
+                            objectName: "appearanceAccentPreview"
+                            width: parent.width
+                            height: 8
+                            radius: 4
+                            gradient: Gradient {
+                                orientation: Gradient.Horizontal
+                                GradientStop { position: 0; color: Theme.accent }
+                                GradientStop { position: 1; color: Theme.accentGradientEnabled ? Theme.accentSecondary : Theme.accent }
+                            }
                         }
                         PfSliderField { width: parent.width; label: L10n.t("settings.surfaceOpacity"); from: 0.25; to: 1.0; stepSize: 0.01; value: Theme.surfaceOpacity; displayScale: 100; decimals: 0; suffix: "%"; tooltipText: L10n.t("settings.surfaceOpacityHint"); Accessible.name: L10n.t("settings.surfaceOpacity"); onValueEdited: { Theme.surfaceOpacity = nextValue; customizationStore.surfaceOpacity = nextValue } }
                         Rectangle { width: parent.width; height: 1; color: Theme.hairline }

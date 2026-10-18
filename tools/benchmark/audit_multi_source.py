@@ -150,7 +150,7 @@ def identity(args):
     (output/'verified.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('mode',choices=('verify','controls','replay','identity'));p.add_argument('--phase',default='complete');p.add_argument('--audit',type=Path,required=True);p.add_argument('--probe',type=Path,default=Path('build/ucrt64-release/pf_matcher_probe.exe'))
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('mode',choices=('verify','controls','replay','identity'));p.add_argument('--phase',default='complete');p.add_argument('--audit',type=Path,required=True);p.add_argument('--probe',type=Path,default=Path('build/ucrt64-release/tools/pf_matcher_probe.exe'))
     a=p.parse_args(); {'verify':verify,'controls':controls,'replay':replay,'identity':identity}[a.mode](a)
 
 

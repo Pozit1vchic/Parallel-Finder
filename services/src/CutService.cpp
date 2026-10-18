@@ -9,8 +9,15 @@
 #include <QTemporaryFile>
 #include <QScopeGuard>
 #include <QStringList>
+#include <QDir>
+#include <QFont>
+#include <QFontMetrics>
+#include <QImage>
+#include <QPainter>
+#include <QTemporaryDir>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <system_error>
 #include <utility>
@@ -22,11 +29,60 @@
 #endif
 
 namespace pfservices {
+bool isSupportedVideoContainer(std::string_view extension)
+{
+    if (!extension.empty() && extension.front() == '.') extension.remove_prefix(1);
+    std::string normalized(extension);
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return normalized == "mp4" || normalized == "mov" || normalized == "mkv" || normalized == "webm";
+}
+
 namespace {
 
 QString seconds(double value)
 {
     return QString::number(value, 'f', 6);
+}
+
+QImage transitionSignatureImage(const QString& text)
+{
+    // Keep this a small transparent overlay; FFmpeg scales it to the output
+    // width, avoiding a full-resolution RGBA image per export worker.
+    QImage image(1280, 160, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setRenderHint(QPainter::TextAntialiasing);
+
+    QFont font(QStringLiteral("Segoe UI"));
+    font.setPixelSize(42);
+    font.setWeight(QFont::DemiBold);
+    const int cardWidth = std::clamp(QFontMetrics(font).horizontalAdvance(text) + 112, 300, 1216);
+    while (font.pixelSize() > 20 && QFontMetrics(font).horizontalAdvance(text) > cardWidth - 104)
+        font.setPixelSize(font.pixelSize() - 2);
+
+    const QRect card((image.width() - cardWidth) / 2, 18, cardWidth, 124);
+    painter.setPen(QPen(QColor(255, 255, 255, 58), 1));
+    painter.setBrush(QColor(12, 15, 22, 224));
+    painter.drawRoundedRect(card, 22, 22);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(83, 143, 255));
+    painter.drawRoundedRect(QRect(card.left() + 16, card.top() + 25, 5, card.height() - 50), 2, 2);
+    painter.setFont(font);
+    painter.setPen(QColor(255, 255, 255));
+    painter.drawText(card.adjusted(42, 8, -28, -8), Qt::AlignCenter | Qt::TextSingleLine, text);
+    return image;
+}
+
+QString signatureFilter(const QString& baseFilter, int imageInput)
+{
+    return QStringLiteral("[0:v]%1[pf_base];[").arg(baseFilter)
+        + QString::number(imageInput)
+        + QStringLiteral(":v]format=rgba[pf_sig];[pf_sig][pf_base]"
+            "scale2ref=w='min(1600,main_w*0.84)':h=-1[pf_sig_scaled][pf_base_scaled];"
+            "[pf_base_scaled][pf_sig_scaled]overlay=x=(W-w)/2:y=H*0.06:eof_action=repeat:format=auto[pf_video]");
 }
 
 std::string processError(QProcess& process)
@@ -93,6 +149,10 @@ std::vector<std::string> CutService::videoEncodingArguments(
     } else if (encoder == "h264_qsv") {
         args = {"-preset", "medium"};
         if (bitrateKbps == 0) args.insert(args.end(), {"-global_quality", q});
+    } else if (encoder == "libvpx-vp9") {
+        args = {"-deadline", "good", "-cpu-used", "2", "-row-mt", "1",
+            "-threads", std::to_string(threads)};
+        if (bitrateKbps == 0) args.insert(args.end(), {"-crf", q, "-b:v", "0"});
     }
     if (bitrateKbps > 0) args.insert(args.end(), {"-b:v", std::to_string(bitrateKbps) + "k"});
     return args;
@@ -143,12 +203,29 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
         result.error = "maximum output dimensions must be at least 2 pixels";
         return result;
     }
+    if (request.maxWidth > 32768 || request.maxHeight > 32768) {
+        result.error = "maximum output dimensions exceed the supported limit";
+        return result;
+    }
+    const QString outputExtension = QString::fromStdWString(request.outputPath.extension().wstring()).toLower();
+    if (!isSupportedVideoContainer(outputExtension.toStdString())) {
+        result.error = "unsupported video container; choose MP4, MOV, MKV, or WebM";
+        return result;
+    }
     if (request.mode == CutMode::Fast && (request.maxWidth > 0 || request.maxHeight > 0)) {
         result.error = "resolution cap requires exact cut mode";
         return result;
     }
+    if (!request.transitionSignature.trimmed().isEmpty() && request.mode != CutMode::Exact) {
+        result.error = "transition signatures require exact re-encoding; fast and lossless modes cannot burn in text";
+        return result;
+    }
+    if (request.mode == CutMode::Fast && request.videoBitrateKbps > 0) {
+        result.error = "target bitrate requires re-encoding; choose exact cut mode";
+        return result;
+    }
     const bool montage = request.canvasWidth > 0 || request.canvasHeight > 0 || request.ensureStereoAudio;
-    if(lossless && (QString::fromStdWString(request.outputPath.extension().wstring()).toLower() != ".mov"
+    if(lossless && (outputExtension != ".mov"
         || request.maxWidth || request.maxHeight || montage || request.videoBitrateKbps)) {
         result.error="exact lossless requires MOV without resizing, normalization, or target bitrate";
         return result;
@@ -178,6 +255,19 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
     }
 
     const double duration = request.endSeconds - request.startSeconds;
+    QString signaturePath;
+    QTemporaryDir signatureDirectory;
+    if (!request.transitionSignature.trimmed().isEmpty()) {
+        if (!signatureDirectory.isValid()) {
+            result.error = "cannot create temporary transition-signature image";
+            return result;
+        }
+        signaturePath = signatureDirectory.filePath(QStringLiteral("transition.png"));
+        if (!transitionSignatureImage(request.transitionSignature.trimmed()).save(signaturePath, "PNG")) {
+            result.error = "cannot render transition-signature image";
+            return result;
+        }
+    }
     const QString ffmpegProgram = resolveFfmpegExecutable(ffmpegExecutable_);
     result.executable = ffmpegProgram.toStdString();
     // Keep the real media extension on the temporary file.  FFmpeg selects
@@ -210,7 +300,17 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
             }
             capabilities_ = std::move(capabilities);
         }
-        encoders = capabilities_->h264Candidates();
+        const bool webm = outputExtension == ".webm";
+        if (webm) {
+            if (std::find(capabilities_->videoEncoders.begin(), capabilities_->videoEncoders.end(), "libvpx-vp9")
+                != capabilities_->videoEncoders.end()) encoders.emplace_back("libvpx-vp9");
+            if (std::none_of(capabilities_->audioEncoders.begin(), capabilities_->audioEncoders.end(), [](const auto& name) {
+                return name == "libopus" || name == "libvorbis";
+            })) {
+                result.error = result.executable + ": WebM export requires libopus or libvorbis";
+                return result;
+            }
+        } else encoders = capabilities_->h264Candidates();
         if(lossless) {
             encoders.clear();
             for(const auto* name:{"hevc_nvenc","libx264"})
@@ -228,7 +328,8 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
         if (preferred != encoders.end()) std::rotate(encoders.begin(), preferred, preferred + 1);
         if (!capabilities_->error.empty() || encoders.empty()) {
             result.error = result.executable + ": " + (capabilities_->error.empty()
-                ? "no supported H.264 encoder; install an FFmpeg build with libx264"
+                ? (webm ? "no supported VP9 encoder; install an FFmpeg build with libvpx-vp9"
+                        : "no supported H.264 encoder; install an FFmpeg build with libx264")
                 : capabilities_->error);
             return result;
         }
@@ -266,12 +367,15 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
                   << QString::fromStdWString(request.inputPath.wstring());
         if (request.ensureStereoAudio && !request.sourceHasAudio)
             arguments << "-f" << "lavfi" << "-i" << "anullsrc=r=48000:cl=stereo";
+        const int signatureInput = request.ensureStereoAudio && !request.sourceHasAudio ? 2 : 1;
+        if (!signaturePath.isEmpty()) arguments << "-i" << signaturePath;
         // This is a video-clip export, not a container clone. Mapping every
         // stream also selects subtitles/data/attachments whose codecs may not
         // be supported by MP4 (including the "codec none" encoder failure).
         // Require the primary video, retain optional audio, omit other streams.
         arguments << QStringLiteral("-t") << seconds(duration)
-                  << QStringLiteral("-map") << QStringLiteral("0:v:0")
+                  << QStringLiteral("-map") << (signaturePath.isEmpty()
+                    ? QStringLiteral("0:v:0") : QStringLiteral("[pf_video]"))
                   << QStringLiteral("-map") << (request.ensureStereoAudio
                     ? (request.sourceHasAudio ? QStringLiteral("0:a:0") : QStringLiteral("1:a:0"))
                     : QStringLiteral("0:a?"));
@@ -282,9 +386,16 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
             // independently sought clips are concatenated (especially HEVC).
             arguments << "-avoid_negative_ts" << "make_zero";
         } else {
+            const bool webm = outputExtension == ".webm";
+            const QString audioEncoder = lossless ? QStringLiteral("pcm_f64le")
+                : webm
+                    ? (std::find(capabilities_->audioEncoders.begin(), capabilities_->audioEncoders.end(), "libopus")
+                        != capabilities_->audioEncoders.end() ? QStringLiteral("libopus") : QStringLiteral("libvorbis"))
+                    : QStringLiteral("aac");
             arguments << QStringLiteral("-c:v") << QString::fromStdString(encoder)
-                      << QStringLiteral("-c:a") << (lossless ? QStringLiteral("pcm_f64le") : QStringLiteral("aac"))
-                      << QStringLiteral("-movflags") << QStringLiteral("+faststart");
+                      << QStringLiteral("-c:a") << audioEncoder;
+            if (outputExtension == ".mp4" || outputExtension == ".mov")
+                arguments << QStringLiteral("-movflags") << QStringLiteral("+faststart");
             if(lossless) {
                 // '+' preserves the input pixel format and rejects automatic
                 // conversions when an encoder cannot represent that format.
@@ -292,20 +403,23 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
                 if(encoder=="libx264")arguments << "-preset" << "veryfast" << "-qp" << "0" << "-threads:v" << QString::number(threads);
                 else arguments << "-preset" << "p5" << "-tune" << "lossless";
             } else {
-                arguments << "-b:a" << "256k";
+                arguments << "-b:a" << (webm ? QStringLiteral("160k") : QStringLiteral("256k"));
                 for (const auto& option : videoEncodingArguments(encoder, request.quality, request.videoBitrateKbps, threads))
                     arguments << QString::fromStdString(option);
             }
             if (montage) {
                 const QString trim = QString("trim=start=%1:end=%2,setpts=PTS-%1/TB,")
                     .arg(seconds(request.startSeconds), seconds(request.endSeconds));
-                arguments << "-vf" << trim + QString("scale=%1:%2:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=%1:%2:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=%3:round=down,format=yuv420p")
+                const QString videoFilter = trim + QString("scale=w='min(iw\\,%1)':h='min(ih\\,%2)':force_original_aspect_ratio=decrease:force_divisible_by=2,pad=%1:%2:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=%3:round=down,format=yuv420p")
                     .arg(request.canvasWidth).arg(request.canvasHeight).arg(request.outputFrameRate, 0, 'g', 12);
+                if (signaturePath.isEmpty()) arguments << "-vf" << videoFilter;
+                else arguments << "-filter_complex" << signatureFilter(videoFilter, signatureInput);
                 const QString audioTrim = request.ensureStereoAudio && !request.sourceHasAudio
                     ? QString("atrim=end=%1,asetpts=PTS-STARTPTS,").arg(seconds(duration))
                     : QString("atrim=start=%1:end=%2,asetpts=PTS-%1/TB,")
                         .arg(seconds(request.startSeconds), seconds(request.endSeconds));
-                arguments << "-profile:v" << "high" << "-ar" << "48000" << "-ac" << "2"
+                if (!webm) arguments << "-profile:v" << "high";
+                arguments << "-ar" << "48000" << "-ac" << "2"
                           << "-af" << audioTrim + "aresample=async=1:first_pts=0,apad";
             } else {
                 QString filter = QString("trim=start=%1:end=%2,setpts=PTS-%1/TB")
@@ -318,12 +432,13 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
                 arguments << "-enc_time_base:v" << "demux";
                 if (request.maxWidth > 0 || request.maxHeight > 0) {
                     // min(iw/ih, limit) prevents upscaling while preserving aspect ratio.
-                    const int width = request.maxWidth > 0 ? request.maxWidth : 100000;
-                    const int height = request.maxHeight > 0 ? request.maxHeight : 100000;
-                    filter += QStringLiteral(",scale=min(iw\\,%1):min(ih\\,%2):force_original_aspect_ratio=decrease")
+                    const int width = request.maxWidth > 0 ? request.maxWidth : 32768;
+                    const int height = request.maxHeight > 0 ? request.maxHeight : 32768;
+                    filter += QStringLiteral(",scale=min(iw\\,%1):min(ih\\,%2):force_original_aspect_ratio=decrease:force_divisible_by=2")
                         .arg(width).arg(height);
                 }
-                arguments << QStringLiteral("-vf") << filter;
+                if (signaturePath.isEmpty()) arguments << QStringLiteral("-vf") << filter;
+                else arguments << "-filter_complex" << signatureFilter(filter, signatureInput);
             }
         }
         arguments << QString::fromStdWString(temporaryPath.wstring());
