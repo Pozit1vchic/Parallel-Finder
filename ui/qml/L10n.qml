@@ -747,6 +747,8 @@ QtObject {
             "Ошибка чтения": "Read error",
             "Ошибка анализа": "Analysis error",
             "Модель готова к анализу": "Model ready for analysis",
+            "Модель установлена и готова к анализу": "Model is installed and ready for analysis",
+            "Модель не установлена · выберите её для скачивания": "Model is not installed · select it to download",
             "Модель скачана и готова": "Model downloaded and ready",
             "Скачиваем модель с GitHub Releases…": "Downloading model from GitHub Releases…",
             "Модель поз не найдена. Укажите её в settings.json или в папке models.": "Pose model not found. Select one in settings or place it in the models folder.",

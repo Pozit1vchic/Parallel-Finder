@@ -127,7 +127,7 @@ ColumnLayout {
                             ? (root.selectedRecord.manualPair ? L10n.matchLabel(root.selectedRecord) : L10n.matchLabel(root.selectedRecord) + " · " + Math.round(Number(root.selectedRecord.similarity || 0) * 100) + "%"
                                 + "  •  " + L10n.t("results.sceneSimilarity") + " · " + Math.round(Number(root.selectedRecord.sceneSimilarity || 0) * 100) + "%")
                             : root.analysisCompleted
-                                ? (root.availableResultCount > 0 ? L10n.t("center.completedTitle") : L10n.t("center.noMatchesStatus"))
+                                ? (root.availableResultCount > 0 ? L10n.t("center.completedTitle") : "")
                                 : root.sourceFiles.length > 0 ? L10n.t("center.readyStatus") : L10n.t("center.waiting")
                     color: Analysis.busy ? Theme.accent : Theme.textSecondary
                     font.pixelSize: 10

@@ -300,7 +300,7 @@ Rectangle {
                             text: Analysis.modelDownloading
                                 ? (L10n.t("settings.modelDownloading") + "\n" + Analysis.modelDownloadingName
                                    + " · " + Math.round(Analysis.modelDownloadProgress * 100) + "%")
-                                : (Analysis.modelStatus.length ? Analysis.modelStatus : L10n.t("settings.modelHint"))
+                                : (Analysis.modelStatus.length ? L10n.t(Analysis.modelStatus) : L10n.t("settings.modelHint"))
                             color: Analysis.modelDownloading ? Theme.accent : Theme.textSecondary
                             font.pixelSize: 10; wrapMode: Text.WordWrap; maximumLineCount: 4; clip: true
                         }
