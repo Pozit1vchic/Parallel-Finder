@@ -24,35 +24,35 @@
 #include <filesystem>
 #include <limits>
 
-TEST(ParallelClip, PreservesSupportedMatchWithoutPadding)
+TEST(ParallelClip, IncludesLastSupportedFrameWithoutAddingSceneContext)
 {
     const auto clip = pfcore::parallelClipRange(10, 12, 0, 60);
     EXPECT_DOUBLE_EQ(clip.start, 10);
-    EXPECT_DOUBLE_EQ(clip.end, 12);
+    EXPECT_NEAR(clip.end, 12 + 0.5 / 24.0, 1e-12);
 }
 
 TEST(ParallelClip, DoesNotBorrowContextAtShotEdges)
 {
     const auto nearStart = pfcore::parallelClipRange(10, 10.5, 10, 30);
     EXPECT_DOUBLE_EQ(nearStart.start, 10);
-    EXPECT_DOUBLE_EQ(nearStart.end, 10.5);
+    EXPECT_NEAR(nearStart.end, 10.5 + 0.5 / 24.0, 1e-12);
     const auto nearEnd = pfcore::parallelClipRange(28.5, 29.5, 10, 30);
     EXPECT_DOUBLE_EQ(nearEnd.start, 28.5);
-    EXPECT_DOUBLE_EQ(nearEnd.end, 29.5);
+    EXPECT_NEAR(nearEnd.end, 29.5 + 0.5 / 24.0, 1e-12);
 }
 
 TEST(ParallelClip, ShortShotNeverIncludesNextScene)
 {
     const auto clip = pfcore::parallelClipRange(11, 11.5, 10, 13);
     EXPECT_DOUBLE_EQ(clip.start, 11);
-    EXPECT_DOUBLE_EQ(clip.end, 11.5);
+    EXPECT_NEAR(clip.end, 11.5 + 0.5 / 24.0, 1e-12);
 }
 
 TEST(ParallelClip, LongGestureIsNotTruncated)
 {
     const auto clip = pfcore::parallelClipRange(10, 20, 0, 60);
     EXPECT_DOUBLE_EQ(clip.start, 10);
-    EXPECT_DOUBLE_EQ(clip.end, 20);
+    EXPECT_NEAR(clip.end, 20 + 0.5 / 24.0, 1e-12);
 }
 
 TEST(ParallelClip, EarlyTrackEndDoesNotReplaceTheShotBoundary)
@@ -67,7 +67,7 @@ TEST(ParallelClip, EarlyTrackEndDoesNotReplaceTheShotBoundary)
     EXPECT_DOUBLE_EQ(exportBoundary, shotEnd);
     EXPECT_FALSE(pfcore::sceneBoundaryMayNeedRefinement(8.5, 9.4, exportBoundary));
     EXPECT_DOUBLE_EQ(clip.start, 8.5);
-    EXPECT_DOUBLE_EQ(clip.end, 9.4);
+    EXPECT_NEAR(clip.end, 9.4 + 0.5 / 24.0, 1e-12);
 
     // A real shot edge just after the requested interval still receives native
     // frame refinement, so sparse sampling does not leak the next shot.
@@ -78,17 +78,27 @@ TEST(ParallelClip, StaticMatchAndUnknownSceneStillHaveBoundedContext)
 {
     const auto clip = pfcore::parallelClipRange(10, 10, -1, -1);
     EXPECT_DOUBLE_EQ(clip.start, 10);
-    EXPECT_NEAR(clip.end, 10 + 1.0 / 24.0, 1e-12);
+    EXPECT_NEAR(clip.end, 10 + 0.5 / 24.0, 1e-12);
 }
 
 TEST(ParallelClip, HighFrameRateMatchDoesNotGainExtraFrames)
 {
     const auto shortMatch=pfcore::parallelClipRange(10,10.02,0,60,50);
-    EXPECT_DOUBLE_EQ(shortMatch.end,10.02);
+    EXPECT_NEAR(shortMatch.end,10.03,1e-12);
     const auto single=pfcore::parallelClipRange(10,10,0,60,60);
-    EXPECT_NEAR(single.end,10+1.0/60.0,1e-12);
+    EXPECT_NEAR(single.end,10+.5/60.0,1e-12);
     const auto fallback=pfcore::parallelClipRange(10,10,-1,-1,std::numeric_limits<double>::quiet_NaN());
-    EXPECT_NEAR(fallback.end,10+1.0/24.0,1e-12);
+    EXPECT_NEAR(fallback.end,10+.5/24.0,1e-12);
+}
+
+TEST(ParallelClip, FinalFrameBoundaryStopsBeforeTheFollowingFrame)
+{
+    constexpr double fps=30.0;
+    const double lastSupportedFrame=12.0+17.0/fps;
+    const auto clip=pfcore::parallelClipRange(12.0,lastSupportedFrame,11.0,14.0,fps);
+    EXPECT_DOUBLE_EQ(clip.start,12.0);
+    EXPECT_NEAR(clip.end,lastSupportedFrame+.5/fps,1e-12);
+    EXPECT_LT(clip.end,lastSupportedFrame+1.0/fps);
 }
 #include <fstream>
 #include <thread>
@@ -695,6 +705,30 @@ TEST(CutService, ExactFractionalBoundariesKeepEveryFrameInsideTheInterval)
         EXPECT_EQ(actual, expected) << "start=" << start << " normalized=" << normalize;
         }
     }
+    // Matcher end values are timestamps of the last supported frame. Convert
+    // one such interval to the exporter's exclusive end and verify that the
+    // last matched frame survives while the following frame stays excluded.
+    const auto matched=pfcore::parallelClipRange(.7,1.0,0.0,3.0,30.0);
+    pfservices::CutRequest matchedRequest;
+    matchedRequest.inputPath=source.toStdWString();
+    matchedRequest.outputPath=directory.filePath("matched-final-frame.mp4").toStdWString();
+    matchedRequest.startSeconds=matched.start;matchedRequest.endSeconds=matched.end;
+    pfcore::VideoDecoder original;
+    original.open(source.toStdString());
+    pfcore::DecodedFrame matchedFrame;
+    std::vector<double> expectedTimes;
+    while(original.readNext(matchedFrame,false))
+        if(matchedFrame.timestampSeconds>=matched.start && matchedFrame.timestampSeconds<matched.end)
+            expectedTimes.push_back(matchedFrame.timestampSeconds);
+    ASSERT_GT(expectedTimes.size(),0U);
+    EXPECT_NEAR(expectedTimes.back(),1.0,1e-6);
+    const auto matchedCut=cutter.cut(matchedRequest);
+    ASSERT_TRUE(matchedCut.success)<<matchedCut.error;
+    pfcore::VideoDecoder matchedOutput;
+    matchedOutput.open(matchedRequest.outputPath.string());
+    std::vector<double> actualTimes;
+    while(matchedOutput.readNext(matchedFrame,false))actualTimes.push_back(matchedFrame.timestampSeconds);
+    EXPECT_EQ(actualTimes.size(),expectedTimes.size());
     pfservices::CutRequest earlier, later;
     earlier.inputPath = later.inputPath = source.toStdWString();
     earlier.startSeconds = 0.715; earlier.endSeconds = 1.715;

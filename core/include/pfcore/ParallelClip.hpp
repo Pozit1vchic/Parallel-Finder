@@ -28,8 +28,11 @@ inline bool sceneBoundaryMayNeedRefinement(double clipStart, double clipEnd,
         && sceneEnd <= clipEnd + toleranceSeconds;
 }
 
-// Export only the supported match. Do not pad a short parallel with unrelated
-// seconds or truncate a long one. A single sampled pose gets one frame.
+// Matcher endpoints are timestamps of the first and last supported frames,
+// while the exporter treats end as an exclusive boundary. Extend to the middle
+// of the final frame's nominal display interval: this keeps that frame without
+// reaching the following frame or adding unrelated scene context. A single
+// sampled pose gets one frame.
 inline ParallelClipRange parallelClipRange(double matchStart, double matchEnd,
                                            double sceneStart, double sceneEnd,
                                            double framesPerSecond=24.0)
@@ -41,7 +44,9 @@ inline ParallelClipRange parallelClipRange(double matchStart, double matchEnd,
         && sceneStart <= matchStart ? sceneStart : 0.0;
     const double frameDuration=std::isfinite(framesPerSecond) && framesPerSecond>0
         ? 1.0/framesPerSecond:1.0/24.0;
-    const double duration = matchEnd>matchStart ? matchEnd-matchStart:frameDuration;
+    const double frameBoundaryMargin=frameDuration*.5;
+    const double duration = matchEnd>matchStart
+        ? matchEnd-matchStart+frameBoundaryMargin:frameBoundaryMargin;
     const double upper = std::isfinite(sceneEnd) && sceneEnd > matchStart
         ? sceneEnd : std::max(matchEnd, matchStart + duration);
     const double start = std::max(matchStart, lower);
