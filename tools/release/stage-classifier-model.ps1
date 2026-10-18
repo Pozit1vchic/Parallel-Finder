@@ -13,6 +13,12 @@ function Get-CanonicalTextSha256([string]$Path) {
         return [BitConverter]::ToString($algorithm.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant()
     } finally { $algorithm.Dispose() }
 }
+function Get-AssetSha256([string]$Path) {
+    if ([IO.Path]::GetExtension($Path) -ieq '.LICENSE') {
+        return Get-CanonicalTextSha256 $Path
+    }
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
 $sourceRoot = (Resolve-Path -LiteralPath $SourceDirectory).Path
 $stageRoot = (Resolve-Path -LiteralPath $Stage).Path
 $filename = 'head-pose-6drepnet360.onnx'
@@ -39,14 +45,14 @@ $destinationRoot = Join-Path $stageRoot 'models'
 New-Item -ItemType Directory -Path $destinationRoot -Force | Out-Null
 foreach ($sourceFile in @($sourceModel,$sourceLicense,$sourceMetadata)) {
     $destination = Join-Path $destinationRoot ([IO.Path]::GetFileName($sourceFile))
-    $hash = (Get-FileHash -LiteralPath $sourceFile -Algorithm SHA256).Hash
+    $hash = Get-AssetSha256 $sourceFile
     if (Test-Path -LiteralPath $destination) {
-        if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $hash) {
+        if ((Get-AssetSha256 $destination) -ne $hash) {
             throw "Existing classifier asset differs: $destination"
         }
     } else {
         Copy-Item -LiteralPath $sourceFile -Destination $destination
-        if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $hash) {
+        if ((Get-AssetSha256 $destination) -ne $hash) {
             throw "Classifier copy verification failed: $destination"
         }
     }
@@ -73,14 +79,14 @@ if ($actionInfo.filename -cne 'ava-slowfast-r50.onnx' -or $actionInfo.sha256 -cn
 }
 foreach ($sourceFile in @($actionModel,$actionLicense,$actionMetadata)) {
     $destination = Join-Path $destinationRoot ([IO.Path]::GetFileName($sourceFile))
-    $hash = (Get-FileHash -LiteralPath $sourceFile -Algorithm SHA256).Hash
+    $hash = Get-AssetSha256 $sourceFile
     if (Test-Path -LiteralPath $destination) {
-        if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $hash) {
+        if ((Get-AssetSha256 $destination) -ne $hash) {
             throw "Existing classifier asset differs: $destination"
         }
     } else {
         Copy-Item -LiteralPath $sourceFile -Destination $destination
-        if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $hash) {
+        if ((Get-AssetSha256 $destination) -ne $hash) {
             throw "Classifier copy verification failed: $destination"
         }
     }
