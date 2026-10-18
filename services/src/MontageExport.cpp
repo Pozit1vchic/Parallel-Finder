@@ -93,8 +93,9 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         };
         const auto first = info(clips.front().inputPath);
         if (streamCopy || exactLossless) {
-            for (const auto& clip : clips) {
+            for (std::size_t index = 0; index < clips.size(); ++index) {
                 if (cancelled()) return result;
+                const auto& clip = clips[index];
                 const auto& current = info(clip.inputPath);
                 // Exact lossless re-encodes decoded pixels into a common
                 // lossless codec. Different source codecs/extradata are not a
@@ -104,8 +105,20 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
                     : current.width != first.width || current.height != first.height
                         || current.sampleAspectRatio != first.sampleAspectRatio
                         || current.rotationDegrees != first.rotationDegrees;
+                if (incompatible && exactLossless) {
+                    const auto geometry = [](const pfcore::VideoInfo& video) {
+                        return QStringLiteral("%1x%2, SAR %3, rotation %4°")
+                            .arg(video.width).arg(video.height)
+                            .arg(video.sampleAspectRatio, 0, 'f', 3)
+                            .arg(video.rotationDegrees, 0, 'f', 1);
+                    };
+                    result.error = "Lossless montage geometry mismatch: "
+                        + geometry(first).toStdString() + " vs "
+                        + geometry(current).toStdString();
+                    return result;
+                }
                 if (incompatible) {
-                    result.error = "Lossless montage requires compatible video and audio streams. Export separate clips or choose re-encoding quality.";
+                    result.error = "Fast montage requires compatible video/audio stream parameters. Choose exact/lossless or re-encoding quality.";
                     return result;
                 }
             }

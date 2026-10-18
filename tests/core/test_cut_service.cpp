@@ -565,7 +565,7 @@ TEST(MontageExport, LosslessRejectsIncompatibleSourcesWithoutReplacingDestinatio
     const auto losslessOutput=directory.filePath("keep.mov");
     {QFile sentinel(losslessOutput);ASSERT_TRUE(sentinel.open(QIODevice::WriteOnly));sentinel.write("previous");}
     const auto lossless=pfservices::exportChronologicalMontage({a,b},losslessOutput.toStdWString(),{},{},ffmpeg.toStdString());
-    EXPECT_FALSE(lossless.success);EXPECT_NE(lossless.error.find("compatible"),std::string::npos);
+    EXPECT_FALSE(lossless.success);EXPECT_NE(lossless.error.find("geometry mismatch"),std::string::npos);
     {QFile sentinel(losslessOutput);ASSERT_TRUE(sentinel.open(QIODevice::ReadOnly));EXPECT_EQ(sentinel.readAll(),"previous");}
     a.maxWidth=80;
     const auto resized=pfservices::exportChronologicalMontage({a},losslessOutput.toStdWString(),{},{},ffmpeg.toStdString());

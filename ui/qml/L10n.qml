@@ -739,11 +739,14 @@ QtObject {
             const errors = {
                 "Could not decode frame": "Не удалось прочитать кадр. Проверь доступность исходного видео.",
                 "Could not save preview": "Не удалось сохранить превью. Проверь свободное место.",
-                "Lossless montage requires compatible video and audio streams. Export separate clips or choose re-encoding quality.": "Для общего ролика без потери качества нужны совместимые видео- и аудиопотоки. Экспортируй отдельные клипы или выбери другой режим качества.",
+                "Fast montage requires compatible video/audio stream parameters. Choose exact/lossless or re-encoding quality.": "Быстрая склейка копирует потоки без перекодирования, поэтому их параметры должны совпадать. Выбери точную обрезку без потери качества или перекодирование.",
                 "exact lossless clips produced incompatible streams; no lossy fallback was used": "Подготовленные клипы несовместимы для склейки без потери качества. Сохрани их отдельно; сжатие с потерями не применялось.",
                 "export cancelled": "Экспорт отменён"
             }
             if (errors[text] !== undefined) return errors[text]
+            const geometryPrefix = "Lossless montage geometry mismatch: "
+            if (text.indexOf(geometryPrefix) === 0)
+                return "Точная склейка без потери качества требует одинаковой геометрии видео (размера кадра, соотношения пикселя и поворота). Параметры источников: " + text.slice(geometryPrefix.length)
         }
         if (language !== "en") return text
         if (text.indexOf("Матчер: ") === 0) return "Matcher: " + status(text.substring(8))
@@ -811,6 +814,8 @@ QtObject {
         if (text.indexOf("Анализ остановлен: ") === 0) return "Analysis stopped: " + text.slice("Анализ остановлен: ".length)
         if (text.indexOf("Анализ не запущен: ") === 0) return "Analysis did not start: " + text.slice("Анализ не запущен: ".length)
         if (text.indexOf("Не удалось скачать модель: ") === 0) return "Could not download model: " + text.slice("Не удалось скачать модель: ".length)
+        if (text.indexOf("Lossless montage geometry mismatch: ") === 0)
+            return "Exact lossless montage requires matching video geometry (frame size, pixel aspect ratio, and rotation). Source parameters: " + text.slice("Lossless montage geometry mismatch: ".length)
         return text
     }
     function colorLabel(value) {

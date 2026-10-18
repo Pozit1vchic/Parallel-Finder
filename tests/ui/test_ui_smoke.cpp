@@ -749,8 +749,23 @@ void UiSmokeTests::manualSortAndComposeDialogs()
     auto* l10n=engine.singletonInstance<QObject*>(qmlTypeId("PfUi",1,0,"L10n")); QVERIFY(l10n);
     l10n->setProperty("language","ru");
     QVariant translated;
-    QVERIFY(QMetaObject::invokeMethod(l10n,"status",Q_RETURN_ARG(QVariant,translated),Q_ARG(QVariant,"Lossless montage requires compatible video and audio streams. Export separate clips or choose re-encoding quality.")));
-    QVERIFY(translated.toString().startsWith("Для общего ролика"));
+    const QString fastError = "Fast montage requires compatible video/audio stream parameters. Choose exact/lossless or re-encoding quality.";
+    QVERIFY(QMetaObject::invokeMethod(l10n,"status",Q_RETURN_ARG(QVariant,translated),Q_ARG(QVariant,fastError)));
+    QVERIFY(translated.toString().startsWith("Быстрая склейка копирует потоки"));
+    const QString geometryError = "Lossless montage geometry mismatch: 1920x1080, SAR 1.000, rotation 0.0° vs 3840x2160, SAR 1.000, rotation 0.0°";
+    QVERIFY(QMetaObject::invokeMethod(l10n,"status",Q_RETURN_ARG(QVariant,translated),Q_ARG(QVariant,geometryError)));
+    QVERIFY(translated.toString().startsWith("Точная склейка без потери качества"));
+    l10n->setProperty("language","en");
+    QVERIFY(QMetaObject::invokeMethod(l10n,"status",Q_RETURN_ARG(QVariant,translated),Q_ARG(QVariant,geometryError)));
+    QVERIFY(translated.toString().startsWith("Exact lossless montage requires matching video geometry"));
+    auto* exportDialog=window->findChild<QObject*>("exportDialog"); QVERIFY(exportDialog);
+    auto* exportStatus=exportDialog->findChild<QObject*>("exportStatusText"); QVERIFY(exportStatus);
+    exportDialog->setProperty("exportStatus",geometryError);
+    QCOMPARE(exportStatus->property("text").toString(),translated.toString());
+    l10n->setProperty("language","ru");
+    QVERIFY(QMetaObject::invokeMethod(l10n,"status",Q_RETURN_ARG(QVariant,translated),Q_ARG(QVariant,fastError)));
+    exportDialog->setProperty("exportStatus",fastError);
+    QCOMPARE(exportStatus->property("text").toString(),translated.toString());
     QVERIFY(QMetaObject::invokeMethod(compose,"close"));
 }
 

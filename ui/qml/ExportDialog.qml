@@ -442,8 +442,9 @@ Popup {
             }
 
             Text {
+                objectName: "exportStatusText"
                 width: parent.width
-                text: root.exportStatus || (root.selectedFormat === "FFMPEG"
+                text: root.exportStatus ? L10n.status(root.exportStatus) : (root.selectedFormat === "FFMPEG"
                     ? (root.mergeChronological
                         ? (L10n.language === "ru"
                             ? "Общий ролик собирается по типам движений."
