@@ -27,7 +27,7 @@ $files = @(Get-ChildItem -LiteralPath $Stage -Recurse -File | Sort-Object FullNa
         sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     }
 })
-$changelog = if ($ChangelogPath) { Get-Content -LiteralPath $ChangelogPath -Raw -Encoding utf8 } else { '' }
+$changelog = if ($ChangelogPath) { [IO.File]::ReadAllText((Resolve-Path -LiteralPath $ChangelogPath).Path, [Text.Encoding]::UTF8) } else { '' }
 if ($changelog.Length -gt 5000) { $changelog = $changelog.Substring(0,5000) }
 $manifest = [ordered]@{
     schema = 1
