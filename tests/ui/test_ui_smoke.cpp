@@ -734,8 +734,23 @@ void UiSmokeTests::manualSortAndComposeDialogs()
     QVERIFY(QMetaObject::invokeMethod(manual,"pick",Q_RETURN_ARG(QVariant,ignored),Q_ARG(QVariant,0),Q_ARG(QVariant,0)));
     QVERIFY(QMetaObject::invokeMethod(manual,"pick",Q_RETURN_ARG(QVariant,ignored),Q_ARG(QVariant,2),Q_ARG(QVariant,int(Qt::ControlModifier))));
     QCOMPARE(variant(manual->property("selectedIds")).toList(),(QVariantList{0,2}));
+    const auto findVisualItem = [](QQuickItem* parent, const QString& name, const auto& self) -> QQuickItem* {
+        if (!parent) return nullptr;
+        if (parent->objectName() == name) return parent;
+        for (auto* child : parent->childItems()) if (auto* found = self(child, name, self)) return found;
+        return nullptr;
+    };
+    QQuickItem* animatedCard=nullptr;
+    QTRY_VERIFY_WITH_TIMEOUT((animatedCard=findVisualItem(window->contentItem(),"manualSortCard0",findVisualItem))!=nullptr,1000);
+    QTRY_VERIFY_WITH_TIMEOUT(qAbs(animatedCard->property("scale").toReal()-1.012)<.002,1000);
+    auto* theme=engine.singletonInstance<QObject*>(qmlTypeId("PfUi",1,0,"Theme")); QVERIFY(theme);
+    theme->setProperty("reducedMotion",true);
+    QVERIFY(QMetaObject::invokeMethod(manual,"pick",Q_RETURN_ARG(QVariant,ignored),Q_ARG(QVariant,0),Q_ARG(QVariant,int(Qt::ControlModifier))));
+    QCOMPARE(variant(manual->property("selectedIds")).toList(),(QVariantList{2}));
+    QVERIFY(qAbs(animatedCard->property("scale").toReal()-1.0)<.001);
+    theme->setProperty("reducedMotion",false);
     QVERIFY(QMetaObject::invokeMethod(manual,"pick",Q_RETURN_ARG(QVariant,ignored),Q_ARG(QVariant,14),Q_ARG(QVariant,int(Qt::ShiftModifier))));
-    QCOMPARE(variant(manual->property("selectedIds")).toList().size(),13);
+    QCOMPARE(variant(manual->property("selectedIds")).toList().size(),15);
     QVERIFY(QMetaObject::invokeMethod(manual,"goToPage",Q_ARG(QVariant,1)));
     QCOMPARE(manual->property("page").toInt(),1);
     const auto capture=qEnvironmentVariable("PF_UI_CAPTURE_DIR");

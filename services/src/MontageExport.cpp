@@ -128,6 +128,7 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         const auto [width, height] = *canvas;
         const double fps = first.frameRate > 0.0 && std::isfinite(first.frameRate) ? first.frameRate : 25.0;
         QByteArray manifest("ffconcat version 1.0\n");
+        QByteArray audioManifest("ffconcat version 1.0\n");
         double montageDuration = 0;
         std::string preparedSignature;
         std::vector<CutRequest> prepared(clips.size());
@@ -193,8 +194,13 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             if (cancelled()) return result;
             montageDuration += clipDuration;
             manifest += "file '" + QFileInfo(spliceName).fileName().toUtf8() + "'\n";
-            if(exactLossless)manifest += "inpoint 0\n";
+            audioManifest += "file '" + QFileInfo(spliceName).fileName().toUtf8() + "'\n";
+            // The video demuxer needs an explicit zero seek to preserve VFR
+            // frame timestamps. Applying that same seek to MOV audio drops a
+            // leading PCM packet, so exact-lossless audio uses its own list.
+            if (exactLossless) manifest += "inpoint 0\n";
             manifest += "duration " + QByteArray::number(clipDuration, 'f', 9) + "\n";
+            audioManifest += "duration " + QByteArray::number(clipDuration, 'f', 9) + "\n";
         }
         result.success = false;
         const QString list = staging.filePath("clips.ffconcat");
@@ -203,6 +209,14 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             result.error = "cannot write montage list"; return result;
         }
         file.close();
+        const QString audioList = staging.filePath("audio.ffconcat");
+        if (exactLossless) {
+            QFile audioFile(audioList);
+            if (!audioFile.open(QIODevice::WriteOnly) || audioFile.write(audioManifest) != audioManifest.size()) {
+                result.error = "cannot write lossless audio montage list"; return result;
+            }
+            audioFile.close();
+        }
         QString program = QString::fromStdString(executable);
         if (!QFileInfo(program).isAbsolute()) {
             const auto local = QCoreApplication::applicationDirPath() + "/" + program;
@@ -214,9 +228,15 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         const QString combinedPath=staging.filePath(QStringLiteral("combined") + outputExtension);
         process.setProgram(program);
         QStringList muxArguments{"-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-nostats", "-progress", "pipe:1",
-            "-f", "concat", "-safe", "1", "-auto_convert", streamCopy ? "0" : "1", "-i", list, "-map", "0:v:0", "-map", "0:a?", "-c", "copy"};
+            "-f", "concat", "-safe", "1", "-auto_convert", streamCopy ? "0" : "1", "-i", list};
+        if (exactLossless)
+            muxArguments << "-f" << "concat" << "-safe" << "1" << "-auto_convert" << "1" << "-i" << audioList
+                         << "-map" << "0:v:0" << "-map" << "1:a:0?" << "-c" << "copy";
+        else
+            muxArguments << "-map" << "0:v:0" << "-map" << "0:a?" << "-c" << "copy";
         if (outputExtension == ".mp4" || outputExtension == ".mov")
             muxArguments << "-movflags" << "+faststart";
+        if (exactLossless) muxArguments << "-avoid_negative_ts" << "disabled";
         muxArguments << combinedPath;
         process.setArguments(muxArguments);
         if(exactLossless) {

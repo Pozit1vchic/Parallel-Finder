@@ -32,7 +32,7 @@ output order, and a montage in each mode. Existing queue/montage tests also
 cover collision suffixes, cancellation, duplicate reuse, mixed-source montage
 normalization, reordered stream-copy frames and incompatible-source rejection.
 
-On the 24-thread development machine, the integrated run on 2026-10-15 measured:
+Historical integrated run on the 24-thread development machine (2026-10-15):
 
 | Mode | Sequential | Parallel | Speedup |
 | --- | ---: | ---: | ---: |
@@ -40,8 +40,18 @@ On the 24-thread development machine, the integrated run on 2026-10-15 measured:
 | Exact | 2177 ms | 932 ms | 2.34x |
 | ExactLossless | 2027 ms | 999 ms | 2.03x |
 
+Rerun from the current `main` build on 2026-10-18, using the same eight-clip
+1280×720 fixture:
+
+| Mode | Sequential | Parallel | Speedup |
+| --- | ---: | ---: | ---: |
+| Fast | 624 ms | 454 ms | 1.37x |
+| Exact | 2624 ms | 1197 ms | 2.19x |
+| ExactLossless | 2216 ms | 1293 ms | 1.71x |
+
 These are short generated 1280x720 clips, not a promise of the same speedup for
 4K scenepacks or a whole analysis. Storage throughput, source decoding and GPU
 encoder session limits can determine the actual speed. The implementation
 bounds CPU and system RAM; it does not measure free GPU VRAM or disk throughput.
-The local detailed test output is in `research/integrated-core-tests.txt`.
+The opt-in check passed from the current build with byte-identical lossless
+decoded frames, ordered results and non-overlapping progress callbacks.

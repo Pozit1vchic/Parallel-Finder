@@ -140,11 +140,36 @@ ReviewDialog {
                         required property var modelData
                         required property int index
                         readonly property bool picked: root.selectedIds.indexOf(modelData.id) >= 0
+                        property real selectionScale: 1
                         Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: 170
+                        scale: selectionScale
                         color: picked ? Theme.accentMuted : Theme.well
                         radius: Theme.radiusCard; border.width: picked || activeFocus ? 2 : 1
                         border.color: picked || activeFocus ? Theme.accent : Theme.hairline
                         activeFocusOnTab: true
+                        function animateSelection() {
+                            selectionMotion.stop()
+                            if (Theme.reducedMotion) {
+                                selectionScale = picked ? 1.012 : 1
+                                return
+                            }
+                            selectionMotion.restart()
+                        }
+                        onPickedChanged: animateSelection()
+                        SequentialAnimation {
+                            id: selectionMotion
+                            NumberAnimation { target: card; property: "selectionScale"; to: card.picked ? 1.026 : 0.986; duration: 95; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: card; property: "selectionScale"; to: card.picked ? 1.012 : 1; duration: 210; easing.type: Easing.OutBack; easing.overshoot: 1.08 }
+                        }
+                        Connections {
+                            target: Theme
+                            function onReducedMotionChanged() {
+                                if (Theme.reducedMotion) {
+                                    selectionMotion.stop()
+                                    card.selectionScale = card.picked ? 1.012 : 1
+                                }
+                            }
+                        }
                         Accessible.role: Accessible.CheckBox
                         Accessible.name: (root.russian ? "Результат " : "Result ") + (Number(modelData.id) + 1)
                         Accessible.checked: picked
