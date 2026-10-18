@@ -7,9 +7,12 @@ param(
     [string]$ReleaseNotes = 'docs/rc22-release-notes.md',
     [string]$SigningKey = (Join-Path $env:LOCALAPPDATA 'ParallelFinder/release-signing/update-ed25519-private.pem'),
     [switch]$KeepStaging,
+    [switch]$SkipTests,
     [switch]$SkipChecks
 )
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 function New-ReleaseArchive([string]$Directory, [string]$Archive) {
     # Archive files explicitly: the updater only admits directories implied
     # by signed files. Avoid tar's list-file escape/option interpretation.
@@ -45,7 +48,7 @@ try {
     & cmake --build --preset ucrt64-release -j 4
     if ($LASTEXITCODE) { throw 'Build failed' }
     & "$PSScriptRoot/deploy-runtime.ps1" -Stage (Join-Path $root 'build/ucrt64-release') -Toolchain $Toolchain
-    if (!$SkipChecks) {
+    if (!$SkipChecks -and !$SkipTests) {
     $releaseTestQpa = $env:QT_QPA_PLATFORM
     $releaseTestPlugins = $env:QT_PLUGIN_PATH
     try {
