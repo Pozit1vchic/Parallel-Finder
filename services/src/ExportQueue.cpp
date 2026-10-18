@@ -19,7 +19,7 @@ ExportBatchResult detail::runExportQueueWithExecutor(const std::vector<CutReques
     ExportBatchResult batch;
     batch.completed.reserve(jobs.size());
     if (stop.stop_requested()) { batch.cancelled = true; return batch; }
-    budget.workers = std::max(1u, budget.workers);
+    budget.workers = std::max<std::size_t>(1, budget.workers);
     std::vector<std::optional<CutResult>> indexedResults(jobs.size());
     std::size_t completedCount = 0;
     using Key = std::tuple<std::filesystem::path, double, double, CutMode, int, int,
@@ -127,7 +127,8 @@ ExportBatchResult detail::runExportQueueWithExecutor(const std::vector<CutReques
 ExportBatchResult runExportQueue(const std::vector<CutRequest>& jobs,
     std::stop_token stop, ExportProgress progress, const std::string& executable)
 {
-    const auto budget = detail::exportBudget(jobs, stop);
+    const auto budget = detail::exportBudget(jobs.size(), std::thread::hardware_concurrency(),
+        detail::availableMemoryBytes());
     const CutService cutter(executable);
     return detail::runExportQueueWithExecutor(jobs, budget,
         [&](const CutRequest& request) { return cutter.cut(request); }, stop, std::move(progress));

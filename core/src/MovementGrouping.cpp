@@ -472,7 +472,10 @@ MovementClassification MovementClassifier::classifyGeometricForGrouping(const Mo
         return result;
     }
     if(headOnly) {
-        result=classifyAction(observations,true,true);
+        const auto decision=classifyAction(observations,true,true);
+        result.gesture=decision.type;
+        result.gestureConfidence=decision.strength;
+        result.actions=decision.actions;
         if(result.gesture==GestureClass::Unknown && hasLearnedHead)result=learnedHead;
         const auto displacement=classify(window,start,end);
         result.direction=displacement.direction;result.directionConfidence=displacement.directionConfidence;

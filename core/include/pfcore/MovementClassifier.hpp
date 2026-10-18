@@ -40,6 +40,9 @@ struct MovementClassification {
     GestureClass gesture = GestureClass::Unknown;
     double directionConfidence = 0.0;
     double gestureConfidence = 0.0;
+    // True when the movement category is supported only by head evidence,
+    // with body motion unavailable in the selected interval.
+    bool headOnlyEvidence = false;
     // Atomic movement evidence retained when more than one action overlaps.
     // This gives result grouping a stable shared facet instead of putting all
     // composite movements into one broad "mixed" bucket.

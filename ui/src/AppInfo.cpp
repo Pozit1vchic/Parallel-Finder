@@ -4,7 +4,6 @@
 #include "AnalysisController.h"
 #include "McpController.h"
 #include "DiscordPresence.h"
-#include "McpController.h"
 #include <pfupdate/UpdateService.hpp>
 #include <pfgpu/DeviceInfo.hpp>
 #include <pfgpu/Provider.hpp>
@@ -64,8 +63,6 @@ void AppInfo::registerQmlTypes()
     qmlRegisterSingletonInstance("PfUiBridge",1,0,"Updates",&updates);
     static DiscordPresence discord;
     qmlRegisterSingletonInstance("PfUiBridge", 1, 0, "Discord", &discord);
-    static McpController mcp(AnalysisController::instance());
-    qmlRegisterSingletonInstance("PfUiBridge", 1, 0, "Mcp", &mcp);
 }
 
 AppInfo::~AppInfo()
