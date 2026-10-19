@@ -780,7 +780,7 @@ Popup {
                                             anchors.fill: parent; anchors.margins: 2
                                             country: root.languageIds[languageButton.index]
                                             active: languageButton.hovered || languageButton.visualFocus
-                                            opacity: Theme.darkMode ? 0.18 : 0.12
+                                            opacity: Theme.darkMode ? 0.62 : 0.50
                                         }
                                     }
                                     contentItem: RowLayout {

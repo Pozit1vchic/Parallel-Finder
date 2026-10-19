@@ -1,8 +1,8 @@
 import QtQuick
 import PfUi
 
-// The real flag image is scaled proportionally to cover the card and clipped
-// by one organic brush edge; excess image area is cropped, never stretched.
+// Repeating native-ratio flag tiles fill a wide language card without
+// distorting or cropping away defining stripes and emblems.
 Item {
     id: root
     property string country: "ru"
@@ -85,11 +85,13 @@ Item {
                 }
                 ctx.closePath()
             }
-            const drawCover = function() {
-                const scale = Math.max(width / 300, height / 150)
-                const imageWidth = 300 * scale
-                const imageHeight = 150 * scale
-                ctx.drawImage(flagSource, (width - imageWidth) / 2, (height - imageHeight) / 2, imageWidth, imageHeight)
+            const drawTiles = function() {
+                const tileHeight = height
+                const tileWidth = tileHeight * 2
+                const centerX = (width - tileWidth) / 2
+                const count = Math.ceil(width / tileWidth) + 2
+                for (let i = -count; i <= count; ++i)
+                    ctx.drawImage(flagSource, centerX + i * tileWidth, 0, tileWidth, tileHeight)
             }
 
             // Match the card silhouette so the painted reveal reaches its
@@ -109,14 +111,14 @@ Item {
             makeEdgePath(style.direction === "up" || style.direction === "right" ? -0.055 : 0.055)
             ctx.clip()
             ctx.globalAlpha = 0.24
-            if (isImageLoaded(flagSource)) drawCover()
+            if (isImageLoaded(flagSource)) drawTiles()
             ctx.restore()
 
             ctx.save()
             makeEdgePath(0)
             ctx.clip()
             ctx.globalAlpha = 1
-            if (isImageLoaded(flagSource)) drawCover()
+            if (isImageLoaded(flagSource)) drawTiles()
             ctx.restore()
             ctx.restore()
         }
