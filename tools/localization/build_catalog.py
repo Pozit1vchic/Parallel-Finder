@@ -21,8 +21,13 @@ def build():
         canonical = fields[0].strip()
         key = aliases.get(canonical, canonical if canonical in english else fields[0])
         for lang, value in zip(catalogs, fields[1:]):
+            phrase = english.get(key, key)
+            # Keep separators used when labels are joined with counts/paths.
+            leading = re.match(r'^\s*', phrase)[0]
+            trailing = re.search(r'\s*$', phrase)[0]
+            value = leading + value.strip() + trailing
             catalogs[lang][key] = value
-            catalogs[lang][english.get(key, key)] = value
+            catalogs[lang][phrase] = value
     # Identical English phrases share one translation, including review keys.
     for lang, catalog in catalogs.items():
         for key, phrase in english.items():
