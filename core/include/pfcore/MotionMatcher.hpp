@@ -224,6 +224,10 @@ struct MotionMatcherParams {
     // whose repeated action only lasts one beat.
     std::size_t minTemporalFrames = 10;
     double minTemporalDurationSec = 0.50;
+    // Optional application policy for exportable results. Zero keeps the
+    // generic matcher useful for brief gestures; the desktop sets this to
+    // one second so scene sampling artifacts do not become tiny clips.
+    double minimumResultDurationSec = 0.0;
       // Same-source windows cannot match inside this floor, including verified
       // identities in disjoint shots. Callers may explicitly opt out with zero.
     double sameSourceGapFloorSec = 5.0;

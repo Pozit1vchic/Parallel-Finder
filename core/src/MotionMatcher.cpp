@@ -1695,7 +1695,8 @@ bool hasTemporalRun(const std::vector<Descriptor>& left,
         static_cast<std::size_t>(std::ceil(0.25
             * static_cast<double>(std::min(left.size(), right.size())))));
     const bool enoughFrames = alignment.run >= requiredFrames
-        && runDuration + 1e-9 >= params.minTemporalDurationSec;
+        && runDuration + 1e-9 >= std::max(params.minimumResultDurationSec,
+                                          params.minTemporalDurationSec);
     if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
         std::fprintf(stderr, "PF_DEBUG_MATCHER temporal max=%.3f bestRun=%zu duration=%.3f threshold=%.3f\n",
                      alignment.averageSimilarity, alignment.run, runDuration,
@@ -1961,6 +1962,9 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         return reject(MotionRejection::SourceGap);
     }
     const bool staticPair = left.staticFrameSet || right.staticFrameSet;
+    if (staticPair && std::min(duration(left), duration(right)) + 1e-9
+            < params.minimumResultDurationSec)
+        return reject(MotionRejection::TemporalSupport);
     if (staticPair && std::getenv("PF_DEBUG_MATCHER") != nullptr) {
         auto mask = [](const std::vector<NormalizedPose>& poses) {
             std::uint32_t bits = 0;
@@ -2249,6 +2253,8 @@ void MotionMatcher::setParams(MotionMatcherParams params)
         || !(params.minActiveTransitionRatio >= 0.0 && params.minActiveTransitionRatio <= 1.0)
         || params.minMotionRange < 0.0
         || params.minMotionSpanSec < 0.0
+        || !std::isfinite(params.minimumResultDurationSec)
+        || params.minimumResultDurationSec < 0.0
         || !(params.temporalSimilarityThreshold >= 0.0
              && params.temporalSimilarityThreshold <= 1.0)
         || !(params.staticPoseSimilarityThreshold >= 0.0

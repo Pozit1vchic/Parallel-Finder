@@ -140,6 +140,7 @@ int main(int argc, char** argv)
         PF_NUMBER(noiseFactor); PF_NUMBER(timeWeight); PF_NUMBER(maxUniqueResults);
         PF_NUMBER(maxResultsPerShot); PF_NUMBER(minTemporalFrames); PF_NUMBER(minMotionSpanSec);
         PF_NUMBER(coverageSeedLimit);
+        PF_NUMBER(minimumResultDurationSec);
         PF_NUMBER(maxComparisonThreads);
         PF_NUMBER(staticPoseSimilarityThreshold); PF_NUMBER(staticArticulationSimilarityThreshold);
         PF_NUMBER(minAppearanceSimilarity); PF_NUMBER(minFaceSimilarity); PF_NUMBER(sameSceneContextThreshold);

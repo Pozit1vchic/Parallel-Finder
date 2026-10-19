@@ -3564,6 +3564,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.timeWeight = timeWeight;
             params.minTemporalFrames = qualityProfile == QStringLiteral("fast") ? 6U
                 : qualityProfile == QStringLiteral("medium") ? 8U : 10U;
+            // Do not publish transient sub-second alignment fragments as
+            // independent scene clips. The matcher still returns the exact
+            // observed interval; it never pads the crop with unrelated frames.
+            params.minimumResultDurationSec = 1.0;
             params.allowStaticFrames = analysisMode == QStringLiteral("static")
                 || analysisMode == QStringLiteral("combined");
             params.auditDirectFaceConsensus=directFaceConsensusAudit;
@@ -3599,6 +3603,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 PF_AUDIT_NUMBER(temporalSimilarityThreshold); PF_AUDIT_NUMBER(staticPoseSimilarityThreshold);
                 PF_AUDIT_NUMBER(staticArticulationSimilarityThreshold); PF_AUDIT_NUMBER(minTemporalFrames);
                 PF_AUDIT_NUMBER(minTemporalDurationSec); PF_AUDIT_NUMBER(sameSourceGapFloorSec);
+                PF_AUDIT_NUMBER(minimumResultDurationSec);
                 PF_AUDIT_NUMBER(nmsOverlapThreshold); PF_AUDIT_NUMBER(minAppearanceSimilarity);
                 PF_AUDIT_NUMBER(appearanceWeight); PF_AUDIT_NUMBER(minAppearanceEvidence);
                 PF_AUDIT_NUMBER(minFaceSimilarity); PF_AUDIT_NUMBER(minHeadFaceSimilarity);

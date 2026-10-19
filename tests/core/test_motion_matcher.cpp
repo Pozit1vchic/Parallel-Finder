@@ -1473,12 +1473,48 @@ TEST(MotionMatcher, RepeatedGestureSurvivesIsolatedMissingObservations)
                 matcher.compare(right, left).similarity, 1e-9);
 }
 
-TEST(MotionMatcher, ShortGestureSupportsSparseSampling)
+TEST(MotionMatcher, SubsecondGestureDoesNotProduceSubsecondResult)
 {
     auto left = window("a", 0, false, 8, 0.14);
     auto right = window("b", 8, false, 8, 0.14);
-    EXPECT_GT(pfcore::MotionMatcher().compare(left, right).similarity, 0.78);
-    EXPECT_EQ(pfcore::MotionMatcher().findAllPairs({left, right}).size(), 1U);
+    pfcore::MotionMatcherParams params;
+    params.minimumResultDurationSec = 1.0;
+    const auto rejected = pfcore::MotionMatcher(params).compare(left, right);
+    EXPECT_EQ(rejected.rejection, pfcore::MotionRejection::MotionEvidence);
+    EXPECT_DOUBLE_EQ(rejected.similarity, 0.0);
+    EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs({left, right}).empty());
+}
+
+TEST(MotionMatcher, SustainedSparseGestureStillProducesAResult)
+{
+    auto left = window("a", 0, false, 12, 0.14);
+    auto right = window("b", 8, false, 12, 0.14);
+    pfcore::MotionMatcherParams params;
+    params.minimumResultDurationSec = 1.0;
+    const auto accepted = pfcore::MotionMatcher(params).compare(left, right);
+    ASSERT_GT(accepted.similarity, 0.78);
+    EXPECT_GE(accepted.durationSeconds, 1.0);
+    EXPECT_EQ(pfcore::MotionMatcher(params).findAllPairs({left, right}).size(), 1U);
+}
+
+TEST(MotionMatcher, StaticSubsecondEvidenceCannotBecomeAResult)
+{
+    auto left = window("a", 0, false, 6, 1.0 / 6.0);
+    auto right = left;
+    right.sourceId = "b";
+    left.staticFrameSet = right.staticFrameSet = true;
+    for (auto* shot : {&left, &right}) {
+        for (auto& frame : shot->frames) frame.keypoints = {{0, 0}, {1, 1}};
+        shot->appearanceEmbedding = {1.0F, 0.0F};
+        shot->appearanceConfidence = 1.0;
+    }
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.requireAppearance = true;
+    params.minimumResultDurationSec = 1.0;
+    const auto rejected = pfcore::MotionMatcher(params).compare(left, right);
+    EXPECT_EQ(rejected.rejection, pfcore::MotionRejection::TemporalSupport);
+    EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs({left, right}).empty());
 }
 TEST(MotionMatcher, SeparatedShortRunsCannotBridgeUnobservedSeconds)
 {
@@ -1654,7 +1690,7 @@ TEST(MotionMatcher, RepeatedCameraPoseDoesNotFillTheStaticBudget)
     EXPECT_EQ(pfcore::MotionMatcher(params).findAllPairs({a,b}).size(), 1U);
 }
 
-TEST(MotionMatcher, ShortStaticShotHasIndependentTemporalSupport)
+TEST(MotionMatcher, StaticShotRequiresOneSecondOfTemporalSupport)
 {
     auto left = window("a", 0, false, 3, 1.0 / 6.0);
     auto right = left;
@@ -1670,11 +1706,22 @@ TEST(MotionMatcher, ShortStaticShotHasIndependentTemporalSupport)
     pfcore::MotionMatcherParams params;
     params.allowStaticFrames = true;
     params.requireAppearance = true;
+    params.minimumResultDurationSec = 1.0;
     const pfcore::MotionMatcher matcher(params);
+    EXPECT_EQ(matcher.compare(left, right).rejection, pfcore::MotionRejection::TemporalSupport);
+    EXPECT_TRUE(matcher.findAllPairs({left, right}).empty());
+    for (auto* shot : {&left, &right}) {
+        const auto last = shot->frames.back();
+        for (int i = 4; i < 10; ++i) {
+            auto frame = last;
+            frame.timestampSeconds = i / 6.0;
+            shot->frames.push_back(std::move(frame));
+        }
+    }
     EXPECT_GT(matcher.compare(left, right).similarity, 0.85);
     EXPECT_EQ(matcher.findAllPairs({left, right}).size(), 1U);
-    right.frames.pop_back();
-    EXPECT_DOUBLE_EQ(matcher.compare(left, right).similarity, 0.0);
+    right.frames.resize(5);
+    EXPECT_EQ(matcher.compare(left, right).rejection, pfcore::MotionRejection::TemporalSupport);
     right = left; right.sourceId = "b";
     left.staticFrameSet = right.staticFrameSet = false;
     EXPECT_TRUE(matcher.findAllPairs({left, right}).empty());
@@ -1797,7 +1844,7 @@ TEST(MotionMatcher, ShortShoulderOcclusionRetainsMeasuredMotionButLongGapDoesNot
         // Keep a short active slice of the fixture so a 3-sample hole divides
         // it into two sub-six-frame runs unless the measured torso origin is
         // retained through the gap.
-        result.frames=std::vector<pfcore::PoseFrame>(result.frames.begin()+9,result.frames.begin()+21);
+        result.frames=std::vector<pfcore::PoseFrame>(result.frames.begin()+9,result.frames.begin()+24);
         for(auto& frame:result.frames) {
             const auto& sourcePoints=frame.keypoints;
             std::vector<pfcore::Keypoint> coco(17,{0,0,0});
