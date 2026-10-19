@@ -1,13 +1,14 @@
 import QtQuick
 import PfUi
 
-// A single complete flag keeps its native proportions in the card. A quiet
-// edge-to-edge crop underneath lets the paint reveal fill the wide button.
+// One proportionally scaled image sits behind the rounded card window. Its
+// zoom and the organic paint mask animate together without repeated tiles.
 Item {
     id: root
     property string country: "ru"
     property bool active: false
     property real reveal: active ? 1 : 0
+    property real imageScale: active ? 1.12 : 1.0
     readonly property var paintStyle: ({
         ru: { direction: "down", amplitude: 0.075, waves: 2.2, phase: 0.2, duration: 720, ease: Easing.OutCubic },
         en: { direction: "up", amplitude: 0.11, waves: 3.4, phase: 1.7, duration: 840, ease: Easing.OutQuart },
@@ -25,6 +26,10 @@ Item {
             easing.type: root.active ? root.paintStyle.ease : Easing.InCubic
         }
     }
+    Behavior on imageScale {
+        enabled: !Theme.reducedMotion
+        NumberAnimation { duration: root.active ? root.paintStyle.duration : 260; easing.type: root.active ? root.paintStyle.ease : Easing.InCubic }
+    }
 
     Canvas {
         id: pigment
@@ -40,6 +45,7 @@ Item {
         Connections {
             target: root
             function onRevealChanged() { pigment.requestPaint() }
+            function onImageScaleChanged() { pigment.requestPaint() }
         }
 
         onPaint: {
@@ -86,19 +92,10 @@ Item {
                 ctx.closePath()
             }
             const drawFlag = function() {
-                const alpha = ctx.globalAlpha
-                ctx.globalAlpha = alpha * 0.24
                 const coverScale = Math.max(width / 300, height / 150)
-                const coverWidth = 300 * coverScale
-                const coverHeight = 150 * coverScale
+                const coverWidth = 300 * coverScale * root.imageScale
+                const coverHeight = 150 * coverScale * root.imageScale
                 ctx.drawImage(flagSource, (width - coverWidth) / 2, (height - coverHeight) / 2, coverWidth, coverHeight)
-
-                // Show one intact emblem/flag at 2:1 in the middle so wide
-                // cards never lose stripes or symbols to the cover crop.
-                const flagWidth = Math.min(width, height * 2)
-                const flagHeight = flagWidth / 2
-                ctx.globalAlpha = alpha * 0.98
-                ctx.drawImage(flagSource, (width - flagWidth) / 2, (height - flagHeight) / 2, flagWidth, flagHeight)
             }
 
             // Match the card silhouette so the painted reveal reaches its
