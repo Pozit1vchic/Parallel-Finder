@@ -2404,6 +2404,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 cacheRoot = std::filesystem::u8path(benchmarkCache.toStdString());
             analysisCache = std::make_unique<pfservices::PfCache>(cacheRoot, settings.cacheLimitBytes);
             movementCacheRoot=cacheRoot/"movement-refinement-v1";
+            const QString benchmarkMovementCache=qEnvironmentVariable("PF_BENCHMARK_MOVEMENT_CACHE_ROOT");
+            if(QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
+                && !benchmarkMovementCache.isEmpty())
+                movementCacheRoot=std::filesystem::u8path(benchmarkMovementCache.toStdString());
         } catch (const std::exception&) {
             // Cache is an optimization; analysis remains usable when its path
             // is unavailable or malformed.
@@ -3729,8 +3733,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         },Qt::QueuedConnection);
                     });
                 if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS") || !headReview.error.empty())
-                    std::fprintf(stderr,"PF_HEAD_REVIEW requested=%zu cached=%zu observed=%zu decoded=%zu error=%s\n",
-                        headReview.requested,headReview.cached,headReview.observed,headReview.decoded,headReview.error.c_str());
+                    std::fprintf(stderr,"PF_HEAD_REVIEW requested=%zu cached=%zu observed=%zu decoded=%zu prepare_us=%llu cache_us=%llu decode_us=%llu face_us=%llu orientation_us=%llu error=%s\n",
+                        headReview.requested,headReview.cached,headReview.observed,headReview.decoded,
+                        static_cast<unsigned long long>(headReview.preparationMicros),
+                        static_cast<unsigned long long>(headReview.cacheMicros),
+                        static_cast<unsigned long long>(headReview.decodeMicros),
+                        static_cast<unsigned long long>(headReview.faceMicros),
+                        static_cast<unsigned long long>(headReview.orientationMicros),headReview.error.c_str());
                 headReviewMs=resultTimer.elapsed()-headReviewStartedMs;
             }
             const auto actionModel=findLocalModelFile(QStringLiteral("ava-slowfast-r50.onnx"));

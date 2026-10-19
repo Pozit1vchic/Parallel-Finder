@@ -72,6 +72,10 @@ private slots:
         if(casePrefix.isEmpty()) {QVERIFY(cold.requested>100);QVERIFY(cold.observed>50);}
         else {QVERIFY(cold.requested>0);QVERIFY(cold.observed>0);}
         QVERIFY(cold.decoded>0);const auto elapsed=clock.elapsed();
+        QVERIFY(cold.preparationMicros>0);
+        QVERIFY(cold.cacheMicros>0);
+        QVERIFY(cold.decodeMicros>0);
+        QVERIFY(cold.faceMicros>0);
         const auto saved=windows;
         QJsonArray report;
         for(std::size_t i=0;i<windows.size();++i) {
@@ -110,6 +114,9 @@ private slots:
         const auto warm=invoke([]{return false;},{});
         QVERIFY2(warm.error.empty(),warm.error.c_str());QCOMPARE(warm.cached,cold.requested);
         QCOMPARE(warm.decoded,0U);QCOMPARE(warm.observed,cold.observed);
+        QVERIFY(warm.cacheMicros>0);
+        QCOMPARE(warm.decodeMicros,0ULL);QCOMPARE(warm.faceMicros,0ULL);
+        QCOMPARE(warm.orientationMicros,0ULL);
         for(std::size_t wi=0;wi<windows.size();++wi)for(std::size_t si=0;si<windows[wi].headOrientations.size();++si) {
             const auto& a=windows[wi].headOrientations[si];const auto& b=saved[wi].headOrientations[si];
             QCOMPARE(a.time,b.time);QCOMPARE(a.observed,b.observed);QVERIFY(a.rotation==b.rotation);

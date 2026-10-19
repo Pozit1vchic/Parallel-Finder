@@ -9,6 +9,8 @@
 namespace pfui {
 struct HeadOrientationReviewStats {
     std::size_t requested=0,cached=0,observed=0,decoded=0;
+    std::uint64_t preparationMicros=0,cacheMicros=0;
+    std::uint64_t decodeMicros=0,faceMicros=0,orientationMicros=0;
     std::string error;
 };
 // Runs only after matching, and measures only poses inside matched clip ranges;

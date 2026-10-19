@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace pfservices {
@@ -29,6 +30,11 @@ public:
                       const std::vector<std::uint8_t>& payload, std::string& error) {
         return rememberSourceKey(source,key,error) && put(key,payload,error);
     }
+    // Write a group of observations for one source, then perform one LRU
+    // budget scan instead of rescanning the growing cache after every entry.
+    bool putForSourceBatch(const std::string& source,
+                           const std::vector<std::pair<std::string,std::vector<std::uint8_t>>>& entries,
+                           std::string& error);
     [[nodiscard]] std::vector<std::string> keysForSource(const std::string& source, std::string* error = nullptr) const;
     // Persistent per-source namespace, outside LRU eviction: resetting a
     // video must never make its older measurements reusable later.

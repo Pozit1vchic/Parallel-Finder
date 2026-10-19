@@ -98,6 +98,25 @@ TEST(PfCache, ResetPhysicallyDeletesOnlyTheSelectedVideoIncludingOpaqueDerivedKe
     EXPECT_TRUE(cache.get("other-opaque"));
 }
 
+TEST(PfCache, BatchSourceWritesRemainReadableAndResetByOwnership)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    pfservices::PfCache cache(directory.path().toStdString(),65536);
+    const std::string source="D:/videos/batch.mp4";
+    const std::vector<std::pair<std::string,std::vector<std::uint8_t>>> entries{
+        {"head-sample-1",{1,2,3}},{"head-sample-2",{4,5,6}},{"head-sample-3",{7,8,9}}};
+    std::string error;
+    ASSERT_TRUE(cache.putForSourceBatch(source,entries,error))<<error;
+    ASSERT_EQ(cache.keysForSource(source).size(),entries.size());
+    for(const auto& [key,payload]:entries) {
+        const auto actual=cache.get(key);ASSERT_TRUE(actual);EXPECT_EQ(*actual,payload);
+    }
+    ASSERT_TRUE(cache.putForSource("D:/videos/other.mp4","other-sample",{10,11},error))<<error;
+    ASSERT_TRUE(cache.resetSource(source,error))<<error;
+    for(const auto& [key,payload]:entries) { (void)payload;EXPECT_FALSE(cache.get(key)); }
+    EXPECT_TRUE(cache.get("other-sample"));
+}
+
 TEST(PfCache, WritesReadsAndEvictsVersionedEntries)
 {
     const auto root = std::filesystem::temp_directory_path() / "parallel-finder-pfcache-test";

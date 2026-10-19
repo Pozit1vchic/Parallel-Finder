@@ -185,6 +185,17 @@ bool PfCache::put(const std::string& key, const std::vector<std::uint8_t>& paylo
     return true;
 }
 
+bool PfCache::putForSourceBatch(const std::string& source,
+    const std::vector<std::pair<std::string,std::vector<std::uint8_t>>>& entries,std::string& error)
+{
+    if(source.empty()) { error="cache source must not be empty";return false; }
+    for(const auto& [key,payload]:entries) {
+        if(!rememberSourceKey(source,key,error) || !writeEntry(fileFor(key),key,payload,error))return false;
+    }
+    if(!entries.empty())evictIfNeeded({});
+    return true;
+}
+
 bool PfCache::erase(const std::string& key, std::string& error)
 {
     std::error_code filesystemError;

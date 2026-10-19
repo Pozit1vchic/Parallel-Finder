@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <memory>
 #include <set>
@@ -79,6 +80,7 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
         std::vector<std::pair<std::size_t,std::size_t>> destinations;
     };
     try {
+        const auto preparationStarted=std::chrono::steady_clock::now();
         const std::string modelHash=hashFile(model);
         // A shape-compatible replacement is not the audited trained model.
         if(modelHash!="8585173bcd7e7d1e5f14baee995cca285814d3f3cf4e1a20d6cafa70787400a3")
@@ -89,6 +91,7 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
         // observations, never the user's forty-minute analysis entries.
         if(!cacheDirectory.empty())try {cache=std::make_unique<pfservices::PfCache>(cacheDirectory,256ULL*1024*1024);}catch(...) {}
         std::vector<Request> requests;std::map<std::string,std::size_t> lookup;
+        std::map<std::string,std::vector<std::pair<std::string,std::vector<std::uint8_t>>>> pendingCacheWrites;
         for(const auto& [wi,ranges]:rangesByWindow) {
             auto& window=windows[wi];window.headOrientations.clear();
             for(const auto& frame:window.frames) {
@@ -117,6 +120,8 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
         });
         pfgpu::FaceEstimator faces(detector.string(),{},provider);
         pfgpu::HeadPoseEstimator heads(model.string(),provider);
+        stats.preparationMicros=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now()-preparationStarted).count());
         pfcore::VideoDecoder decoder;pfcore::DecodedFrame retained;
         std::string opened;double decodedTime=-INFINITY;bool converted=false;
         options.maxWidth=1280;options.maxHeight=720;
@@ -126,12 +131,18 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
             pfcore::HeadOrientationSample sample{request.frame.timestampSeconds,{},false};
             bool fromCache=false,cacheable=false;
             const bool sourceKnown=sourceNamespaces.contains(request.source);
-            if(cache && sourceKnown)if(const auto bytes=cache->get(request.key))
-                if(const auto cached=readSample(*bytes,sample.time)) {sample=*cached;fromCache=true;++stats.cached;}
+            if(cache && sourceKnown) {
+                const auto cacheReadStarted=std::chrono::steady_clock::now();
+                if(const auto bytes=cache->get(request.key))
+                    if(const auto cached=readSample(*bytes,sample.time)) {sample=*cached;fromCache=true;++stats.cached;}
+                stats.cacheMicros+=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now()-cacheReadStarted).count());
+            }
             if(!fromCache) {
                 const auto& points=request.frame.keypoints;
                 if(points.size()>=3 && points[0].confidence>=.5 && points[1].confidence>=.5 && points[2].confidence>=.5
                     && std::isfinite(points[0].x+points[0].y+points[1].x+points[1].y+points[2].x+points[2].y)) {
+                    const auto decodeStarted=std::chrono::steady_clock::now();
                     if(opened!=request.source) {
                         decoder.open(request.source,options);decoder.setRgbaMaxDimensions(1280,720);
                         opened=request.source;decodedTime=-INFINITY;converted=false;
@@ -147,6 +158,8 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
                     if(!cancelled() && std::abs(decodedTime-sample.time)<=tolerance
                         && (converted || decoder.convertCurrentFrameToRgba(retained))) {
                         converted=true;cacheable=true;
+                        stats.decodeMicros+=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now()-decodeStarted).count());
                         const auto& nose=points[0];
                         const double eyeSpan=std::hypot(points[1].x-points[2].x,points[1].y-points[2].y);
                         const double radius=std::max(48.,eyeSpan*4.);
@@ -155,7 +168,11 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
                             static_cast<float>(std::min<double>(retained.width,nose.x+radius)),
                             static_cast<float>(std::min<double>(retained.height,nose.y+radius))};
                         const std::array<double,2> expected={nose.x,nose.y};
-                        if(const auto box=faces.locateFace(view,expected)) {
+                        const auto faceStarted=std::chrono::steady_clock::now();
+                        const auto box=faces.locateFace(view,expected);
+                        stats.faceMicros+=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now()-faceStarted).count());
+                        if(box) {
                             const auto [x,y,w,h]=*box;
                             const pfgpu::ReIdImage crop{retained.width,retained.height,retained.rgba.data(),
                                 static_cast<float>(std::max(0.,std::floor(x-.4*w))),
@@ -165,17 +182,29 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
                             if(crop.right-crop.left>=16 && crop.bottom-crop.top>=16
                                 && crop.right-crop.left<=(crop.bottom-crop.top)*8
                                 && crop.bottom-crop.top<=(crop.right-crop.left)*8)
+                            {
+                                const auto orientationStarted=std::chrono::steady_clock::now();
                                 if(const auto rotation=heads.infer(crop)) {sample.rotation=*rotation;sample.observed=true;}
+                                stats.orientationMicros+=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                    std::chrono::steady_clock::now()-orientationStarted).count());
+                            }
                         }
                     }
                 } else cacheable=true;
                 if(cache && sourceKnown && cacheable && !cancelled()) {
-                    std::string error;cache->putForSource(request.source,request.key,serialize(sample),error);
+                    pendingCacheWrites[request.source].emplace_back(request.key,serialize(sample));
                 }
             }
             stats.observed+=sample.observed;
             for(const auto& [wi,si]:request.destinations)windows[wi].headOrientations[si]=sample;
             if(progress)progress(++done,stats.requested);
+        }
+        if(cache)for(const auto& [source,entries]:pendingCacheWrites) {
+            std::string error;
+            const auto cacheWriteStarted=std::chrono::steady_clock::now();
+            cache->putForSourceBatch(source,entries,error);
+            stats.cacheMicros+=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now()-cacheWriteStarted).count());
         }
     }catch(const std::exception& error) {
         stats.error=error.what();
