@@ -88,6 +88,15 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
     struct Request {pfcore::VideoActionEvidence evidence;pfcore::PoseFrame anchor;std::string key;
         std::vector<std::size_t> destinations;};
     std::vector<Request> requests;std::set<std::size_t> selected;
+    std::unique_ptr<pfservices::PfCache> cache;
+    std::map<std::string,std::vector<std::pair<std::string,std::vector<std::uint8_t>>>> pendingCacheWrites;
+    const auto flushCacheWrites=[&] {
+        if(!cache)return;
+        for(const auto& [source,entries]:pendingCacheWrites) {
+            std::string error;cache->putForSourceBatch(source,entries,error);
+        }
+        pendingCacheWrites.clear();
+    };
     try {
         if(stopped() || matches.empty())return stats;
         const auto modelHash=hashFile(actionModel);
@@ -139,11 +148,9 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
         std::sort(requests.begin(),requests.end(),[](const auto& a,const auto& b) {
             return a.evidence.sourceId!=b.evidence.sourceId ? a.evidence.sourceId<b.evidence.sourceId:a.evidence.start<b.evidence.start;
         });
-        std::unique_ptr<pfservices::PfCache> cache;
         if(!cacheDirectory.empty())try {cache=std::make_unique<pfservices::PfCache>(cacheDirectory,64ULL*1024*1024);}catch(...) {}
         pfgpu::VideoActionEstimator actions(actionModel.string(),provider,8);
         pfcore::VideoDecoder decoder;std::string opened;
-        std::map<std::string,std::vector<std::pair<std::string,std::vector<std::uint8_t>>>> pendingCacheWrites;
         options.maxWidth=1280;options.maxHeight=720;options.preferNvidia=false;
         std::size_t done=0;
         for(const auto& request:requests) {
@@ -209,11 +216,10 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
             for(const auto wi:request.destinations)windows[wi].videoActions.push_back(evidence);
             if(progress)progress(++done,stats.requested);
         }
-        if(cache)for(const auto& [source,entries]:pendingCacheWrites) {
-            std::string error;cache->putForSourceBatch(source,entries,error);
-        }
+        flushCacheWrites();
         if(stopped())for(const auto wi:selected)windows[wi].videoActions.clear();
     }catch(const std::exception& error) {
+        flushCacheWrites();
         stats.error=error.what();for(const auto wi:selected)windows[wi].videoActions.clear();
     }
     return stats;

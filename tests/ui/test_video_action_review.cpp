@@ -76,6 +76,22 @@ private slots:
             [&](auto done,auto){if(done==1)cancelled=true;});
         QVERIFY(cancel.error.empty());QVERIFY(cancelled);
         QVERIFY(windows[0].videoActions.empty());QVERIFY(windows[1].videoActions.empty());
+        QTemporaryDir failedReviewDirectory;QVERIFY(failedReviewDirectory.isValid());
+        const auto failedReviewCache=std::filesystem::path((failedReviewDirectory.path()+"/actions").toStdString());
+        const auto interruptedReview=[&](auto& values,const auto& callback) {
+            return pfui::reviewMatchedVideoActions(values,matches,pose,poseModel.toStdString(),model.toStdString(),
+                failedReviewCache,namespaces,provider,options,[]{return false;},callback);
+        };
+        windows=original;
+        const auto interrupted=interruptedReview(windows,[](auto done,auto) {
+            if(done==1)throw std::runtime_error("stop after first action review");
+        });
+        QCOMPARE(interrupted.error,std::string("stop after first action review"));
+        QVERIFY(windows[0].videoActions.empty());QVERIFY(windows[1].videoActions.empty());
+        windows=original;
+        const auto recovered=interruptedReview(windows,[](auto,auto){});
+        QVERIFY2(recovered.error.empty(),recovered.error.c_str());
+        QCOMPARE(recovered.cached,1U);QVERIFY(recovered.decoded>0);
         windows={original[0]};windows[0].sceneEndSeconds=10;
         // Simulate an old mixed-shot pose window. These fabricated tail
         // samples are not actor evidence; the actual native cut must veto it.
