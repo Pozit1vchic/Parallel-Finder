@@ -17,7 +17,7 @@ Flickable {
         id: body; width: parent.width; spacing: 12
         Text { text: Review.t("hotkeys"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
         Text { Layout.fillWidth: true; text: Review.t("keysHint"); wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
-        Text { visible: !!root.errorText; Layout.fillWidth: true; text: root.errorText; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
+        Text { visible: !!root.errorText; Layout.fillWidth: true; text: root.errorText; color: Theme.accentText; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
         ColumnLayout {
             Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.maximumWidth: body.width; spacing: 4
             readonly property real keyColumnWidth: Math.max(116, width * 0.28)
@@ -25,13 +25,13 @@ Flickable {
             id: keyTable
             RowLayout {
                 Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 8; Layout.preferredHeight: 24
-                Text { Layout.minimumWidth: keyTable.actionColumnWidth; Layout.maximumWidth: keyTable.actionColumnWidth; Layout.preferredWidth: keyTable.actionColumnWidth; text: L10n.language === "ru" ? "Действие" : "Action"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
+                Text { Layout.minimumWidth: keyTable.actionColumnWidth; Layout.maximumWidth: keyTable.actionColumnWidth; Layout.preferredWidth: keyTable.actionColumnWidth; text: L10n.t("ui.343"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
                 Repeater {
                     model: 2
                     delegate: Text {
                         required property int index
                         Layout.minimumWidth: keyTable.keyColumnWidth; Layout.maximumWidth: keyTable.keyColumnWidth; Layout.preferredWidth: keyTable.keyColumnWidth
-                        text: (L10n.language === "ru" ? "Клавиша " : "Key ") + (index + 1)
+                        text: (L10n.t("ui.344")) + (index + 1)
                         color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11
                         horizontalAlignment: Text.AlignHCenter
                     }

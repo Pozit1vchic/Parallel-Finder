@@ -24,9 +24,9 @@ ReviewDialog {
     ColumnLayout {
         anchors.fill: parent; spacing: 12
         Text { Layout.fillWidth: true; text: Review.t("sheetHint"); wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
-        Text { text: Review.t("scope"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11 }
+        Text { text: Review.t("scope"); color: Theme.secondaryText; font.family: Theme.fontFamily; font.pixelSize: 11 }
         PfComboBox { id: scope; Layout.fillWidth: true; model: [Review.t("visible"), Review.t("marked")]; enabled: !Analysis.exportBusy }
-        Text { text: Review.t("frames"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11 }
+        Text { text: Review.t("frames"); color: Theme.secondaryText; font.family: Theme.fontFamily; font.pixelSize: 11 }
         PfComboBox { id: frameCount; Layout.fillWidth: true; model: ["1", "3", "5"]; currentIndex: 1; enabled: !Analysis.exportBusy }
         PfButton { Layout.fillWidth: true; text: root.outputFolder ? root.outputFolder : Review.t("choose"); quiet: true; enabled: !Analysis.exportBusy; onClicked: folderDialog.open() }
         Text { Layout.fillWidth: true; text: root.statusText; color: Theme.textSecondary; wrapMode: Text.WordWrap; font.family: Theme.fontFamily; font.pixelSize: 11 }

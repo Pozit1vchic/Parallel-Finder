@@ -36,10 +36,10 @@ Rectangle {
             delegate: Item {
                 Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.preferredWidth: 1; height: parent.height
                 ToolTip.visible: statsHover.containsMouse && index === 1
-                ToolTip.text: (L10n.language === "ru" ? "Кадры исходника: " : "Source frames: ") + (root.summary.frameCount || 0) + "\n"
-                    + (L10n.language === "ru" ? "Декодировано за этот запуск: " : "Decoded this run: ") + root.analysis.decodedFrames + "\n"
-                    + (L10n.language === "ru" ? "Выбрано для распознавания за этот запуск: " : "Selected for recognition this run: ") + root.analysis.analyzedFrames
-                    + (L10n.language === "ru" ? "\nСчётчики запуска общие для всех видео; кеш не включён." : "\nRun counts cover all videos; cached analysis is excluded.")
+                ToolTip.text: (L10n.t("ui.368")) + (root.summary.frameCount || 0) + "\n"
+                    + (L10n.t("ui.369")) + root.analysis.decodedFrames + "\n"
+                    + (L10n.t("ui.370")) + root.analysis.analyzedFrames
+                    + (L10n.t("ui.371"))
                 MouseArea { id: statsHover; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.NoButton }
                 Rectangle { visible: index > 0; x: 0; y: 16; width: 1; height: parent.height - 32; color: Theme.hairline }
                 Column {

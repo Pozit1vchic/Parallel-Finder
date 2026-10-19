@@ -34,6 +34,7 @@
 #include <QVideoSink>
 #include <QSignalSpy>
 #include <functional>
+#include <cmath>
 #include <atomic>
 #include <QElapsedTimer>
 #include <QTimer>
@@ -82,6 +83,7 @@ private slots:
     void repeatSearchTogglesFromTheActualSidebar();
     void appearancePersistsAndRejectsMissingFonts();
     void languageTabOffersSixPersistentChoices();
+    void rc23PresetsTranslationsAndFlagMotion();
     void customAccentPaletteUpdatesImmediatelyAndPersists();
     void slowSettingsWritesDoNotBlockUiAndKeepOtherSections();
     void appearanceAndVideoInspectionKeepUiResponsive();
@@ -1183,6 +1185,103 @@ void UiSmokeTests::languageTabOffersSixPersistentChoices()
         QVERIFY(QMetaObject::invokeMethod(popup, "setLanguage", Q_ARG(QVariant, id)));
         QCOMPARE(pfui::AppInfo::instance()->loadPreferences().value("language").toString(), id);
     }
+}
+
+void UiSmokeTests::rc23PresetsTranslationsAndFlagMotion()
+{
+    pfui::AppInfo::registerQmlTypes();
+    const auto saved=pfui::AppInfo::instance()->loadPreferences();
+    const auto restore=qScopeGuard([saved]{pfui::AppInfo::instance()->savePreferences(saved);});
+    QQmlApplicationEngine engine;
+    auto* window=loadWindow(engine);QVERIFY(window);
+    auto* popup=window->findChild<QObject*>("settingsDialog");QVERIFY(popup);
+    QVERIFY(QMetaObject::invokeMethod(popup,"open"));
+    QTRY_VERIFY(popup->property("opened").toBool());
+    auto* tabs=popup->findChild<QObject*>("settingsTabs");QVERIFY(tabs);
+    QQmlComponent component(&engine);
+    component.setData(R"(import QtQuick
+import PfUi
+QtObject {
+    property bool gradient: Theme.accentGradientEnabled
+    property color a: Theme.accent
+    property color b: Theme.accentSecondary
+    property color text: Theme.textPrimary
+    property color accentText: Theme.accentText
+    property color rail: Theme.rail
+    property string add: L10n.t("sources.add")
+    property string posture: L10n.classificationLabel("seated_lying")
+    property string status: L10n.status("Матчер: Ищем похожие движения · 1 / 4")
+    function light() { Theme.darkMode = false; Theme.reducedMotion = false }
+    function dark() { Theme.darkMode = true }
+    function setAccent(color) { Theme.accent = color }
+})",QUrl());
+    std::unique_ptr<QObject> probe(component.create());QVERIFY2(probe,qPrintable(component.errorString()));
+    tabs->setProperty("currentIndex",1);
+    auto* gradients=popup->findChild<QObject*>("appearanceGradientChoice");QVERIFY(gradients);
+    for(int index=1;index<=3;++index) {
+        gradients->setProperty("currentIndex",index);
+        QVERIFY(QMetaObject::invokeMethod(gradients,"activated",Q_ARG(int,index)));
+        QVERIFY(probe->property("gradient").toBool());
+        QVERIFY(probe->property("a").value<QColor>()!=probe->property("b").value<QColor>());
+        QCOMPARE(gradients->property("currentIndex").toInt(),index);
+    }
+    QVERIFY(QMetaObject::invokeMethod(probe.get(),"light"));
+    const auto luminance=[](const QColor& color) {
+        const auto linear=[](double v){return v<=.04045 ? v/12.92 : std::pow((v+.055)/1.055,2.4);};
+        return .2126*linear(color.redF())+.7152*linear(color.greenF())+.0722*linear(color.blueF());
+    };
+    for(const auto mode:{"light","dark"}) {
+        QVERIFY(QMetaObject::invokeMethod(probe.get(),mode));
+        for(const auto color:{"#000000","#FFFFFF","#FFFF00","#5D8DDE"}) {
+            QVERIFY(QMetaObject::invokeMethod(probe.get(),"setAccent",Q_ARG(QVariant,color)));
+            const auto a=luminance(probe->property("accentText").value<QColor>());
+            const auto b=luminance(probe->property("rail").value<QColor>());
+            QVERIFY((std::max(a,b)+.05)/(std::min(a,b)+.05)>=4.5);
+        }
+    }
+    QVERIFY(QMetaObject::invokeMethod(probe.get(),"light"));
+    QVERIFY(QMetaObject::invokeMethod(popup,"applyAccent",Q_ARG(QVariant,"aurora")));
+    pfui::AnalysisController::instance()->setProviderChoice("auto");
+    auto* gpuLabel=window->findChild<QObject*>("gpuStatusLabel");QVERIFY(gpuLabel);
+    QCOMPARE(gpuLabel->property("color").value<QColor>(),probe->property("text").value<QColor>());
+    tabs->setProperty("currentIndex",2);
+    const QStringList ids{"ru","en","ky","kk","uk","tr"};
+    const QStringList labels{"Добавить видео","Add video","Видео кошуу","Бейне қосу","Додати відео","Video ekle"};
+    for(int i=0;i<ids.size();++i) {
+        QVERIFY(QMetaObject::invokeMethod(popup,"setLanguage",Q_ARG(QVariant,ids[i])));
+        QCOMPARE(probe->property("add").toString(),labels[i]);
+        QVERIFY(!probe->property("posture").toString().startsWith("class."));
+        if(i>1)QVERIFY(!probe->property("status").toString().contains("Ищем"));
+    }
+    const auto findVisual=[](QQuickItem* item,const QString& name,const auto& self)->QQuickItem* {
+        if(item->objectName()==name)return item;
+        for(auto* child:item->childItems())if(auto* found=self(child,name,self))return found;
+        return nullptr;
+    };
+    auto* languageButton=findVisual(window->contentItem(),"languageButton_0",findVisual);QVERIFY(languageButton);
+    auto* flag=findVisual(window->contentItem(),"languageFlag_0",findVisual);QVERIFY(flag);
+    QTest::qWait(300);
+    const auto point=languageButton->mapToScene(QPointF(languageButton->width()/2,languageButton->height()/2)).toPoint();
+    QTest::mouseMove(window,point);
+    QTRY_VERIFY(languageButton->property("hovered").toBool());
+    QTest::qWait(90);
+    QVERIFY(flag->property("reveal").toDouble()>0);
+    const auto capture=qEnvironmentVariable("PF_UI_CAPTURE_DIR");
+    if(!capture.isEmpty()) {QDir().mkpath(capture);QVERIFY(window->grabWindow().save(capture+"/rc23-language-paint.png"));}
+    QTRY_COMPARE(flag->property("reveal").toDouble(),1.0);
+    QVERIFY(QMetaObject::invokeMethod(popup,"close"));
+    QTRY_VERIFY(!popup->property("visible").toBool());
+    if(!capture.isEmpty()) {QTest::qWait(200);QVERIFY(window->grabWindow().save(capture+"/rc23-light.png"));}
+    auto* menu=window->findChild<QObject*>("providerMenu");QVERIFY(menu);
+    QVERIFY(QMetaObject::invokeMethod(menu,"open"));
+    QTRY_VERIFY(menu->property("opened").toBool());
+    auto* automatic=findVisual(window->contentItem(),"providerName_auto",findVisual);QVERIFY(automatic);
+    auto* cuda=findVisual(window->contentItem(),"providerName_cuda",findVisual);QVERIFY(cuda);
+    QVERIFY(automatic->property("text").toString()!=cuda->property("text").toString());
+    auto* cudaItem=findVisual(window->contentItem(),"providerItem_cuda",findVisual);QVERIFY(cudaItem);
+    QCOMPARE(cudaItem->property("isReady").toBool(),pfui::AppInfo::instance()->backendAvailable("cuda"));
+    if(!capture.isEmpty())QVERIFY(window->grabWindow().save(capture+"/rc23-provider-light.png"));
+    QVERIFY(QMetaObject::invokeMethod(menu,"close"));
 }
 
 void UiSmokeTests::customAccentPaletteUpdatesImmediatelyAndPersists()

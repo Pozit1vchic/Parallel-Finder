@@ -55,8 +55,8 @@ QtObject {
         preview: ["Просмотреть фрагмент", "Preview segment"], close: ["Закрыть", "Close"],
         clearKey: ["Убрать назначение", "Clear binding"], saving: ["Сохраняем изображения…", "Saving images…"]
     })
-    function t(key) { const value = words[key]; return value ? value[L10n.language === "ru" ? 0 : 1] : key }
-    function label(action) { return L10n.language === "ru" ? action.ru : action.en }
+    function t(key) { const value = words[key]; return value ? L10n.translate(value[1], value[0]) : key }
+    function label(action) { return L10n.translate(action.en, action.ru) }
     function keys(id) { return bindings[id] || [] }
     function persist() {
         const prefs = Object.assign({}, AppInfo.loadPreferences())

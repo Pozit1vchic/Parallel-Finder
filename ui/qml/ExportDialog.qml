@@ -122,9 +122,9 @@ Popup {
     }
 
     readonly property string runningLabel: Analysis.exportStage === "preparing"
-        ? (L10n.language === "ru" ? "Подготовка клипа…" : "Preparing clip…")
+        ? (L10n.t("ui.323"))
         : Analysis.exportStage === "finalizing"
-            ? (L10n.language === "ru" ? "Сборка ролика…" : "Assembling video…")
+            ? (L10n.t("ui.324"))
             : L10n.t("export.running")
 
     Settings {
@@ -284,7 +284,7 @@ Popup {
                 width: parent.width
                 visible: root.selectedFormat === "FFMPEG"
                 enabled: !Analysis.exportBusy
-                text: L10n.language === "ru" ? "Объединить в один ролик" : "Combine into one video"
+                text: L10n.t("ui.325")
                 onCheckedChanged: if (!root.baseNameCustomized) prefixField.text = root.defaultBaseName()
             }
 
@@ -295,7 +295,7 @@ Popup {
                 enabled: !Analysis.exportBusy
 
                 Text {
-                    text: L10n.language === "ru" ? "Качество видео" : "Video quality"
+                    text: L10n.t("ui.326")
                     color: Theme.textSecondary
                     font.family: Theme.fontFamily
                     font.pixelSize: 11
@@ -305,10 +305,8 @@ Popup {
                     objectName: "exportQualityMode"
                     width: parent.width
                     currentIndex: root.qualityChoice
-                    model: L10n.language === "ru"
-                        ? ["Без потери качества", "Высокое", "Свой битрейт и разрешение"]
-                        : ["Lossless", "High", "Custom bitrate and resolution"]
-                    Accessible.name: L10n.language === "ru" ? "Качество видео" : "Video quality"
+                    model: [L10n.translate("Lossless", "Без потери качества"), L10n.translate("High", "Высокое"), L10n.translate("Custom bitrate and resolution", "Свой битрейт и разрешение")]
+                    Accessible.name: L10n.t("ui.326")
                     onModelChanged: Qt.callLater(root.restoreQualityChoice)
                     onActivated: function(index) {
                         if (index === 0 && signTransitionsCheck.checked) {
@@ -329,25 +327,25 @@ Popup {
                         objectName: "exportBitrateField"
                         width: (parent.width - 14) / 3
                         text: "30"
-                        placeholderText: L10n.language === "ru" ? "Мбит/с" : "Mbps"
+                        placeholderText: L10n.t("ui.327")
                         validator: DoubleValidator { bottom: 1; top: 500; decimals: 3; locale: "en_US" }
-                        Accessible.name: L10n.language === "ru" ? "Битрейт, мегабит в секунду" : "Bitrate, megabits per second"
+                        Accessible.name: L10n.t("ui.328")
                     }
                     PfTextField {
                         id: widthField
                         objectName: "exportMaxWidthField"
                         width: (parent.width - 14) / 3
-                        placeholderText: L10n.language === "ru" ? "Ширина, px" : "Width, px"
+                        placeholderText: L10n.t("ui.329")
                         validator: IntValidator { bottom: 2; top: 32768 }
-                        Accessible.name: L10n.language === "ru" ? "Максимальная ширина в пикселях" : "Maximum width in pixels"
+                        Accessible.name: L10n.t("ui.330")
                     }
                     PfTextField {
                         id: heightField
                         objectName: "exportMaxHeightField"
                         width: (parent.width - 14) / 3
-                        placeholderText: L10n.language === "ru" ? "Высота, px" : "Height, px"
+                        placeholderText: L10n.t("ui.331")
                         validator: IntValidator { bottom: 2; top: 32768 }
-                        Accessible.name: L10n.language === "ru" ? "Максимальная высота в пикселях" : "Maximum height in pixels"
+                        Accessible.name: L10n.t("ui.332")
                     }
                 }
                 Text {
@@ -357,16 +355,10 @@ Popup {
                     font.family: Theme.fontFamily
                     font.pixelSize: 10
                     text: root.losslessExport
-                        ? (L10n.language === "ru"
-                            ? "Точная обрезка без потерь. Доступен контейнер MOV; общий ролик требует совместимых потоков."
-                            : "Exact cuts without quality loss. MOV only; a combined video requires compatible streams.")
+                        ? (L10n.t("ui.333"))
                         : signTransitionsCheck.checked
-                            ? (L10n.language === "ru"
-                                ? "Подпись добавляется в видео и требует перекодирования. Границы обрезки остаются точными."
-                                : "The label is burned into each video and requires re-encoding. Cut boundaries stay exact.")
-                            : (L10n.language === "ru"
-                                ? "Точная обрезка по границам найденных сцен. Высокое качество сохраняет исходное разрешение."
-                                : "Exact cuts at matched scene boundaries. High quality keeps the source resolution.")
+                            ? (L10n.t("ui.334"))
+                            : (L10n.t("ui.335"))
                 }
             }
 
@@ -376,10 +368,8 @@ Popup {
                 width: parent.width
                 visible: root.selectedFormat === "FFMPEG"
                 enabled: !Analysis.exportBusy
-                text: L10n.language === "ru" ? "Подписать каждый переход" : "Label every transition"
-                tooltipText: L10n.language === "ru"
-                    ? "В начале каждого клипа появятся его номер и тип движения. Для надписи потребуется перекодирование."
-                    : "Each clip starts with its number and movement type. Adding text requires re-encoding."
+                text: L10n.t("ui.336")
+                tooltipText: L10n.t("ui.337")
                 onCheckedChanged: if (checked && root.losslessExport) root.setHighQuality()
             }
 
@@ -411,8 +401,8 @@ Popup {
                     objectName: "exportBaseNameField"
                     width: root.selectedFormat === "FFMPEG" ? parent.width - containerMode.width - 22 : parent.width
                     text: root.defaultBaseName()
-                    placeholderText: L10n.language === "ru" ? "Имя файла" : "File name"
-                    Accessible.name: L10n.language === "ru" ? "Имя файла без расширения" : "File name without extension"
+                    placeholderText: L10n.t("ui.338")
+                    Accessible.name: L10n.t("ui.339")
                     onTextEdited: root.baseNameCustomized = true
                 }
                 Text {
@@ -433,7 +423,7 @@ Popup {
                     width: 84
                     model: [".mp4", ".mov", ".mkv", ".webm"]
                     currentIndex: 0
-                    Accessible.name: L10n.language === "ru" ? "Контейнер видео" : "Video container"
+                    Accessible.name: L10n.t("ui.340")
                     enabled: !Analysis.exportBusy && !root.losslessExport
                     onActivated: function(index) {
                         if (root.losslessExport && index !== 1) root.setHighQuality()
@@ -446,12 +436,8 @@ Popup {
                 width: parent.width
                 text: root.exportStatus ? L10n.status(root.exportStatus) : (root.selectedFormat === "FFMPEG"
                     ? (root.mergeChronological
-                        ? (L10n.language === "ru"
-                            ? "Общий ролик собирается по типам движений."
-                            : "The combined video follows movement-type order.")
-                        : (L10n.language === "ru"
-                            ? "Клипы идут группами по типу движения. Одинаковые имена получают номер в скобках."
-                            : "Clips are grouped by movement type. Duplicate names receive a number in parentheses."))
+                        ? (L10n.t("ui.341"))
+                        : (L10n.t("ui.342")))
                     : L10n.t("export.hint"))
                 color: root.exportStatus ? Theme.accent : Theme.textSecondary
                 font.family: Theme.fontFamily

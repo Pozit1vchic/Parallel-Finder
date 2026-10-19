@@ -40,14 +40,42 @@ QtObject {
     readonly property color sagePressed: Qt.darker(sage, 1.25)
     readonly property color sageMuted: Qt.rgba(sage.r, sage.g, sage.b, 0.11)
     readonly property color accentForeground: {
-        const r = accentGradientEnabled ? (accent.r + accentSecondary.r) / 2 : accent.r
-        const g = accentGradientEnabled ? (accent.g + accentSecondary.g) / 2 : accent.g
-        const b = accentGradientEnabled ? (accent.b + accentSecondary.b) / 2 : accent.b
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.56 ? background : textPrimary
+        function linear(v) { return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
+        let darkContrast = 100, lightContrast = 100
+        for (let i = 0; i <= 4; ++i) {
+            const t = accentGradientEnabled ? i / 4 : 0
+            const l = 0.2126 * linear(accent.r * (1-t) + accentSecondary.r*t)
+                + 0.7152 * linear(accent.g * (1-t) + accentSecondary.g*t)
+                + 0.0722 * linear(accent.b * (1-t) + accentSecondary.b*t)
+            darkContrast = Math.min(darkContrast, (l + .05) / .05)
+            lightContrast = Math.min(lightContrast, 1.05 / (l + .05))
+        }
+        return darkContrast >= lightContrast ? "#000000" : "#FFFFFF"
     }
     readonly property color textPrimary: darkMode ? "#F5F1EC" : "#191B20"
     readonly property color textSecondary: darkMode ? "#A1A1AA" : "#555B66"
-    readonly property color textDisabled: darkMode ? "#71717A" : "#7B818B"
+    readonly property color textDisabled: darkMode ? "#92929D" : "#626A76"
+    readonly property color tooltipSurface: darkMode ? "#24242C" : "#FFFFFF"
+    function luminance(c) {
+        function linear(v) { return v <= .04045 ? v / 12.92 : Math.pow((v+.055)/1.055, 2.4) }
+        return .2126*linear(c.r) + .7152*linear(c.g) + .0722*linear(c.b)
+    }
+    function readableAccent(c) {
+        const target = darkMode ? 1 : 0
+        for (let step=0; step<=20; ++step) {
+            const t=step/20
+            const candidate=Qt.rgba(c.r*(1-t)+target*t, c.g*(1-t)+target*t, c.b*(1-t)+target*t, 1)
+            const l=luminance(candidate)
+            const backgrounds=[background,rail,surfaceRaised]
+            if (backgrounds.every(function(bg) {
+                const b=luminance(bg)
+                return (Math.max(l,b)+.05)/(Math.min(l,b)+.05)>=4.5
+            })) return candidate
+        }
+        return darkMode ? "#FFFFFF" : "#000000"
+    }
+    readonly property color accentText: readableAccent(accent)
+    readonly property color secondaryText: readableAccent(accentSecondary)
 
     // Typography
     property string fontFamily: "Segoe UI Variable"

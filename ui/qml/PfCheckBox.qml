@@ -37,7 +37,7 @@ CheckBox {
             radius: Theme.radiusButton
             // Do not use Theme.surfaceRaised here: it can be translucent,
             // making labels underneath visually blend into the tooltip text.
-            color: "#1C1C22"
+            color: Theme.tooltipSurface
             border.color: Theme.hairlineStrong
             border.width: 1
         }
@@ -59,17 +59,28 @@ CheckBox {
         border.width: control.activeFocus ? 2 : 1
         Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
 
-        Image {
+        Canvas {
             anchors.centerIn: parent
-            source: "qrc:/qt/qml/PfUi/qml/assets/check.svg"
-            sourceSize.width: 13
-            sourceSize.height: 13
-            opacity: control.checked ? 1 : 0
-            scale: control.checked || Theme.reducedMotion ? 1 : 0.7
-            Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionDuration } }
-            Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
-            layer.enabled: GraphicsInfo.api !== GraphicsInfo.Software
-            layer.effect: MultiEffect { colorization: 1; colorizationColor: Theme.canvas }
+            width: 14; height: 14
+            property real progress: control.checked ? 1 : 0
+            property color strokeColor: Theme.accentForeground
+            onProgressChanged: requestPaint()
+            onStrokeColorChanged: requestPaint()
+            Behavior on progress { NumberAnimation { duration: Theme.reducedMotion ? 0 : 200; easing.type: Easing.OutCubic } }
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                ctx.strokeStyle = strokeColor; ctx.lineWidth = 1.8
+                ctx.lineCap = "round"; ctx.lineJoin = "round"
+                ctx.beginPath(); ctx.moveTo(2.5, 7)
+                const first = Math.min(1, progress / .35)
+                ctx.lineTo(2.5 + 3 * first, 7 + 3 * first)
+                if (progress > .35) {
+                    const second = (progress - .35) / .65
+                    ctx.lineTo(5.5 + 6 * second, 10 - 7 * second)
+                }
+                if (progress > 0) ctx.stroke()
+            }
         }
     }
 

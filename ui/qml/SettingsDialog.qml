@@ -29,7 +29,6 @@ Popup {
     }
     readonly property var languageIds: ["ru", "en", "ky", "kk", "uk", "tr"]
     readonly property var languageNames: ["Русский", "English", "Кыргызча", "Қазақша", "Українська", "Türkçe"]
-    readonly property var languageFlags: ["🇷🇺", "🇬🇧", "🇰🇬", "🇰🇿", "🇺🇦", "🇹🇷"]
     readonly property var providerIds: ["auto", "dml", "cuda", "tensorrt", "cpu"]
     readonly property var providerLabels: [
         L10n.t("settings.providerAuto"),
@@ -240,7 +239,7 @@ Popup {
     function applyAccent(id) {
         const isHex = /^#[0-9a-fA-F]{6}$/.test(String(id))
         if (isHex) customizationStore.customAccentStart = String(id).toUpperCase()
-        const key = root.accentIds.indexOf(id) >= 0 || id === "custom" || id === "customGradient"
+        const key = root.accentIds.indexOf(id) >= 0 || root.gradientIds.indexOf(id) >= 0 || id === "custom" || id === "customGradient"
             ? id : isHex ? "custom" : "orange"
         let start = root.accentValue(key === "custom" ? customizationStore.customAccentStart : key)
         let end = start
@@ -366,7 +365,7 @@ Popup {
             }
             Slider {
                 id: hueSlider; objectName: "accentPaletteHue"; width: parent.width; from: 0; to: 1; value: 0.05
-                Accessible.name: L10n.language === "ru" ? "Оттенок" : "Hue"
+                Accessible.name: L10n.t("ui.358")
                 handle: Rectangle {
                     x: hueSlider.leftPadding + hueSlider.visualPosition * (hueSlider.availableWidth - width)
                     y: (hueSlider.height - height) / 2; width: 16; height: 16; radius: 8
@@ -565,14 +564,14 @@ Popup {
                         Text { text: L10n.t("settings.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.subtitle"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 13; wrapMode: Text.WordWrap }
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hairline }
-                        Text { text: L10n.t("updates.title"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Text { text: L10n.t("updates.title"); color: Theme.secondaryText; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         PfComboBox { objectName: "updateChannel"; Layout.fillWidth: true; model: ["Stable", "Beta"]; currentIndex: Updates.channel === "beta" ? 1 : 0; enabled: !Updates.busy; Accessible.name: L10n.t("updates.channel"); onActivated: Updates.channel = currentIndex === 1 ? "beta" : "stable" }
                         PfCheckBox { objectName: "automaticUpdateCheck"; Layout.fillWidth: true; text: L10n.t("updates.autoCheck"); checked: Updates.automaticCheck; onToggled: Updates.automaticCheck = checked }
                         PfCheckBox { objectName: "automaticUpdateDownload"; Layout.fillWidth: true; text: L10n.t("updates.autoDownload"); checked: Updates.automaticDownload; onToggled: Updates.automaticDownload = checked }
                         PfButton { Layout.fillWidth: true; text: L10n.t("updates.check"); enabled: !Updates.busy; quiet: true; onClicked: { root.close(); Updates.check() } }
                         Text { Layout.fillWidth: true; text: L10n.t("updates.consent"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hairline }
-                        Text { Layout.fillWidth: true; text: L10n.t("settings.environment"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Text { Layout.fillWidth: true; text: L10n.t("settings.environment"); color: Theme.secondaryText; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.gpuSetupSteps"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
                         RowLayout { Layout.fillWidth: true; spacing: 12
                             Text { Layout.preferredWidth: 128; Layout.minimumWidth: 0; text: L10n.t("settings.provider"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 13; verticalAlignment: Text.AlignVCenter; ToolTip.visible: providerHelp.hovered; ToolTip.text: L10n.t("settings.providerHint"); ToolTip.delay: 350; elide: Text.ElideRight }
@@ -638,7 +637,7 @@ Popup {
                             }
                         }
                         PfButton { Layout.fillWidth: true; compact: true; text: L10n.t("settings.providerRescan"); enabled: !AppInfo.backendInitializing && !AppInfo.providersScanning && !AppInfo.providerDownloading; onClicked: AppInfo.rescanProviders() }
-                        Text { Layout.fillWidth: true; text: L10n.t("settings.cache"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Text { Layout.fillWidth: true; text: L10n.t("settings.cache"); color: Theme.secondaryText; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout { Layout.fillWidth: true; spacing: 8
                             PfTextField { Layout.fillWidth: true; font.family: Theme.monoFont; text: Analysis.cachePath; placeholderText: L10n.t("settings.cachePlaceholder"); Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }
                             PfButton { Layout.preferredWidth: 96; compact: true; text: L10n.t("settings.choose"); quiet: true; onClicked: cacheDialog.open() }
@@ -648,24 +647,24 @@ Popup {
                         Text { Layout.fillWidth: true; text: L10n.t("settings.systemHint"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
                         PfCheckBox { objectName: "multiSelectCheck"; Layout.fillWidth: true; text: Review.t("multi"); checked: Review.multiSelect; onToggled: Review.setMulti(checked) }
                         Text { Layout.fillWidth: true; text: Review.t("multiHint"); wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
-                        Text { Layout.fillWidth: true; text: "MCP"; color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        PfCheckBox { objectName: "mcpEnabledCheck"; text: L10n.language === "ru" ? "Включить MCP-сервер" : "Enable MCP server"; checked: Mcp.enabled; onToggled: Mcp.enabled = checked }
-                        Text { Layout.fillWidth: true; text: L10n.language === "ru" ? "Подключай помощника к результатам и ходу анализа. Сервер доступен только на этом компьютере, пока приложение открыто." : "Connect an assistant to results and analysis progress. Available only on this computer while the app is open."; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
-                        PfCheckBox { objectName: "mcpControlCheck"; text: L10n.language === "ru" ? "Разрешить управление приложением" : "Allow app control"; checked: Mcp.allowControl; onToggled: Mcp.allowControl = checked }
-                        Text { Layout.fillWidth: true; text: L10n.language === "ru" ? "Управление разрешает запуск и отмену анализа, изменение типов и границ клипов, отметки и экспорт. Без него доступно только чтение." : "Control allows starting/cancelling analysis, editing classes and clip bounds, review marks and export. Otherwise access is read-only."; color: Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }
+                        Text { Layout.fillWidth: true; text: "MCP"; color: Theme.secondaryText; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        PfCheckBox { objectName: "mcpEnabledCheck"; text: L10n.t("ui.359"); checked: Mcp.enabled; onToggled: Mcp.enabled = checked }
+                        Text { Layout.fillWidth: true; text: L10n.t("ui.360"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                        PfCheckBox { objectName: "mcpControlCheck"; text: L10n.t("ui.361"); checked: Mcp.allowControl; onToggled: Mcp.allowControl = checked }
+                        Text { Layout.fillWidth: true; text: L10n.t("ui.362"); color: Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }
                         RowLayout { Layout.fillWidth: true; spacing: 8
-                            Text { text: L10n.language === "ru" ? "Порт" : "Port"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
+                            Text { text: L10n.t("ui.363"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
                             PfTextField { objectName: "mcpPortField"; Layout.preferredWidth: 100; text: String(Mcp.port)
                                 validator: IntValidator { bottom: 1024; top: 65535 }
                                 onEditingFinished: if (acceptableInput) Mcp.port = Number(text)
                                 onActiveFocusChanged: if (!activeFocus && !acceptableInput) text = String(Mcp.port)
                             }
-                            Text { Layout.fillWidth: true; text: Mcp.error.length ? Mcp.error : Mcp.running ? (L10n.language === "ru" ? "Работает" : "Running") : (L10n.language === "ru" ? "Выключен" : "Off"); color: Mcp.error.length ? Theme.accent : Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; text: Mcp.error.length ? Mcp.error : Mcp.running ? (L10n.t("ui.364")) : (L10n.t("ui.365")); color: Mcp.error.length ? Theme.accent : Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
                         }
                         Text { Layout.fillWidth: true; visible: Mcp.running; text: Mcp.endpoint; color: Theme.textSecondary; font.family: Theme.monoFont; font.pixelSize: 11; wrapMode: Text.WrapAnywhere }
                         RowLayout { Layout.fillWidth: true; spacing: 8
-                            PfButton { objectName: "mcpCopyConnection"; Layout.fillWidth: true; compact: true; text: L10n.language === "ru" ? "Скопировать подключение" : "Copy connection"; enabled: Mcp.running; onClicked: Mcp.copyConnection() }
-                            PfButton { Layout.preferredWidth: 150; compact: true; quiet: true; text: L10n.language === "ru" ? "Обновить ключ" : "Renew key"; enabled: Mcp.running; onClicked: Mcp.rotateKey() }
+                            PfButton { objectName: "mcpCopyConnection"; Layout.fillWidth: true; compact: true; text: L10n.t("ui.366"); enabled: Mcp.running; onClicked: Mcp.copyConnection() }
+                            PfButton { Layout.preferredWidth: 150; compact: true; quiet: true; text: L10n.t("ui.367"); enabled: Mcp.running; onClicked: Mcp.rotateKey() }
                         }
                     }
                 }
@@ -680,13 +679,13 @@ Popup {
                         Text { text: L10n.t("settings.appearanceTitle"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
                         Text { text: L10n.t("settings.appearanceSubtitle"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
                         Rectangle { width: parent.width; height: 1; color: Theme.hairline }
-                        Text { text: L10n.t("settings.font"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Text { text: L10n.t("settings.font"); color: Theme.secondaryText; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout { width: parent.width; spacing: 8
                             PfComboBox { objectName: "appearanceFontChoice"; Layout.fillWidth: true; model: root.fontChoices; currentIndex: model.indexOf(Theme.fontFamily); Accessible.name: L10n.t("settings.font"); onActivated: root.applyFont(currentText) }
                             PfButton { Layout.preferredWidth: 132; text: L10n.t("settings.fontAdd"); quiet: true; onClicked: fontDialog.open() }
                         }
-                        Text { visible: customFont.status === FontLoader.Ready; text: L10n.t("settings.fontLoaded") + ": " + customFont.name; color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
-                        Text { text: L10n.t("settings.accentColor"); color: Theme.sage; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
+                        Text { visible: customFont.status === FontLoader.Ready; text: L10n.t("settings.fontLoaded") + ": " + customFont.name; color: Theme.secondaryText; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
+                        Text { text: L10n.t("settings.accentColor"); color: Theme.secondaryText; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         Text { text: L10n.t("settings.solidColors"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11 }
                         PfComboBox {
                             id: appearanceAccentChoice
@@ -694,6 +693,7 @@ Popup {
                             width: parent.width
                             model: root.accentLabels.concat([L10n.t("settings.accentCustom")])
                             currentIndex: root.selectedAccentIndex()
+                            displayText: currentIndex < 0 ? String(Theme.accent).toUpperCase() : currentText
                             Accessible.name: L10n.t("settings.solidColors")
                             onActivated: {
                                 if (currentIndex < root.accentIds.length) root.applyAccent(root.accentIds[currentIndex])
@@ -759,36 +759,34 @@ Popup {
                                 delegate: Button {
                                     id: languageButton
                                     required property int index
+                                    objectName: "languageButton_" + index
                                     readonly property bool currentLanguage: L10n.language === root.languageIds[index]
-                                    property real flagReveal: hovered ? 1 : 0
                                     Layout.fillWidth: true; Layout.preferredHeight: 66
                                     hoverEnabled: true; focusPolicy: Qt.StrongFocus
                                     background: Rectangle {
                                         radius: Theme.radiusCard
+                                        clip: true
                                         color: languageButton.currentLanguage ? Theme.accentMuted : languageButton.hovered ? Theme.surfaceRaised : Theme.well
                                         border.width: languageButton.currentLanguage ? 1.5 : 1
                                         border.color: languageButton.currentLanguage ? Theme.accent : Theme.hairlineStrong
                                         Behavior on color { ColorAnimation { duration: Theme.motionChangeDuration } }
                                         Behavior on border.color { ColorAnimation { duration: Theme.motionChangeDuration } }
+                                        FlagBackdrop {
+                                            objectName: "languageFlag_" + languageButton.index
+                                            anchors.fill: parent; anchors.margins: 2
+                                            country: root.languageIds[languageButton.index]
+                                            active: languageButton.hovered || languageButton.visualFocus
+                                            opacity: Theme.darkMode ? 0.23 : 0.17
+                                        }
                                     }
                                     contentItem: RowLayout {
                                         spacing: 10
-                                        Item {
-                                            Layout.preferredWidth: 28; Layout.preferredHeight: 20; clip: true
-                                            Text {
-                                                text: root.languageFlags[languageButton.index]
-                                                x: -width + width * languageButton.flagReveal
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                font.pixelSize: 20
-                                                Behavior on x { NumberAnimation { duration: Theme.reducedMotion ? 0 : 360; easing.type: Easing.OutBack; easing.overshoot: 1.08 } }
-                                            }
-                                        }
                                         Text {
                                             Layout.fillWidth: true; text: root.languageNames[languageButton.index]
                                             color: languageButton.currentLanguage ? Theme.textPrimary : Theme.textSecondary
                                             font.family: Theme.fontFamily; font.pixelSize: 14; font.weight: languageButton.currentLanguage ? Font.DemiBold : Font.Medium
                                         }
-                                        Text { visible: languageButton.currentLanguage; text: "✓"; color: Theme.accent; font.pixelSize: 15; font.weight: Font.Bold }
+                                        Text { visible: languageButton.currentLanguage; text: "✓"; color: Theme.accentText; font.pixelSize: 15; font.weight: Font.Bold }
                                     }
                                     onClicked: root.setLanguage(root.languageIds[index])
                                 }

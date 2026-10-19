@@ -12,6 +12,17 @@
 #include <stdexcept>
 
 namespace {
+TEST(SettingsStore, AllSixInterfaceLanguagesSurviveDiskRoundTrip)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    pfservices::SettingsStore store(directory.filePath("settings.json").toStdString());
+    std::string error;
+    for(const std::string language:{"ru","en","ky","kk","uk","tr"}) {
+        pfservices::Settings settings;settings.language=language;
+        ASSERT_TRUE(store.save(settings,error))<<error;
+        EXPECT_EQ(store.load(error).language,language);
+    }
+}
 TEST(SettingsStore, McpDefaultsAndMalformedSettingsDoNotEnableRemoteControl)
 {
     QTemporaryDir directory;ASSERT_TRUE(directory.isValid());

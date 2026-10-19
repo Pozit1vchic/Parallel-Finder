@@ -37,8 +37,8 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         Text { Layout.fillWidth: true; text: root.label; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12 }
-        PfIconButton { width: 26; height: 26; iconSource: "qrc:/qt/qml/PfUi/qml/assets/minus.svg"; accessibleName: L10n.language === "ru" ? "Уменьшить масштаб" : "Zoom out"; onClicked: root.zoom(2) }
-        PfIconButton { width: 26; height: 26; iconSource: "qrc:/qt/qml/PfUi/qml/assets/plus.svg"; accessibleName: L10n.language === "ru" ? "Увеличить масштаб" : "Zoom in"; onClicked: root.zoom(0.5) }
+        PfIconButton { width: 26; height: 26; iconSource: "qrc:/qt/qml/PfUi/qml/assets/minus.svg"; accessibleName: L10n.t("ui.347"); onClicked: root.zoom(2) }
+        PfIconButton { width: 26; height: 26; iconSource: "qrc:/qt/qml/PfUi/qml/assets/plus.svg"; accessibleName: L10n.t("ui.348"); onClicked: root.zoom(0.5) }
     }
     Canvas {
         id: ruler; Layout.fillWidth: true; height: 22

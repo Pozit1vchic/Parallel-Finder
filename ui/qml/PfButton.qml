@@ -32,7 +32,7 @@ Button {
     contentItem: Text {
         text: control.text
         color: !control.enabled ? Theme.textDisabled
-              : control.primary ? Theme.accentForeground : control.selected ? Theme.accent : Theme.textPrimary
+              : control.primary ? Theme.accentForeground : control.selected ? Theme.accentText : Theme.textPrimary
         font.family: Theme.fontFamily
         font.pixelSize: control.compact ? 10 : 12
         font.weight: Font.DemiBold

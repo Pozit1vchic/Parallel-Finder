@@ -106,13 +106,13 @@ ReviewDialog {
                     }
                     RowLayout {
                         Layout.fillWidth: true
-                        PfButton { compact: true; quiet: true; Layout.fillWidth: true; text: "−1 " + (L10n.language === "ru" ? "кадр" : "frame"); onClicked: root.step(modelData, -1) }
-                        PfButton { compact: true; quiet: true; Layout.fillWidth: true; text: "+1 " + (L10n.language === "ru" ? "кадр" : "frame"); onClicked: root.step(modelData, 1) }
+                        PfButton { compact: true; quiet: true; Layout.fillWidth: true; text: "−1 " + (L10n.t("ui.345")); onClicked: root.step(modelData, -1) }
+                        PfButton { compact: true; quiet: true; Layout.fillWidth: true; text: "+1 " + (L10n.t("ui.345")); onClicked: root.step(modelData, 1) }
                     }
                 }
             }
         }
-        Text { visible: !!root.errorText; Layout.fillWidth: true; text: root.errorText; color: Theme.accent; wrapMode: Text.WordWrap; font.family: Theme.fontFamily; font.pixelSize: 11 }
+        Text { visible: !!root.errorText; Layout.fillWidth: true; text: root.errorText; color: Theme.accentText; wrapMode: Text.WordWrap; font.family: Theme.fontFamily; font.pixelSize: 11 }
         RowLayout {
             Layout.fillWidth: true
             PfButton { quiet: true; text: Review.t("original"); enabled: !!root.record && !!root.record.originalRange && !Analysis.reviewBusy; onClicked: if (Analysis.resetResultRange(root.record.id)) root.close() }

@@ -22,12 +22,19 @@ ComboBox {
         elide: Text.ElideRight
     }
 
-    indicator: Image {
+    indicator: Canvas {
+        property color strokeColor: Theme.textSecondary
+        onStrokeColorChanged: requestPaint()
+        onPaint: {
+            const ctx = getContext("2d")
+            ctx.clearRect(0, 0, width, height)
+            ctx.strokeStyle = strokeColor; ctx.lineWidth = 1.6; ctx.lineCap = "round"; ctx.lineJoin = "round"
+            ctx.beginPath(); ctx.moveTo(4, 2); ctx.lineTo(8, 6); ctx.lineTo(4, 10); ctx.stroke()
+        }
         x: control.width - width - 10
         y: Math.round((control.height - height) / 2)
         width: 12
         height: 12
-        source: "qrc:/qt/qml/PfUi/qml/assets/chevron-right.svg"
         rotation: control.popup.visible ? 270 : 90
         Behavior on rotation { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
         opacity: control.enabled ? (control.hovered || control.visualFocus ? 0.95 : 0.65) : 0.3
@@ -62,7 +69,11 @@ ComboBox {
     }
 
     popup: Popup {
-        enter: Transition { enabled: !Theme.reducedMotion; NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionDuration; easing.type: Easing.OutCubic } }
+        transformOrigin: Popup.Top
+        enter: Transition { enabled: !Theme.reducedMotion; ParallelAnimation {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionDuration; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 0.975; to: 1; duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic }
+        } }
         exit: Transition { enabled: !Theme.reducedMotion; NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.motionDuration; easing.type: Easing.InCubic } }
         y: control.height + 4
         width: control.width

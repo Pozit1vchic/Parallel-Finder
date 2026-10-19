@@ -258,11 +258,11 @@ Rectangle {
                         onClicked: root.resetFilters()
                     }
                 }
-                Text { Layout.fillWidth: true; text: L10n.language === "ru" ? "Тип движения" : "Movement type"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10 }
+                Text { Layout.fillWidth: true; text: L10n.t("ui.349"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10 }
                 PfComboBox {
                     objectName: "resultClassFilterCombo"; Layout.fillWidth: true
-                    Accessible.name: L10n.language === "ru" ? "Тип движения" : "Movement type"
-                    model: root.classChoices.map(function(key) { return key ? L10n.classificationLabel(key) + " · " + Number(root.classificationCounts[key] || 0) : (L10n.language === "ru" ? "Все типы движений" : "All movement types") })
+                    Accessible.name: L10n.t("ui.349")
+                    model: root.classChoices.map(function(key) { return key ? L10n.classificationLabel(key) + " · " + Number(root.classificationCounts[key] || 0) : (L10n.t("results.allClasses")) })
                     currentIndex: root.classChoices.indexOf(root.classFilter)
                     onActivated: function(index) { root.classFilter = root.classChoices[index] }
                 }
@@ -299,7 +299,7 @@ Rectangle {
                     Layout.fillWidth: true
                     Accessible.name: L10n.t("results.sortBy")
                     model: [L10n.t("results.scoreHigh"), L10n.t("results.scoreLow"), L10n.t("results.sceneHigh"), L10n.t("results.sceneLow"),
-                            L10n.t("results.timeEarly"), L10n.t("results.timeLate"), L10n.language === "ru" ? "По типам движений" : "By movement type"]
+                            L10n.t("results.timeEarly"), L10n.t("results.timeLate"), L10n.t("ui.350")]
                     currentIndex: root.sortCriterion === "classification" ? 6 : root.sortCriterion === "time" ? (root.sortDescending ? 5 : 4)
                         : root.sortCriterion === "scene" ? (root.sortDescending ? 2 : 3) : (root.sortDescending ? 0 : 1)
                     onActivated: function(index) { root.chooseSort(index) }
@@ -308,8 +308,8 @@ Rectangle {
                 Text {
                     Layout.fillWidth: true
                     text: root.activeFilterCount > 0
-                        ? (L10n.language === "ru" ? "Активно настроек: " : "Active settings: ") + root.activeFilterCount
-                        : (L10n.language === "ru" ? "Показаны все типы и источники" : "Showing all types and sources")
+                        ? (L10n.t("ui.351")) + root.activeFilterCount
+                        : (L10n.t("ui.352"))
                     color: Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 10
                     wrapMode: Text.WordWrap
                 }
@@ -712,7 +712,7 @@ Rectangle {
             primary: enabled
             onClicked: root.exportRequested(root.exportRows())
         }
-        PfButton { Layout.fillWidth: true; compact: true; quiet: true; visible: root.visibleResults.length > 0 && root.reviewFilter !== "hidden"; text: L10n.language === "ru" ? "Сортировка вручную" : "Manual sorting"; onClicked: root.findingsRequested() }
+        PfButton { Layout.fillWidth: true; compact: true; quiet: true; visible: root.visibleResults.length > 0 && root.reviewFilter !== "hidden"; text: L10n.t("ui.353"); onClicked: root.findingsRequested() }
 
             }
         }
@@ -840,7 +840,7 @@ Rectangle {
                         width: 34; height: 28
                         padding: 0
                         enabled: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
-                        Accessible.name: (L10n.language === "ru" ? "Изменить тип движения " : "Change movement type ") + (Number(modelData.id) + 1)
+                        Accessible.name: (L10n.t("ui.354")) + (Number(modelData.id) + 1)
                         ToolTip.visible: hovered
                         ToolTip.text: Accessible.name
                         background: Rectangle {
@@ -852,7 +852,7 @@ Rectangle {
                         }
                         contentItem: Text {
                             objectName: "resultClassButtonLabel" + modelData.id
-                            text: L10n.language === "ru" ? "Тип" : "Type"
+                            text: L10n.t("ui.355")
                             font.family: Theme.fontFamily; font.pixelSize: 9; font.weight: Font.DemiBold
                             color: pairClassButton.hovered ? Theme.accent : Theme.textSecondary
                             horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
@@ -883,7 +883,7 @@ Rectangle {
                             width: parent.width
                             visible: !modelData.manualPair
                             text: L10n.t("results.sceneSimilarity") + " · " + Math.round(root.sceneSimilarity(modelData) * 100) + "%"
-                            color: Theme.sage
+                            color: Theme.secondaryText
                             font.pixelSize: 10
                             elide: Text.ElideRight
                         }
@@ -897,8 +897,8 @@ Rectangle {
                             objectName: "resultManualClassLabel" + modelData.id
                             visible: !!modelData.classificationManual || !!modelData.classificationPartial
                             text: modelData.classificationManual
-                                ? (L10n.language === "ru" ? "Тип задан вручную" : "Type set manually")
-                                : (L10n.language === "ru" ? "Видно движение головы; тело не определено" : "Head motion observed; body undetermined")
+                                ? (L10n.t("ui.356"))
+                                : (L10n.t("ui.357"))
                             color: Theme.textSecondary; elide: Text.ElideRight
                             Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionChangeDuration } }
                         }

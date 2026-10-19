@@ -28,7 +28,7 @@ Item {
         return previewEnd > timestamp ? Math.min(requestedEnd, previewEnd) : requestedEnd
     }
     readonly property bool previewPlayable: !!record && sourcePath.length > 0 && playbackEnd > playbackStart
-    Text { anchors.centerIn: parent; visible: root.sideRemoved; text: L10n.language === "ru" ? "Сторона удалена · можно заменить" : "Side removed · available for replacement"; color: Theme.textSecondary; font.family: Theme.fontFamily; z: 5 }
+    Text { anchors.centerIn: parent; visible: root.sideRemoved; text: L10n.t("ui.322"); color: Theme.textSecondary; font.family: Theme.fontFamily; z: 5 }
     property real zoom: 1.0
     property real panX: 0
     property real panY: 0

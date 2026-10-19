@@ -7,11 +7,10 @@ import PfUiBridge
 ReviewDialog {
     id: root
     objectName: "pairComposeDialog"
-    title: L10n.language === "ru" ? "Заменить сторону пары" : "Replace a pair side"
+    title: L10n.t("ui.346")
     property var record: null
     property var candidates: []
     property string errorText: ""
-    readonly property bool russian: L10n.language === "ru"
     readonly property var donor: candidates[donorChoice.currentIndex] || null
     readonly property string targetSide: targetChoice.currentIndex === 0 ? "left" : "right"
     readonly property string donorSide: donorSideChoice.currentIndex === 0 ? "left" : "right"
@@ -22,7 +21,7 @@ ReviewDialog {
 
     function fileName(path) {
         const parts = String(path || "").replace(/\\/g, "/").split("/")
-        return parts[parts.length - 1] || (russian ? "источник неизвестен" : "unknown source")
+        return parts[parts.length - 1] || (L10n.translate("unknown source", "источник неизвестен"))
     }
     function timecode(seconds) {
         const total = Math.max(0, Number(seconds) || 0)
@@ -32,15 +31,15 @@ ReviewDialog {
         return [hours, minutes, secs].map(function(value) { return String(value).padStart(2, "0") }).join(":")
     }
     function pairChoiceLabel(row) {
-        const left = row.leftRemoved ? (russian ? "A удалена" : "A removed") : "A " + fileName(row.leftSource) + " · " + timecode(row.leftStart)
-        const right = row.rightRemoved ? (russian ? "B удалена" : "B removed") : "B " + fileName(row.rightSource) + " · " + timecode(row.rightStart)
+        const left = row.leftRemoved ? (L10n.translate("A removed", "A удалена")) : "A " + fileName(row.leftSource) + " · " + timecode(row.leftStart)
+        const right = row.rightRemoved ? (L10n.translate("B removed", "B удалена")) : "B " + fileName(row.rightSource) + " · " + timecode(row.rightStart)
         return "№ " + (Number(row.id) + 1) + " · " + L10n.classificationLabel(row.classification) + " · " + left + " ↔ " + right
     }
     function sideChoiceLabel(row, side, removed) {
         const letter = side === "left" ? "A" : "B"
         const name = side === "left" ? row.leftSource : row.rightSource
         const start = side === "left" ? row.leftStart : row.rightStart
-        return letter + (removed ? (russian ? " · удалено" : " · removed") : " · " + fileName(name) + " · " + timecode(start))
+        return letter + (removed ? (L10n.translate(" · removed", " · удалено")) : " · " + fileName(name) + " · " + timecode(start))
     }
 
     function refreshCurrentRecords() {
@@ -122,7 +121,7 @@ ReviewDialog {
             spacing: 10
             Text {
                 Layout.fillWidth: true
-                text: root.bothSingles ? (root.russian ? "Оставшиеся моменты объединятся; исходные пары можно восстановить." : "The remaining moments will be combined; the original pairs can be restored.") : (root.russian ? "Выбери сторону и момент из другой пары. Исходная пара сохранится." : "Choose a side and a moment from another pair. The original pair stays intact.")
+                text: root.bothSingles ? (L10n.translate("The remaining moments will be combined; the original pairs can be restored.", "Оставшиеся моменты объединятся; исходные пары можно восстановить.")) : (L10n.translate("Choose a side and a moment from another pair. The original pair stays intact.", "Выбери сторону и момент из другой пары. Исходная пара сохранится."))
                 color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 13
                 wrapMode: Text.WordWrap
             }
@@ -131,12 +130,12 @@ ReviewDialog {
                 spacing: 12
                 ColumnLayout {
                     Layout.fillWidth: true
-                    Text { text: root.russian ? "Заменить сторону" : "Replace side"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
-                    PfComboBox { id: targetChoice; objectName: "composeTargetChoice"; enabled: !root.bothSingles; Layout.fillWidth: true; model: root.russian ? ["Сторона A", "Сторона B"] : ["Side A", "Side B"] }
+                    Text { text: L10n.translate("Replace side", "Заменить сторону"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                    PfComboBox { id: targetChoice; objectName: "composeTargetChoice"; enabled: !root.bothSingles; Layout.fillWidth: true; model: [L10n.translate("Side A", "Сторона A"), L10n.translate("Side B", "Сторона B")] }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
-                    Text { text: root.russian ? "Источник" : "Source"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                    Text { text: L10n.translate("Source", "Источник"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
                     PfComboBox {
                         id: donorChoice; objectName: "composeDonorChoice"; Layout.fillWidth: true
                         model: root.candidates.map(function(row) { return root.pairChoiceLabel(row) })
@@ -158,7 +157,7 @@ ReviewDialog {
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
-                        Text { Layout.fillWidth: true; text: root.russian ? "Момент" : "Moment"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
+                        Text { Layout.fillWidth: true; text: L10n.translate("Moment", "Момент"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
                         PfComboBox {
                             id: donorSideChoice; objectName: "composeDonorSideChoice"; Layout.fillWidth: true; enabled: !root.bothSingles
                             model: root.donor ? [root.sideChoiceLabel(root.donor, "left", root.donor.leftRemoved), root.sideChoiceLabel(root.donor, "right", root.donor.rightRemoved)] : ["A", "B"]
@@ -166,7 +165,7 @@ ReviewDialog {
                     }
                 }
             }
-            Text { text: root.russian ? "Пара после замены" : "Pair after replacement"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 13 }
+            Text { text: L10n.translate("Pair after replacement", "Пара после замены"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 13 }
             RowLayout {
                 Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 72; spacing: 12
                 Repeater {
@@ -189,11 +188,11 @@ ReviewDialog {
                             source: card.absent ? "" : card.replaced ? root.donorPreview : root.record ? root.record[card.modelData + "Preview"] || "" : ""
                             asynchronous: true; sourceSize.width: 960
                         }
-                        Text { anchors.centerIn: parent; visible: card.absent; text: root.russian ? "Сторона удалена" : "Side removed"; color: Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                        Text { anchors.centerIn: parent; visible: card.absent; text: L10n.translate("Side removed", "Сторона удалена"); color: Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 12 }
                         Text { anchors.left: parent.left; anchors.top: parent.top; anchors.margins: 10; text: modelData === "left" ? "A" : "B"; color: card.replaced ? Theme.accent : Theme.textPrimary; font.family: Theme.fontFamily; font.bold: true }
                         Text {
                             anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 10
-                            text: card.absent ? (root.russian ? "Выбери другой момент" : "Choose another moment") : card.replaced ? (root.russian ? "Из пары № " : "From pair #") + (Number(root.donor.id) + 1) + " · " + (root.donorSide === "left" ? "A" : "B") : (root.russian ? "Без изменений" : "Unchanged")
+                            text: card.absent ? (L10n.translate("Choose another moment", "Выбери другой момент")) : card.replaced ? (L10n.translate("From pair #", "Из пары № ")) + (Number(root.donor.id) + 1) + " · " + (root.donorSide === "left" ? "A" : "B") : (L10n.translate("Unchanged", "Без изменений"))
                             color: card.replaced ? Theme.accent : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight
                         }
                     }
@@ -202,20 +201,20 @@ ReviewDialog {
             Text {
                 Layout.fillWidth: true
                 visible: !!root.errorText || !root.candidates.length
-                text: root.errorText || (root.russian ? "Для замены нужна ещё одна пара в результатах." : "Another result pair is needed for replacement.")
-                color: Theme.accent; wrapMode: Text.WordWrap; font.family: Theme.fontFamily; font.pixelSize: 12
+                text: root.errorText || (L10n.translate("Another result pair is needed for replacement.", "Для замены нужна ещё одна пара в результатах."))
+                color: Theme.accentText; wrapMode: Text.WordWrap; font.family: Theme.fontFamily; font.pixelSize: 12
             }
             RowLayout {
                 Layout.fillWidth: true; spacing: 12
                 Item { Layout.fillWidth: true }
                 PfButton {
                     objectName: "composeApplyButton"
-                    text: root.bothSingles ? (root.russian ? "Объединить моменты" : "Combine moments") : (root.russian ? "Применить замену" : "Apply replacement")
+                    text: root.bothSingles ? (L10n.translate("Combine moments", "Объединить моменты")) : (L10n.translate("Apply replacement", "Применить замену"))
                     enabled: !!root.donor && !!root.record && !root.donorRemoved && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
                     onClicked: {
                         const accepted = root.bothSingles ? Analysis.combineSingleResults(root.record.id, root.donor.id) : Analysis.replaceResultSide(root.record.id, root.targetSide, root.donor.id, root.donorSide)
                         if (accepted) root.close()
-                        else root.errorText = root.russian ? "Не удалось заменить сторону. Нельзя соединить момент с самим собой." : "Cannot replace this side. A moment cannot be paired with itself."
+                        else root.errorText = L10n.translate("Cannot replace this side. A moment cannot be paired with itself.", "Не удалось заменить сторону. Нельзя соединить момент с самим собой.")
                     }
                 }
             }

@@ -176,7 +176,8 @@ Settings SettingsStore::load(std::string& error) const
     const bool legacySceneScale = !schemaVersion.isDouble() || schemaVersion.toInteger() < 2;
     readString(json, "provider", settings.provider);
     readString(json, "language", settings.language);
-    if (settings.language != "ru" && settings.language != "en") settings.language = "en";
+    if (settings.language != "ru" && settings.language != "en" && settings.language != "ky"
+        && settings.language != "kk" && settings.language != "uk" && settings.language != "tr") settings.language = "en";
     settings.appearance = json.value(QStringLiteral("appearance")).toObject();
     readString(json, "theme", settings.theme);
     readString(json, "modelPath", settings.modelPath);

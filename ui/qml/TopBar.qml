@@ -17,10 +17,10 @@ Item {
         if (key === "cuda") return "CUDA"
         if (key === "tensorrt") return "TensorRT"
         if (key === "cpu") return "CPU"
-        const summary = String(AppInfo.gpuSummary || "Auto")
-        return summary.split("·")[0].trim() || "Auto"
+        return L10n.t("settings.providerAuto")
     }
     function backendStatus(id) {
+        const revision = AppInfo.providersRevision
         if (AppInfo.backendInitializing) return L10n.t("settings.providerChecking")
         const key = String(id || "auto").toLowerCase()
         return AppInfo.backendAvailable(key) ? L10n.t("top.ready") : L10n.t("settings.providerUnavailable")
@@ -31,15 +31,34 @@ Item {
     }
 
     Rectangle { anchors.fill: parent; color: Theme.canvas }
-    Row {
-        anchors.left: parent.left; anchors.leftMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 12; height: 40
-        Text { text: L10n.t("app.title"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 15; font.weight: Font.DemiBold; font.letterSpacing: -0.15; anchors.verticalCenter: parent.verticalCenter }
-        Rectangle { width: 1; height: 16; color: Theme.hairlineStrong; anchors.verticalCenter: parent.verticalCenter }
-        Text { font.family: Theme.fontFamily; text: L10n.t("top.workspace"); color: Theme.textSecondary; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+    Item {
+        id: brand
+        anchors.left: parent.left; anchors.leftMargin: 26; anchors.verticalCenter: parent.verticalCenter
+        width: 222; height: 40
+        HoverHandler { id: brandHover }
+        Rectangle {
+            x: brandHover.hovered ? 5 : 0; y: 9; width: 10; height: 23; radius: 3
+            color: Theme.accentMuted; border.color: Theme.accent
+            rotation: brandHover.hovered ? -8 : 0
+            Behavior on x { NumberAnimation { duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic } }
+            Behavior on rotation { NumberAnimation { duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic } }
+        }
+        Rectangle {
+            x: brandHover.hovered ? 19 : 16; y: 9; width: 10; height: 23; radius: 3
+            color: Theme.sageMuted; border.color: Theme.sage
+            rotation: brandHover.hovered ? 8 : 0
+            Behavior on x { NumberAnimation { duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic } }
+            Behavior on rotation { NumberAnimation { duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic } }
+        }
+        Text {
+            x: 42; anchors.verticalCenter: parent.verticalCenter
+            text: "Parallel Finder"; color: Theme.textPrimary; font.family: Theme.fontFamily
+            font.pixelSize: 19; font.weight: Font.DemiBold; font.letterSpacing: -0.6
+        }
     }
     RowLayout {
         anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 14
-        Text { font.family: Theme.fontFamily; Layout.alignment: Qt.AlignVCenter; text: root.busy ? L10n.t("top.analyzing") : AppInfo.backendInitializing ? L10n.t("settings.providerChecking") : L10n.t("top.ready"); color: root.busy ? Theme.accent : Theme.textSecondary; font.pixelSize: 11 }
+        Text { visible: root.busy || AppInfo.backendInitializing; font.family: Theme.fontFamily; Layout.alignment: Qt.AlignVCenter; text: root.busy ? L10n.t("top.analyzing") : L10n.t("settings.providerChecking"); color: root.busy ? Theme.accentText : Theme.textSecondary; font.pixelSize: 11 }
         Rectangle {
             id: providerStatus
             objectName: "topProviderSelector"
@@ -48,7 +67,7 @@ Item {
             Layout.minimumWidth: 168
             Layout.maximumWidth: 250
             width: 226; height: 28; radius: 8
-            color: providerMenu.visible ? Theme.accentMuted : AppInfo.backendIsGpu ? Theme.sageMuted : Theme.surfaceRaised; border.color: Theme.border
+            color: providerMenu.visible ? Theme.accentMuted : Theme.surfaceRaised; border.color: providerMenu.visible ? Theme.accent : Theme.hairline
             RowLayout { anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 8
                 Rectangle { Layout.alignment: Qt.AlignVCenter; Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: !AppInfo.backendInitializing && AppInfo.backendAvailable(Analysis.providerChoice) ? "#22C55E" : Theme.textDisabled
                 }
@@ -57,10 +76,10 @@ Item {
                     objectName: "gpuStatusLabel"
                     Layout.fillWidth: true
                     text: Analysis.providerChoice === "auto"
-                        ? backendLabel("auto") + " · " + backendStatus("auto")
+                        ? backendLabel(AppInfo.gpuBackend) + " · " + backendStatus("auto")
                         : backendLabel(Analysis.providerChoice) + " · " + backendStatus(Analysis.providerChoice)
                     color: !AppInfo.backendInitializing && Analysis.providerChoice !== "auto" && !AppInfo.backendAvailable(Analysis.providerChoice)
-                        ? Theme.accent : "#E4E4E7"
+                        ? Theme.accentText : Theme.textPrimary
                     font.pixelSize: 12
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
@@ -77,22 +96,39 @@ Item {
                      : (AppInfo.backendReason(Analysis.providerChoice) || L10n.t("settings.providerUnavailable")))
             HoverHandler { id: gpuHover }
             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: providerMenu.open() }
-            Menu {
+            Popup {
                 id: providerMenu
+                objectName: "providerMenu"
                 y: providerStatus.height + 6
-                width: 232
-                Repeater {
+                width: 278; padding: 6
+                implicitHeight: contentItem.implicitHeight + 12
+                background: Rectangle { color: Theme.tooltipSurface; radius: Theme.radiusCard; border.color: Theme.hairlineStrong }
+                enter: Transition { NumberAnimation { property: "scale"; from: Theme.motionPopupScale; to: 1; duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic } }
+                contentItem: Column {
+                  spacing: 3
+                  Repeater {
                     model: ["auto", "cuda", "tensorrt", "dml", "cpu"]
-                    delegate: MenuItem {
+                    delegate: ItemDelegate {
                         required property string modelData
-                        readonly property bool isReady: modelData === "auto" || modelData === "cpu" || AppInfo.backendAvailable(modelData)
-                        text: root.backendLabel(modelData) + (isReady ? "" : "  ·  " + L10n.t("settings.providerUnavailable"))
+                        objectName: "providerItem_" + modelData
+                        readonly property bool isReady: !AppInfo.backendInitializing && AppInfo.providersRevision >= 0 && AppInfo.backendAvailable(modelData)
+                        readonly property bool selectedProvider: Analysis.providerChoice === modelData
+                        width: 266; height: 44; hoverEnabled: true
                         enabled: isReady && !Analysis.busy && !Analysis.exportBusy
-                        checkable: true
-                        checked: Analysis.providerChoice === modelData
-                        opacity: isReady ? 1 : 0.45
-                        onTriggered: root.chooseProvider(modelData)
+                        contentItem: RowLayout {
+                            spacing: 10
+                            Rectangle { Layout.preferredWidth: 5; Layout.preferredHeight: 5; radius: 3; color: parent.parent.isReady ? Theme.accentText : Theme.textDisabled }
+                            Column {
+                                Layout.fillWidth: true; spacing: 2
+                                Text { objectName: "providerName_" + modelData; width: parent.width; text: root.backendLabel(modelData); color: Theme.textPrimary; opacity: isReady ? 1 : 0.55; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: Font.Medium; elide: Text.ElideRight }
+                                Text { width: parent.width; text: root.backendStatus(modelData); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10; elide: Text.ElideRight }
+                            }
+                            Text { text: selectedProvider ? "✓" : ""; color: Theme.accentText; font.pixelSize: 14 }
+                        }
+                        background: Rectangle { radius: 7; color: parent.selectedProvider ? Theme.accentMuted : parent.hovered ? Theme.surfaceRaised : "transparent"; Behavior on color { ColorAnimation { duration: Theme.motionDuration } } }
+                        onClicked: root.chooseProvider(modelData)
                     }
+                  }
                 }
             }
         }

@@ -7,7 +7,7 @@ import PfUiBridge
 ReviewDialog {
     id: root
     objectName: "manualSortDialog"
-    title: russian ? "Сортировка вручную" : "Manual sorting"
+    title: L10n.translate("Manual sorting", "Сортировка вручную")
     width: Math.min(1080, rootWindow ? rootWindow.width - 32 : 1000)
     height: Math.min(780, rootWindow ? rootWindow.height - 32 : 720)
     property var rows: []
@@ -18,7 +18,6 @@ ReviewDialog {
     readonly property int pageSize: 12
     readonly property int pageCount: Math.max(1, Math.ceil(rows.length / pageSize))
     readonly property var pageRows: rows.slice(page * pageSize, (page + 1) * pageSize)
-    readonly property bool russian: L10n.language === "ru"
     readonly property bool canEdit: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
     readonly property var groupNames: {
         const names = []
@@ -58,7 +57,7 @@ ReviewDialog {
             rows = rows.map(function(row) { return selectedIds.indexOf(row.id) >= 0 ? Object.assign({}, row, {manualGroup: clean}) : row })
             ++assignmentRevision
             errorText = ""
-        } else errorText = russian ? "Не удалось изменить группу. Обнови список результатов и повтори." : "Cannot change the group. Refresh the results and try again."
+        } else errorText = L10n.translate("Cannot change the group. Refresh the results and try again.", "Не удалось изменить группу. Обнови список результатов и повтори.")
     }
     function goToPage(next) {
         const destination = Math.max(0, Math.min(pageCount - 1, next))
@@ -85,7 +84,7 @@ ReviewDialog {
         spacing: 10
         Text {
             Layout.fillWidth: true
-            text: root.russian ? "Собери свои группы из пар и одиночных моментов. Классификация движения сохранится." : "Build your own groups from pairs and single moments. Motion classifications stay intact."
+            text: L10n.translate("Build your own groups from pairs and single moments. Motion classifications stay intact.", "Собери свои группы из пар и одиночных моментов. Классификация движения сохранится.")
             color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 13; wrapMode: Text.WordWrap
         }
         RowLayout {
@@ -94,15 +93,15 @@ ReviewDialog {
                 id: groupName
                 objectName: "manualGroupName"
                 Layout.fillWidth: true; implicitHeight: 36
-                placeholderText: root.russian ? "Название своей группы" : "Your group name"
+                placeholderText: L10n.translate("Your group name", "Название своей группы")
                 maximumLength: 80
                 color: Theme.textPrimary; placeholderTextColor: Theme.textDisabled
                 font.family: Theme.fontFamily; font.pixelSize: 13
                 background: Rectangle { color: Theme.well; radius: Theme.radiusButton; border.color: groupName.activeFocus ? Theme.accent : Theme.hairline }
                 onAccepted: if (text.trim()) root.assign(text)
             }
-            PfButton { objectName: "manualGroupAssign"; compact: true; text: root.russian ? "В группу" : "Assign group"; enabled: root.canEdit && root.selectedIds.length > 0 && !!groupName.text.trim(); onClicked: root.assign(groupName.text) }
-            PfButton { objectName: "manualGroupClear"; compact: true; text: root.russian ? "Убрать группу" : "Clear group"; enabled: root.canEdit && root.selectedIds.length > 0; onClicked: root.assign("") }
+            PfButton { objectName: "manualGroupAssign"; compact: true; text: L10n.translate("Assign group", "В группу"); enabled: root.canEdit && root.selectedIds.length > 0 && !!groupName.text.trim(); onClicked: root.assign(groupName.text) }
+            PfButton { objectName: "manualGroupClear"; compact: true; text: L10n.translate("Clear group", "Убрать группу"); enabled: root.canEdit && root.selectedIds.length > 0; onClicked: root.assign("") }
         }
         RowLayout {
             Layout.fillWidth: true
@@ -110,15 +109,15 @@ ReviewDialog {
                 id: existingGroups
                 objectName: "manualExistingGroups"
                 Layout.fillWidth: true
-                model: [root.russian ? "Выбрать существующую группу…" : "Choose an existing group…"].concat(root.groupNames)
+                model: [L10n.translate("Choose an existing group…", "Выбрать существующую группу…")].concat(root.groupNames)
                 onActivated: if (currentIndex > 0) groupName.text = root.groupNames[currentIndex - 1]
             }
-            PfButton { compact: true; text: root.russian ? "Выбрать страницу" : "Select page"; enabled: root.pageRows.length > 0; onClicked: root.selectedIds = root.pageRows.map(function(row) { return row.id }) }
-            PfButton { compact: true; text: root.russian ? "Снять выбор" : "Clear selection"; enabled: root.selectedIds.length > 0; onClicked: { root.selectedIds = []; root.anchorIndex = -1; root.anchorId = -1 } }
+            PfButton { compact: true; text: L10n.translate("Select page", "Выбрать страницу"); enabled: root.pageRows.length > 0; onClicked: root.selectedIds = root.pageRows.map(function(row) { return row.id }) }
+            PfButton { compact: true; text: L10n.translate("Clear selection", "Снять выбор"); enabled: root.selectedIds.length > 0; onClicked: { root.selectedIds = []; root.anchorIndex = -1; root.anchorId = -1 } }
         }
         RowLayout {
             Layout.fillWidth: true
-            Text { Layout.fillWidth: true; text: (root.russian ? "Выбрано: " : "Selected: ") + root.selectedIds.length + (root.russian ? " · Ctrl — добавить, Shift — диапазон" : " · Ctrl to add, Shift for a range"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
+            Text { Layout.fillWidth: true; text: (L10n.translate("Selected: ", "Выбрано: ")) + root.selectedIds.length + (L10n.translate(" · Ctrl to add, Shift for a range", " · Ctrl — добавить, Shift — диапазон")); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
         }
         Flickable {
             id: scroller
@@ -171,7 +170,7 @@ ReviewDialog {
                             }
                         }
                         Accessible.role: Accessible.CheckBox
-                        Accessible.name: (root.russian ? "Результат " : "Result ") + (Number(modelData.id) + 1)
+                        Accessible.name: (L10n.translate("Result ", "Результат ")) + (Number(modelData.id) + 1)
                         Accessible.checked: picked
                         Keys.onSpacePressed: function(event) { root.pick(root.page * root.pageSize + index, event.modifiers | Qt.ControlModifier); event.accepted = true }
                         ColumnLayout {
@@ -191,7 +190,7 @@ ReviewDialog {
                                         Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 1
                                         color: Theme.canvas; radius: 4; clip: true
                                         Image { anchors.fill: parent; anchors.margins: 2; fillMode: Image.PreserveAspectFit; visible: !parent.removed; source: parent.removed ? "" : card.modelData[parent.modelData + "Preview"] || ""; asynchronous: true; sourceSize.width: 480 }
-                                        Text { anchors.centerIn: parent; visible: parent.removed; text: root.russian ? "Удалено" : "Removed"; color: Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 10 }
+                                        Text { anchors.centerIn: parent; visible: parent.removed; text: L10n.translate("Removed", "Удалено"); color: Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 10 }
                                         Text { anchors.left: parent.left; anchors.top: parent.top; anchors.margins: 4; text: modelData === "left" ? "A" : "B"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 10 }
                                     }
                                 }
@@ -199,7 +198,7 @@ ReviewDialog {
                             Text {
                                 id: groupStamp
                                 Layout.fillWidth: true
-                                text: card.modelData.manualGroup || (root.russian ? "Без своей группы" : "No custom group")
+                                text: card.modelData.manualGroup || (L10n.translate("No custom group", "Без своей группы"))
                                 color: card.modelData.manualGroup ? Theme.accent : Theme.textDisabled
                                 font.family: Theme.fontFamily; font.pixelSize: 12; elide: Text.ElideRight
                                 transformOrigin: Item.Left
@@ -216,15 +215,15 @@ ReviewDialog {
                     }
                 }
             }
-            Text { anchors.centerIn: parent; visible: root.rows.length === 0; text: root.russian ? "Здесь появятся результаты анализа." : "Analysis results will appear here."; color: Theme.textSecondary; font.family: Theme.fontFamily }
+            Text { anchors.centerIn: parent; visible: root.rows.length === 0; text: L10n.translate("Analysis results will appear here.", "Здесь появятся результаты анализа."); color: Theme.textSecondary; font.family: Theme.fontFamily }
         }
-        Text { Layout.fillWidth: true; visible: !!root.errorText; text: root.errorText; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
+        Text { Layout.fillWidth: true; visible: !!root.errorText; text: root.errorText; color: Theme.accentText; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
         RowLayout {
             Layout.fillWidth: true
-            PfButton { objectName: "manualSortPrevious"; compact: true; text: root.russian ? "Назад" : "Previous"; enabled: root.page > 0; onClicked: root.goToPage(root.page - 1) }
+            PfButton { objectName: "manualSortPrevious"; compact: true; text: L10n.translate("Previous", "Назад"); enabled: root.page > 0; onClicked: root.goToPage(root.page - 1) }
             Text { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: (root.page + 1) + " / " + root.pageCount; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12 }
-            PfButton { objectName: "manualSortNext"; compact: true; text: root.russian ? "Далее" : "Next"; enabled: root.page + 1 < root.pageCount; onClicked: root.goToPage(root.page + 1) }
-            PfButton { compact: true; text: root.russian ? "Лист находок" : "Contact sheet"; enabled: root.rows.length > 0; onClicked: root.findingsRequested() }
+            PfButton { objectName: "manualSortNext"; compact: true; text: L10n.translate("Next", "Далее"); enabled: root.page + 1 < root.pageCount; onClicked: root.goToPage(root.page + 1) }
+            PfButton { compact: true; text: L10n.translate("Contact sheet", "Лист находок"); enabled: root.rows.length > 0; onClicked: root.findingsRequested() }
         }
     }
 }

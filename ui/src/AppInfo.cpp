@@ -207,7 +207,9 @@ bool AppInfo::savePreferences(const QVariantMap& preferences)
     emit preferencesChanged();
     const QPointer<AppInfo> guard(this);
     pfservices::SettingsStore().updateAsync("appearance", [preferences](auto& settings) {
-        settings.language = preferences.value(QStringLiteral("language")).toString() == QStringLiteral("ru") ? "ru" : "en";
+        const auto language=preferences.value(QStringLiteral("language")).toString();
+        settings.language = QStringList{"ru","en","ky","kk","uk","tr"}.contains(language)
+            ? language.toStdString() : "en";
         settings.appearance = QJsonObject::fromVariantMap(preferences);
         settings.appearance.remove(QStringLiteral("language"));
     }, [guard](std::string error) {

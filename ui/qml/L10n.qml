@@ -1,6 +1,7 @@
 // Central UI vocabulary. Keep product copy here so QML layout stays readable.
 pragma Singleton
 import QtQuick
+import "Translations.js" as Catalog
 
 QtObject {
     property string language: "en"
@@ -95,7 +96,6 @@ QtObject {
             "direction.static": "Без перемещения",
             "direction.mixed": "Смешанное направление",
             "direction.unknown": "Направление не определено",
-
             "updates.title": "Обновление Parallel Finder",
             "updates.channel": "Канал обновлений",
             "updates.autoCheck": "Проверять обновления при запуске",
@@ -129,13 +129,11 @@ QtObject {
             "dialog.chooseFolder": "Выберите папку с видео",
             "dialog.videoFilter": "Видео (*.mp4 *.mov *.mkv *.avi *.webm)",
             "dialog.allFiles": "Все файлы (*)",
-
             "top.workspace": "рабочее пространство",
             "top.analyzing": "Анализируем",
             "top.ready": "Готово к работе",
             "top.settings": "Открыть настройки",
             "top.theme": "Переключить светлую и тёмную тему",
-
             "sources.title": "Источники",
             "sources.subtitle": "Добавьте материал для сравнения",
             "sources.loaded": "видео добавлено",
@@ -146,7 +144,6 @@ QtObject {
             "sources.clear": "Очистить",
             "sources.remove": "Удалить",
             "sources.empty": "Список пока пуст",
-
             "search.similarityGroup": "Точность совпадения",
             "search.similarity": "Порог схожести",
             "search.similarityHint": "Минимальное сходство пары. Выше — меньше ложных совпадений, ниже — больше найденных кандидатов.",
@@ -198,7 +195,6 @@ QtObject {
             "search.restart": "Запустить снова",
             "search.stop": "Стоп",
             "search.running": "Идёт анализ…",
-
             "stats.files": "Файлы",
             "stats.frames": "Кадры исходника",
             "stats.scenes": "Сцены",
@@ -206,7 +202,6 @@ QtObject {
             "stats.duration": "Длительность",
             "stats.status": "Состояние",
             "stats.progress": "Прогресс",
-
             "center.comparison": "Сравнение",
             "center.processing": "обрабатываем материал",
             "center.waiting": "ожидание материала",
@@ -226,13 +221,11 @@ QtObject {
             "center.completedHint": "Выберите пару справа, чтобы открыть кадры и таймкод",
             "center.noMatchesTitle": "Совпадений не найдено",
             "center.noMatchesHint": "Измените пороги или добавьте ещё видео",
-
             "timeline.left": "A",
             "timeline.right": "B",
             "timeline.loadingFrame": "Загружаем стоп-кадр…",
             "timeline.frameUnavailable": "Стоп-кадр недоступен",
             "comparison.fit": "Сбросить масштаб кадра",
-
             "results.title": "Результаты",
             "results.found": "найдено",
             "results.emptyHint": "Результаты появятся здесь",
@@ -261,7 +254,6 @@ QtObject {
             "results.clearSelection": "Снять выбор",
             "results.filtersAndOrder": "Фильтры и порядок",
             "results.resetFilters": "Сбросить фильтры",
-
             "settings.windowTitle": "Настройки Parallel Finder",
             "settings.saveFailed": "Не удалось сохранить настройки: проверьте доступ к AppData.",
             "settings.reducedMotion": "Отключить анимации интерфейса",
@@ -344,7 +336,6 @@ QtObject {
             "settings.surfaceOpacityHint": "25% — лёгкие панели, 100% — плотные. Шкала откалибрована по восприятию, поэтому средние значения остаются читаемыми.",
             "settings.resetAppearance": "Сбросить оформление",
             "settings.profileSaved": "Изменения сохраняются автоматически.",
-
             "export.title": "Подготовить результаты",
             "export.selected": "пар выбрано для экспорта",
             "export.format": "Формат",
@@ -372,7 +363,119 @@ QtObject {
             "settings.providerInvalid": "Runtime установлен, но проверка не пройдена",
             "export.prepare": "Экспортировать",
             "export.done": "Экспорт завершён",
-            "export.failed": "Экспорт не выполнен"
+            "export.failed": "Экспорт не выполнен",
+            "ui.322": "Сторона удалена · можно заменить",
+            "ui.323": "Подготовка клипа…",
+            "ui.324": "Сборка ролика…",
+            "ui.325": "Объединить в один ролик",
+            "ui.326": "Качество видео",
+            "ui.327": "Мбит/с",
+            "ui.328": "Битрейт, мегабит в секунду",
+            "ui.329": "Ширина, px",
+            "ui.330": "Максимальная ширина в пикселях",
+            "ui.331": "Высота, px",
+            "ui.332": "Максимальная высота в пикселях",
+            "ui.333": "Точная обрезка без потерь. Доступен контейнер MOV; общий ролик требует совместимых потоков.",
+            "ui.334": "Подпись добавляется в видео и требует перекодирования. Границы обрезки остаются точными.",
+            "ui.335": "Точная обрезка по границам найденных сцен. Высокое качество сохраняет исходное разрешение.",
+            "ui.336": "Подписать каждый переход",
+            "ui.337": "В начале каждого клипа появятся его номер и тип движения. Для надписи потребуется перекодирование.",
+            "ui.338": "Имя файла",
+            "ui.339": "Имя файла без расширения",
+            "ui.340": "Контейнер видео",
+            "ui.341": "Общий ролик собирается по типам движений.",
+            "ui.342": "Клипы идут группами по типу движения. Одинаковые имена получают номер в скобках.",
+            "ui.343": "Действие",
+            "ui.344": "Клавиша ",
+            "ui.345": "кадр",
+            "ui.346": "Заменить сторону пары",
+            "ui.347": "Уменьшить масштаб",
+            "ui.348": "Увеличить масштаб",
+            "ui.349": "Тип движения",
+            "ui.350": "По типам движений",
+            "ui.351": "Активно настроек: ",
+            "ui.352": "Показаны все типы и источники",
+            "ui.353": "Сортировка вручную",
+            "ui.354": "Изменить тип движения ",
+            "ui.355": "Тип",
+            "ui.356": "Тип задан вручную",
+            "ui.357": "Видно движение головы; тело не определено",
+            "ui.358": "Оттенок",
+            "ui.359": "Включить MCP-сервер",
+            "ui.360": "Подключай помощника к результатам и ходу анализа. Сервер доступен только на этом компьютере, пока приложение открыто.",
+            "ui.361": "Разрешить управление приложением",
+            "ui.362": "Управление разрешает запуск и отмену анализа, изменение типов и границ клипов, отметки и экспорт. Без него доступно только чтение.",
+            "ui.363": "Порт",
+            "ui.364": "Работает",
+            "ui.365": "Выключен",
+            "ui.366": "Скопировать подключение",
+            "ui.367": "Обновить ключ",
+            "ui.368": "Кадры исходника: ",
+            "ui.369": "Декодировано за этот запуск: ",
+            "ui.370": "Выбрано для распознавания за этот запуск: ",
+            "ui.371": "\nСчётчики запуска общие для всех видео; кеш не включён.",
+            "review.undo": "Отменить",
+            "review.nextUnreviewed": "Следующая неразобранная",
+            "review.reviewed": "Разобрано",
+            "review.unreviewed": "Не разобрано",
+            "review.allReviewed": "Все показанные пары разобраны",
+            "review.sourceSearch": "Поиск по имени сценпака…",
+            "review.allSources": "Все сценпаки",
+            "review.sourceHint": "Ищем по обеим сторонам A/B. «Выбрать все» выделяет только показанные пары.",
+            "review.hotkeys": "Горячие клавиши",
+            "review.keysHint": "Выбери сочетание и нажми новые клавиши. Esc отменяет ввод.",
+            "review.multi": "Включить мультивыбор",
+            "review.multiHint": "Ctrl — отдельные пары, Shift — диапазон. Цвет, избранное и удаление применяются к выделению.",
+            "review.press": "Нажми клавиши…",
+            "review.unset": "Не назначено",
+            "review.conflict": "Сочетание уже используется: ",
+            "review.reset": "Сбросить клавиши",
+            "review.all": "Все",
+            "review.favorites": "Избранное",
+            "review.hidden": "Удалённые",
+            "review.remove": "Удалить пару",
+            "review.restore": "Восстановить пару",
+            "review.favorite": "Избранное",
+            "review.adjust": "Подстроить пару",
+            "review.configurePair": "Настроить пару",
+            "review.replaceSides": "Заменить A/B",
+            "review.pairContents": "Состав пары",
+            "review.keepOnlyA": "Оставить только A",
+            "review.keepOnlyB": "Оставить только B",
+            "review.selection": "Выбор",
+            "review.selectionHint": "Действие применяется только к показанным парам.",
+            "review.sheet": "Лист находок",
+            "review.sheetHint": "Парные ряды кадров с таймкодами. Большой список делится на изображения по 4 пары.",
+            "review.scope": "Пары для листа",
+            "review.visible": "Все показанные пары",
+            "review.marked": "Только отмеченные",
+            "review.frames": "Кадров на каждой стороне",
+            "review.folder": "Папка для изображений",
+            "review.save": "Сохранить PNG",
+            "review.start": "Начало, сек",
+            "review.end": "Конец, сек",
+            "review.left": "Левая сторона",
+            "review.right": "Правая сторона",
+            "review.apply": "Применить",
+            "review.original": "Вернуть исходную пару",
+            "review.rangeHint": "Перетаскивай границы на таймлайне. ±1 кадр сдвигает фрагмент; экспорт использует выбранные границы.",
+            "review.invalid": "Проверь границы: начало должно быть меньше конца и находиться внутри видео.",
+            "review.selected": "Выделено",
+            "review.empty": "В этом списке пока нет пар",
+            "review.preview": "Просмотреть фрагмент",
+            "review.clearKey": "Убрать назначение",
+            "review.saving": "Сохраняем изображения…",
+            "hotkey.hide": "Удалить / восстановить пару",
+            "hotkey.favorite": "Добавить / убрать избранное",
+            "hotkey.mark": "Отметить для экспорта",
+            "hotkey.play": "Воспроизвести / приостановить",
+            "hotkey.export": "Экспорт отмеченных",
+            "hotkey.all": "Выделить все пары",
+            "hotkey.color0": "Убрать цвет",
+            "hotkey.undo": "Отменить последнее действие",
+            "hotkey.nextUnreviewed": "Следующая неразобранная пара",
+            "ui.432": "Одиночный момент",
+            "ui.433": "Пара собрана вручную"
         },
         en: {
             "colors.none": "No color",
@@ -440,7 +543,6 @@ QtObject {
             "direction.static": "No displacement",
             "direction.mixed": "Mixed direction",
             "direction.unknown": "Direction unknown",
-
             "updates.title": "Update Parallel Finder",
             "updates.channel": "Update channel",
             "updates.autoCheck": "Check for updates at startup",
@@ -706,7 +808,119 @@ QtObject {
             "settings.providerRescan": "Check installed providers",
             "settings.providerValidatedRestart": "Runtime verified. Restart to activate the selected provider.",
             "settings.providerInvalid": "Runtime installed but validation failed",
-            "export.prepare": "Export"
+            "export.prepare": "Export",
+            "ui.322": "Side removed · available for replacement",
+            "ui.323": "Preparing clip…",
+            "ui.324": "Assembling video…",
+            "ui.325": "Combine into one video",
+            "ui.326": "Video quality",
+            "ui.327": "Mbps",
+            "ui.328": "Bitrate, megabits per second",
+            "ui.329": "Width, px",
+            "ui.330": "Maximum width in pixels",
+            "ui.331": "Height, px",
+            "ui.332": "Maximum height in pixels",
+            "ui.333": "Exact cuts without quality loss. MOV only; a combined video requires compatible streams.",
+            "ui.334": "The label is burned into each video and requires re-encoding. Cut boundaries stay exact.",
+            "ui.335": "Exact cuts at matched scene boundaries. High quality keeps the source resolution.",
+            "ui.336": "Label every transition",
+            "ui.337": "Each clip starts with its number and movement type. Adding text requires re-encoding.",
+            "ui.338": "File name",
+            "ui.339": "File name without extension",
+            "ui.340": "Video container",
+            "ui.341": "The combined video follows movement-type order.",
+            "ui.342": "Clips are grouped by movement type. Duplicate names receive a number in parentheses.",
+            "ui.343": "Action",
+            "ui.344": "Key ",
+            "ui.345": "frame",
+            "ui.346": "Replace a pair side",
+            "ui.347": "Zoom out",
+            "ui.348": "Zoom in",
+            "ui.349": "Movement type",
+            "ui.350": "By movement type",
+            "ui.351": "Active settings: ",
+            "ui.352": "Showing all types and sources",
+            "ui.353": "Manual sorting",
+            "ui.354": "Change movement type ",
+            "ui.355": "Type",
+            "ui.356": "Type set manually",
+            "ui.357": "Head motion observed; body undetermined",
+            "ui.358": "Hue",
+            "ui.359": "Enable MCP server",
+            "ui.360": "Connect an assistant to results and analysis progress. Available only on this computer while the app is open.",
+            "ui.361": "Allow app control",
+            "ui.362": "Control allows starting/cancelling analysis, editing classes and clip bounds, review marks and export. Otherwise access is read-only.",
+            "ui.363": "Port",
+            "ui.364": "Running",
+            "ui.365": "Off",
+            "ui.366": "Copy connection",
+            "ui.367": "Renew key",
+            "ui.368": "Source frames: ",
+            "ui.369": "Decoded this run: ",
+            "ui.370": "Selected for recognition this run: ",
+            "ui.371": "\nRun counts cover all videos; cached analysis is excluded.",
+            "review.undo": "Undo",
+            "review.nextUnreviewed": "Next unreviewed",
+            "review.reviewed": "Reviewed",
+            "review.unreviewed": "Unreviewed",
+            "review.allReviewed": "All visible pairs are reviewed",
+            "review.sourceSearch": "Search scene pack name…",
+            "review.allSources": "All scene packs",
+            "review.sourceHint": "Search covers both A/B sources. Select all marks only visible pairs.",
+            "review.hotkeys": "Keyboard shortcuts",
+            "review.keysHint": "Click a binding and press new keys. Esc cancels.",
+            "review.multi": "Enable multiple selection",
+            "review.multiHint": "Ctrl selects individual pairs; Shift selects a range. Color, favorite and removal apply to the selection.",
+            "review.press": "Press keys…",
+            "review.unset": "Unassigned",
+            "review.conflict": "Binding already used: ",
+            "review.reset": "Reset shortcuts",
+            "review.all": "All",
+            "review.favorites": "Favorites",
+            "review.hidden": "Removed",
+            "review.remove": "Remove pair",
+            "review.restore": "Restore pair",
+            "review.favorite": "Favorite",
+            "review.adjust": "Adjust pair",
+            "review.configurePair": "Configure pair",
+            "review.replaceSides": "Replace A/B",
+            "review.pairContents": "Pair contents",
+            "review.keepOnlyA": "Keep A only",
+            "review.keepOnlyB": "Keep B only",
+            "review.selection": "Selection",
+            "review.selectionHint": "Actions apply only to visible pairs.",
+            "review.sheet": "Contact sheet",
+            "review.sheetHint": "Paired frame rows with timestamps. Large lists are split into images of 4 pairs.",
+            "review.scope": "Pairs to include",
+            "review.visible": "All visible pairs",
+            "review.marked": "Marked pairs only",
+            "review.frames": "Frames on each side",
+            "review.folder": "Image folder",
+            "review.save": "Save PNG",
+            "review.start": "Start, sec",
+            "review.end": "End, sec",
+            "review.left": "Left side",
+            "review.right": "Right side",
+            "review.apply": "Apply",
+            "review.original": "Restore original pair",
+            "review.rangeHint": "Drag the timeline boundaries. ±1 frame shifts the segment; export uses the selected boundaries.",
+            "review.invalid": "Check the range: start must precede end, within the video.",
+            "review.selected": "Selected",
+            "review.empty": "No pairs in this view",
+            "review.preview": "Preview segment",
+            "review.clearKey": "Clear binding",
+            "review.saving": "Saving images…",
+            "hotkey.hide": "Remove / restore pair",
+            "hotkey.favorite": "Toggle favorite",
+            "hotkey.mark": "Mark for export",
+            "hotkey.play": "Play / pause",
+            "hotkey.export": "Export marked pairs",
+            "hotkey.all": "Select all pairs",
+            "hotkey.color0": "Clear color",
+            "hotkey.undo": "Undo last action",
+            "hotkey.nextUnreviewed": "Next unreviewed pair",
+            "ui.432": "Single moment",
+            "ui.433": "Manually composed pair"
         }
     })
 
@@ -721,8 +935,8 @@ QtObject {
     }
 
     function matchLabel(record) {
-        if (record && (record.leftRemoved || record.rightRemoved)) return language === "ru" ? "Одиночный момент" : "Single moment"
-        if (record && record.manualPair) return language === "ru" ? "Пара собрана вручную" : "Manually composed pair"
+        if (record && (record.leftRemoved || record.rightRemoved)) return translate("Single moment", "Одиночный момент")
+        if (record && record.manualPair) return translate("Manually composed pair", "Пара собрана вручную")
         if (record && record.matchType === "pose")
             return t(record.headOnlyComparison ? "results.headSimilarity" : "results.poseSimilarity")
         return t("results.motionSimilarity")
@@ -735,15 +949,38 @@ QtObject {
         return names.concat(movementKeysForRows(rows))
     }
 
+    function translate(english, russian) {
+        if (language === "ru") return russian || english
+        const catalog = Catalog.dictionaries[language]
+        return catalog && catalog[english] !== undefined ? catalog[english] : english
+    }
+
     function t(key) {
-        const lang = _dict[language] || _dict.en
-        return (key in lang) ? lang[key] : ((_dict.en && key in _dict.en) ? _dict.en[key] : key)
+        const lang = _dict[language] || Catalog.dictionaries[language] || _dict.en
+        return (key in lang) ? lang[key] : translate(_dict.en[key] || key, _dict.ru[key])
     }
 
     // Backend progress is intentionally a compact state machine rather than
     // UI copy. Keep that contract in C++, but translate the known states here
     // so switching to English never leaves a Russian footer/status behind.
     function status(value) {
+        const english = statusBase(value)
+        if (language === "ru" || language === "en") return english
+        const catalog = Catalog.dictionaries[language]
+        if (!catalog) return english
+        if (catalog[english] !== undefined) return catalog[english]
+        for (const separator of [" · ", ": "]) {
+            const index = english.indexOf(separator)
+            if (index > 0) {
+                const prefix = english.slice(0, index)
+                if (catalog[prefix] !== undefined)
+                    return catalog[prefix] + separator + status(english.slice(index + separator.length))
+            }
+        }
+        return english
+    }
+
+    function statusBase(value) {
         const text = String(value || "")
         if (language === "ru") {
             const errors = {
@@ -758,10 +995,13 @@ QtObject {
             if (text.indexOf(geometryPrefix) === 0)
                 return "Точная склейка без потери качества требует одинаковой геометрии видео (размера кадра, соотношения пикселя и поворота). Параметры источников: " + text.slice(geometryPrefix.length)
         }
-        if (language !== "en") return text
-        if (text.indexOf("Матчер: ") === 0) return "Matcher: " + status(text.substring(8))
-        if (text.indexOf("Дополнительный поиск: ") === 0) return "Additional search: " + status(text.substring("Дополнительный поиск: ".length))
+        if (language === "ru") return text
+        if (text.indexOf("Матчер: ") === 0) return "Matcher: " + statusBase(text.substring(8))
+        if (text.indexOf("Дополнительный поиск: ") === 0) return "Additional search: " + statusBase(text.substring("Дополнительный поиск: ".length))
         const exact = {
+            "Уточняем типы действий": "Refining action types",
+            "Подготавливаем расширенный поиск": "Preparing expanded search",
+            "Расширенный поиск завершён": "Expanded search complete",
             "Определяем границы сцен": "Detecting scene boundaries",
             "Разделяем треки по сценам": "Splitting tracks by scene",
             "Сопоставляем лица персонажей": "Comparing character identities",

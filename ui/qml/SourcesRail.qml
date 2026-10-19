@@ -168,8 +168,8 @@ Rectangle {
             Rectangle { objectName: "frameProcessingCard"; Layout.fillWidth: true; width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: qualityCard.implicitHeight + 24
                 Column { id: qualityCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
                     RowLayout { width: parent.width
-                        Text { font.family: Theme.fontFamily; Layout.fillWidth: true; text: L10n.t("search.frameProcessing"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold; elide: Text.ElideRight }
-                        Text { font.family: Theme.fontFamily; text: Analysis.qualityProfile === "fast" ? L10n.t("search.fast") : Analysis.qualityProfile === "medium" ? L10n.t("search.medium") : L10n.t("search.maximum"); color: Theme.sage; font.pixelSize: 10 }
+                        Text { font.family: Theme.fontFamily; Layout.fillWidth: true; text: L10n.t("search.frameProcessing"); color: Theme.secondaryText; font.pixelSize: 11; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                        Text { font.family: Theme.fontFamily; text: Analysis.qualityProfile === "fast" ? L10n.t("search.fast") : Analysis.qualityProfile === "medium" ? L10n.t("search.medium") : L10n.t("search.maximum"); color: Theme.secondaryText; font.pixelSize: 10 }
                     }
                     Text { font.family: Theme.fontFamily; width: parent.width; text: L10n.t("search.accuracyHint"); color: Theme.textDisabled; font.pixelSize: 10; wrapMode: Text.WordWrap }
                     GridLayout { width: parent.width; columns: 3; columnSpacing: 6; rowSpacing: 6
@@ -196,7 +196,7 @@ Rectangle {
                     Text { font.family: Theme.fontFamily;
                         Layout.fillWidth: true
                         text: L10n.t("search.analysisMode")
-                        color: Theme.sage
+                        color: Theme.secondaryText
                         font.pixelSize: 11
                         font.weight: Font.DemiBold
                     }
@@ -251,7 +251,7 @@ Rectangle {
             }
             Rectangle { Layout.fillWidth: true; width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: modelCard.implicitHeight + 24
                 Column { id: modelCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
-                    Text { font.family: Theme.fontFamily; text: L10n.t("settings.poseModel"); color: Theme.sage; font.pixelSize: 11; font.weight: Font.DemiBold }
+                    Text { font.family: Theme.fontFamily; text: L10n.t("settings.poseModel"); color: Theme.secondaryText; font.pixelSize: 11; font.weight: Font.DemiBold }
                     PfComboBox {
                         id: modelCombo
                         objectName: "poseModelComboBox"

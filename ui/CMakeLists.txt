@@ -6,6 +6,7 @@ target_compile_features(pfui PUBLIC cxx_std_23)
 set(PFUI_QML_FILES
     qml/Theme.qml
     qml/L10n.qml
+    qml/Translations.js
     qml/Review.qml
     qml/ReviewDialog.qml
     qml/HotkeysPage.qml
@@ -24,6 +25,7 @@ set(PFUI_QML_FILES
     qml/PfButton.qml
     qml/PfReveal.qml
     qml/PfIconButton.qml
+    qml/FlagBackdrop.qml
     qml/TopBar.qml
     qml/StatsStrip.qml
     qml/SourcesRail.qml
@@ -51,6 +53,12 @@ qt_add_qml_module(pfui
         qml/assets/plus.svg
         qml/assets/folder-plus.svg
         qml/assets/settings.svg
+        qml/assets/flags/ru.svg
+        qml/assets/flags/en.svg
+        qml/assets/flags/ky.svg
+        qml/assets/flags/kk.svg
+        qml/assets/flags/uk.svg
+        qml/assets/flags/tr.svg
         qml/assets/moon.svg
         qml/assets/sun.svg
         qml/assets/chevron-left.svg

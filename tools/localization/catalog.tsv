@@ -1,0 +1,540 @@
+colors.none|Түссүз|Түссіз|Без кольору|Renksiz
+export.colorOrder|Түстөрдүн тартиби|Түстер реті|Порядок кольорів|Renk sırası
+export.colorOrderHint|Түстөр жогортон төмөн экспорттолот. Номерлөө ар бир түстүн ичинде жүрөт; жалпы видео убакыт боюнча түзүлөт.|Түстер жоғарыдан төмен экспортталады. Нөмірлеу әр түстің ішінде жүреді; жалпы бейне уақыт бойынша құрылады.|Кольори експортуються згори вниз; нумерація окрема для кожного кольору. Спільне відео зберігає хронологію.|Renkler yukarıdan aşağı aktarılır; numaralandırma her renkte ayrıdır. Birleşik video kronolojik kalır.
+export.moveUp|Жогору|Жоғары|Вище|Yukarı
+export.moveDown|Төмөн|Төмен|Нижче|Aşağı
+results.allColors|Бардык түстөр|Барлық түстер|Усі кольори|Tüm renkler
+sources.identityExcluded|Бул булак бир адамдын тастыкталган тобуна кирген жок.|Бұл дереккөз бір адамның расталған тобына кірмеді.|Це джерело не ввійшло до підтвердженої групи однієї людини.|Bu kaynak, aynı kişiye ait doğrulanmış gruba alınmadı.
+results.allClasses|Бардык кыймыл түрлөрү|Барлық қозғалыс түрлері|Усі типи рухів|Tüm hareket türleri
+results.classification|Классификация|Жіктеу|Класифікація|Sınıflandırma
+results.allCategories|Бардык топтор|Барлық топтар|Усі групи|Tüm gruplar
+results.untagged|Топсуз|Топсыз|Без групи|Grupsuz
+results.category|Топ|Топ|Група|Grup
+results.tagSelection|Түс жана топ|Түс пен топ|Колір і група|Renk ve grup
+results.categoryName|Топтун аталышы|Топ атауы|Назва групи|Grup adı
+results.categoryColor|Топтун түсү|Топ түсі|Колір групи|Grup rengi
+results.removeTag|Топту алып салуу|Топты алып тастау|Прибрати групу|Grubu kaldır
+results.applyTag|Тандалгандарга колдонуу|Таңдалғандарға қолдану|Застосувати до вибраного|Seçime uygula
+colors.orange|Кызыл|Қызыл|Червоний|Kırmızı
+colors.blue|Көк|Көк|Синій|Mavi
+colors.green|Жашыл|Жасыл|Зелений|Yeşil
+colors.purple|Кызгылт көк|Күлгін|Фіолетовий|Mor
+colors.gold|Алтын|Алтын|Золотий|Altın
+class.head_pose|Баштын абалы|Бас қалпы|Положення голови|Baş konumu
+class.body_pose|Дененин абалы|Дене қалпы|Положення тіла|Vücut konumu
+class.pose_mismatch|Ар башка кыймылсыз абалдар|Әртүрлі қимылсыз қалыптар|Різні статичні пози|Farklı sabit pozlar
+class.action_mismatch|Ар башка аракеттер|Әртүрлі әрекеттер|Різні дії|Farklı eylemler
+class.head_action_mismatch|Баштын ар башка кыймылдары|Бастың әртүрлі қозғалыстары|Різні рухи голови|Farklı baş hareketleri
+class.seated_lying|Отурат / жатат|Отыр / жатыр|Сидить / лежить|Oturuyor / yatıyor
+class.posture_mismatch|Дененин ар башка абалдары|Әртүрлі дене қалыптары|Різні положення тіла|Farklı vücut duruşları
+class.posture_uncertain|Дененин абалы белгисиз|Дене қалпы белгісіз|Положення тіла не визначено|Vücut duruşu belirsiz
+class.head_front|Башы түз|Басы тура|Голова прямо|Baş öne dönük
+class.head_turned|Башы бурулган|Басы бұрылған|Голова повернута|Baş çevrilmiş
+class.arms_raised|Колу көтөрүлгөн|Қолы көтерілген|Рука піднята|Kol kaldırılmış
+class.arms_extended|Колу сунулган|Қолы созылған|Рука випрямлена|Kol uzatılmış
+class.arms_folded|Колдору кайчылашкан|Қолдары айқасқан|Руки схрещені|Kollar çapraz
+class.legs_bent|Буттары бүгүлгөн|Аяқтары бүгілген|Ноги зігнуті|Bacaklar bükülü
+class.legs_straight|Буттары түз|Аяқтары түзу|Ноги випрямлені|Bacaklar düz
+class.unknown|Аныкталган жок|Анықталмаған|Не визначено|Belirsiz
+class.push|Колду сунуу|Қолды созу|Розгинання руки|Kolu uzatma
+class.pull|Колду бүгүү|Қолды бүгу|Згинання руки|Kolu bükme
+class.raise_lower|Колду көтөрүү жана түшүрүү|Қолды көтеру және түсіру|Підняття й опускання руки|Kolu kaldırma ve indirme
+class.reach_return|Колду сунуу жана кайтаруу|Қолды созу және қайтару|Розгинання й повернення руки|Kolu uzatma ve geri çekme
+class.head_nod|Баш ийкөө|Бас изеу|Кивок голови|Baş sallama
+class.head_tilt|Башты эңкейтүү|Басты еңкейту|Нахил голови|Başı eğme
+class.raise|Көтөрүү|Көтеру|Підняття|Kaldırma
+class.lower|Түшүрүү|Түсіру|Опускання|İndirme
+class.turn|Бурулуу|Бұрылу|Поворот|Dönüş
+class.head_turn|Башты буруу|Басты бұру|Поворот голови|Başı çevirme
+class.head_turn_away|Башын камерадан бурат|Басын камерадан бұрады|Відвертає голову від камери|Başını kameradan çeviriyor
+class.head_turn_back|Башын камерага бурат|Басын камераға бұрады|Повертає голову до камери|Başını kameraya çeviriyor
+class.step|Кадам|Қадам|Крок|Adım
+class.wave|Кол булгоо|Қол бұлғау|Помах|El sallama
+class.static|Кыймылсыз|Қимылсыз|Без руху|Hareketsiz
+class.mixed|Аралаш кыймыл|Аралас қозғалыс|Змішаний рух|Karma hareket
+class.left|Солго|Солға|Ліворуч|Sola
+class.right|Оңго|Оңға|Праворуч|Sağa
+class.toward_camera|Камерага карай|Камераға қарай|До камери|Kameraya doğru
+class.away_from_camera|Камерадан алыстоо|Камерадан алыстау|Від камери|Kameradan uzağa
+ direction.left|Солго|Солға|Ліворуч|Sola
+ direction.right|Оңго|Оңға|Праворуч|Sağa
+ direction.toward_camera|Камерага карай|Камераға қарай|До камери|Kameraya doğru
+ direction.away_from_camera|Камерадан алыстоо|Камерадан алыстау|Від камери|Kameradan uzağa
+ direction.static|Жылыш жок|Орын ауыстыру жоқ|Без переміщення|Yer değiştirme yok
+ direction.mixed|Аралаш багыт|Аралас бағыт|Змішаний напрямок|Karma yön
+ direction.unknown|Багыт белгисиз|Бағыт белгісіз|Напрямок невідомий|Yön belirsiz
+updates.title|Parallel Finder жаңыртуу|Parallel Finder жаңарту|Оновлення Parallel Finder|Parallel Finder güncellemesi
+updates.channel|Жаңыртуу каналы|Жаңарту арнасы|Канал оновлень|Güncelleme kanalı
+updates.autoCheck|Ишке киргенде жаңыртууну текшерүү|Іске қосқанда жаңартуды тексеру|Перевіряти оновлення під час запуску|Başlangıçta güncellemeleri denetle
+updates.autoDownload|Жаңыртууларды автоматтык жүктөө|Жаңартуларды автоматты жүктеу|Автоматично завантажувати оновлення|Güncellemeleri otomatik indir
+updates.check|Жаңыртууларды текшерүү|Жаңартуларды тексеру|Перевірити оновлення|Güncellemeleri denetle
+updates.consent|Орнотуу үчүн макулдугуң керек. Тиркеме жабылып кайра ачылат; алгач талдоону жана экспортту аякта.|Орнатуға келісіміңіз қажет. Қолданба жабылып, қайта ашылады; алдымен талдау мен экспортты аяқтаңыз.|Для встановлення потрібна твоя згода. Застосунок закриється й перезапуститься; спочатку заверши аналіз та експорт.|Kurulum onayını gerektirir. Uygulama kapanıp yeniden açılır; önce analiz ve dışa aktarmayı bitir.
+updates.size|Жаңыртуунун көлөмү|Жаңарту көлемі|Розмір оновлення|Güncelleme boyutu
+updates.update|Жаңыртуу|Жаңарту|Оновити|Güncelle
+updates.later|Кийин|Кейін|Пізніше|Daha sonra
+updates.skip|Бул версияны өткөрүү|Бұл нұсқаны өткізу|Пропустити цю версію|Bu sürümü atla
+updates.install|Орнотуу жана кайра ачуу|Орнату және қайта іске қосу|Встановити й перезапустити|Yükle ve yeniden başlat
+updates.cancel|Жүктөөнү токтото туруу|Жүктеуді кідірту|Призупинити завантаження|İndirmeyi duraklat
+updates.state.idle|Текшерүү жүргөн жок|Тексеру жүріп жатқан жоқ|Перевірка не виконується|Denetleme yapılmıyor
+updates.state.checking|Жаңыртуулар текшерилүүдө…|Жаңартулар тексерілуде…|Перевірка оновлень…|Güncellemeler denetleniyor…
+updates.state.available|Жаңы версия бар|Жаңа нұсқа бар|Доступна нова версія|Yeni sürüm mevcut
+updates.state.downloading|Жаңыртуу жүктөлүүдө…|Жаңарту жүктелуде…|Завантаження оновлення…|Güncelleme indiriliyor…
+updates.state.verifying|Кол тамга жана бүтүндүк текшерилүүдө…|Қолтаңба мен тұтастық тексерілуде…|Перевірка підпису й цілісності…|İmza ve bütünlük doğrulanıyor…
+updates.state.ready|Кол тамга жана бүтүндүк текшерилди|Қолтаңба мен тұтастық расталды|Підпис і цілісність перевірено|İmza ve bütünlük doğrulandı
+updates.state.installing|Орнотуу жаңырткычка берилүүдө…|Орнату жаңартқышқа берілуде…|Передавання встановлення оновлювачу…|Kurulum güncelleyiciye aktarılıyor…
+updates.state.error|Жаңыртуу аягына чыккан жок|Жаңарту аяқталмады|Не вдалося завершити оновлення|Güncelleme tamamlanamadı
+updates.state.upToDate|Бул каналдын акыркы версиясы орнотулган|Осы арнаның соңғы нұсқасы орнатылған|Установлено останню версію цього каналу|Seçili kanal için güncel
+updates.state.cancelled|Жүктөө токтотулду; жүктөлгөндөр сакталды|Жүктеу кідіртілді; деректер сақталды|Завантаження призупинено; дані збережено|İndirme duraklatıldı; indirilen veriler korundu
+updates.state.skipped|Бул версия өткөрүлдү. Жаңысы чыкканда билдиребиз.|Бұл нұсқа өткізілді. Жаңасы шыққанда хабарлаймыз.|Цю версію пропущено. Повідомимо про наступну.|Bu sürüm atlandı. Daha yeni bir sürüm çıktığında bildirilir.
+app.title|Parallel Finder|Parallel Finder|Parallel Finder|Parallel Finder
+app.stage|Кыймылды жергиликтүү талдоо|Қозғалысты жергілікті талдау|Локальний аналіз руху|Yerel hareket analizi
+splash.loading|Иш мейкиндиги даярдалууда…|Жұмыс кеңістігі дайындалуда…|Підготовка робочого простору…|Çalışma alanı hazırlanıyor…
+common.seconds|с|с|с|sn
+common.empty|—|—|—|—
+common.close|Жабуу|Жабу|Закрити|Kapat
+dialog.chooseVideos|Видеофайлдарды тандоо|Бейнефайлдарды таңдау|Вибрати відеофайли|Video dosyalarını seç
+dialog.chooseFolder|Видеолордун папкасын тандоо|Бейнелер қалтасын таңдау|Вибрати папку з відео|Video klasörünü seç
+dialog.videoFilter|Видео (*.mp4 *.mov *.mkv *.avi *.webm)|Бейне (*.mp4 *.mov *.mkv *.avi *.webm)|Відео (*.mp4 *.mov *.mkv *.avi *.webm)|Video (*.mp4 *.mov *.mkv *.avi *.webm)
+dialog.allFiles|Бардык файлдар (*)|Барлық файлдар (*)|Усі файли (*)|Tüm dosyalar (*)
+top.workspace|Иш мейкиндиги|Жұмыс кеңістігі|Робочий простір|Çalışma alanı
+top.analyzing|Талдоо жүрүүдө|Талдау жүріп жатыр|Аналіз|Analiz ediliyor
+top.ready|Ишке даяр|Жұмысқа дайын|Готово до роботи|Hazır
+top.settings|Жөндөөлөрдү ачуу|Баптауларды ашу|Відкрити налаштування|Ayarları aç
+top.theme|Ачык жана караңгы теманы которуу|Ашық және қараңғы тақырыпты ауыстыру|Перемкнути світлу й темну теми|Açık ve koyu temayı değiştir
+sources.title|Булактар|Дереккөздер|Джерела|Kaynaklar
+sources.subtitle|Салыштыруу үчүн материал кош|Салыстыру үшін материал қосыңыз|Додай матеріал для порівняння|Karşılaştırmak için içerik ekle
+sources.loaded|видео кошулду|бейне қосылды|відео додано|video eklendi
+sources.dropTitle|Видеолорду бул жерге сүйрө|Бейнелерді осы жерге сүйреңіз|Перетягни відео сюди|Videoları buraya sürükle
+sources.dropHint|же төмөндөн файл танда|немесе төменнен файл таңдаңыз|або вибери файли нижче|veya aşağıdan dosya seç
+sources.add|Видео кошуу|Бейне қосу|Додати відео|Video ekle
+sources.folder|Папка тандоо|Қалта таңдау|Вибрати папку|Klasör seç
+sources.clear|Тазалоо|Тазарту|Очистити|Temizle
+sources.remove|Алып салуу|Жою|Видалити|Kaldır
+sources.empty|Тизме бош|Тізім бос|Список порожній|Liste boş
+search.similarityGroup|Дал келүү тактыгы|Сәйкестік дәлдігі|Точність збігів|Eşleşme doğruluğu
+search.similarity|Окшоштук босогосу|Ұқсастық шегі|Поріг схожості|Benzerlik eşiği
+search.similarityHint|Жогорку босого жаңылыш дал келүүлөрдү азайтат; төмөн босого көбүрөөк талапкер табат.|Жоғары шек жалған сәйкестікті азайтады; төмен шек көбірек үміткер табады.|Вищий поріг зменшує хибні збіги; нижчий знаходить більше кандидатів.|Yüksek eşik yanlış eşleşmeleri azaltır; düşük eşik daha fazla aday bulur.
+search.candidate|Талапкерлердин босогосу|Үміткерлер шегі|Поріг кандидатів|Aday eşiği
+search.candidateHint|Окшош кыймылдар табылбай жатса, алдын ала чыпканын босогосун азайт.|Ұқсас қозғалыстар табылмаса, алдын ала сүзгі шегін төмендетіңіз.|Зменш поріг попереднього відбору, якщо схожі рухи пропускаються.|Benzer hareketler kaçırılıyorsa ön filtre eşiğini düşür.
+search.spacingGroup|Убакыт аралыктары|Уақыт аралықтары|Часові проміжки|Zaman aralıkları
+search.repeatGap|Кайталоонун эң аз аралыгы|Қайталаудың ең аз аралығы|Мінімальний інтервал повторів|En kısa tekrar aralığı
+search.repeatGapHint|Бул аралыктан жакын табылгандар бир кайталоо катары эсептелет.|Осы аралықтан жақын табылғандар бір қайталау саналады.|Збіги, ближчі за цей інтервал, вважаються одним повтором.|Bu aralıktan yakın tespitler tek tekrar sayılır.
+search.sameFileGap|Бир видеодогу аралык|Бір бейнедегі аралық|Інтервал в одному відео|Aynı videodaki aralık
+search.sameFileGapHint|Бир файлдагы эки учурдун эң аз аралыгы.|Бір файлдағы екі сәттің ең аз аралығы.|Мінімальна відстань між двома моментами одного файлу.|Aynı dosyadaki iki an arasındaki en kısa süre.
+search.crossFileGap|Видеолордун ортосундагы аралык|Бейнелер арасындағы аралық|Інтервал між відео|Videolar arasındaki aralık
+search.crossFileGapHint|Ар башка файлдардагы дал келүүлөрдүн эң аз аралыгы.|Әртүрлі файлдағы сәйкестіктердің ең аз аралығы.|Мінімальний інтервал для збігів із різних файлів.|Farklı dosyalardaki eşleşmeler arasındaki en kısa süre.
+search.duplicateWindow|Кайталоолор терезеси|Қайталанулар терезесі|Вікно дублікатів|Yinelenen eşleşme aralığı
+search.duplicateWindowHint|Бир эпизодго тиешелүү натыйжаларды бириктирет.|Бір эпизодқа қатысты нәтижелерді біріктіреді.|Об’єднує результати одного епізоду.|Aynı bölüme ait sonuçları birleştirir.
+search.rankingGroup|Ызы-чуу жана иреттөө|Шу және реттеу|Шум і ранжування|Gürültü ve sıralama
+search.sceneGroup|Сахна детектору|Сахна детекторы|Детектор сцен|Sahne algılayıcı
+search.sceneThreshold|Сахна алмашуу босогосу|Сахна ауысу шегі|Поріг зміни сцени|Sahne değişimi eşiği
+search.sceneThresholdHint|Сахналар өтө көп бөлүнсө, босогону көтөр.|Сахна шекарасы тым жиі анықталса, шекті көтеріңіз.|Збільш поріг, якщо межі сцен визначаються надто часто.|Sahne sınırları çok sık algılanıyorsa eşiği yükselt.
+search.noise|Ызы-чуу коэффициенти|Шу коэффициенті|Коефіцієнт шуму|Gürültü katsayısı
+search.noiseHint|Абалдын титирөөсүн жана байкоо каталарын эске алат. Байкоо туруксуз болсо көтөр.|Қалып дірілі мен бақылау қателерін ескереді. Бақылау тұрақсыз болса көтеріңіз.|Ураховує тремтіння поз і шум відстеження. Збільш за нестабільного відстеження.|Poz titreşimini ve izleme gürültüsünü hesaba katar. İzleme kararsızsa artır.
+search.maxResults|Ар бир түрдүн чеги|Әр түрдің шегі|Максимум для кожного типу|Tür başına en fazla
+search.maxResultsHint|Кыймыл жана кыймылсыз абал үчүн өзүнчө чектер. Гибридде бир түр экинчисин сүрүп чыгарбайт.|Қозғалыс пен қимылсыз қалыпқа бөлек шектер. Гибридте бір түр екіншісін ығыстырмайды.|Окремі ліміти для руху й статичних поз. У гібридному режимі типи не витісняють один одного.|Hareket ve sabit pozlar için ayrı sınırlar. Hibrit modda türler birbirini dışlamaz.
+search.timeWeight|Убакыттын салмагы|Уақыт салмағы|Вага часу|Zaman ağırlığı
+search.timeWeightHint|Кыймылдын узактыгы жана убактысы канчалык катуу салыштырылат.|Қозғалыс ұзақтығы мен уақытының салыстыру қатаңдығы.|Наскільки суворо порівнюються тривалість і час руху.|Hareket süresinin ve zamanlamanın ne kadar sıkı karşılaştırılacağı.
+search.quality|Талдоонун сапаты|Талдау сапасы|Якість аналізу|Analiz kalitesi
+search.frameProcessing|Кадрларды иштетүү|Кадрларды өңдеу|Обробка кадрів|Kare işleme
+search.accuracyGroup|Тактык режими|Дәлдік режимі|Режим точності|Doğruluk modu
+search.accuracyHint|Режим кадрларды иштетүүнү жана параллелдерди издөө профилин бирге коёт.|Режим кадр өңдеу мен параллель іздеу профилін бірге орнатады.|Режим одночасно задає обробку кадрів і профіль пошуку паралелей.|Mod, kare işleme ile paralel arama profilini birlikte ayarlar.
+search.presetFast|Тез издөө|Жылдам іздеу|Швидкий пошук|Hızlı arama
+search.presetBalanced|Тең салмактуу|Теңгерімді|Збалансовано|Dengeli
+search.presetPrecise|Жогорку тактык|Жоғары дәлдік|Висока точність|Yüksek doğruluk
+search.advanced|Кошумча жөндөөлөр|Қосымша баптаулар|Додаткові налаштування|Gelişmiş ayarlar
+search.reanalyze|Кеңейтилген издөө|Кеңейтілген іздеу|Розширений пошук|Genişletilmiş arama
+search.reanalyzeHint|Даяр байкоолор менен кошумча параллелдерди издейт. Кэш сакталат; таануу булак же жөндөөлөр өзгөргөндө гана кайталанат. Издөө узагыраак болушу мүмкүн.|Дайын бақылаулардан қосымша параллель іздейді. Кэш сақталады; тану дереккөз не баптаулар өзгергенде ғана қайталанады. Іздеу ұзағырақ болуы мүмкін.|Шукає додаткові паралелі за готовими спостереженнями. Кеш зберігається; розпізнавання повторюється лише після зміни джерела або параметрів. Пошук може тривати довше.|Mevcut gözlemlerle ek paraleller arar. Önbellek korunur; tanıma yalnızca kaynak veya analiz ayarları değişirse yinelenir. Arama daha uzun sürebilir.
+search.advancedHint|Тактыкка эң көп таасир эткен үч гана параметр көрсөтүлөт; калгандарын профиль тандайт.|Дәлдікке ең көп әсер ететін үш параметр көрсетіледі; қалғанын профиль реттейді.|Показано лише три найвпливовіші параметри; решту добирає профіль.|Doğruluğu en çok etkileyen üç ayar gösterilir; kalanını profil yönetir.
+search.fast|Тез|Жылдам|Швидко|Hızlı
+search.medium|Орточо|Орташа|Середнє|Orta
+search.maximum|Эң жогорку|Ең жоғары|Максимальне|En yüksek
+search.analysisMode|Талдоонун курамы|Талдау құрамы|Склад аналізу|Analiz içeriği
+search.modeHint|Эмнени салыштырууну танда: кыймылды, кыймылсыз абалды же экөөнү тең.|Нені салыстыруды таңдаңыз: қозғалысты, қимылсыз қалыпты немесе екеуін де.|Вибери, що порівнювати: рух, статичні пози чи обидва типи.|Hareketi, sabit pozları veya ikisini karşılaştırmayı seç.
+search.modeMotion|Кыймыл|Қозғалыс|Рух|Hareket
+search.modeStatic|Кыймылсыз кадрлар|Қимылсыз кадрлар|Статичні кадри|Sabit kareler
+search.modeCombined|Гибрид (кыймыл + кадрлар)|Гибрид (қозғалыс + кадрлар)|Гібрид (рух + кадри)|Hibrit (hareket + kareler)
+search.normalize|Өлчөмдү нормалдаштыруу|Өлшемді қалыпқа келтіру|Нормалізувати розмір|Ölçeği normalleştir
+search.normalizeHint|Адамдын өлчөмү окшоштукка үстөмдүк кылбашы үчүн абалдын масштабын теңдейт.|Адам өлшемі ұқсастыққа басым әсер етпеуі үшін қалып масштабын теңестіреді.|Зводить пози до спільного масштабу, щоб розмір людини не переважав у схожості.|Kişi boyutunun benzerliğe baskın gelmemesi için poz ölçeğini eşitler.
+search.mirror|Күзгү абалдарын эске алуу|Айнадағы қалыптарды ескеру|Ураховувати дзеркальні пози|Aynalanmış pozları dahil et
+search.mirrorHint|Күзгү кыймылды да текшерет. Камеранын тарабы же экрандагы багыт өзгөргөндө пайдалуу.|Айнадағы қозғалысты да тексереді. Камера жағы не экрандағы бағыт өзгерсе пайдалы.|Також перевіряє дзеркальний рух. Корисно за зміни боку камери або напрямку.|Aynalanmış hareketi de sınar. Kamera tarafı veya ekran yönü değiştiğinde yararlıdır.
+search.start|Талдоону баштоо|Талдауды бастау|Запустити аналіз|Analizi başlat
+search.restart|Кайра иштетүү|Қайта іске қосу|Запустити знову|Yeniden çalıştır
+search.stop|Токтотуу|Тоқтату|Зупинити|Durdur
+search.running|Талдоо жүрүүдө…|Талдау жүріп жатыр…|Триває аналіз…|Analiz sürüyor…
+stats.files|Файлдар|Файлдар|Файли|Dosyalar
+stats.frames|Булактагы кадрлар|Бастапқы кадрлар|Кадри джерела|Kaynak kareler
+stats.scenes|Сахналар|Сахналар|Сцени|Sahneler
+stats.pairs|Жуптар|Жұптар|Пари|Çiftler
+stats.duration|Узактык|Ұзақтық|Тривалість|Süre
+stats.status|Абал|Күй|Стан|Durum
+stats.progress|Аткарылышы|Орындалуы|Прогрес|İlerleme
+center.emptyTitle|Кайталоолорду издөө үчүн видео кош|Қайталауларды іздеу үшін бейне қосыңыз|Додай відео для пошуку повторів|Tekrarları bulmak için video ekle
+center.emptyHint|Бир же бир нече файлдан башта|Бір не бірнеше файлдан бастаңыз|Почни з одного чи кількох файлів|Bir veya daha fazla dosyayla başla
+center.readyTitle|Кыймыл салыштырууга даяр|Қозғалыс салыстыруға дайын|Рух готовий до порівняння|Hareket karşılaştırmaya hazır
+center.analyzingTitle|Кайталанган кыймыл изделүүдө|Қайталанатын қозғалыс ізделуде|Пошук повторюваного руху|Tekrarlanan hareket aranıyor
+center.analyzingHint|Кадрлар бул компьютерде иштетилет. Талдоо бүткөндө натыйжалар чыгат.|Кадрлар осы компьютерде өңделеді. Нәтижелер талдау біткенде шығады.|Кадри обробляються локально. Результати з’являться після аналізу.|Kareler yerel olarak işlenir. Sonuçlar analiz bitince görünür.
+center.readyHint|Жуптарды көрүү үчүн талдоону башта|Жұптарды көру үшін талдауды бастаңыз|Запусти аналіз, щоб побачити пари|Eşleşen çiftleri görmek için analizi başlat
+center.completedTitle|Салыштыруу бүттү|Салыстыру аяқталды|Порівняння завершено|Karşılaştırma tamamlandı
+center.completedHint|Кадрларды жана убакыт белгилерин көрүү үчүн оң жактан жуп танда|Кадрлар мен уақыт белгілерін көру үшін оң жақтан жұп таңдаңыз|Вибери пару праворуч, щоб відкрити кадри й таймкоди|Kareleri ve zaman kodlarını açmak için sağdan bir çift seç
+center.noMatchesTitle|Дал келүү табылган жок|Сәйкестік табылмады|Збігів не знайдено|Eşleşme bulunamadı
+center.noMatchesHint|Босогону өзгөрт же башка видео кош|Шектерді өзгертіңіз не басқа бейне қосыңыз|Зміни пороги або додай інше відео|Eşikleri değiştir veya başka video ekle
+center.comparison|Салыштыруу|Салыстыру|Порівняння|Karşılaştırma
+center.processing|материал иштетилүүдө|материал өңделуде|обробка матеріалу|içerik işleniyor
+center.waiting|материал күтүлүүдө|материал күтілуде|очікування матеріалу|içerik bekleniyor
+center.readyStatus|талдоого даяр|талдауға дайын|готово до аналізу|analize hazır
+center.noMatchesStatus|дал келүү жок|сәйкестік жоқ|збігів немає|eşleşme yok
+center.similarity|окшоштук|ұқсастық|схожість|benzerlik
+center.motionField|кыймыл талаасы|қозғалыс өрісі|поле руху|hareket alanı
+center.poseCount|абалдар табылды|қалыптар табылды|поз знайдено|poz bulundu
+center.noMaterial|материал тандалган жок|материал таңдалмаған|матеріал не вибрано|içerik seçilmedi
+timeline.left|A|A|A|A
+timeline.right|B|B|B|B
+timeline.loadingFrame|Кыймылсыз кадр жүктөлүүдө…|Тоқтатылған кадр жүктелуде…|Завантаження стоп-кадру…|Durağan kare yükleniyor…
+timeline.frameUnavailable|Кыймылсыз кадр жеткиликсиз|Тоқтатылған кадр қолжетімсіз|Стоп-кадр недоступний|Durağan kare kullanılamıyor
+comparison.fit|Кадрды терезеге батыруу|Кадрды терезеге сыйдыру|Умістити кадр у вікно|Kareyi pencereye sığdır
+results.title|Натыйжалар|Нәтижелер|Результати|Sonuçlar
+results.found|табылды|табылды|знайдено|bulundu
+results.emptyHint|Натыйжалар бул жерде чыгат|Нәтижелер осында шығады|Результати з’являться тут|Sonuçlar burada görünecek
+results.emptyBody|Талдоо бүткөндө бул жерде окшош кыймылдардын жуптары чыгат.|Талдау біткенде осында ұқсас қозғалыс жұптары шығады.|Пари схожих рухів з’являться тут після аналізу.|Analizden sonra eşleşen hareket çiftleri burada görünür.
+results.previous|Мурунку жуп|Алдыңғы жұп|Попередня пара|Önceki çift
+results.next|Кийинки жуп|Келесі жұп|Наступна пара|Sonraki çift
+results.sort|Иреттөө|Сұрыптау|Сортування|Sıralama
+results.sortBy|Иреттөө тартиби|Сұрыптау реті|Сортувати за|Sıralama ölçütü
+results.scoreHigh|Окшоштук: жогоркудан|Ұқсастық: жоғарыдан|Схожість: спочатку висока|Benzerlik: yüksekten düşüğe
+results.scoreLow|Окшоштук: төмөндөн|Ұқсастық: төменнен|Схожість: спочатку низька|Benzerlik: düşükten yükseğe
+results.sceneHigh|Сахна: эң окшоштон|Сахна: ең ұқсастан|Сцена: спочатку схожа|Sahne: en benzer önce
+results.sceneLow|Сахна: эң айырмалангандан|Сахна: ең өзгешеден|Сцена: спочатку несхожа|Sahne: en az benzer önce
+results.timeEarly|Убакыт: эртеден|Уақыт: ертеден|Час: спочатку ранній|Zaman: erken önce
+results.timeLate|Убакыт: кечтен|Уақыт: кештен|Час: спочатку пізній|Zaman: geç önce
+results.toTop|Жогору кайтуу|Жоғары қайту|На початок|Başa dön
+results.score|Окшоштук|Ұқсастық|Схожість|Benzerlik
+results.motionSimilarity|Кыймылдын окшоштугу|Қозғалыс ұқсастығы|Схожість руху|Hareket benzerliği
+results.poseSimilarity|Абалдын окшоштугу|Қалып ұқсастығы|Схожість пози|Poz benzerliği
+results.headSimilarity|Баш абалынын окшоштугу|Бас қалпының ұқсастығы|Схожість положення голови|Baş pozu benzerliği
+results.sceneSimilarity|Сахнанын окшоштугу|Сахна ұқсастығы|Схожість сцени|Sahne benzerliği
+results.scene|Сахна|Сахна|Сцена|Sahne
+results.file|Файл|Файл|Файл|Dosya
+results.time|Убакыт|Уақыт|Час|Zaman
+results.export|Экспорт|Экспорт|Експорт|Dışa aktar
+results.selectAll|Баарын тандоо|Барлығын таңдау|Вибрати все|Tümünü seç
+results.clearSelection|Тандоону алып салуу|Таңдауды алып тастау|Зняти вибір|Seçimi temizle
+results.filtersAndOrder|Чыпкалар жана тартип|Сүзгілер мен рет|Фільтри й порядок|Filtreler ve sıralama
+results.resetFilters|Чыпкаларды баштапкыга кайтаруу|Сүзгілерді қалпына келтіру|Скинути фільтри|Filtreleri sıfırla
+settings.windowTitle|Parallel Finder жөндөөлөрү|Parallel Finder баптаулары|Налаштування Parallel Finder|Parallel Finder ayarları
+settings.saveFailed|Жөндөөлөр сакталган жок. AppData папкасына кирүү укугун текшер.|Баптаулар сақталмады. AppData қалтасына кіру құқығын тексеріңіз.|Не вдалося зберегти налаштування. Перевір доступ до AppData.|Ayarlar kaydedilemedi. AppData erişimini denetle.
+settings.reducedMotion|Интерфейс анимацияларын өчүрүү|Интерфейс анимацияларын өшіру|Вимкнути анімації інтерфейсу|Arayüz animasyonlarını kapat
+settings.providerDownload|Компоненттерди жүктөө|Компоненттерді жүктеу|Завантажити компоненти|Bileşenleri indir
+settings.providerDownloading|Жүктөлүүдө…|Жүктелуде…|Завантаження…|İndiriliyor…
+settings.providerChecking|Текшерилүүдө…|Тексерілуде…|Перевірка…|Denetleniyor…
+settings.providerRestart|Компоненттер орнотулду. Тиркемени жаап кайра ач.|Компоненттер орнатылды. Қолданбаны жауып, қайта ашыңыз.|Компоненти встановлено. Закрий і знову відкрий застосунок.|Bileşenler yüklendi. Uygulamayı kapatıp yeniden aç.
+settings.gpuSetupSteps|DirectML, CUDA же TensorRT тандап, компоненттерин жүктөп, тиркемени кайра ач. Шайкеш видеокарта жана драйвер керек. CPU үчүн жүктөө талап кылынбайт.|DirectML, CUDA не TensorRT таңдап, компоненттерін жүктеп, қолданбаны қайта ашыңыз. Үйлесімді бейнекарта мен драйвер қажет. CPU жүктеуді қажет етпейді.|Для прискорення вибери DirectML, CUDA чи TensorRT, завантаж компоненти й перезапусти застосунок. Потрібні сумісна відеокарта та драйвер. CPU працює без завантажень.|GPU hızlandırması için DirectML, CUDA veya TensorRT seç, bileşenleri indir ve yeniden başlat. Uyumlu GPU ve sürücü gerekir. CPU için indirme gerekmez.
+settings.title|Талдоо жөндөөлөрү|Талдау баптаулары|Налаштування аналізу|Analiz ayarları
+settings.subtitle|Бул маанилер кийинки талдоолорго сакталат.|Бұл мәндер келесі талдауларға сақталады.|Ці значення зберігаються для наступних запусків.|Bu değerler sonraki çalıştırmalar için kaydedilir.
+settings.environment|Талдоо чөйрөсү|Талдау ортасы|Середовище аналізу|Analiz ortamı
+settings.provider|Провайдер|Провайдер|Провайдер|Sağlayıcı
+settings.providerHint|Абалдарды иштетүү кыймылдаткычы. Авто жеткиликтүү GPU тандайт; CPU тездеткичсиз иштейт.|Қалыптарды өңдеу қозғалтқышы. Авто қолжетімді GPU таңдайды; CPU үдетусіз істейді.|Рушій обробки поз. Авто вибирає доступний GPU; CPU працює без прискорення.|Poz işleme motoru. Otomatik seçim kullanılabilir GPU'yu seçer; CPU hızlandırmasız çalışır.
+settings.providerAutoHint|Авто GPU мүмкүнчүлүгүн текшерип, тездеткич жок болсо CPU колдонот.|Авто GPU мүмкіндігін тексеріп, үдеткіш болмаса CPU қолданады.|Авто перевіряє GPU й переходить на CPU, якщо прискорення недоступне.|Otomatik seçim GPU'yu denetler, hızlandırma yoksa CPU kullanır.
+settings.providerReady|Провайдер даяр|Провайдер дайын|Провайдер готовий|Sağlayıcı hazır
+settings.providerUnavailable|Провайдер жеткиликсиз|Провайдер қолжетімсіз|Провайдер недоступний|Sağlayıcı kullanılamıyor
+settings.providerCudaMissing|CUDA жеткиликсиз: ONNX GPU компоненттерин орнотуп, NVIDIA драйверин текшер.|CUDA қолжетімсіз: ONNX GPU компоненттерін орнатып, NVIDIA драйверін тексеріңіз.|CUDA недоступна: встанови ONNX GPU runtime і перевір драйвер NVIDIA.|CUDA kullanılamıyor: ONNX GPU çalışma zamanını yükle ve NVIDIA sürücüsünü denetle.
+settings.providerTensorRtMissing|TensorRT жеткиликсиз: шайкеш GPU компоненттери керек.|TensorRT қолжетімсіз: үйлесімді GPU компоненттері қажет.|TensorRT недоступний: потрібен сумісний GPU runtime.|TensorRT kullanılamıyor: uyumlu GPU çalışma zamanı gerekli.
+settings.providerDmlMissing|Бул runtime ичинде DirectML жеткиликсиз.|Осы runtime ішінде DirectML қолжетімсіз.|DirectML недоступний у поточному runtime.|DirectML mevcut çalışma zamanında kullanılamıyor.
+settings.providerDownloadHint|Пакетти текшерүү жана жүктөө үчүн жүктөө баскычын бас.|Пакетті тексеріп, жүктеу үшін жүктеу түймесін басыңыз.|Натисни завантаження, щоб перевірити пакет і почати його отримання.|Paketi denetlemek ve indirmek için indirme düğmesine bas.
+settings.providerManifestMissing|Пакет GitHub Releases ичинде азырынча жарыяланган эмес.|Пакет GitHub Releases ішінде әлі жарияланбаған.|Пакет runtime ще не опубліковано в GitHub Releases.|Çalışma zamanı paketi henüz GitHub Releases'te yayımlanmamış.
+settings.providerNetworkError|GitHub жеткиликсиз. Байланышты текшерип кайра аракет кыл.|GitHub қолжетімсіз. Байланысты тексеріп, қайталап көріңіз.|Не вдалося з’єднатися з GitHub. Перевір мережу й спробуй знову.|GitHub'a ulaşılamadı. Bağlantını denetleyip yeniden dene.
+settings.providerDownloadDone|Компоненттер жүктөлдү. Талдоону кайра башта.|Компоненттер жүктелді. Талдауды қайта бастаңыз.|Runtime завантажено. Перезапусти аналіз.|Çalışma zamanı indirildi. Analizi yeniden başlat.
+settings.providerGuide|Нускаманы ачуу|Нұсқаулықты ашу|Відкрити інструкцію|Kılavuzu aç
+settings.providerAuto|Авто (жеткиликтүүсүнүн мыктысы)|Авто (ең қолайлысы)|Авто (найкращий доступний)|Otomatik (en uygun)
+settings.providerDirectMl|DirectML (AMD / Intel / жалпы)|DirectML (AMD / Intel / әмбебап)|DirectML (AMD / Intel / універсальний)|DirectML (AMD / Intel / genel)
+settings.providerCuda|CUDA (NVIDIA)|CUDA (NVIDIA)|CUDA (NVIDIA)|CUDA (NVIDIA)
+settings.providerTensorRt|TensorRT (NVIDIA, жогорку ылдамдык)|TensorRT (NVIDIA, жоғары жылдамдық)|TensorRT (NVIDIA, висока швидкодія)|TensorRT (NVIDIA, yüksek performans)
+settings.providerCpu|CPU (жалпы)|CPU (әмбебап)|CPU (універсальний)|CPU (genel)
+settings.language|Интерфейстин тили|Интерфейс тілі|Мова інтерфейсу|Arayüz dili
+settings.languageRussian|Орусча|Орысша|Російська|Rusça
+settings.languageEnglish|Англисче|Ағылшынша|Англійська|İngilizce
+settings.models|Абал модели|Қалып моделі|Модель поз|Poz modeli
+settings.poseModel|Даяр модель|Дайын модель|Готова модель|Hazır model
+settings.modelHint|YOLO абал моделин танда. Жергиликтүү файл жок болсо, тиркеме аны релизден жүктөйт.|YOLO қалып моделін таңдаңыз. Жергілікті файл болмаса, қолданба оны релизден жүктейді.|Вибери модель поз YOLO. Якщо її немає локально, застосунок завантажить її з релізу.|Bir YOLO poz modeli seç. Yerelde yoksa uygulama modeli sürümden indirir.
+settings.modelDownloading|Тандалган модель GitHub Releases аркылуу жүктөлүүдө…|Таңдалған модель GitHub Releases арқылы жүктелуде…|Завантаження вибраної моделі з GitHub Releases…|Seçilen model GitHub Releases'ten indiriliyor…
+settings.cache|Талдоо кэши|Талдау кэші|Кеш аналізу|Analiz önbelleği
+settings.cachePath|Кэштин жолу|Кэш жолы|Шлях до кешу|Önbellek yolu
+settings.cacheHint|Кийинки талдоо тезирээк бүтүшү үчүн аралык белгилер жана натыйжалар ушул жерде сакталат.|Келесі талдау жылдамырақ бітуі үшін аралық белгілер мен нәтижелер осында сақталады.|Проміжні ознаки й результати зберігаються тут для прискорення повторних запусків.|Tekrar analizi hızlandırmak için ara özellikler ve sonuçlar burada saklanır.
+settings.cacheLimit|Кэштин чеги|Кэш шегі|Ліміт кешу|Önbellek sınırı
+settings.cacheLimitHint|Аралык маалыматтын дисктеги эң чоң көлөмү. Чекке жеткенде эски жазуулар коопсуз тазаланат.|Аралық деректердің дискідегі ең үлкен көлемі. Шекке жеткенде ескі жазбалар қауіпсіз өшіріледі.|Максимальне місце на диску для проміжних даних. За досягнення ліміту старі записи безпечно видаляються.|Ara verilerin diskte kaplayacağı en fazla alan. Sınıra ulaşılınca eski kayıtlar güvenle kaldırılır.
+settings.cachePlaceholder|%LocalAppData%/ParallelFinder/cache|%LocalAppData%/ParallelFinder/cache|%LocalAppData%/ParallelFinder/cache|%LocalAppData%/ParallelFinder/cache
+settings.choose|Тандоо|Таңдау|Вибрати|Seç
+settings.chooseCache|Кэш папкасын тандоо|Кэш қалтасын таңдау|Вибрати папку кешу|Önbellek klasörünü seç
+settings.processingThreads|CPU агымдары (0 — авто)|CPU ағындары (0 — авто)|Потоки CPU (0 — авто)|CPU iş parçacıkları (0 — otomatik)
+settings.processingThreadsHint|Модель жана издөө үчүн агымдар. Нөл автоматтык санды тандайт.|Модель мен іздеу ағындары. Нөл санды автоматты таңдайды.|Потоки для моделей і пошуку. Нуль задає автоматичну кількість.|Model ve arama iş parçacıkları. Sıfır otomatik sayıyı seçer.
+settings.systemHint|Кэш чеги дискке тиешелүү; агым жөндөөлөрү кийинки талдоодо ар бир этаптын чегинде колдонулат.|Кэш шегі дискіге қатысты; ағын баптауы келесі талдауда әр кезең шегінде қолданылады.|Ліміт кешу стосується диска; кількість потоків застосовується в наступному аналізі в межах кожного етапу.|Önbellek sınırı disk içindir; iş parçacıkları sonraki analizde her aşamanın sınırlarıyla uygulanır.
+settings.reset|Талдоо параметрлерин баштапкыга кайтаруу|Талдау параметрлерін қалпына келтіру|Скинути параметри аналізу|Analiz ayarlarını sıfırla
+settings.advancedHint|Так жөндөөлөр негизги терезенин ачылуучу бөлүмүндө бар.|Нақты баптаулар негізгі терезенің ашылатын бөлімінде бар.|Точні регулятори доступні в розгортному розділі головного вікна.|Ayrıntılı kaydırıcılar ana çalışma alanındaki açılır bölümde bulunur.
+settings.openAdvanced|Кошумча жөндөөлөрдү ачуу|Қосымша баптауларды ашу|Відкрити додаткові налаштування|Gelişmiş ayarları aç
+settings.resetDone|Талдоо параметрлери кайтарылды|Талдау параметрлері қалпына келтірілді|Параметри аналізу скинуто|Analiz ayarları sıfırlandı
+settings.tabAnalysis|Талдоо|Талдау|Аналіз|Analiz
+settings.tabAppearance|Көрүнүш|Көрініс|Оформлення|Görünüm
+settings.tabLanguage|Тил|Тіл|Мова|Dil
+settings.languageHint|Интерфейстин тилин танда. Жаңы профилдер англисче башталат.|Интерфейс тілін таңдаңыз. Жаңа профильдер ағылшынша басталады.|Вибери мову інтерфейсу. Нові профілі починають з англійської.|Arayüz dilini seç. Yeni profiller İngilizce başlar.
+settings.solidColors|Бир түстүү|Біртекті түстер|Однотонні кольори|Düz renkler
+settings.gradients|Градиенттер|Градиенттер|Градієнти|Gradyanlar
+settings.gradientNone|Градиентсиз|Градиентсіз|Без градієнта|Gradyan yok
+settings.appearanceTitle|Интерфейстин көрүнүшү|Интерфейс көрінісі|Оформлення інтерфейсу|Arayüz görünümü
+settings.appearanceSubtitle|Шрифт, акцент жана панелдердин тунуктугу. Өзгөрүүлөр дароо колдонулат.|Қаріп, акцент және панель мөлдірлігі. Өзгерістер бірден қолданылады.|Шрифт, акцентна палітра й прозорість панелей. Зміни застосовуються одразу.|Yazı tipi, vurgu paleti ve panel saydamlığı. Değişiklikler hemen uygulanır.
+settings.font|Интерфейстин шрифти|Интерфейс қарпі|Шрифт інтерфейсу|Arayüz yazı tipi
+settings.fontAdd|Шрифт кошуу|Қаріп қосу|Додати шрифт|Yazı tipi ekle
+settings.fontLoaded|Жүктөлдү|Жүктелді|Завантажено|Yüklendi
+settings.fontUnavailable|Шрифт орнотулган эмес|Қаріп орнатылмаған|Шрифт не встановлено|Yazı tipi yüklü değil
+settings.fontLoadFailed|Шрифт жүктөлгөн жок. Жеткиликтүү шрифт файлын кайра танда.|Қаріп жүктелмеді. Қолжетімді қаріп файлын қайта таңдаңыз.|Не вдалося завантажити шрифт. Знову вибери доступний файл шрифту.|Yazı tipi yüklenemedi. Erişilebilir bir yazı tipi dosyası seç.
+settings.appearanceResetDone|Көрүнүш кайтарылды|Көрініс қалпына келтірілді|Оформлення скинуто|Görünüm sıfırlandı
+settings.accentColor|Акцент түсү|Акцент түсі|Акцентний колір|Vurgu rengi
+settings.accentOrange|Кызгылт сары|Қызғылт сары|Помаранчевий|Turuncu
+settings.accentBlue|Көк|Көк|Синій|Mavi
+settings.accentViolet|Кызгылт көк|Күлгін|Фіолетовий|Mor
+settings.accentTeal|Бирюза|Көгілдір жасыл|Бірюзовий|Turkuaz
+settings.accentSunset|Күн батышы|Күн батуы|Захід сонця|Gün batımı
+settings.accentOcean|Океан|Мұхит|Океан|Okyanus
+settings.accentAurora|Түндүк жарыгы|Солтүстік шұғыла|Північне сяйво|Kuzey ışıkları
+settings.accentCustom|Өз түсүм|Өз түсім|Власний колір|Özel renk
+settings.accentCustomGradient|Өз градиентим|Өз градиентім|Власний градієнт|Özel gradyan
+settings.accentStopStart|1-түс|1-түс|Колір 1|Renk 1
+settings.accentStopEnd|2-түс|2-түс|Колір 2|Renk 2
+settings.surfaceOpacity|Панелдердин тунуктугу|Панель мөлдірлігі|Прозорість панелей|Panel saydamlığı
+settings.surfaceOpacityHint|25% — жеңил панелдер, 100% — тунук эмес. Орточо маанилерде да текст окулат.|25% — жеңіл панель, 100% — мөлдір емес. Орташа мәндерде де мәтін оқылады.|25% робить панелі легкими; 100% — суцільними. Середні значення зберігають читабельність.|%25 hafif, %100 opak paneller verir. Orta değerlerde de okunabilirlik korunur.
+settings.resetAppearance|Көрүнүштү кайтаруу|Көріністі қалпына келтіру|Скинути оформлення|Görünümü sıfırla
+settings.profileSaved|Өзгөрүүлөр автоматтык сакталат.|Өзгерістер автоматты сақталады.|Зміни зберігаються автоматично.|Değişiklikler otomatik kaydedilir.
+export.title|Натыйжаларды даярдоо|Нәтижелерді дайындау|Підготувати результати|Sonuçları hazırla
+export.selected|жуп экспортко тандалды|жұп экспортқа таңдалды|пар вибрано для експорту|çift dışa aktarma için seçildi
+export.format|Формат|Пішім|Формат|Biçim
+export.numbering|Номерлөө|Нөмірлеу|Нумерація|Numaralandırma
+export.asVideo|Видеодогудай|Бейнедегідей|Як у відео|Videodaki gibi
+export.bySort|Иреттөө боюнча|Сұрыптау бойынша|За сортуванням|Sıralamaya göre
+export.cutMode|Кесүү режими|Қию режимі|Режим обрізки|Kesme modu
+export.exact|Так|Дәл|Точно|Tam
+export.fast|Тез|Жылдам|Швидко|Hızlı
+export.folder|Чыгаруу папкасы|Шығару қалтасы|Папка виводу|Çıktı klasörü
+export.prefix|Файлдын префикси|Файл префиксі|Префікс файлу|Dosya öneki
+export.chooseFolder|Папка тандоо|Қалта таңдау|Вибрати папку|Klasör seç
+export.hint|Натыйжа тандалган папкага сакталат.|Нәтиже таңдалған қалтаға сақталады.|Результат буде збережено у вибрану папку.|Sonuç seçilen klasöre kaydedilir.
+export.ffmpegHint|Дал келүүнүн башынан сахнанын аягына чейинки MP4 клиптер. Булактын өлчөмү сакталат; субтитрлер кошулбайт.|Сәйкестік басынан сахна соңына дейінгі MP4 клиптер. Бастапқы өлшем сақталады; субтитрлер қосылмайды.|MP4-кліпи від початку збігу до кінця сцени у вихідній роздільності. Субтитри не додаються.|Eşleşme başlangıcından sahne sonuna kadar, kaynak çözünürlüğünde MP4 klipler. Altyazılar eklenmez.
+export.mergeChronological|Клиптерди убакыт боюнча бириктирүү|Клиптерді уақыт бойынша біріктіру|Об’єднати кліпи за часом|Klipleri zaman sırasıyla birleştir
+export.mergeHint|Тандалган A/B үзүндүлөрүнөн бир MP4. Так көчүрмөлөр алынып салынат; өлчөм жана FPS биринчи үзүндүдөн. Кайра коддоо керек; субтитрлер кошулбайт.|Таңдалған A/B үзінділерінен бір MP4. Дәл көшірмелер алынады; өлшем мен FPS бірінші үзіндіден. Қайта кодтау қажет; субтитрлер қосылмайды.|Один MP4 з вибраних фрагментів A/B. Точні дублікати вилучаються; розмір і FPS беруться з першого фрагмента. Потрібне перекодування; субтитри не додаються.|Seçilen A/B kesitlerinden tek MP4. Tam kopyalar çıkarılır; boyut ve FPS ilk kesitten alınır. Yeniden kodlama gerekir; altyazılar eklenmez.
+export.videoFormat|FFmpeg (видео)|FFmpeg (бейне)|FFmpeg (відео)|FFmpeg (video)
+export.running|Экспорттолууда…|Экспортталуда…|Експорт…|Dışa aktarılıyor…
+preview.play|▶ Алдын ала көрүү|▶ Алдын ала қарау|▶ Переглянути|▶ Önizle
+preview.playPair|▶ A/B көрүү|▶ A/B қарау|▶ Відтворити A/B|▶ A/B oynat
+preview.pause|Токтото туруу|Кідірту|Призупинити|Duraklat
+export.cancel|Экспортту жокко чыгаруу|Экспортты тоқтату|Скасувати експорт|Dışa aktarmayı iptal et
+settings.providerRescan|Орнотулган провайдерлерди текшерүү|Орнатылған провайдерлерді тексеру|Перевірити встановлені провайдери|Yüklü sağlayıcıları denetle
+settings.providerValidatedRestart|Компоненттер текшерилди. Провайдерди иштетүү үчүн тиркемени кайра ач.|Компоненттер тексерілді. Провайдерді қосу үшін қолданбаны қайта ашыңыз.|Runtime перевірено. Перезапусти застосунок для активації провайдера.|Çalışma zamanı doğrulandı. Sağlayıcıyı etkinleştirmek için yeniden başlat.
+settings.providerInvalid|Компоненттер орнотулган, бирок текшерүүдөн өткөн жок|Компоненттер орнатылған, бірақ тексеруден өтпеді|Runtime встановлено, але перевірку не пройдено|Çalışma zamanı yüklü ancak doğrulama başarısız
+export.prepare|Экспорт|Экспорт|Експорт|Dışa aktar
+ui.322|Тарап алынды · алмаштырууга болот|Тарап алынды · ауыстыруға болады|Сторону видалено · можна замінити|Taraf kaldırıldı · değiştirilebilir
+ui.323|Клип даярдалууда…|Клип дайындалуда…|Підготовка кліпу…|Klip hazırlanıyor…
+ui.324|Видео чогултулууда…|Бейне құрастырылуда…|Збирання відео…|Video birleştiriliyor…
+ui.325|Бир видеого бириктирүү|Бір бейнеге біріктіру|Об’єднати в одне відео|Tek videoda birleştir
+ui.326|Видеонун сапаты|Бейне сапасы|Якість відео|Video kalitesi
+ui.327|Мбит/с|Мбит/с|Мбіт/с|Mb/sn
+ui.328|Битрейт, секундасына мегабит|Битрейт, секундына мегабит|Бітрейт, мегабіт за секунду|Bit hızı, saniyede megabit
+ui.329|Туурасы, пикс.|Ені, пикс.|Ширина, пікс.|Genişlik, piksel
+ui.330|Эң чоң туурасы, пиксел|Ең үлкен ені, пиксель|Максимальна ширина в пікселях|En fazla genişlik, piksel
+ui.331|Бийиктиги, пикс.|Биіктігі, пикс.|Висота, пікс.|Yükseklik, piksel
+ui.332|Эң чоң бийиктиги, пиксел|Ең үлкен биіктігі, пиксель|Максимальна висота в пікселях|En fazla yükseklik, piksel
+ui.333|Сапатты жоготпой так кесүү. MOV гана; жалпы видео үчүн агымдар шайкеш болушу керек.|Сапаны жоғалтпай дәл қию. Тек MOV; жалпы бейне үшін ағындар үйлесуі керек.|Точна обрізка без втрати якості. Лише MOV; для спільного відео потрібні сумісні потоки.|Kalite kaybı olmadan tam kesim. Yalnızca MOV; birleşik video için akışlar uyumlu olmalı.
+ui.334|Жазуу видеого киргизилет жана кайра коддоону талап кылат. Кесүү чек аралары так сакталат.|Жазу бейнеге енгізіледі және қайта кодтауды қажет етеді. Қию шекарасы дәл сақталады.|Підпис вбудовується у відео й потребує перекодування. Межі обрізки залишаються точними.|Etiket videoya işlenir ve yeniden kodlama gerektirir. Kesim sınırları tam korunur.
+ui.335|Табылган сахнанын чектеринде так кесүү. Жогорку сапат булактын өлчөмүн сактайт.|Табылған сахна шегінде дәл қию. Жоғары сапа бастапқы өлшемді сақтайды.|Точна обрізка за межами знайденої сцени. Висока якість зберігає вихідну роздільність.|Eşleşen sahne sınırlarında tam kesim. Yüksek kalite kaynak çözünürlüğünü korur.
+ui.336|Ар бир өтмөккө жазуу кошуу|Әр ауысуға жазу қосу|Підписати кожен перехід|Her geçişi etiketle
+ui.337|Клип номер жана кыймыл түрү менен башталат. Текст кошуу кайра коддоону талап кылат.|Клип нөмір мен қозғалыс түрінен басталады. Мәтін қосу қайта кодтауды қажет етеді.|Кожен кліп починається з номера й типу руху. Додавання тексту потребує перекодування.|Her klip numarası ve hareket türüyle başlar. Metin eklemek yeniden kodlama gerektirir.
+ui.338|Файлдын аты|Файл атауы|Назва файлу|Dosya adı
+ui.339|Кеңейтүүсүз файлдын аты|Кеңейтімсіз файл атауы|Назва файлу без розширення|Uzantısız dosya adı
+ui.340|Видео контейнер|Бейне контейнері|Контейнер відео|Video kapsayıcısı
+ui.341|Жалпы видео кыймыл түрлөрүнүн тартиби боюнча түзүлөт.|Жалпы бейне қозғалыс түрлерінің ретімен құрылады.|Спільне відео дотримується порядку типів рухів.|Birleşik video hareket türü sırasını izler.
+ui.342|Клиптер кыймыл түрү боюнча топтолот. Кайталанган аттарга кашаада номер кошулат.|Клиптер қозғалыс түрімен топталады. Қайталанған атауға жақшада нөмір қосылады.|Кліпи групуються за типом руху. До однакових назв додається номер у дужках.|Klipler hareket türüne göre gruplanır. Aynı ada parantez içinde numara eklenir.
+ui.343|Аракет|Әрекет|Дія|Eylem
+ui.344|Баскыч |Перне |Клавіша |Tuş 
+ui.345|кадр|кадр|кадр|kare
+ui.346|Жуптун тарабын алмаштыруу|Жұптың жағын ауыстыру|Замінити сторону пари|Çiftin bir tarafını değiştir
+ui.347|Кичирейтүү|Кішірейту|Зменшити масштаб|Uzaklaştır
+ui.348|Чоңойтуу|Үлкейту|Збільшити масштаб|Yakınlaştır
+ui.349|Кыймылдын түрү|Қозғалыс түрі|Тип руху|Hareket türü
+ui.350|Кыймылдын түрү боюнча|Қозғалыс түрі бойынша|За типом руху|Hareket türüne göre
+ui.351|Активдүү жөндөөлөр: |Белсенді баптаулар: |Активних налаштувань: |Etkin ayarlar: 
+ui.352|Бардык түрлөр жана булактар көрсөтүлгөн|Барлық түрлер мен дереккөздер көрсетілген|Показано всі типи й джерела|Tüm türler ve kaynaklar gösteriliyor
+ui.353|Кол менен иреттөө|Қолмен сұрыптау|Ручне сортування|Elle sıralama
+ui.354|Кыймыл түрүн өзгөртүү |Қозғалыс түрін өзгерту |Змінити тип руху |Hareket türünü değiştir 
+ui.355|Түрү|Түрі|Тип|Tür
+ui.356|Түрү кол менен берилди|Түрі қолмен берілді|Тип задано вручну|Tür elle ayarlandı
+ui.357|Баштын кыймылы көрүнөт; дене аныкталган жок|Бас қозғалысы көрінеді; дене анықталмаған|Рух голови видно; тіло не визначено|Baş hareketi gözlendi; vücut belirsiz
+ui.358|Түс өңү|Түс реңкі|Відтінок|Ton
+ui.359|MCP серверин иштетүү|MCP серверін қосу|Увімкнути MCP-сервер|MCP sunucusunu etkinleştir
+ui.360|Жардамчыга натыйжаларды жана талдоону көрсөт. Сервер бул компьютерде тиркеме ачык турганда гана жеткиликтүү.|Көмекшіге нәтижелер мен талдау барысын көрсетіңіз. Сервер осы компьютерде қолданба ашық тұрғанда ғана қолжетімді.|Підключи помічника до результатів і перебігу аналізу. Сервер доступний лише на цьому комп’ютері, поки застосунок відкрито.|Asistanı sonuçlara ve analiz ilerlemesine bağla. Sunucu yalnızca bu bilgisayarda, uygulama açıkken kullanılabilir.
+ui.361|Тиркемени башкарууга уруксат|Қолданбаны басқаруға рұқсат|Дозволити керування застосунком|Uygulama denetimine izin ver
+ui.362|Талдоону баштоо жана токтотуу, түрлөрдү, чек араларды жана белгилерди өзгөртүү, экспорт. Болбосо окуу гана.|Талдауды бастау және тоқтату, түрлерді, шекаралар мен белгілерді өзгерту, экспорт. Әйтпесе тек оқу.|Дозволяє запуск і скасування аналізу, зміну типів, меж і позначок, експорт. Інакше — лише читання.|Analizi başlatma/iptal etme, türleri, sınırları, işaretleri düzenleme ve dışa aktarmaya izin verir. Aksi hâlde salt okunur.
+ui.363|Порт|Порт|Порт|Bağlantı noktası
+ui.364|Иштеп жатат|Жұмыс істеп тұр|Працює|Çalışıyor
+ui.365|Өчүк|Өшірулі|Вимкнено|Kapalı
+ui.366|Туташуу маалыматын көчүрүү|Қосылу деректерін көшіру|Скопіювати підключення|Bağlantıyı kopyala
+ui.367|Ачкычты жаңылоо|Кілтті жаңарту|Оновити ключ|Anahtarı yenile
+ui.368|Булактагы кадрлар: |Бастапқы кадрлар: |Кадри джерела: |Kaynak kareler: 
+ui.369|Бул жолу окулган: |Осы жолы оқылған: |Декодовано цього разу: |Bu çalışmada çözülen: 
+ui.370|Бул жолу таанууга тандалган: |Осы жолы тануға таңдалған: |Вибрано для розпізнавання цього разу: |Bu çalışmada tanıma için seçilen: 
+ui.371|Эсеп бардык видеолорду камтыйт; кэштеги талдоо кошулган жок.|Есеп барлық бейнелерді қамтиды; кэш талдауы кірмейді.|Лічильники охоплюють усі відео; кешований аналіз не враховується.|Sayılar tüm videoları kapsar; önbellekten alınan analiz dahil değildir.
+review.undo|Артка кайтаруу|Болдырмау|Скасувати|Geri al
+review.nextUnreviewed|Кийинки карала элек|Келесі қаралмаған|Наступна непереглянута|Sonraki incelenmemiş
+review.reviewed|Каралды|Қаралды|Переглянуто|İncelendi
+review.unreviewed|Карала элек|Қаралмаған|Не переглянуто|İncelenmedi
+review.allReviewed|Көрүнгөн жуптардын баары каралды|Көрінетін жұптардың бәрі қаралды|Усі видимі пари переглянуто|Görünen tüm çiftler incelendi
+review.sourceSearch|Сценпактын атынан издөө…|Сценпак атауымен іздеу…|Пошук за назвою сценпаку…|Sahne paketi adı ara…
+review.allSources|Бардык сценпактар|Барлық сценпактар|Усі сценпаки|Tüm sahne paketleri
+review.sourceHint|A/B булактары тең изделет. Баарын тандоо көрүнгөн жуптарга гана тиешелүү.|A/B дереккөздерінің екеуі де ізделеді. Бәрін таңдау тек көрінетін жұптарға қатысты.|Пошук охоплює обидва джерела A/B. Вибрати все позначає лише видимі пари.|Arama her iki A/B kaynağını kapsar. Tümünü seç yalnızca görünen çiftleri işaretler.
+review.hotkeys|Ыкчам баскычтар|Жылдам пернелер|Гарячі клавіші|Klavye kısayolları
+review.keysHint|Айкалышты тандап, жаңы баскычтарды бас. Esc киргизүүнү токтотот.|Тіркесімді таңдап, жаңа пернелерді басыңыз. Esc енгізуді тоқтатады.|Вибери сполучення й натисни нові клавіші. Esc скасовує введення.|Bir kısayolu seçip yeni tuşlara bas. Esc girişi iptal eder.
+review.multi|Көп тандоону иштетүү|Көп таңдауды қосу|Увімкнути мультивибір|Çoklu seçimi etkinleştir
+review.multiHint|Ctrl — өзүнчө жуптар, Shift — аралык. Түс, тандалма жана алып салуу тандалгандарга колдонулат.|Ctrl — жеке жұптар, Shift — ауқым. Түс, таңдаулы және жою таңдауға қолданылады.|Ctrl вибирає окремі пари, Shift — діапазон. Колір, обране й видалення застосовуються до вибраного.|Ctrl tek çiftleri, Shift bir aralığı seçer. Renk, favori ve kaldırma seçime uygulanır.
+review.press|Баскычтарды бас…|Пернелерді басыңыз…|Натисни клавіші…|Tuşlara bas…
+review.unset|Берилген жок|Тағайындалмаған|Не призначено|Atanmamış
+review.conflict|Айкалыш колдонулуп жатат: |Тіркесім қолданыста: |Сполучення вже використовується: |Kısayol zaten kullanılıyor: 
+review.reset|Баскычтарды баштапкыга кайтаруу|Пернелерді қалпына келтіру|Скинути клавіші|Kısayolları sıfırla
+review.all|Баары|Барлығы|Усі|Tümü
+review.favorites|Тандалмалар|Таңдаулылар|Обране|Favoriler
+review.hidden|Алып салынгандар|Жойылғандар|Видалені|Kaldırılanlar
+review.remove|Жупту алып салуу|Жұпты жою|Видалити пару|Çifti kaldır
+review.restore|Жупту кайтаруу|Жұпты қалпына келтіру|Відновити пару|Çifti geri yükle
+review.favorite|Тандалма|Таңдаулы|Обране|Favori
+review.adjust|Жупту тууралоо|Жұпты реттеу|Підлаштувати пару|Çifti ayarla
+review.configurePair|Жупту жөндөө|Жұпты баптау|Налаштувати пару|Çifti düzenle
+review.replaceSides|A/B алмаштыруу|A/B ауыстыру|Замінити A/B|A/B değiştir
+review.pairContents|Жуптун курамы|Жұп құрамы|Склад пари|Çiftin içeriği
+review.keepOnlyA|A гана калтыруу|Тек A қалдыру|Залишити лише A|Yalnızca A'yı tut
+review.keepOnlyB|B гана калтыруу|Тек B қалдыру|Залишити лише B|Yalnızca B'yi tut
+review.selection|Тандоо|Таңдау|Вибір|Seçim
+review.selectionHint|Аракет көрүнгөн жуптарга гана колдонулат.|Әрекет тек көрінетін жұптарға қолданылады.|Дії застосовуються лише до видимих пар.|Eylemler yalnızca görünen çiftlere uygulanır.
+review.sheet|Табылгалар барагы|Табылғандар парағы|Аркуш знахідок|Kontak sayfası
+review.sheetHint|Убакыт белгилери менен жуп кадрлар. Чоң тизме ар сүрөткө 4 жуп болуп бөлүнөт.|Уақыт белгілері бар жұп кадрлар. Үлкен тізім әр суретке 4 жұптан бөлінеді.|Парні ряди кадрів із таймкодами. Великий список ділиться на зображення по 4 пари.|Zaman kodlu çift kare satırları. Uzun listeler görüntü başına 4 çifte bölünür.
+review.scope|Киргизилүүчү жуптар|Қосылатын жұптар|Пари для включення|Dahil edilecek çiftler
+review.visible|Көрүнгөн бардык жуптар|Барлық көрінетін жұптар|Усі видимі пари|Görünen tüm çiftler
+review.marked|Белгиленген жуптар гана|Тек белгіленген жұптар|Лише позначені пари|Yalnızca işaretli çiftler
+review.frames|Ар бир тараптагы кадрлар|Әр жақтағы кадрлар|Кадрів з кожного боку|Her taraftaki kareler
+review.folder|Сүрөттөрдүн папкасы|Суреттер қалтасы|Папка зображень|Görüntü klasörü
+review.save|PNG сактоо|PNG сақтау|Зберегти PNG|PNG kaydet
+review.start|Башталышы, сек|Басы, сек|Початок, с|Başlangıç, sn
+review.end|Аягы, сек|Соңы, сек|Кінець, с|Bitiş, sn
+review.left|Сол тарап|Сол жақ|Ліва сторона|Sol taraf
+review.right|Оң тарап|Оң жақ|Права сторона|Sağ taraf
+review.apply|Колдонуу|Қолдану|Застосувати|Uygula
+review.original|Баштапкы жупту кайтаруу|Бастапқы жұпты қайтару|Відновити початкову пару|Özgün çifti geri yükle
+review.rangeHint|Таймлайндын чек араларын сүйрө. ±1 кадр үзүндүнү жылдырат; экспорт тандалган чектерди колдонот.|Таймлайн шекарасын сүйреңіз. ±1 кадр үзіндіні жылжытады; экспорт таңдалған шектерді қолданады.|Перетягуй межі на таймлайні. ±1 кадр зсуває фрагмент; експорт використовує вибрані межі.|Zaman çizelgesi sınırlarını sürükle. ±1 kare kesiti kaydırır; dışa aktarma seçilen sınırları kullanır.
+review.invalid|Чектерди текшер: башталышы аягынан мурун болуп, видеонун ичинде болушу керек.|Шектерді тексеріңіз: басы соңынан бұрын және бейне ішінде болуы керек.|Перевір межі: початок має передувати кінцю й бути в межах відео.|Aralığı denetle: başlangıç bitişten önce ve video içinde olmalı.
+review.selected|Тандалды|Таңдалды|Вибрано|Seçildi
+review.empty|Бул көрүнүштө жуптар жок|Бұл көріністе жұп жоқ|У цьому списку пар немає|Bu görünümde çift yok
+review.preview|Үзүндүнү көрүү|Үзіндіні қарау|Переглянути фрагмент|Kesiti önizle
+review.clearKey|Айкалышты алып салуу|Тіркесімді алып тастау|Прибрати призначення|Kısayolu temizle
+review.saving|Сүрөттөр сакталууда…|Суреттер сақталуда…|Збереження зображень…|Görüntüler kaydediliyor…
+hotkey.hide|Жупту алып салуу / кайтаруу|Жұпты жою / қалпына келтіру|Видалити / відновити пару|Çifti kaldır / geri yükle
+hotkey.favorite|Тандалманы которуу|Таңдаулыны ауыстыру|Додати / прибрати обране|Favoriyi değiştir
+hotkey.mark|Экспортко белгилөө|Экспортқа белгілеу|Позначити для експорту|Dışa aktarma için işaretle
+hotkey.play|Ойнотуу / токтото туруу|Ойнату / кідірту|Відтворити / призупинити|Oynat / duraklat
+hotkey.export|Белгиленген жуптарды экспорттоо|Белгіленген жұптарды экспорттау|Експорт позначених пар|İşaretli çiftleri dışa aktar
+hotkey.all|Бардык жуптарды тандоо|Барлық жұптарды таңдау|Вибрати всі пари|Tüm çiftleri seç
+hotkey.color0|Түстү алып салуу|Түсті алып тастау|Прибрати колір|Rengi temizle
+hotkey.undo|Акыркы аракетти кайтаруу|Соңғы әрекетті болдырмау|Скасувати останню дію|Son eylemi geri al
+hotkey.nextUnreviewed|Кийинки карала элек жуп|Келесі қаралмаған жұп|Наступна непереглянута пара|Sonraki incelenmemiş çift
+ui.singleMoment|Бир учур|Жалғыз сәт|Один момент|Tek an
+ui.manualPair|Кол менен чогултулган жуп|Қолмен құрастырылған жұп|Пару зібрано вручну|Elle oluşturulmuş çift
+Matcher|Матчер|Матчер|Матчер|Eşleştirici
+Additional search|Кошумча издөө|Қосымша іздеу|Додатковий пошук|Ek arama
+Detecting scene boundaries|Сахна чектери аныкталууда|Сахна шекаралары анықталуда|Визначення меж сцен|Sahne sınırları algılanıyor
+Splitting tracks by scene|Байкоолор сахналарга бөлүнүүдө|Тректер сахнаға бөлінуде|Розділення треків за сценами|İzler sahnelere ayrılıyor
+Comparing character identities|Каармандардын жүздөрү салыштырылууда|Кейіпкерлердің беттері салыстырылуда|Порівняння особистостей персонажів|Karakter kimlikleri karşılaştırılıyor
+Grouping verified tracks|Тастыкталган байкоолор топтолууда|Расталған тректер топталуда|Групування підтверджених треків|Doğrulanmış izler gruplanıyor
+Verifying additional character appearances|Каармандын кошумча көрүнүштөрү текшерилүүдө|Кейіпкердің қосымша көріністері тексерілуде|Перевірка додаткових появ персонажа|Karakterin ek görünümleri doğrulanıyor
+Selecting the main character|Негизги каарман тандалууда|Негізгі кейіпкер таңдалуда|Вибір головного персонажа|Ana karakter seçiliyor
+Preparing movements for matching|Кыймылдар салыштырууга даярдалууда|Қозғалыстар салыстыруға дайындалуда|Підготовка рухів до зіставлення|Hareketler eşleştirmeye hazırlanıyor
+Checking scene camera views|Сахналардын ракурстары текшерилүүдө|Сахна ракурстары тексерілуде|Перевірка ракурсів сцен|Sahne kamera açıları denetleniyor
+Preparing face verification|Жүздөрдү текшерүү даярдалууда|Беттерді тексеру дайындалуда|Підготовка перевірки облич|Yüz doğrulaması hazırlanıyor
+Preparing footage for matching|Кадрлар салыштырууга даярдалууда|Кадрлар салыстыруға дайындалуда|Підготовка кадрів до зіставлення|Görüntüler eşleştirmeye hazırlanıyor
+Saving analysis cache|Талдоонун кэши сакталууда|Талдау кэші сақталуда|Збереження кешу аналізу|Analiz önbelleği kaydediliyor
+Verifying the shared character across videos|Видеолордогу жалпы каарман текшерилүүдө|Бейнелердегі ортақ кейіпкер тексерілуде|Перевірка спільного персонажа у відео|Videolar arasındaki ortak karakter doğrulanıyor
+Preparing parallel search|Параллелдерди издөө даярдалууда|Параллель іздеу дайындалуда|Підготовка пошуку паралелей|Paralel arama hazırlanıyor
+Removing copied footage|Кайталанган үзүндүлөр алынууда|Көшірілген үзінділер алынуда|Вилучення однакових фрагментів|Kopyalanmış görüntüler kaldırılıyor
+Finding similar movements|Окшош кыймылдар изделүүдө|Ұқсас қозғалыстар ізделуде|Пошук схожих рухів|Benzer hareketler aranıyor
+Finding character matches|Каармандын дал келүүлөрү изделүүдө|Кейіпкер сәйкестіктері ізделуде|Пошук збігів персонажа|Karakter eşleşmeleri aranıyor
+Preparing retrieved candidates|Табылган талапкерлер даярдалууда|Табылған үміткерлер дайындалуда|Підготовка знайдених кандидатів|Bulunan adaylar hazırlanıyor
+Comparing candidate movements|Табылган кыймылдар салыштырылууда|Табылған қозғалыстар салыстырылуда|Порівняння знайдених рухів|Aday hareketler karşılaştırılıyor
+Selecting unique parallels|Өзгөчө параллелдер тандалууда|Бірегей параллельдер таңдалуда|Вибір унікальних паралелей|Benzersiz paraleller seçiliyor
+Removing recurring camera views|Кайталанган ракурстар алынууда|Қайталанатын ракурстар алынуда|Вилучення повторюваних ракурсів|Yinelenen kamera açıları kaldırılıyor
+Finding additional parallels|Кошумча параллелдер изделүүдө|Қосымша параллельдер ізделуде|Пошук додаткових паралелей|Ek paraleller aranıyor
+Preparing results|Натыйжалар даярдалууда|Нәтижелер дайындалуда|Підготовка результатів|Sonuçlar hazırlanıyor
+Opening video…|Видео ачылууда…|Бейне ашылуда…|Відкриття відео…|Video açılıyor…
+Opening files|Файлдар ачылууда|Файлдар ашылуда|Відкриття файлів|Dosyalar açılıyor
+Files ready|Файлдар даяр|Файлдар дайын|Файли готові|Dosyalar hazır
+Files ready for analysis|Файлдар талдоого даяр|Файлдар талдауға дайын|Файли готові до аналізу|Dosyalar analize hazır
+Preparing analysis|Талдоо даярдалууда|Талдау дайындалуда|Підготовка аналізу|Analiz hazırlanıyor
+Checking repeated footage across videos…|Видеолордогу кайталоолор текшерилүүдө…|Бейнелердегі қайталанулар тексерілуде…|Перевірка повторів між відео…|Videolar arasındaki tekrarlar denetleniyor…
+Checking recurring camera views…|Кайталанган ракурстар текшерилүүдө…|Қайталанатын ракурстар тексерілуде…|Перевірка повторюваних ракурсів…|Yinelenen kamera açıları denetleniyor…
+Verifying the person in matched fragments…|Табылган үзүндүлөрдөгү адам текшерилүүдө…|Табылған үзінділердегі адам тексерілуде…|Перевірка людини в знайдених фрагментах…|Eşleşen kesitlerdeki kişi doğrulanıyor…
+Preparing repeat search|Кайра издөө даярдалууда|Қайта іздеу дайындалуда|Підготовка повторного пошуку|Yeniden arama hazırlanıyor
+Repeat search: checking more candidates…|Кайра издөө: көбүрөөк талапкер текшерилүүдө…|Қайта іздеу: көбірек үміткер тексерілуде…|Повторний пошук: перевірка додаткових кандидатів…|Yeniden arama: daha fazla aday denetleniyor…
+Repeat search complete|Кайра издөө бүттү|Қайта іздеу аяқталды|Повторний пошук завершено|Yeniden arama tamamlandı
+Reading cached analysis|Кэштеги талдоо окулууда|Кэштегі талдау оқылуда|Читання кешованого аналізу|Önbellekteki analiz okunuyor
+Reading frames|Кадрлар окулууда|Кадрлар оқылуда|Читання кадрів|Kareler okunuyor
+Analyzing motion|Кыймыл талданууда|Қозғалыс талдануда|Аналіз руху|Hareket analiz ediliyor
+Decoding frames and detecting scenes…|Кадрлар окулуп, сахналар аныкталууда…|Кадрлар оқылып, сахналар анықталуда…|Декодування кадрів і визначення сцен…|Kareler çözülüyor ve sahneler algılanıyor…
+Scene analysis complete|Сахналардын талдоосу бүттү|Сахна талдауы аяқталды|Аналіз сцен завершено|Sahne analizi tamamlandı
+Analysis complete|Талдоо бүттү|Талдау аяқталды|Аналіз завершено|Analiz tamamlandı
+Analysis stopped|Талдоо токтотулду|Талдау тоқтатылды|Аналіз зупинено|Analiz durduruldu
+No files|Файл жок|Файл жоқ|Файлів немає|Dosya yok
+Model not found|Модель табылган жок|Модель табылмады|Модель не знайдено|Model bulunamadı
+Read error|Окуу катасы|Оқу қатесі|Помилка читання|Okuma hatası
+Analysis error|Талдоо катасы|Талдау қатесі|Помилка аналізу|Analiz hatası
+Model ready for analysis|Модель талдоого даяр|Модель талдауға дайын|Модель готова до аналізу|Model analize hazır
+Model is installed and ready for analysis|Модель орнотулган жана талдоого даяр|Модель орнатылған және талдауға дайын|Модель встановлена й готова до аналізу|Model yüklü ve analize hazır
+Model is not installed · select it to download|Модель орнотулган эмес · жүктөө үчүн танда|Модель орнатылмаған · жүктеу үшін таңдаңыз|Модель не встановлена · вибери для завантаження|Model yüklü değil · indirmek için seç
+Model downloaded and ready|Модель жүктөлгөн жана даяр|Модель жүктелген және дайын|Модель завантажена й готова|Model indirildi ve hazır
+Downloading model from GitHub Releases…|Модель GitHub Releases аркылуу жүктөлүүдө…|Модель GitHub Releases арқылы жүктелуде…|Завантаження моделі з GitHub Releases…|Model GitHub Releases'ten indiriliyor…
+Pose model not found. Select one in settings or place it in the models folder.|Абал модели табылган жок. Жөндөөлөрдөн танда же models папкасына сал.|Қалып моделі табылмады. Баптаулардан таңдаңыз не models қалтасына салыңыз.|Модель поз не знайдено. Вибери її в налаштуваннях або додай у папку models.|Poz modeli bulunamadı. Ayarlardan seç veya models klasörüne koy.
+Add at least one video to analyze|Талдоо үчүн жок дегенде бир видео кош|Талдау үшін кемінде бір бейне қосыңыз|Додай хоча б одне відео для аналізу|Analiz için en az bir video ekle
+Could not open file|Файл ачылган жок|Файл ашылмады|Не вдалося відкрити файл|Dosya açılamadı
+Analysis did not start|Талдоо башталган жок|Талдау басталмады|Аналіз не запущено|Analiz başlamadı
+Could not download model|Модель жүктөлгөн жок|Модель жүктелмеді|Не вдалося завантажити модель|Model indirilemedi
+Refining action types|Аракет түрлөрү такталууда|Әрекет түрлері нақтылануда|Уточнення типів дій|Eylem türleri iyileştiriliyor
+Preparing expanded search|Кеңейтилген издөө даярдалууда|Кеңейтілген іздеу дайындалуда|Підготовка розширеного пошуку|Genişletilmiş arama hazırlanıyor
+Expanded search complete|Кеңейтилген издөө бүттү|Кеңейтілген іздеу аяқталды|Розширений пошук завершено|Genişletilmiş arama tamamlandı
+export cancelled|Экспорт жокко чыгарылды|Экспорт тоқтатылды|Експорт скасовано|Dışa aktarma iptal edildi
+Cannot change the group. Refresh the results and try again.|Топ өзгөргөн жок. Натыйжаларды жаңыртып кайра аракет кыл.|Топ өзгермеді. Нәтижелерді жаңартып, қайталап көріңіз.|Не вдалося змінити групу. Онови результати й повтори.|Grup değiştirilemedi. Sonuçları yenileyip tekrar dene.
+Build your own groups from pairs and single moments. Motion classifications stay intact.|Жуптардан жана жалгыз учурлардан өз топторуңду түз. Кыймыл классификациясы сакталат.|Жұптар мен жеке сәттерден өз топтарыңызды құрыңыз. Қозғалыс жіктеуі сақталады.|Створи власні групи з пар і окремих моментів. Класифікація рухів збережеться.|Çiftlerden ve tek anlardan kendi gruplarını oluştur. Hareket sınıfları korunur.
+Your group name|Топтун аталышы|Топ атауы|Назва власної групи|Grup adın
+Assign group|Топко кошуу|Топқа қосу|До групи|Gruba ata
+Clear group|Топту алып салуу|Топты алып тастау|Прибрати групу|Grubu temizle
+Choose an existing group…|Даяр топту танда…|Бар топты таңдаңыз…|Вибери наявну групу…|Var olan grubu seç…
+Select page|Баракты тандоо|Бетті таңдау|Вибрати сторінку|Sayfayı seç
+Selected: |Тандалды: |Таңдалды: |Вибрано: |Seçildi: 
+ · Ctrl to add, Shift for a range| · Ctrl — кошуу, Shift — аралык| · Ctrl — қосу, Shift — ауқым| · Ctrl — додати, Shift — діапазон| · Ctrl ekler, Shift aralık seçer
+Result |Натыйжа |Нәтиже |Результат |Sonuç 
+No custom group|Өз тобу жок|Өз тобы жоқ|Без власної групи|Özel grup yok
+Analysis results will appear here.|Талдоонун натыйжалары бул жерде чыгат.|Талдау нәтижелері осында шығады.|Результати аналізу з’являться тут.|Analiz sonuçları burada görünecek.
+Previous|Мурунку|Алдыңғы|Назад|Önceki
+Next|Кийинки|Келесі|Далі|Sonraki
+unknown source|белгисиз булак|белгісіз дереккөз|невідоме джерело|bilinmeyen kaynak
+A removed|A алынды|A жойылды|A видалено|A kaldırıldı
+B removed|B алынды|B жойылды|B видалено|B kaldırıldı
+ · removed| · алынды| · жойылды| · видалено| · kaldırıldı
+The remaining moments will be combined; the original pairs can be restored.|Калган учурлар бириктирилет; баштапкы жуптарды кайтарууга болот.|Қалған сәттер біріктіріледі; бастапқы жұптарды қайтаруға болады.|Решту моментів буде об’єднано; початкові пари можна відновити.|Kalan anlar birleştirilir; özgün çiftler geri yüklenebilir.
+Choose a side and a moment from another pair. The original pair stays intact.|Башка жуптан тарапты жана учурду танда. Баштапкы жуп сакталат.|Басқа жұптан жақ пен сәтті таңдаңыз. Бастапқы жұп сақталады.|Вибери сторону й момент з іншої пари. Початкова пара зберігається.|Başka bir çiftten taraf ve an seç. Özgün çift korunur.
+Replace side|Тарапты алмаштыруу|Жақты ауыстыру|Замінити сторону|Tarafı değiştir
+Source|Булак|Дереккөз|Джерело|Kaynak
+Moment|Учур|Сәт|Момент|An
+Pair after replacement|Алмаштыргандан кийинки жуп|Ауыстырғаннан кейінгі жұп|Пара після заміни|Değişim sonrası çift
+Side removed|Тарап алынды|Жақ жойылды|Сторону видалено|Taraf kaldırıldı
+Choose another moment|Башка учурду танда|Басқа сәтті таңдаңыз|Вибери інший момент|Başka bir an seç
+From pair #|Бул жуптан №|Мына жұптан №|Із пари №|Şu çiftten #
+Unchanged|Өзгөргөн жок|Өзгермеген|Без змін|Değişmedi
+Another result pair is needed for replacement.|Алмаштыруу үчүн дагы бир жуп керек.|Ауыстыру үшін тағы бір жұп қажет.|Для заміни потрібна ще одна пара результатів.|Değiştirme için başka bir sonuç çifti gerekir.
+Combine moments|Учурларды бириктирүү|Сәттерді біріктіру|Об’єднати моменти|Anları birleştir
+Apply replacement|Алмаштырууну колдонуу|Ауыстыруды қолдану|Застосувати заміну|Değiştirmeyi uygula
+Cannot replace this side. A moment cannot be paired with itself.|Бул тарап алмашкан жок. Учурду өзүнө жупташтырууга болбойт.|Бұл жақ ауыспады. Сәтті өзімен жұптауға болмайды.|Неможливо замінити сторону. Момент не можна поєднати із самим собою.|Bu taraf değiştirilemez. Bir an kendisiyle eşleştirilemez.
+Lossless|Сапатты жоготпой|Сапаны жоғалтпай|Без втрати якості|Kayıpsız
+High|Жогорку|Жоғары|Висока|Yüksek
+Custom bitrate and resolution|Өз битрейти жана өлчөмү|Өз битрейті мен өлшемі|Власний бітрейт і роздільність|Özel bit hızı ve çözünürlük
+Side A|A тарабы|A жағы|Сторона A|A tarafı
+Side B|B тарабы|B жағы|Сторона B|B tarafı

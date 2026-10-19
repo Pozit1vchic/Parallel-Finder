@@ -116,7 +116,7 @@ Popup {
                 text: Math.round(root.service.progress * 100) + "%  ·  " + (root.service.receivedBytes / 1048576).toFixed(1) + " / " + (root.service.totalBytes / 1048576).toFixed(1) + " MB  ·  " + (root.service.bytesPerSecond / 1048576).toFixed(1) + " MB/s"
                 color: Theme.textSecondary; font.family: Theme.monoFont; font.pixelSize: 12; wrapMode: Text.Wrap
             }
-            Text { visible: root.service.error.length > 0; width: parent.width; text: root.service.error; textFormat: Text.PlainText; wrapMode: Text.WordWrap; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: 12 }
+            Text { visible: root.service.error.length > 0; width: parent.width; text: root.service.error; textFormat: Text.PlainText; wrapMode: Text.WordWrap; color: Theme.accentText; font.family: Theme.fontFamily; font.pixelSize: 12 }
             Text { visible: root.service.state === "available" || root.service.state === "ready"; width: parent.width; text: L10n.t("updates.consent"); wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
             Row {
                 width: parent.width; spacing: 8

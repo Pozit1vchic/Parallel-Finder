@@ -117,6 +117,7 @@ ColumnLayout {
                 }
                 Text { font.family: Theme.fontFamily;
                     id: stateText
+                    visible: false
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.min(parent.width * 0.58, implicitWidth)
@@ -300,12 +301,12 @@ ColumnLayout {
                             Rectangle {
                                 x: 0; y: 3; width: 30; height: 34; radius: 7
                                 color: Theme.accentMuted; border.color: Theme.accent
-                                Text { anchors.centerIn: parent; text: "A"; color: Theme.accent; font.family: Theme.monoFont; font.pixelSize: 14 }
+                                Text { anchors.centerIn: parent; text: "A"; color: Theme.accentText; font.family: Theme.monoFont; font.pixelSize: 14 }
                             }
                             Rectangle {
                                 x: 52; y: 3; width: 30; height: 34; radius: 7
                                 color: Theme.sageMuted; border.color: Theme.sage
-                                Text { anchors.centerIn: parent; text: "B"; color: Theme.sage; font.family: Theme.monoFont; font.pixelSize: 14 }
+                                Text { anchors.centerIn: parent; text: "B"; color: Theme.secondaryText; font.family: Theme.monoFont; font.pixelSize: 14 }
                             }
                         }
                         Text {
@@ -354,7 +355,7 @@ ColumnLayout {
                             anchors.horizontalCenter: parent.horizontalCenter
                             visible: Analysis.busy
                             text: Math.round(Analysis.progress * 100) + "% · " + root.elapsedLabel()
-                            color: Theme.accent
+                            color: Theme.accentText
                             font.pixelSize: 11
                         }
                     }
