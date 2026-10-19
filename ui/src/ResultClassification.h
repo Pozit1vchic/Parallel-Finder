@@ -95,7 +95,9 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
         }
     } else {
         if(movement.conflictingActions) {
-            row.insert("classification",QStringLiteral("action_mismatch"));
+            row.insert("classification",(match.headOnlyComparison || movement.headOnlyEvidence)
+                ? QStringLiteral("head_action_mismatch")
+                : QStringLiteral("action_mismatch"));
             return;
         }
         classification = QString::fromStdString(match.gestureLabel + "/" + match.directionLabel);

@@ -1463,17 +1463,21 @@ void UiSmokeTests::movementClassesAndExportOrder()
     const QVariantList conflictingActions{
         QVariantMap{{"id",0},{"classification","unknown/unknown"}},
         QVariantMap{{"id",1},{"classification","action_mismatch"}},
-        QVariantMap{{"id",2},{"classification","head_turn/right"}},
-        QVariantMap{{"id",3},{"classification","seated_lying"}}};
+        QVariantMap{{"id",2},{"classification","head_action_mismatch"}},
+        QVariantMap{{"id",3},{"classification","head_turn/right"}},
+        QVariantMap{{"id",4},{"classification","seated_lying"}}};
     rail->setProperty("results",conflictingActions);popup->setProperty("results",conflictingActions);
-    popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true},{"3",true}});QTest::qWait(100);
+    popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true},{"3",true},{"4",true}});QTest::qWait(100);
     QVERIFY(values(rail->property("classChoices")).toStringList().contains("action_mismatch"));
+    QVERIFY(values(rail->property("classChoices")).toStringList().contains("head_action_mismatch"));
     QVERIFY(values(rail->property("classChoices")).toStringList().contains("seated_lying"));
     rail->setProperty("classFilter","seated_lying");QTest::qWait(100);
     QCOMPARE(values(rail->property("visibleResults")).toList().size(),1);
     rail->setProperty("classFilter","action_mismatch");QTest::qWait(100);
     QCOMPARE(values(rail->property("visibleResults")).toList().size(),1);
-    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"seated_lying","head_turn","action_mismatch","unknown"}));
+    rail->setProperty("classFilter","head_action_mismatch");QTest::qWait(100);
+    QCOMPARE(values(rail->property("visibleResults")).toList().size(),1);
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"seated_lying","head_turn","head_action_mismatch","action_mismatch","unknown"}));
 }
 void UiSmokeTests::staticPoseDisagreementKeepsBothPoses()
 {
@@ -1655,7 +1659,7 @@ void UiSmokeTests::classificationsFollowEditedRange()
     match.headOnlyComparison=true;
     for(auto& sample:evidence[1].headOrientations)sample.rotation={1,0,0,0,1,0,0,0,1};
     pfui::classifyResultRange(record,match,evidence);
-    QCOMPARE(record.value("classification").toString(),QString("action_mismatch"));
+    QCOMPARE(record.value("classification").toString(),QString("head_action_mismatch"));
     QVERIFY(record.value("classificationConflict").toBool());
     for(auto& sample:evidence[1].headOrientations)sample.observed=false;
     pfui::classifyResultRange(record,match,evidence);
