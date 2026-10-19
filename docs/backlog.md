@@ -160,3 +160,9 @@
 - [ ] Единый порядок групп в списке, отдельных экспортируемых клипах и общем ролике; ручная классификация приоритетна. Последний повтор титра «Elliot smiles» не переносить автоматически как достоверную метку: в кадрах поворот тела.
 
 Полный свод требований и критериев итоговой проверки: [current-task-list.md](current-task-list.md). Улучшение полноты матчера остаётся открытым: сохранять хорошие параллели разных ракурсов и проверять, что расширение поиска не увеличивает ложные совпадения.
+# 2026-10-19 — post-release analysis performance follow-up
+
+- [x] Restrict post-match head-orientation review to the matched clip intervals. The review keeps the existing orientation vector shape for grouping compatibility, but skips detector/inference requests for sampled poses outside every matched interval. This does not touch source analysis cache entries or affect matcher admission.
+- Checked on the three permitted Soldier Boy source videos in `D:\for_tests_pf`: the isolated CUDA audit reduced requested head-orientation measurements from 2,308 to 2,028 (12.1%). A warm rerun retained all 104 results; pair sources, boundaries, similarity scores, scene scores, motion directions, gestures, and classifications matched the pre-change output exactly. The test used an isolated benchmark cache and did not read or modify the user's analysis cache.
+- The change is a narrow post-matcher reduction, not evidence that the overall 520k-frame / 30–40 minute target is met. Fresh full-analysis speed and wider classifier/matcher accuracy remain open work.
+

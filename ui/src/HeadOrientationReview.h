@@ -11,8 +11,9 @@ struct HeadOrientationReviewStats {
     std::size_t requested=0,cached=0,observed=0,decoded=0;
     std::string error;
 };
-// Runs only after matching; it cannot change identity admission, pair selection
-// or the old pose cache. Source requests are ordered and shared across pairs.
+// Runs only after matching, and measures only poses inside matched clip ranges;
+// it cannot change identity admission, pair selection or the old pose cache.
+// Source requests are ordered and shared across overlapping result intervals.
 HeadOrientationReviewStats reviewMatchedHeadOrientations(
     std::vector<pfcore::MotionWindow>& windows,const std::vector<pfcore::MotionMatch>& matches,
     const std::filesystem::path& model,const std::filesystem::path& detector,

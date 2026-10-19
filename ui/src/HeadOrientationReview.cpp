@@ -61,10 +61,19 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
     pfcore::VideoDecodeOptions options,const std::function<bool()>& cancelled,
     const std::function<void(std::size_t,std::size_t)>& progress) {
     HeadOrientationReviewStats stats;
-    std::set<std::size_t> selected;
-    for(const auto& match:matches)for(const auto index:{match.leftIndex,match.rightIndex})
-        if(index<windows.size())selected.insert(index);
-    if(selected.empty() || cancelled())return stats;
+    struct TimeRange {double start=0,end=0;};
+    std::map<std::size_t,std::vector<TimeRange>> rangesByWindow;
+    const auto addRange=[&](std::size_t index,double start,double end) {
+        if(index>=windows.size())return;
+        auto& ranges=rangesByWindow[index];
+        if(!std::isfinite(start) || !std::isfinite(end) || end<start)return;
+        ranges.push_back({start,end});
+    };
+    for(const auto& match:matches) {
+        addRange(match.leftIndex,match.leftStartSeconds,match.leftEndSeconds);
+        addRange(match.rightIndex,match.rightStartSeconds,match.rightEndSeconds);
+    }
+    if(rangesByWindow.empty() || cancelled())return stats;
     struct Request {
         std::string source,key;pfcore::PoseFrame frame;
         std::vector<std::pair<std::size_t,std::size_t>> destinations;
@@ -80,11 +89,20 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
         // observations, never the user's forty-minute analysis entries.
         if(!cacheDirectory.empty())try {cache=std::make_unique<pfservices::PfCache>(cacheDirectory,256ULL*1024*1024);}catch(...) {}
         std::vector<Request> requests;std::map<std::string,std::size_t> lookup;
-        for(const auto wi:selected) {
+        for(const auto& [wi,ranges]:rangesByWindow) {
             auto& window=windows[wi];window.headOrientations.clear();
             for(const auto& frame:window.frames) {
                 const auto slot=window.headOrientations.size();
                 window.headOrientations.push_back({frame.timestampSeconds,{},false});
+                // Grouping consumes head evidence only inside each matched
+                // clip interval. Decoding every sampled pose in the full
+                // motion window needlessly replays large portions of source
+                // videos after the matcher has already narrowed the result.
+                const bool needed=ranges.empty() || std::any_of(ranges.begin(),ranges.end(),[&](const auto& range) {
+                    return frame.timestampSeconds>=range.start-1e-6
+                        && frame.timestampSeconds<=range.end+1e-6;
+                });
+                if(!needed)continue;
                 const auto source=sourceNamespaces.find(window.sourceId);
                 // No source-generation evidence means no persistent cache reuse.
                 const auto key=requestKey(window,frame,source==sourceNamespaces.end() ? "uncached":source->second,identity,provider);
@@ -161,7 +179,7 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
         }
     }catch(const std::exception& error) {
         stats.error=error.what();
-        for(const auto wi:selected)windows[wi].headOrientations.clear();
+        for(const auto& [wi,ranges]:rangesByWindow) { (void)ranges;windows[wi].headOrientations.clear(); }
     }
     return stats;
 }
