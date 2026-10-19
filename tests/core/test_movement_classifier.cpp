@@ -241,6 +241,11 @@ TEST(MovementGrouping, GroupsConfidentSittingAndLyingSeparatelyFromStanding)
     EXPECT_EQ(classifier.classifyPostureForGrouping(make(1),0,.8),"seated_lying");
     EXPECT_EQ(classifier.classifyPostureForGrouping(make(2),0,.8),"seated_lying");
     EXPECT_EQ(classifier.classifyPostureForGrouping(make(3),0,.8),"unknown");
+    auto partiallyOccluded=make(1);
+    for(const int frameIndex:{1,2,5})
+        for(int joint=13;joint<17;++joint)
+            partiallyOccluded.frames[static_cast<std::size_t>(frameIndex)].keypoints[static_cast<std::size_t>(joint)].confidence=.1;
+    EXPECT_EQ(classifier.classifyPostureForGrouping(partiallyOccluded,0,.8),"seated_lying");
     auto inconsistent=make(0);
     for(std::size_t i=4;i<inconsistent.frames.size();++i) {
         inconsistent.frames[i].keypoints[13]={-2,2.5};inconsistent.frames[i].keypoints[14]={2,2.5};

@@ -727,6 +727,9 @@ std::string MovementClassifier::classifyPostureForGrouping(const MotionWindow& w
     }
     std::vector<std::string> votes;
     std::size_t sampled=0;
+    std::size_t postureObserved=0;
+    double firstPostureTime=std::numeric_limits<double>::infinity();
+    double lastPostureTime=-std::numeric_limits<double>::infinity();
     for(const auto& frame:window.frames) {
         if(!insideScene(window,frame.timestampSeconds)||frame.timestampSeconds<start-1e-6
             ||frame.timestampSeconds>=end-1e-6)continue;
@@ -739,7 +742,13 @@ std::string MovementClassifier::classifyPostureForGrouping(const MotionWindow& w
         const double dx=std::abs(hip.x-shoulder.x)/torso,dy=std::abs(hip.y-shoulder.y)/torso;
         // A near-horizontal shoulder-to-hip axis is strong evidence of a
         // reclined/lying body, even when the lower body is cropped out.
-        if(dx>.78 && dx>dy*1.35) {votes.emplace_back("seated_lying");continue;}
+        if(dx>.78 && dx>dy*1.35) {
+            ++postureObserved;
+            votes.emplace_back("seated_lying");
+            firstPostureTime=std::min(firstPostureTime,frame.timestampSeconds);
+            lastPostureTime=std::max(lastPostureTime,frame.timestampSeconds);
+            continue;
+        }
         if(dy<.68 || dy<dx*1.08)continue;
         const auto kneeAngleCos=[&](int side)->std::optional<double> {
             const auto h=point(frame,11+side),k=point(frame,13+side),a=point(frame,15+side);
@@ -758,21 +767,35 @@ std::string MovementClassifier::classifyPostureForGrouping(const MotionWindow& w
             return h&&k&&std::abs(h->y-k->y)>std::abs(h->x-k->x)*1.2;
         };
         const bool bothLegs=left&&right;
+        bool postureVote=false;
         if(bothLegs && (*left>-.72 || *right>-.72)
             && (thighHorizontal(0)||thighHorizontal(1))) {
+            ++postureObserved;
             votes.emplace_back("seated_lying");
+            postureVote=true;
         } else if(bothLegs && *left<-.88 && *right<-.88
             && thighVertical(0)&&thighVertical(1)
             && hip.y>shoulder.y+torso*.45) {
+            ++postureObserved;
             votes.emplace_back("standing");
+            postureVote=true;
+        }
+        if(postureVote) {
+            firstPostureTime=std::min(firstPostureTime,frame.timestampSeconds);
+            lastPostureTime=std::max(lastPostureTime,frame.timestampSeconds);
         }
     }
-    if(sampled<3||votes.size()<3||votes.size()*4<sampled*3)return semantic;
+    // Missing lower-body keypoints are common in close-ups and occlusions.
+    // They are not negative posture votes, but enough valid geometry must be
+    // spread across the clip before a group can be assigned.
+    const double requiredSpan=std::min(.3,(end-start)*.5);
+    if(sampled<3||postureObserved<3||postureObserved*2<sampled||votes.size()*4<postureObserved*3
+        ||!std::isfinite(firstPostureTime)||lastPostureTime-firstPostureTime<requiredSpan)return semantic;
     const auto seated=static_cast<std::size_t>(std::count(votes.begin(),votes.end(),"seated_lying"));
     const auto standing=static_cast<std::size_t>(std::count(votes.begin(),votes.end(),"standing"));
     std::string geometric="unknown";
-    if(seated*5>=sampled*4)geometric="seated_lying";
-    else if(standing*5>=sampled*4)geometric="standing";
+    if(seated*5>=postureObserved*4)geometric="seated_lying";
+    else if(standing*5>=postureObserved*4)geometric="standing";
     if(geometric!="unknown" && semantic!="unknown" && geometric!=semantic)return "unknown";
     return geometric!="unknown"?geometric:semantic;
 }
