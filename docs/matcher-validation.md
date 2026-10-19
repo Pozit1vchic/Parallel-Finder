@@ -87,6 +87,24 @@ and identity behaviour must be evaluated on the release dataset.
 
 ## Diagnostics
 
+### Duplicate result intervals
+
+`tools/benchmark/audit_duplicate_result_intervals.py` checks whether two
+result cards use substantially overlapping scene intervals on both source
+sides. A/B-swapped cards are treated as the same pair. For an analysis smoke
+report, run:
+
+`python tools/benchmark/audit_duplicate_result_intervals.py --report <report.json> --output <audit.json>`
+
+This check cannot find footage duplicated at different timestamps or copied
+between different source files; those cases need visual-sequence evidence.
+On the 2026-10-19 warm replay of the three supplied Soldier Boy videos, it
+checked 93 results and found no pair with at least 70% overlap on both scene
+intervals. This is evidence only for repeated interval cards in that replay,
+not proof that all visually repeated scenes are suppressed. The report also
+contained 9 `action_mismatch` groupings and 16 conflict flags; these are
+classifier diagnostics, not independently adjudicated false matches.
+
 ### Full-source check, 2026-09-20 (identity policy v21)
 
 Local reports: `build/soldier-full-report.json` (before) and
