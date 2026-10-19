@@ -753,7 +753,7 @@ Popup {
                         Text { text: L10n.t("settings.language"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 27 }
                         Text { width: parent.width; text: L10n.t("settings.languageHint"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
                         GridLayout {
-                            width: parent.width; columns: 2; rowSpacing: 10; columnSpacing: 10
+                            width: parent.width; columns: 2; rowSpacing: 8; columnSpacing: 10
                             Repeater {
                                 model: 6
                                 delegate: Button {
@@ -761,12 +761,16 @@ Popup {
                                     required property int index
                                     objectName: "languageButton_" + index
                                     readonly property bool currentLanguage: L10n.language === root.languageIds[index]
-                                    Layout.fillWidth: true; Layout.preferredHeight: 66
+                                    Layout.fillWidth: true; Layout.preferredHeight: 58
                                     hoverEnabled: true; focusPolicy: Qt.StrongFocus
+                                    scale: down && !Theme.reducedMotion ? 0.992 : 1
+                                    Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
                                     background: Rectangle {
                                         radius: Theme.radiusCard
                                         clip: true
-                                        color: languageButton.currentLanguage ? Theme.accentMuted : languageButton.hovered ? Theme.surfaceRaised : Theme.well
+                                        color: languageButton.down ? Theme.accentMuted
+                                            : languageButton.currentLanguage ? Theme.accentMuted
+                                            : languageButton.hovered ? Theme.surfaceRaised : Theme.well
                                         border.width: languageButton.currentLanguage ? 1.5 : 1
                                         border.color: languageButton.currentLanguage ? Theme.accent : Theme.hairlineStrong
                                         Behavior on color { ColorAnimation { duration: Theme.motionChangeDuration } }
@@ -776,7 +780,7 @@ Popup {
                                             anchors.fill: parent; anchors.margins: 2
                                             country: root.languageIds[languageButton.index]
                                             active: languageButton.hovered || languageButton.visualFocus
-                                            opacity: Theme.darkMode ? 0.23 : 0.17
+                                            opacity: Theme.darkMode ? 0.18 : 0.12
                                         }
                                     }
                                     contentItem: RowLayout {
@@ -786,7 +790,14 @@ Popup {
                                             color: languageButton.currentLanguage ? Theme.textPrimary : Theme.textSecondary
                                             font.family: Theme.fontFamily; font.pixelSize: 14; font.weight: languageButton.currentLanguage ? Font.DemiBold : Font.Medium
                                         }
-                                        Text { visible: languageButton.currentLanguage; text: "✓"; color: Theme.accentText; font.pixelSize: 15; font.weight: Font.Bold }
+                                        Text {
+                                            visible: languageButton.currentLanguage
+                                            text: "✓"; color: Theme.accentText; font.pixelSize: 15; font.weight: Font.Bold
+                                            scale: languageButton.currentLanguage ? 1 : 0.72
+                                            opacity: languageButton.currentLanguage ? 1 : 0
+                                            Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 190; easing.type: Easing.OutBack } }
+                                            Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
+                                        }
                                     }
                                     onClicked: root.setLanguage(root.languageIds[index])
                                 }
