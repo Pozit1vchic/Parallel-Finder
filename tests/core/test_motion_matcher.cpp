@@ -2161,23 +2161,46 @@ TEST(MotionMatcher, CrossSourceBodyIdentityGapNeedsStrongMotionCorroboration)
     EXPECT_EQ(matcher.findAllPairs(motion).size(),1U)
         << "the relaxed body proposal must also survive retrieval";
 
+    // A weak averaged face descriptor can contradict across a profile/wardrobe
+    // change. The same narrow body gap is allowed only for moving cross-source
+    // clips and still has to pass the full aligned-action checks.
+    auto changedAppearance=motion;
+    changedAppearance[0].faceEmbedding={1,0};
+    changedAppearance[1].faceEmbedding={0,1};
+    changedAppearance[0].faceConfidence=changedAppearance[1].faceConfidence=1;
+    const auto appearanceShift=matcher.compare(changedAppearance[0],changedAppearance[1]);
+    EXPECT_EQ(appearanceShift.rejection,pfcore::MotionRejection::None);
+    EXPECT_TRUE(appearanceShift.appearanceVerified);
+    EXPECT_FALSE(appearanceShift.faceVerified);
+    EXPECT_NEAR(appearanceShift.appearanceSimilarity,.75349,.001);
+    EXPECT_EQ(matcher.findAllPairs(changedAppearance).size(),1U);
+
+    auto sameSource=changedAppearance[1];
+    sameSource.sourceId=changedAppearance[0].sourceId;
+    EXPECT_EQ(matcher.compare(changedAppearance[0],sameSource).rejection,
+        pfcore::MotionRejection::Identity);
+    auto staticContradiction=changedAppearance[1];
+    staticContradiction.staticFrameSet=true;
+    EXPECT_EQ(matcher.compare(changedAppearance[0],staticContradiction).rejection,
+        pfcore::MotionRejection::Identity);
+
     // Keep the same body identity score but remove the temporal action. A
     // weak body-only proposal must not be reported as a match by itself.
-    auto held=motion[1];
+    auto held=changedAppearance[1];
     const auto heldPose=held.frames.front().keypoints;
     for(auto& frame:held.frames)frame.keypoints=heldPose;
-    const auto unsupported=matcher.compare(motion[0],held);
+    const auto unsupported=matcher.compare(changedAppearance[0],held);
     EXPECT_NE(unsupported.rejection,pfcore::MotionRejection::None);
     EXPECT_FALSE(unsupported.appearanceVerified);
     EXPECT_LT(unsupported.similarity,params.similarityThreshold);
-    EXPECT_TRUE(matcher.findAllPairs({motion[0],held}).empty());
+    EXPECT_TRUE(matcher.findAllPairs({changedAppearance[0],held}).empty());
 
     // Matching pose and gait cannot override clearly unrelated body identity.
     // Build a deterministic orthogonal prototype at the same dimensionality
     // as the measured OSNet descriptors, with no face observations on either
     // side. This exercises both direct comparison and the search retrieval
     // path without relaxing the identity gate.
-    auto unrelated=motion[1];
+    auto unrelated=changedAppearance[1];
     const auto& reference=motion[0].appearanceEmbedding;
     ASSERT_FALSE(reference.empty());
     unrelated.appearanceEmbedding.assign(reference.size(),0.0F);
@@ -2188,11 +2211,11 @@ TEST(MotionMatcher, CrossSourceBodyIdentityGapNeedsStrongMotionCorroboration)
     const double projection=reference[basis]; // fixture descriptors are L2-normalized
     for(std::size_t i=0;i<reference.size();++i)
         unrelated.appearanceEmbedding[i]-=static_cast<float>(projection*reference[i]);
-    const auto rejectedUnrelated=matcher.compare(motion[0],unrelated);
+    const auto rejectedUnrelated=matcher.compare(changedAppearance[0],unrelated);
     EXPECT_EQ(rejectedUnrelated.rejection,pfcore::MotionRejection::Identity);
     EXPECT_LT(rejectedUnrelated.appearanceSimilarity,params.minMotionBodyIdentitySimilarity);
     EXPECT_DOUBLE_EQ(rejectedUnrelated.similarity,0.0);
-    EXPECT_TRUE(matcher.findAllPairs({motion[0],unrelated}).empty());
+    EXPECT_TRUE(matcher.findAllPairs({changedAppearance[0],unrelated}).empty());
 }
 
 TEST(MotionMatcher, CrossSourceWalkingWithHiddenFaceSurvivesProfileProjection)

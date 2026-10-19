@@ -641,27 +641,39 @@ IdentityEvidence identityEvidence(const MotionWindow& left, const MotionWindow& 
             return {true,true,true,measured.meanSupportedSimilarity,true};
         }
     }
-    if (face) {
-        const double score = appearanceCosine(left.faceEmbedding, right.faceEmbedding);
-        // Reliable face disagreement vetoes body resemblance, even when
-        // uniforms/clothing make body descriptors nearly identical.
-        return {true, score >= params.minFaceSimilarity, true, score};
-    }
     const bool body = !left.appearanceEmbedding.empty() && !right.appearanceEmbedding.empty()
         && left.appearanceConfidence >= params.minAppearanceEvidence
         && right.appearanceConfidence >= params.minAppearanceEvidence;
-    const double score = body ? appearanceCosine(left.appearanceEmbedding, right.appearanceEmbedding) : 0;
-    const bool verified = body && score >= params.minAppearanceSimilarity;
+    const double bodyScore = body ? appearanceCosine(left.appearanceEmbedding, right.appearanceEmbedding) : 0;
+    if (face) {
+        const double score = appearanceCosine(left.faceEmbedding, right.faceEmbedding);
+        if (score >= params.minFaceSimilarity) return {true, true, true, score};
+        // A weak averaged face mismatch can come from a poor crop or a major
+        // appearance change. Permit only the existing narrow body-ReID gap
+        // for cross-source moving clips; final temporal, DTW, direction and
+        // anatomy checks still have to corroborate the same action. Direct
+        // face-consensus contradictions above remain a hard veto, as do all
+        // static-pose and same-source comparisons.
+        const bool motionCandidate = body && !left.staticFrameSet && !right.staticFrameSet
+            && left.sourceId != right.sourceId
+            && bodyScore < params.minAppearanceSimilarity
+            && bodyScore >= params.minMotionBodyIdentitySimilarity;
+        if (motionCandidate) return {true, false, false, bodyScore, false, true};
+        // Reliable face disagreement still vetoes body resemblance, even
+        // when uniforms or clothing make body descriptors nearly identical.
+        return {true, false, true, score};
+    }
+    const bool verified = body && bodyScore >= params.minAppearanceSimilarity;
     // A back/profile view often weakens an otherwise useful OSNet prototype.
     // Keep a narrow, cross-source moving-pair proposal band, then require
     // strong aligned motion before the pair can count as identity-verified.
-    // A confident face disagreement has already returned above and cannot
-    // enter this fallback.
+    // In the absence of a usable face match, a body proposal still needs
+    // strong aligned motion before it can count as identity-verified.
     const bool motionCandidate = body && !verified
         && !left.staticFrameSet && !right.staticFrameSet
         && left.sourceId != right.sourceId
-        && score >= params.minMotionBodyIdentitySimilarity;
-    return {body, verified, false, score, false, motionCandidate};
+        && bodyScore >= params.minMotionBodyIdentitySimilarity;
+    return {body, verified, false, bodyScore, false, motionCandidate};
 }
 
 bool separateVerifiedShots(const MotionWindow& left, const MotionWindow& right,
