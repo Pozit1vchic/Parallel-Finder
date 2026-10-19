@@ -1282,6 +1282,8 @@ QtObject {
             const auto target=button->mapToScene(QPointF(button->width()/2,button->height()/2)).toPoint();
             QTest::mouseMove(window,target);
             QTRY_VERIFY(button->property("hovered").toBool());
+            QTRY_VERIFY(backdrop->property("active").toBool());
+            QTRY_VERIFY(backdrop->property("imageReady").toBool());
             QTRY_COMPARE(backdrop->property("reveal").toDouble(),1.0);
             QVERIFY(window->grabWindow().save(capture+QStringLiteral("/rc23-language-%1-complete.png").arg(ids[i])));
         }

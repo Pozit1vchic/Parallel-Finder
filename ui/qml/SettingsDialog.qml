@@ -761,6 +761,7 @@ Popup {
                                     required property int index
                                     objectName: "languageButton_" + index
                                     readonly property bool currentLanguage: L10n.language === root.languageIds[index]
+                                    readonly property bool flagActive: hovered || visualFocus
                                     Layout.fillWidth: true; Layout.preferredHeight: 58
                                     hoverEnabled: true; focusPolicy: Qt.StrongFocus
                                     scale: down && !Theme.reducedMotion ? 0.992 : 1
@@ -768,31 +769,55 @@ Popup {
                                     background: Rectangle {
                                         radius: Theme.radiusCard
                                         clip: true
-                                        color: languageButton.down ? Theme.accentMuted
+                                        color: languageButton.flagActive ? "#20242d"
+                                            : languageButton.down ? Theme.accentMuted
                                             : languageButton.currentLanguage ? Theme.accentMuted
                                             : languageButton.hovered ? Theme.surfaceRaised : Theme.well
-                                        border.width: languageButton.currentLanguage ? 1.5 : 1
-                                        border.color: languageButton.currentLanguage ? Theme.accent : Theme.hairlineStrong
                                         Behavior on color { ColorAnimation { duration: Theme.motionChangeDuration } }
-                                        Behavior on border.color { ColorAnimation { duration: Theme.motionChangeDuration } }
                                         FlagBackdrop {
                                             objectName: "languageFlag_" + languageButton.index
-                                            anchors.fill: parent; anchors.margins: 2
+                                            anchors.fill: parent
                                             country: root.languageIds[languageButton.index]
-                                            active: languageButton.hovered || languageButton.visualFocus
-                                            opacity: Theme.darkMode ? 0.78 : 0.66
+                                            active: languageButton.flagActive
+                                        }
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            z: 1
+                                            radius: Theme.radiusCard
+                                            color: "transparent"
+                                            border.width: languageButton.currentLanguage ? 1.5 : 1
+                                            border.color: languageButton.currentLanguage ? Theme.accent : Theme.hairlineStrong
+                                            Behavior on border.color { ColorAnimation { duration: Theme.motionChangeDuration } }
                                         }
                                     }
                                     contentItem: RowLayout {
                                         spacing: 10
-                                        Text {
-                                            Layout.fillWidth: true; text: root.languageNames[languageButton.index]
-                                            color: languageButton.currentLanguage ? Theme.textPrimary : Theme.textSecondary
-                                            font.family: Theme.fontFamily; font.pixelSize: 14; font.weight: languageButton.currentLanguage ? Font.DemiBold : Font.Medium
+                                        Item {
+                                            objectName: "languageLabelSlot_" + languageButton.index
+                                            Layout.fillWidth: true; Layout.fillHeight: true
+                                            Rectangle {
+                                                anchors.fill: languageLabel
+                                                anchors.margins: -6
+                                                radius: 5
+                                                color: languageButton.flagActive ? "#d911141b" : "transparent"
+                                                Behavior on color { ColorAnimation { duration: 140 } }
+                                            }
+                                            Text {
+                                                id: languageLabel
+                                                objectName: "languageLabel_" + languageButton.index
+                                                anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
+                                                text: root.languageNames[languageButton.index]
+                                                color: languageButton.flagActive ? "#ffffff"
+                                                    : languageButton.currentLanguage ? Theme.textPrimary : Theme.textSecondary
+                                                font.family: Theme.fontFamily; font.pixelSize: 14; font.weight: languageButton.currentLanguage ? Font.DemiBold : Font.Medium
+                                            }
                                         }
                                         Text {
                                             visible: languageButton.currentLanguage
-                                            text: "✓"; color: Theme.accentText; font.pixelSize: 15; font.weight: Font.Bold
+                                            text: "✓"; color: languageButton.flagActive ? "#ffffff" : Theme.accentText
+                                            style: languageButton.flagActive ? Text.Outline : Text.Normal
+                                            styleColor: "#171920"
+                                            font.pixelSize: 15; font.weight: Font.Bold
                                             scale: languageButton.currentLanguage ? 1 : 0.72
                                             opacity: languageButton.currentLanguage ? 1 : 0
                                             Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 190; easing.type: Easing.OutBack } }

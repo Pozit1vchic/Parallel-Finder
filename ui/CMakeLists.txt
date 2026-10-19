@@ -59,6 +59,12 @@ qt_add_qml_module(pfui
         qml/assets/flags/kk.svg
         qml/assets/flags/uk.svg
         qml/assets/flags/tr.svg
+        qml/assets/flags/banner-ru.svg
+        qml/assets/flags/banner-uk.svg
+        qml/assets/flags/banner-ky.svg
+        qml/assets/flags/banner-kk.svg
+        qml/assets/flags/banner-ukr.svg
+        qml/assets/flags/banner-tr.svg
         qml/assets/moon.svg
         qml/assets/sun.svg
         qml/assets/chevron-left.svg
