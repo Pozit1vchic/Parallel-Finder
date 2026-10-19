@@ -143,6 +143,7 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
         if(!cacheDirectory.empty())try {cache=std::make_unique<pfservices::PfCache>(cacheDirectory,64ULL*1024*1024);}catch(...) {}
         pfgpu::VideoActionEstimator actions(actionModel.string(),provider,8);
         pfcore::VideoDecoder decoder;std::string opened;
+        std::map<std::string,std::vector<std::pair<std::string,std::vector<std::uint8_t>>>> pendingCacheWrites;
         options.maxWidth=1280;options.maxHeight=720;options.preferNvidia=false;
         std::size_t done=0;
         for(const auto& request:requests) {
@@ -201,12 +202,15 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
                 if(before.size()!=after.size() || before.lastModified()!=after.lastModified())
                     throw std::runtime_error("Source changed during video-action review");
                 if(cache && cacheable && sourceNamespaces.contains(evidence.sourceId) && !stopped()) {
-                    std::string error;cache->putForSource(evidence.sourceId,request.key,serialize(evidence),error);
+                    pendingCacheWrites[evidence.sourceId].emplace_back(request.key,serialize(evidence));
                 }
             }
             stats.observed+=evidence.observed;
             for(const auto wi:request.destinations)windows[wi].videoActions.push_back(evidence);
             if(progress)progress(++done,stats.requested);
+        }
+        if(cache)for(const auto& [source,entries]:pendingCacheWrites) {
+            std::string error;cache->putForSourceBatch(source,entries,error);
         }
         if(stopped())for(const auto wi:selected)windows[wi].videoActions.clear();
     }catch(const std::exception& error) {
