@@ -15,6 +15,11 @@
   ],
   "output": "float32 [N,80] AVA scores, not calibrated correctness probabilities",
   "walkLabelIndex": 13,
+  "postureLabelIndices": {
+    "lieSleep": 7,
+    "sit": 10,
+    "stand": 11
+  },
   "exportParityCases": 4,
   "maximumExportError": 2.2351741790771484e-07,
   "professionalMovementAccuracyEstablished": false,
@@ -22,10 +27,24 @@
   "supportedSemanticActions": [
     "walk"
   ],
+  "experimentalSemanticActions": [
+    "seated_lying",
+    "standing"
+  ],
   "walkPolicy": {
     "minimumScore": 0.9,
     "minimumFrozenMargin": 0.5,
     "minimumStandRunMargin": 0.2,
     "requiresSelectedTorsoAndNativeContinuity": true
+  },
+  "posturePolicy": {
+    "seatedOrLyingMinimumTemporalScore": 0.65,
+    "seatedOrLyingMinimumFrozenScore": 0.55,
+    "seatedOrLyingMinimumMarginOverStanding": 0.2,
+    "standingMinimumTemporalScore": 0.7,
+    "standingMinimumFrozenScore": 0.6,
+    "standingMinimumMarginOverSeatedOrLying": 0.25,
+    "requiresSelectedSubjectUpperTorsoAndHipAndNativeContinuity": true,
+    "ambiguousOrConflictingEvidence": "unknown"
   }
 }

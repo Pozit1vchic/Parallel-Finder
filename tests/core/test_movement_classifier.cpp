@@ -215,6 +215,39 @@ TEST(MovementGrouping, ExclusiveClipEndCannotSupplyPoseOrMotionEvidence)
     EXPECT_EQ(classifier.classifyForGrouping(window,0,.4).gesture,pfcore::GestureClass::Unknown);
     EXPECT_EQ(classifier.classifyForGrouping(window,0,.41).gesture,pfcore::GestureClass::Static);
 }
+TEST(MovementGrouping, GroupsConfidentSittingAndLyingSeparatelyFromStanding)
+{
+    const auto make=[](int posture) {
+        pfcore::MotionWindow window;window.staticFrameSet=true;
+        for(int i=0;i<8;++i) {
+            pfcore::PoseFrame frame;frame.timestampSeconds=i*.1;
+            frame.keypoints={{0,-2},{-.5,-2.5},{.5,-2.5},{-1,-2},{1,-2},
+                {-1,0},{1,0},{-1,1},{1,1},{-1,2},{1,2},
+                {-.8,2},{.8,2},{-.8,4},{.8,4},{-.8,6},{.8,6}};
+            if(posture==1) {
+                frame.keypoints[13]={-2,2.5};frame.keypoints[14]={2,2.5};
+                frame.keypoints[15]={-2,4.5};frame.keypoints[16]={2,4.5};
+            } else if(posture==2) {
+                frame.keypoints[11]={2.5,0};frame.keypoints[12]={4.5,0};
+            } else if(posture==3) {
+                for(int joint=11;joint<17;++joint)frame.keypoints[joint].confidence=.1;
+            }
+            window.frames.push_back(std::move(frame));
+        }
+        return window;
+    };
+    const pfcore::MovementClassifier classifier;
+    EXPECT_EQ(classifier.classifyPostureForGrouping(make(0),0,.8),"standing");
+    EXPECT_EQ(classifier.classifyPostureForGrouping(make(1),0,.8),"seated_lying");
+    EXPECT_EQ(classifier.classifyPostureForGrouping(make(2),0,.8),"seated_lying");
+    EXPECT_EQ(classifier.classifyPostureForGrouping(make(3),0,.8),"unknown");
+    auto inconsistent=make(0);
+    for(std::size_t i=4;i<inconsistent.frames.size();++i) {
+        inconsistent.frames[i].keypoints[13]={-2,2.5};inconsistent.frames[i].keypoints[14]={2,2.5};
+        inconsistent.frames[i].keypoints[15]={-2,4.5};inconsistent.frames[i].keypoints[16]={2,4.5};
+    }
+    EXPECT_EQ(classifier.classifyPostureForGrouping(inconsistent,0,.8),"unknown");
+}
 TEST(MovementGrouping, SeparatesSingleArmRaisesLowersAndOppositeArmActions)
 {
     const auto raise=actionFixture([](auto& f,double t){f.keypoints[9].y-=3*t;});

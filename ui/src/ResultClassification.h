@@ -54,6 +54,25 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
     row.insert("classificationPartial",match.headOnlyComparison || movement.headOnlyEvidence);
     if (row.value("classificationManual").toBool()) return;
     QString classification;
+    const auto leftPosture=match.headOnlyComparison ? std::string("unknown")
+        : classifier.classifyPostureForGrouping(evidence[0],match.leftStartSeconds,match.leftEndSeconds);
+    const auto rightPosture=match.headOnlyComparison ? std::string("unknown")
+        : classifier.classifyPostureForGrouping(evidence[1],match.rightStartSeconds,match.rightEndSeconds);
+    if(leftPosture!="unknown" || rightPosture!="unknown") {
+        if(leftPosture=="seated_lying" && rightPosture=="seated_lying")
+            classification=QStringLiteral("seated_lying");
+        else if(leftPosture=="standing" && rightPosture=="standing") {
+            // Keep the more specific movement/pose grouping for two confirmed
+            // standing clips.
+        } else if(leftPosture!="unknown" && rightPosture!="unknown")
+            classification=QStringLiteral("posture_mismatch");
+        else
+            classification=QStringLiteral("posture_uncertain");
+        if(!classification.isEmpty()) {
+            row.insert("classification",classification);
+            return;
+        }
+    }
     if (evidence[0].staticFrameSet && evidence[1].staticFrameSet) {
         const auto left = classifier.classifyPoseForGrouping(evidence[0], match.leftStartSeconds,
                                                               match.leftEndSeconds, match.headOnlyComparison);

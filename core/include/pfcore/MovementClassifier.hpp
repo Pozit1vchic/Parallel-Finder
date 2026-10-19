@@ -67,6 +67,11 @@ public:
         const MovementClassification& left, const MovementClassification& right);
     [[nodiscard]] std::string classifyPoseForGrouping(const MotionWindow& window,
         double start, double end, bool headOnly) const;
+    // Conservative whole-body posture grouping from visible torso/leg joints.
+    // Sitting and lying intentionally share one bucket; missing body evidence
+    // is reported as unknown instead of being guessed as standing.
+    [[nodiscard]] std::string classifyPostureForGrouping(const MotionWindow& window,
+        double start, double end) const;
     [[nodiscard]] MovementClassification classify(const MotionWindow& window) const;
     [[nodiscard]] MovementClassification classify(const MotionWindow& window, double start, double end) const;
     [[nodiscard]] MovementClassification classify(const MotionWindow& left,

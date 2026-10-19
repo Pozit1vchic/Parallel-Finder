@@ -1463,13 +1463,17 @@ void UiSmokeTests::movementClassesAndExportOrder()
     const QVariantList conflictingActions{
         QVariantMap{{"id",0},{"classification","unknown/unknown"}},
         QVariantMap{{"id",1},{"classification","action_mismatch"}},
-        QVariantMap{{"id",2},{"classification","head_turn/right"}}};
+        QVariantMap{{"id",2},{"classification","head_turn/right"}},
+        QVariantMap{{"id",3},{"classification","seated_lying"}}};
     rail->setProperty("results",conflictingActions);popup->setProperty("results",conflictingActions);
-    popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true}});QTest::qWait(100);
+    popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true},{"3",true}});QTest::qWait(100);
     QVERIFY(values(rail->property("classChoices")).toStringList().contains("action_mismatch"));
+    QVERIFY(values(rail->property("classChoices")).toStringList().contains("seated_lying"));
+    rail->setProperty("classFilter","seated_lying");QTest::qWait(100);
+    QCOMPARE(values(rail->property("visibleResults")).toList().size(),1);
     rail->setProperty("classFilter","action_mismatch");QTest::qWait(100);
     QCOMPARE(values(rail->property("visibleResults")).toList().size(),1);
-    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"head_turn","action_mismatch","unknown"}));
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"seated_lying","head_turn","action_mismatch","unknown"}));
 }
 void UiSmokeTests::staticPoseDisagreementKeepsBothPoses()
 {
@@ -1500,10 +1504,38 @@ void UiSmokeTests::staticPoseDisagreementKeepsBothPoses()
     QCOMPARE(classifyPair(armsRaised,straightLegs,false),QString("pose_mismatch/arms_raised+legs_straight"));
     QCOMPARE(classifyPair(straightLegs,armsRaised,false),QString("pose_mismatch/arms_raised+legs_straight"));
     QCOMPARE(classifyPair(straightLegs,straightLegs,false),QString("legs_straight"));
+    const auto seated=poseWindow([](pfcore::PoseFrame& frame) {
+        frame.keypoints[13]={-4,6};frame.keypoints[14]={4,6};
+        frame.keypoints[15]={-4,8};frame.keypoints[16]={4,8};
+    });
+    const auto lying=poseWindow([](pfcore::PoseFrame& frame) {
+        frame.keypoints[11]={2,4};frame.keypoints[12]={4,4};
+    });
+    const auto cropped=poseWindow([](pfcore::PoseFrame& frame) {
+        for(int joint=11;joint<17;++joint)frame.keypoints[joint].confidence=.1;
+    });
+    QCOMPARE(classifyPair(seated,lying,false),QString("seated_lying"));
+    QCOMPARE(classifyPair(seated,straightLegs,false),QString("posture_mismatch"));
+    QCOMPARE(classifyPair(seated,cropped,false),QString("posture_uncertain"));
     const auto uncertainPose=poseWindow([](pfcore::PoseFrame& frame) {
         for(auto& point:frame.keypoints)point.confidence=0.;
     });
-    QCOMPARE(classifyPair(armsRaised,uncertainPose,false),QString("body_pose"));
+    QCOMPARE(classifyPair(armsRaised,uncertainPose,false),QString("posture_uncertain"));
+
+    auto semanticPosture=[](pfcore::MotionWindow window,const int label) {
+        window.sourceId="semantic-source";
+        pfcore::VideoActionEvidence evidence;evidence.sourceId=window.sourceId;
+        evidence.modelHash=pfcore::kVideoActionModelHash;evidence.start=0;evidence.end=1;
+        evidence.observed=evidence.continuous=evidence.associated=evidence.torsoVisible=evidence.postureVisible=true;
+        for(int i=0;i<10;++i)evidence.frameTimes.push_back(i*.1);
+        evidence.scores[label]=.84;evidence.frozenScores[label]=.74;
+        window.videoActions.push_back(std::move(evidence));return window;
+    };
+    const auto croppedSeated=semanticPosture(cropped,10);
+    const auto croppedLying=semanticPosture(cropped,7);
+    const auto croppedStanding=semanticPosture(cropped,11);
+    QCOMPARE(classifyPair(croppedSeated,croppedLying,false),QString("seated_lying"));
+    QCOMPARE(classifyPair(croppedSeated,croppedStanding,false),QString("posture_mismatch"));
 
     const auto headTurned=poseWindow([](pfcore::PoseFrame& frame){frame.keypoints[0].x=.7;});
     QCOMPARE(classifyPair(straightLegs,headTurned,true),QString("pose_mismatch/head_front+head_turned"));

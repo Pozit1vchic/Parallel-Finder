@@ -35,7 +35,7 @@ std::vector<pfcore::VideoActionEvidence> readVideoActionCache(const std::filesys
             static_cast<qsizetype>(bytes.size())));
         if(!document.isObject())continue;
         const auto object=document.object();
-        if(object["schema"].toInt()!=1 || !object["source"].isString() || !object["model"].isString()
+        if(object["schema"].toInt()!=2 || !object["source"].isString() || !object["model"].isString()
             || !object["start"].isDouble() || !object["end"].isDouble())continue;
         pfcore::VideoActionEvidence evidence;
         evidence.sourceId=object["source"].toString().toStdString();
@@ -44,12 +44,13 @@ std::vector<pfcore::VideoActionEvidence> readVideoActionCache(const std::filesys
         if(evidence.sourceId.empty() || !std::isfinite(evidence.start) || !std::isfinite(evidence.end)
             || evidence.end<=evidence.start)continue;
         bool valid=true;
-        for(const auto field:{"observed","continuous","associated","torsoVisible"}) {
+        for(const auto field:{"observed","continuous","associated","torsoVisible","postureVisible"}) {
             if(!object[field].isBool()){valid=false;break;}
         }
         if(!valid || !object["times"].isArray() || !object["scores"].isArray() || !object["frozen"].isArray())continue;
         evidence.observed=object["observed"].toBool();evidence.continuous=object["continuous"].toBool();
         evidence.associated=object["associated"].toBool();evidence.torsoVisible=object["torsoVisible"].toBool();
+        evidence.postureVisible=object["postureVisible"].toBool();
         for(const auto value:object["times"].toArray()) {
             if(!value.isDouble() || !std::isfinite(value.toDouble())){valid=false;break;}
             evidence.frameTimes.push_back(value.toDouble());
@@ -155,6 +156,8 @@ int main(int argc,char** argv) {
                 row[side+"Direction"]=pfcore::MovementClassifier::directionName(group.direction);
                 row[side+"GestureConfidence"]=group.gestureConfidence;
                 row[side+"DirectionConfidence"]=group.directionConfidence;
+                row[side+"Posture"]=QString::fromStdString(
+                    classifier.classifyPostureForGrouping(*best,reviewStart,reviewEnd));
                 row[side+"Group"]=QString::fromStdString(pose ? classifier.classifyPoseForGrouping(*best,reviewStart,reviewEnd,head)
                     : pfcore::MovementClassifier::gestureName(group.gesture));
                 QJsonArray frames;
@@ -172,6 +175,12 @@ int main(int argc,char** argv) {
             QJsonArray sharedActions;
             for(const auto action:combined.actions)sharedActions.append(pfcore::MovementClassifier::gestureName(action));
             row["groupedActions"]=sharedActions;
+            const auto leftPosture=row["leftPosture"].toString(),rightPosture=row["rightPosture"].toString();
+            if(leftPosture=="seated_lying"&&rightPosture=="seated_lying")row["groupedPosture"]="seated_lying";
+            else if(leftPosture=="standing"&&rightPosture=="standing")row["groupedPosture"]="standing";
+            else if(leftPosture!="unknown"&&rightPosture!="unknown")row["groupedPosture"]="posture_mismatch";
+            else if(leftPosture!="unknown"||rightPosture!="unknown")row["groupedPosture"]="posture_uncertain";
+            else row["groupedPosture"]="unknown";
         }
         reviewed.append(row);
     }

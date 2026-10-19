@@ -582,7 +582,7 @@ MovementClassification MovementClassifier::classifyForGrouping(const MotionWindo
     auto result=classifyGeometricForGrouping(window,start,end,headOnly);
     if(headOnly || !insideSceneRange(window,start,end))return result;
     std::optional<double> walking;
-    for(const auto& evidence:window.videoActions)
+    if(!window.staticFrameSet)for(const auto& evidence:window.videoActions)
         if(const auto strength=measuredWalking(evidence,window.sourceId,start,end))walking=strength;
     if(!walking)return result;
     if(result.gesture==GestureClass::Unknown || result.gesture==GestureClass::Static) {
@@ -714,5 +714,66 @@ std::string MovementClassifier::classifyPoseForGrouping(const MotionWindow& wind
     for(const auto& vote:votes)
         if(std::count(votes.begin(),votes.end(),vote)*5>=static_cast<long long>(total)*4)return vote;
     return fallback;
+}
+
+std::string MovementClassifier::classifyPostureForGrouping(const MotionWindow& window,double start,double end) const {
+    if(!std::isfinite(start)||!std::isfinite(end)||end<start||!insideSceneRange(window,start,end))return "unknown";
+    std::string semantic="unknown";
+    for(const auto& evidence:window.videoActions) {
+        const auto measured=measuredPosture(evidence,window.sourceId,start,end);
+        if(measured=="unknown")continue;
+        if(semantic!="unknown" && semantic!=measured)return "unknown";
+        semantic=measured;
+    }
+    std::vector<std::string> votes;
+    std::size_t sampled=0;
+    for(const auto& frame:window.frames) {
+        if(!insideScene(window,frame.timestampSeconds)||frame.timestampSeconds<start-1e-6
+            ||frame.timestampSeconds>=end-1e-6)continue;
+        ++sampled;
+        const auto sl=point(frame,5),sr=point(frame,6),hl=point(frame,11),hr=point(frame,12);
+        if(!sl||!sr||!hl||!hr)continue;
+        const auto shoulder=midpoint(*sl,*sr),hip=midpoint(*hl,*hr);
+        const double torso=length(shoulder,hip);
+        if(torso<1e-6)continue;
+        const double dx=std::abs(hip.x-shoulder.x)/torso,dy=std::abs(hip.y-shoulder.y)/torso;
+        // A near-horizontal shoulder-to-hip axis is strong evidence of a
+        // reclined/lying body, even when the lower body is cropped out.
+        if(dx>.78 && dx>dy*1.35) {votes.emplace_back("seated_lying");continue;}
+        if(dy<.68 || dy<dx*1.08)continue;
+        const auto kneeAngleCos=[&](int side)->std::optional<double> {
+            const auto h=point(frame,11+side),k=point(frame,13+side),a=point(frame,15+side);
+            if(!h||!k||!a)return {};
+            const double upper=length(*h,*k),lower=length(*a,*k);
+            if(upper<torso*.18||lower<torso*.18)return {};
+            return ((h->x-k->x)*(a->x-k->x)+(h->y-k->y)*(a->y-k->y))/(upper*lower);
+        };
+        const auto left=kneeAngleCos(0),right=kneeAngleCos(1);
+        const auto thighHorizontal=[&](int side) {
+            const auto h=point(frame,11+side),k=point(frame,13+side);
+            return h&&k&&std::abs(h->x-k->x)>std::abs(h->y-k->y)*1.15;
+        };
+        const auto thighVertical=[&](int side) {
+            const auto h=point(frame,11+side),k=point(frame,13+side);
+            return h&&k&&std::abs(h->y-k->y)>std::abs(h->x-k->x)*1.2;
+        };
+        const bool bothLegs=left&&right;
+        if(bothLegs && (*left>-.72 || *right>-.72)
+            && (thighHorizontal(0)||thighHorizontal(1))) {
+            votes.emplace_back("seated_lying");
+        } else if(bothLegs && *left<-.88 && *right<-.88
+            && thighVertical(0)&&thighVertical(1)
+            && hip.y>shoulder.y+torso*.45) {
+            votes.emplace_back("standing");
+        }
+    }
+    if(sampled<3||votes.size()<3||votes.size()*4<sampled*3)return semantic;
+    const auto seated=static_cast<std::size_t>(std::count(votes.begin(),votes.end(),"seated_lying"));
+    const auto standing=static_cast<std::size_t>(std::count(votes.begin(),votes.end(),"standing"));
+    std::string geometric="unknown";
+    if(seated*5>=sampled*4)geometric="seated_lying";
+    else if(standing*5>=sampled*4)geometric="standing";
+    if(geometric!="unknown" && semantic!="unknown" && geometric!=semantic)return "unknown";
+    return geometric!="unknown"?geometric:semantic;
 }
 } // namespace pfcore

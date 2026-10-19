@@ -29,10 +29,11 @@ std::vector<std::uint8_t> serialize(const pfcore::VideoActionEvidence& evidence)
     QJsonArray times,scores,frozen;
     for(const auto time:evidence.frameTimes)times.append(time);
     if(evidence.observed)for(int i=0;i<80;++i) {scores.append(evidence.scores[i]);frozen.append(evidence.frozenScores[i]);}
-    const auto bytes=QJsonDocument(QJsonObject{{"schema",1},{"source",QString::fromStdString(evidence.sourceId)},
+    const auto bytes=QJsonDocument(QJsonObject{{"schema",2},{"source",QString::fromStdString(evidence.sourceId)},
         {"model",QString::fromStdString(evidence.modelHash)},{"start",evidence.start},{"end",evidence.end},
         {"observed",evidence.observed},{"continuous",evidence.continuous},{"associated",evidence.associated},
-        {"torsoVisible",evidence.torsoVisible},{"times",times},{"scores",scores},{"frozen",frozen}}).toJson(QJsonDocument::Compact);
+        {"torsoVisible",evidence.torsoVisible},{"postureVisible",evidence.postureVisible},
+        {"times",times},{"scores",scores},{"frozen",frozen}}).toJson(QJsonDocument::Compact);
     return {reinterpret_cast<const std::uint8_t*>(bytes.constData()),reinterpret_cast<const std::uint8_t*>(bytes.constData())+bytes.size()};
 }
 std::optional<pfcore::VideoActionEvidence> deserialize(const std::vector<std::uint8_t>& bytes,
@@ -41,12 +42,13 @@ std::optional<pfcore::VideoActionEvidence> deserialize(const std::vector<std::ui
         QByteArray(reinterpret_cast<const char*>(bytes.data()),bytes.size()),&error);
     if(error.error!=QJsonParseError::NoError || !document.isObject())return {};
     const auto o=document.object();
-    if(o["schema"].toInt()!=1 || o["source"].toString().toStdString()!=expected.sourceId
+    if(o["schema"].toInt()!=2 || o["source"].toString().toStdString()!=expected.sourceId
         || o["model"].toString().toStdString()!=expected.modelHash || !o["start"].isDouble() || !o["end"].isDouble()
         || o["start"].toDouble()!=expected.start || o["end"].toDouble()!=expected.end)return {};
-    for(const auto field:{"observed","continuous","associated","torsoVisible"})if(!o[field].isBool())return {};
+    for(const auto field:{"observed","continuous","associated","torsoVisible","postureVisible"})if(!o[field].isBool())return {};
     auto result=expected;result.observed=o["observed"].toBool();result.continuous=o["continuous"].toBool();
     result.associated=o["associated"].toBool();result.torsoVisible=o["torsoVisible"].toBool();
+    result.postureVisible=o["postureVisible"].toBool();
     if(!o["times"].isArray() || !o["scores"].isArray() || !o["frozen"].isArray())return {};
     const auto times=o["times"].toArray();if(times.size()>192)return {};
     double previous=-INFINITY;
@@ -57,7 +59,8 @@ std::optional<pfcore::VideoActionEvidence> deserialize(const std::vector<std::ui
     }
     const auto scores=o["scores"].toArray(),frozen=o["frozen"].toArray();
     if(result.observed) {
-        if(scores.size()!=80 || frozen.size()!=80 || times.size()<5 || !result.associated || !result.continuous || !result.torsoVisible)return {};
+        if(scores.size()!=80 || frozen.size()!=80 || times.size()<5 || !result.associated || !result.continuous
+            || (!result.torsoVisible&&!result.postureVisible))return {};
         for(int i=0;i<80;++i) {
             if(!scores[i].isDouble() || !frozen[i].isDouble())return {};
             result.scores[i]=scores[i].toDouble();result.frozenScores[i]=frozen[i].toDouble();
@@ -75,6 +78,19 @@ bool visibleTorso(const pfcore::PoseFrame& frame) {
             || p.confidence<(joint<7 ? .5:.35))return false;
     }
     return true;
+}
+bool visiblePostureTorso(const pfcore::PoseFrame& frame) {
+    if(frame.keypoints.size()<13)return false;
+    for(const int joint:{5,6}) {
+        const auto& p=frame.keypoints[joint];
+        if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.confidence)||p.confidence<.45)return false;
+    }
+    std::size_t hips=0;
+    for(const int joint:{11,12}) {
+        const auto& p=frame.keypoints[joint];
+        hips+=std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.confidence)&&p.confidence>=.2;
+    }
+    return hips>0;
 }
 }
 
@@ -113,17 +129,17 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
                 if(selected.insert(wi).second)window.videoActions.clear();
                 const double start=side==0 ? match.leftStartSeconds:match.rightStartSeconds;
                 const double end=side==0 ? match.leftEndSeconds:match.rightEndSeconds;
-                if(window.staticFrameSet || window.sourceId.empty() || !std::isfinite(start) || !std::isfinite(end)
+                if(window.sourceId.empty() || !std::isfinite(start) || !std::isfinite(end)
                     || start<0 || end-start<.5 || end-start>3 || window.frames.empty())continue;
                 if(window.sceneStartSeconds>=0 && start<window.sceneStartSeconds-1e-6)continue;
                 if(window.sceneEndSeconds>=0 && end>window.sceneEndSeconds+1e-6)continue;
-                const pfcore::PoseFrame* anchor=nullptr;std::size_t count=0,torso=0;double first=INFINITY,last=-INFINITY;
+                const pfcore::PoseFrame* anchor=nullptr;std::size_t count=0,postureTorso=0;double first=INFINITY,last=-INFINITY;
                 for(const auto& frame:window.frames)if(frame.timestampSeconds>=start-1e-6 && frame.timestampSeconds<end-1e-6) {
-                    ++count;torso+=visibleTorso(frame);
+                    ++count;postureTorso+=visiblePostureTorso(frame);
                     first=std::min(first,frame.timestampSeconds);last=std::max(last,frame.timestampSeconds);
                     if(!anchor || std::abs(frame.timestampSeconds-(start+end)*.5)<std::abs(anchor->timestampSeconds-(start+end)*.5))anchor=&frame;
                 }
-                if(!anchor || !visibleTorso(*anchor) || count<3 || torso*4<count*3
+                if(!anchor || !visiblePostureTorso(*anchor) || count<3 || postureTorso*4<count*3
                     || first-start>.35 || end-last>.35)continue;
                 const QFileInfo sourceInfo(QString::fromStdString(window.sourceId));
                 if(!sourceInfo.isFile())continue;
@@ -138,7 +154,8 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
                 const auto [slot,inserted]=lookup.try_emplace(key,requests.size());
                 if(inserted) {
                     Request request;request.evidence.sourceId=window.sourceId;request.evidence.modelHash=modelHash;
-                    request.evidence.start=start;request.evidence.end=end;request.evidence.torsoVisible=true;
+                    request.evidence.start=start;request.evidence.end=end;request.evidence.torsoVisible=visibleTorso(*anchor);
+                    request.evidence.postureVisible=true;
                     request.anchor=*anchor;request.key=key;requests.push_back(std::move(request));
                 }
                 requests[slot->second].destinations.push_back(wi);
@@ -190,7 +207,7 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
                             }
                             if(const auto association=pfcore::associateObservedPose(request.anchor,detected,anchor->width,anchor->height)) {
                                 const auto& person=people[association->candidate];
-                                if(person.confidence>=.4 && visibleTorso(detected[association->candidate])) {
+                                if(person.confidence>=.4 && visiblePostureTorso(detected[association->candidate])) {
                                     evidence.associated=true;
                                     const std::array<pfgpu::VideoActionSubject,1> subjects{{{person.left,person.top,person.right,person.bottom}}};
                                     std::vector<pfgpu::VideoActionFrame> frames;

@@ -8,7 +8,7 @@ pfcore::VideoActionEvidence measuredClip() {
     pfcore::VideoActionEvidence result;
     result.sourceId="selected-source";result.modelHash=pfcore::kVideoActionModelHash;
     result.start=0;result.end=1.5;
-    result.observed=result.continuous=result.associated=result.torsoVisible=true;
+    result.observed=result.continuous=result.associated=result.torsoVisible=result.postureVisible=true;
     for(int i=0;i<15;++i)result.frameTimes.push_back(i*.1);
     result.scores[13]=.99;result.frozenScores[13]=.02;
     return result;
@@ -38,6 +38,20 @@ TEST(VideoActionEvidence, RequiresMeasuredMovementOfTheSelectedContinuousSubject
     EXPECT_FALSE(pfcore::measuredWalking(valid,"selected-source",.1,1.5));
     auto gap=valid;gap.frameTimes.erase(gap.frameTimes.begin()+3,gap.frameTimes.begin()+7);
     EXPECT_FALSE(pfcore::measuredWalking(gap,"selected-source",0,1.5));
+}
+TEST(VideoActionEvidence, RequiresTemporalAndFrozenAgreementForPosture) {
+    auto seated=measuredClip();seated.scores[10]=.82;seated.frozenScores[10]=.72;
+    EXPECT_EQ(pfcore::measuredPosture(seated,"selected-source",0,1.5),"seated_lying");
+    auto lying=measuredClip();lying.scores[7]=.86;lying.frozenScores[7]=.74;
+    EXPECT_EQ(pfcore::measuredPosture(lying,"selected-source",0,1.5),"seated_lying");
+    auto standing=measuredClip();standing.scores[11]=.84;standing.frozenScores[11]=.73;
+    EXPECT_EQ(pfcore::measuredPosture(standing,"selected-source",0,1.5),"standing");
+    auto ambiguous=seated;ambiguous.scores[11]=.7;ambiguous.frozenScores[11]=.66;
+    EXPECT_EQ(pfcore::measuredPosture(ambiguous,"selected-source",0,1.5),"unknown");
+    auto stale=seated;stale.modelHash="another-model";
+    EXPECT_EQ(pfcore::measuredPosture(stale,"selected-source",0,1.5),"unknown");
+    auto cropped=seated;cropped.postureVisible=false;
+    EXPECT_EQ(pfcore::measuredPosture(cropped,"selected-source",0,1.5),"unknown");
 }
 TEST(VideoActionEvidence, AddsValidatedWalkingToUnknownGeometryWithoutChangingHeadScope) {
     pfcore::MotionWindow window;window.sourceId="selected-source";
