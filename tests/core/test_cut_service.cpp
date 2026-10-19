@@ -20,6 +20,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QGuiApplication>
 
 #include <filesystem>
 #include <limits>
@@ -802,6 +803,166 @@ TEST(CutService, ExactLosslessPreservesDecodedPixelsAndSamples)
         EXPECT_FALSE(pfservices::CutService(ffmpeg.toStdString()).cut(request).success);
         EXPECT_FALSE(std::filesystem::exists(request.outputPath));
     }
+}
+
+TEST(MontageExport, LabelsEachTransitionInTheCombinedVideo)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    ASSERT_FALSE(ffmpeg.isEmpty());
+
+    // Signature artwork uses Qt's font renderer. Run this integration check
+    // headlessly, without changing the application's UI environment.
+    qputenv("QT_QPA_PLATFORM", "offscreen");
+    int argc = 1;
+    char appName[] = "pf_tests";
+    char* argv[] = {appName, nullptr};
+    std::unique_ptr<QGuiApplication> guiApplication;
+    if (!QGuiApplication::instance()) {
+        ASSERT_EQ(QCoreApplication::instance(), nullptr)
+            << "a QCoreApplication is already active without a GUI platform";
+        guiApplication = std::make_unique<QGuiApplication>(argc, argv);
+    }
+
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const auto run = [&](QStringList args) {
+        QProcess process;
+        process.start(ffmpeg, QStringList{"-hide_banner", "-loglevel", "error", "-nostdin"} + args);
+        EXPECT_TRUE(process.waitForFinished(60000));
+        EXPECT_EQ(process.exitCode(), 0) << process.readAllStandardError().toStdString();
+        return process.readAllStandardOutput();
+    };
+
+    const auto source = directory.filePath("static.mp4");
+    run({"-f", "lavfi", "-i", "color=c=0x314562:s=640x360:r=24:d=2",
+        "-an", "-c:v", "libx264", "-threads", "2", "-pix_fmt", "yuv420p", source});
+    ASSERT_TRUE(QFileInfo::exists(source));
+
+    pfservices::CutRequest first;
+    first.inputPath = source.toStdWString();
+    first.startSeconds = 0;
+    first.endSeconds = .5;
+    first.mode = pfservices::CutMode::Exact;
+    first.transitionSignature = QStringLiteral("Parallel 0001 · Test action · A");
+    auto second = first;
+    second.startSeconds = .5;
+    second.endSeconds = 1.0;
+    second.transitionSignature = QStringLiteral("Parallel 0002 · Test action · B");
+
+    const auto signatureBandHashes = [&](const QString& path) {
+        const auto bytes = run({"-i", path, "-vf", "crop=640:110:0:0", "-f", "framemd5", "-"});
+        QList<QByteArray> hashes;
+        for (const auto& line : bytes.split('\n')) {
+            if (line.isEmpty() || line.startsWith('#')) continue;
+            const auto fields = line.split(',');
+            if (fields.size() < 6 || fields[0].trimmed() != "0") continue;
+            hashes.push_back(fields.last().trimmed());
+        }
+        return hashes;
+    };
+
+    pfservices::CutService cutter(ffmpeg.toStdString());
+    first.outputPath = directory.filePath("direct-signed.mp4").toStdWString();
+    const auto directSigned = cutter.cut(first);
+    ASSERT_TRUE(directSigned.success) << directSigned.error;
+    auto unsignedFirst = first;
+    unsignedFirst.transitionSignature.clear();
+    unsignedFirst.outputPath = directory.filePath("direct-unsigned.mp4").toStdWString();
+    const auto directUnsigned = cutter.cut(unsignedFirst);
+    ASSERT_TRUE(directUnsigned.success) << directUnsigned.error;
+    const auto directSignedHashes = signatureBandHashes(directory.filePath("direct-signed.mp4"));
+    const auto directUnsignedHashes = signatureBandHashes(directory.filePath("direct-unsigned.mp4"));
+    ASSERT_FALSE(directSignedHashes.isEmpty());
+    ASSERT_EQ(directSignedHashes.size(), directUnsignedHashes.size());
+    EXPECT_NE(directSignedHashes[0], directUnsignedHashes[0])
+        << "CutService did not burn the requested transition signature";
+    EXPECT_NE(directSignedHashes[directSignedHashes.size() / 2],
+        directUnsignedHashes[directUnsignedHashes.size() / 2])
+        << "the signature disappeared before the clip ended";
+    second.outputPath = directory.filePath("direct-second.mp4").toStdWString();
+    const auto directSecond = cutter.cut(second);
+    ASSERT_TRUE(directSecond.success) << directSecond.error;
+    const auto directSecondHashes = signatureBandHashes(directory.filePath("direct-second.mp4"));
+    ASSERT_FALSE(directSecondHashes.isEmpty());
+    EXPECT_NE(directSignedHashes[0], directSecondHashes[0])
+        << "different transition labels rendered the same artwork";
+    EXPECT_NE(directSignedHashes[directSignedHashes.size() / 2],
+        directSecondHashes[directSecondHashes.size() / 2])
+        << "different transition labels should remain visible throughout each clip";
+
+    auto normalizedFirst = first;
+    auto normalizedSecond = second;
+    for (auto* request : {&normalizedFirst, &normalizedSecond}) {
+        request->mode = pfservices::CutMode::Exact;
+        request->canvasWidth = 640;
+        request->canvasHeight = 360;
+        request->outputFrameRate = 30;
+        request->ensureStereoAudio = true;
+        request->sourceHasAudio = false;
+    }
+    normalizedFirst.outputPath = directory.filePath("normalized-first.mp4").toStdWString();
+    normalizedSecond.outputPath = directory.filePath("normalized-second.mp4").toStdWString();
+    const auto normalizedBatch = pfservices::runExportQueue({normalizedFirst, normalizedSecond}, {}, {}, ffmpeg.toStdString());
+    ASSERT_EQ(normalizedBatch.completed.size(), 2U);
+    ASSERT_TRUE(normalizedBatch.completed[0].success) << normalizedBatch.completed[0].error;
+    ASSERT_TRUE(normalizedBatch.completed[1].success) << normalizedBatch.completed[1].error;
+    const auto normalizedFirstHashes = signatureBandHashes(directory.filePath("normalized-first.mp4"));
+    const auto normalizedSecondHashes = signatureBandHashes(directory.filePath("normalized-second.mp4"));
+    auto normalizedUnsigned = normalizedFirst;
+    normalizedUnsigned.transitionSignature.clear();
+    normalizedUnsigned.outputPath = directory.filePath("normalized-unsigned.mp4").toStdWString();
+    const auto normalizedUnsignedBatch = pfservices::runExportQueue({normalizedUnsigned}, {}, {}, ffmpeg.toStdString());
+    ASSERT_EQ(normalizedUnsignedBatch.completed.size(), 1U);
+    ASSERT_TRUE(normalizedUnsignedBatch.completed[0].success) << normalizedUnsignedBatch.completed[0].error;
+    const auto normalizedUnsignedHashes = signatureBandHashes(directory.filePath("normalized-unsigned.mp4"));
+    ASSERT_FALSE(normalizedFirstHashes.isEmpty());
+    ASSERT_FALSE(normalizedSecondHashes.isEmpty());
+    ASSERT_EQ(normalizedFirstHashes.size(), normalizedUnsignedHashes.size());
+    EXPECT_NE(normalizedFirstHashes[normalizedFirstHashes.size() / 2],
+        normalizedUnsignedHashes[normalizedUnsignedHashes.size() / 2])
+        << "the normalized signature is missing from interior video frames";
+    EXPECT_NE(normalizedFirstHashes[0], normalizedSecondHashes[0])
+        << "parallel normalized clip preparation reused one transition label";
+    EXPECT_NE(normalizedFirstHashes[normalizedFirstHashes.size() / 2],
+        normalizedSecondHashes[normalizedSecondHashes.size() / 2])
+        << "parallel normalized labels did not persist through the whole clip";
+
+    const auto signedPath = directory.filePath("signed.mp4");
+    const auto signedMontage = pfservices::exportChronologicalMontage(
+        {first, second}, signedPath.toStdWString(), {}, {}, ffmpeg.toStdString(), true);
+    ASSERT_TRUE(signedMontage.success) << signedMontage.error;
+
+    first.transitionSignature.clear();
+    second.transitionSignature.clear();
+    const auto unsignedPath = directory.filePath("unsigned.mp4");
+    const auto unsignedMontage = pfservices::exportChronologicalMontage(
+        {first, second}, unsignedPath.toStdWString(), {}, {}, ffmpeg.toStdString(), true);
+    ASSERT_TRUE(unsignedMontage.success) << unsignedMontage.error;
+
+    const auto unsignedHashes = signatureBandHashes(unsignedPath);
+    const auto signedHashes = signatureBandHashes(signedPath);
+    ASSERT_GE(unsignedHashes.size(), 4);
+    ASSERT_EQ(signedHashes.size(), unsignedHashes.size());
+    const auto secondClipFrame = unsignedHashes.size() / 2;
+    EXPECT_EQ(signedHashes[secondClipFrame / 2],
+        normalizedFirstHashes[normalizedFirstHashes.size() / 2])
+        << "the first concatenated segment differs from its prepared clip";
+    EXPECT_EQ(signedHashes[secondClipFrame + secondClipFrame / 2],
+        normalizedSecondHashes[normalizedSecondHashes.size() / 2])
+        << "the second concatenated segment differs from its prepared clip";
+    const auto differentFrames = [&](std::size_t begin, std::size_t end) {
+        return std::count_if(unsignedHashes.begin() + static_cast<qsizetype>(begin),
+            unsignedHashes.begin() + static_cast<qsizetype>(end), [&](const auto& hash) {
+                const auto index = static_cast<std::size_t>(&hash - unsignedHashes.data());
+                return signedHashes[static_cast<qsizetype>(index)] != hash;
+            });
+    };
+    EXPECT_GT(differentFrames(0, secondClipFrame), 0)
+        << "first clip has no visible label";
+    EXPECT_GT(differentFrames(secondClipFrame, unsignedHashes.size()), 0)
+        << "second clip has no visible label";
+    EXPECT_NE(signedHashes[secondClipFrame / 2], signedHashes[secondClipFrame + secondClipFrame / 2])
+        << "the two transition labels should be independently rendered";
 }
 
 TEST(CutService, ExactLosslessRealSourcePixelsAudioAndMontage)
