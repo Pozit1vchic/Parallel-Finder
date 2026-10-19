@@ -608,6 +608,9 @@ MovementClassification MovementClassifier::combineForGrouping(const MovementClas
         || a.gestureConfidence<.65 || b.gestureConfidence<.65)return result;
     result.direction=a.direction==b.direction ? a.direction:MovementDirection::Mixed;
     result.directionConfidence=std::min(a.directionConfidence,b.directionConfidence);
+    // Preserve the measurement scope even when the actions disagree or both
+    // are static. A conflict cannot create evidence of the hidden body.
+    result.headOnlyEvidence=a.headOnlyEvidence||b.headOnlyEvidence;
     if(a.gesture==GestureClass::Static && b.gesture==GestureClass::Static) {
         result.gesture=GestureClass::Static;
         result.gestureConfidence=std::min(a.gestureConfidence,b.gestureConfidence);
@@ -635,8 +638,6 @@ MovementClassification MovementClassifier::combineForGrouping(const MovementClas
     if(sharedActions.empty()) {result.conflictingActions=true;return result;}
     result.actions=std::move(sharedActions);
     result.gesture=result.actions.size()==1 ? result.actions.front():GestureClass::Mixed;
-    result.headOnlyEvidence=(a.headOnlyEvidence||b.headOnlyEvidence)
-        && (result.gesture!=GestureClass::Mixed || !result.actions.empty());
     result.gestureConfidence=std::min(a.gestureConfidence,b.gestureConfidence);
     return result;
 }
@@ -730,9 +731,14 @@ std::string MovementClassifier::classifyPostureForGrouping(const MotionWindow& w
     std::size_t postureObserved=0;
     double firstPostureTime=std::numeric_limits<double>::infinity();
     double lastPostureTime=-std::numeric_limits<double>::infinity();
+    double previousTime=-std::numeric_limits<double>::infinity();
     for(const auto& frame:window.frames) {
+        if(!std::isfinite(frame.timestampSeconds))return "unknown";
         if(!insideScene(window,frame.timestampSeconds)||frame.timestampSeconds<start-1e-6
             ||frame.timestampSeconds>=end-1e-6)continue;
+        // Repeated or reordered detections are not independent posture votes.
+        if(frame.timestampSeconds<=previousTime)return "unknown";
+        previousTime=frame.timestampSeconds;
         ++sampled;
         const auto sl=point(frame,5),sr=point(frame,6),hl=point(frame,11),hr=point(frame,12);
         if(!sl||!sr||!hl||!hr)continue;

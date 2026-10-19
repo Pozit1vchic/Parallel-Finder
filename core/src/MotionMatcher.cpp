@@ -2072,8 +2072,10 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     previous[0] = 0.0;
     const std::size_t ratioBand = std::max<std::size_t>(2, static_cast<std::size_t>(std::ceil(
         static_cast<double>(std::max(rows, cols)) * params.sakoeChibaRatio)));
-    const std::size_t band = std::max({params.dtwBand, ratioBand,
-                                       rows > cols ? rows - cols : cols - rows});
+    // A band wider than the matrix already means unrestricted alignment.
+    // Bound it before i + band so an oversized caller value cannot wrap.
+    const std::size_t band = std::min(std::max(rows,cols),std::max({params.dtwBand, ratioBand,
+                                       rows > cols ? rows - cols : cols - rows}));
     for (std::size_t i = 1; i <= rows; ++i) {
         std::fill(current.begin(), current.end(), inf);
         std::fill(currentSteps.begin(), currentSteps.end(), 0);
@@ -2255,16 +2257,18 @@ void MotionMatcher::setParams(MotionMatcherParams params)
         || !(params.similarityThreshold >= 0.0 && params.similarityThreshold <= 1.0)
         || !(params.candidateThreshold >= 0.0 && params.candidateThreshold <= 1.0)
         || params.maxUniqueResults == 0 || params.maxComparisonThreads > 256
-        || params.dtwBand == 0 || params.noiseFactor < 0.0)
+        || params.dtwBand == 0 || !std::isfinite(params.noiseFactor) || params.noiseFactor < 0.0)
         throw std::invalid_argument("MotionMatcher: invalid parameters");
     if (!(params.sakoeChibaRatio >= 0.0 && params.sakoeChibaRatio <= 1.0)
+        || !std::isfinite(params.minRepeatGapSec) || !std::isfinite(params.sameFileGapSec)
         || !(params.minRepeatGapSec >= 0.0 && params.sameFileGapSec >= 0.0)
+        || !std::isfinite(params.crossFileGapSec) || !std::isfinite(params.duplicateWindowSec)
         || !(params.crossFileGapSec >= 0.0 && params.duplicateWindowSec >= 0.0)
         || !(params.timeWeight >= 0.0 && params.timeWeight <= 1.0)
         || !(params.motionDeltaThreshold >= 0.0 && params.motionDeltaThreshold <= 1.0)
         || !(params.minActiveTransitionRatio >= 0.0 && params.minActiveTransitionRatio <= 1.0)
-        || params.minMotionRange < 0.0
-        || params.minMotionSpanSec < 0.0
+        || !std::isfinite(params.minMotionRange) || params.minMotionRange < 0.0
+        || !std::isfinite(params.minMotionSpanSec) || params.minMotionSpanSec < 0.0
         || !std::isfinite(params.minimumResultDurationSec)
         || params.minimumResultDurationSec < 0.0
         || !(params.temporalSimilarityThreshold >= 0.0
@@ -2272,8 +2276,8 @@ void MotionMatcher::setParams(MotionMatcherParams params)
         || !(params.staticPoseSimilarityThreshold >= 0.0
              && params.staticPoseSimilarityThreshold <= 1.0)
         || params.minTemporalFrames < 3
-        || params.minTemporalDurationSec < 0.0
-        || params.sameSourceGapFloorSec < 0.0
+        || !std::isfinite(params.minTemporalDurationSec) || params.minTemporalDurationSec < 0.0
+        || !std::isfinite(params.sameSourceGapFloorSec) || params.sameSourceGapFloorSec < 0.0
         || !std::isfinite(params.sameSceneContextGapSec) || params.sameSceneContextGapSec < 0.0
         || !(params.sameSceneContextThreshold > 0.0 && params.sameSceneContextThreshold <= 1.0)
         || !(params.nmsOverlapThreshold >= 0.0 && params.nmsOverlapThreshold <= 1.0))

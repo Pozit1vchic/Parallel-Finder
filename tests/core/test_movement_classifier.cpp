@@ -252,6 +252,12 @@ TEST(MovementGrouping, GroupsConfidentSittingAndLyingSeparatelyFromStanding)
         inconsistent.frames[i].keypoints[15]={-2,4.5};inconsistent.frames[i].keypoints[16]={2,4.5};
     }
     EXPECT_EQ(classifier.classifyPostureForGrouping(inconsistent,0,.8),"unknown");
+    auto repeated=make(1);
+    repeated.frames[3].timestampSeconds=repeated.frames[2].timestampSeconds;
+    EXPECT_EQ(classifier.classifyPostureForGrouping(repeated,0,.8),"unknown");
+    auto reversed=make(1);
+    std::swap(reversed.frames[2],reversed.frames[3]);
+    EXPECT_EQ(classifier.classifyPostureForGrouping(reversed,0,.8),"unknown");
 }
 TEST(MovementGrouping, SeparatesSingleArmRaisesLowersAndOppositeArmActions)
 {
@@ -892,6 +898,21 @@ TEST(MovementGrouping, DifferentActionsAcrossPairSidesDoNotBecomeCompositeMoveme
     right.gesture=G::Raise;right.gestureConfidence=.9;
     EXPECT_EQ(pfcore::MovementClassifier::combineForGrouping(left,right).gesture,G::Unknown);
     EXPECT_TRUE(pfcore::MovementClassifier::combineForGrouping(left,right).conflictingActions);
+}
+TEST(MovementGrouping, PreservesHeadOnlyScopeWhenActionsConflictOrRemainStatic)
+{
+    using G=pfcore::GestureClass;
+    pfcore::MovementClassification a,b;
+    a.gesture=G::HeadTurn;a.gestureConfidence=.9;a.headOnlyEvidence=true;
+    b.gesture=G::HeadNod;b.gestureConfidence=.9;
+    for(const auto& result:{pfcore::MovementClassifier::combineForGrouping(a,b),
+                            pfcore::MovementClassifier::combineForGrouping(b,a)}) {
+        EXPECT_TRUE(result.conflictingActions);
+        EXPECT_TRUE(result.headOnlyEvidence);
+    }
+    a.gesture=b.gesture=G::Static;
+    EXPECT_TRUE(pfcore::MovementClassifier::combineForGrouping(a,b).headOnlyEvidence);
+    EXPECT_TRUE(pfcore::MovementClassifier::combineForGrouping(b,a).headOnlyEvidence);
 }
 TEST(MovementGrouping, KeepsOnlyActionsMeasuredOnBothParallelViews)
 {

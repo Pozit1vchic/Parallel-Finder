@@ -2,9 +2,9 @@ param(
     [string]$Toolchain = 'D:\msys2\ucrt64',
     [string]$ModelsDirectory = 'D:\PF_CUDA\models',
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-    [string]$ReleaseTag = '0.1.0-rc.22.5',
+    [string]$ReleaseTag = '0.1.0-rc.22.7',
     [string]$GitHubTag = '',
-    [string]$ReleaseNotes = 'docs/rc22.5-release-notes.md',
+    [string]$ReleaseNotes = 'docs/rc22.7-release-notes.md',
     [string]$SigningKey = (Join-Path $env:LOCALAPPDATA 'ParallelFinder/release-signing/update-ed25519-private.pem'),
     [switch]$KeepStaging,
     [switch]$SkipTests,
@@ -104,6 +104,10 @@ try {
         Copy-Item -LiteralPath (Join-Path $ModelsDirectory $name) -Destination $modelStage
     }
     Copy-Item -LiteralPath "$root/release-models/yolo26m-pose.onnx" -Destination $modelStage
+    # Development deployment has its own model directory. A fresh portable
+    # install cannot depend on those files or the developer's AppData cache.
+    & "$PSScriptRoot/stage-classifier-model.ps1" -Stage $stage
+    Copy-Item -LiteralPath "$root/SKILL.md" -Destination $stage
     # Include all locally available notices; provenance/source obligations remain a release gate.
     Copy-Item -LiteralPath "$Toolchain/share/licenses" -Destination (Join-Path $stage 'third-party-licenses') -Recurse
     Copy-Item -LiteralPath "$root/ui/qml/fonts/OFL.txt" -Destination (Join-Path $stage 'third-party-licenses/JetBrainsMono-OFL.txt')

@@ -145,6 +145,7 @@ audit*.md
 !/docs/analysis-audit-2026-10-10.md
 !/docs/memory-audit.md
 !/docs/video-action-audit-2026-10-14.md
+!/docs/rc22.7-matcher-classifier-audit.md
 !/tools/benchmark/audit_project.ps1
 !/tools/benchmark/check_reference_pairs.ps1
 !/tools/benchmark/install_face_models.ps1

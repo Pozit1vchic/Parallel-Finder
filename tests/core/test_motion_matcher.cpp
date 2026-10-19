@@ -829,6 +829,39 @@ TEST(MotionMatcher, BadParametersAreRejected)
     EXPECT_THROW(matcher.setParams(params), std::invalid_argument);
 }
 
+TEST(MotionMatcher, RejectsNonFiniteUnboundedParametersWithoutChangingActiveSettings)
+{
+    pfcore::MotionMatcher matcher;
+    const auto original=matcher.params();
+    for(const auto field:{&pfcore::MotionMatcherParams::noiseFactor,
+        &pfcore::MotionMatcherParams::minMotionRange,&pfcore::MotionMatcherParams::minMotionSpanSec,
+        &pfcore::MotionMatcherParams::minTemporalDurationSec,&pfcore::MotionMatcherParams::sameSourceGapFloorSec,
+        &pfcore::MotionMatcherParams::minRepeatGapSec,&pfcore::MotionMatcherParams::sameFileGapSec,
+        &pfcore::MotionMatcherParams::crossFileGapSec,&pfcore::MotionMatcherParams::duplicateWindowSec}) {
+        for(const double value:{std::numeric_limits<double>::quiet_NaN(),
+            std::numeric_limits<double>::infinity(),-std::numeric_limits<double>::infinity()}) {
+            auto invalid=original;invalid.*field=value;
+            EXPECT_THROW(matcher.setParams(invalid),std::invalid_argument);
+            EXPECT_EQ(matcher.params(),original);
+        }
+    }
+}
+
+TEST(MotionMatcher, OversizedDtwBandMeansFullAlignmentWithoutUnsignedOverflow)
+{
+    pfcore::MotionMatcherParams params;params.similarityThreshold=.7;
+    params.dtwBand=pfcore::MotionMatcherParams::maximumWindowFrames;
+    const auto left=window("a",0),right=window("b",4);
+    const auto expected=pfcore::MotionMatcher(params).compare(left,right);
+    ASSERT_GE(expected.similarity,.7);
+    params.dtwBand=std::numeric_limits<std::size_t>::max();
+    const auto actual=pfcore::MotionMatcher(params).compare(left,right);
+    EXPECT_DOUBLE_EQ(actual.similarity,expected.similarity);
+    EXPECT_EQ(actual.rejection,expected.rejection);
+    EXPECT_DOUBLE_EQ(actual.leftStartSeconds,expected.leftStartSeconds);
+    EXPECT_DOUBLE_EQ(actual.rightEndSeconds,expected.rightEndSeconds);
+}
+
 TEST(MotionMatcher, CrossFileGapIsApplied)
 {
     pfcore::MotionMatcherParams params;
