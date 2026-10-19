@@ -1269,6 +1269,23 @@ QtObject {
     const auto capture=qEnvironmentVariable("PF_UI_CAPTURE_DIR");
     if(!capture.isEmpty()) {QDir().mkpath(capture);QVERIFY(window->grabWindow().save(capture+"/rc23-language-paint.png"));}
     QTRY_COMPARE(flag->property("reveal").toDouble(),1.0);
+    // Capture each language card only after its reveal animation is complete.
+    // The earlier mid-animation-only capture missed the final crop, clipping,
+    // and opacity regressions that appeared in real use.
+    if(!capture.isEmpty()) {
+        QVERIFY(window->grabWindow().save(capture+"/rc23-language-paint-complete.png"));
+        for(int i=0;i<ids.size();++i) {
+            const auto buttonName=QStringLiteral("languageButton_%1").arg(i);
+            const auto flagName=QStringLiteral("languageFlag_%1").arg(i);
+            auto* button=findVisual(window->contentItem(),buttonName,findVisual);QVERIFY(button);
+            auto* backdrop=findVisual(window->contentItem(),flagName,findVisual);QVERIFY(backdrop);
+            const auto target=button->mapToScene(QPointF(button->width()/2,button->height()/2)).toPoint();
+            QTest::mouseMove(window,target);
+            QTRY_VERIFY(button->property("hovered").toBool());
+            QTRY_COMPARE(backdrop->property("reveal").toDouble(),1.0);
+            QVERIFY(window->grabWindow().save(capture+QStringLiteral("/rc23-language-%1-complete.png").arg(ids[i])));
+        }
+    }
     QVERIFY(QMetaObject::invokeMethod(popup,"close"));
     QTRY_VERIFY(!popup->property("visible").toBool());
     if(!capture.isEmpty()) {QTest::qWait(200);QVERIFY(window->grabWindow().save(capture+"/rc23-light.png"));}
