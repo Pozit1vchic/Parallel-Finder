@@ -632,7 +632,7 @@ MovementClassification MovementClassifier::combineForGrouping(const MovementClas
     std::vector<GestureClass> sharedActions;
     std::set_intersection(leftActions.begin(),leftActions.end(),rightActions.begin(),rightActions.end(),
         std::back_inserter(sharedActions));
-    if(sharedActions.empty())return result;
+    if(sharedActions.empty()) {result.conflictingActions=true;return result;}
     result.actions=std::move(sharedActions);
     result.gesture=result.actions.size()==1 ? result.actions.front():GestureClass::Mixed;
     result.headOnlyEvidence=(a.headOnlyEvidence||b.headOnlyEvidence)

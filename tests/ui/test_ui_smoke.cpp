@@ -1460,6 +1460,16 @@ void UiSmokeTests::movementClassesAndExportOrder()
     rail->setProperty("classFilter","pose_mismatch");QTest::qWait(100);
     QCOMPARE(values(rail->property("visibleResults")).toList().size(),2);
     QCOMPARE(values(popup->property("classOrder")).toStringList(),QStringList{"pose_mismatch"});
+    const QVariantList conflictingActions{
+        QVariantMap{{"id",0},{"classification","unknown/unknown"}},
+        QVariantMap{{"id",1},{"classification","action_mismatch"}},
+        QVariantMap{{"id",2},{"classification","head_turn/right"}}};
+    rail->setProperty("results",conflictingActions);popup->setProperty("results",conflictingActions);
+    popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true}});QTest::qWait(100);
+    QVERIFY(values(rail->property("classChoices")).toStringList().contains("action_mismatch"));
+    rail->setProperty("classFilter","action_mismatch");QTest::qWait(100);
+    QCOMPARE(values(rail->property("visibleResults")).toList().size(),1);
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"head_turn","action_mismatch","unknown"}));
 }
 void UiSmokeTests::staticPoseDisagreementKeepsBothPoses()
 {
@@ -1609,6 +1619,16 @@ void UiSmokeTests::classificationsFollowEditedRange()
     record.insert("classificationManual",true);record.insert("classification","step");
     pfui::classifyResultRange(record,match,evidence);
     QCOMPARE(record.value("classification").toString(),QString("step"));
+    record.insert("classificationManual",false);
+    match.headOnlyComparison=true;
+    for(auto& sample:evidence[1].headOrientations)sample.rotation={1,0,0,0,1,0,0,0,1};
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString(),QString("action_mismatch"));
+    QVERIFY(record.value("classificationConflict").toBool());
+    for(auto& sample:evidence[1].headOrientations)sample.observed=false;
+    pfui::classifyResultRange(record,match,evidence);
+    QCOMPARE(record.value("classification").toString().section('/',0,0),QString("unknown"));
+    QVERIFY(!record.value("classificationConflict").toBool());
 }
 
 void UiSmokeTests::previewRequestsRenderBySourceAndTimeWithoutReindexing()

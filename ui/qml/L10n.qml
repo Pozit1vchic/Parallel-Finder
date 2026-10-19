@@ -4,7 +4,7 @@ import QtQuick
 
 QtObject {
     property string language: "en"
-    readonly property var movementTypes: ["head_turn_away", "head_turn_back", "head_turn", "turn", "head_front", "head_turned", "head_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "body_pose", "pose_mismatch", "head_nod", "head_tilt", "raise", "lower", "raise_lower", "wave", "push", "pull", "reach_return", "step", "static", "mixed", "unknown"]
+    readonly property var movementTypes: ["head_turn_away", "head_turn_back", "head_turn", "turn", "head_front", "head_turned", "head_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "body_pose", "pose_mismatch", "head_nod", "head_tilt", "raise", "lower", "raise_lower", "wave", "push", "pull", "reach_return", "step", "static", "mixed", "action_mismatch", "unknown"]
     function movementKey(value) {
         const key=String(value || "unknown").split("/")[0]
         if (movementTypes.indexOf(key)>=0) return key
@@ -55,6 +55,7 @@ QtObject {
             "class.head_pose": "Положение головы",
             "class.body_pose": "Положение тела",
             "class.pose_mismatch": "Разные статичные позы",
+            "class.action_mismatch": "Разные действия",
             "class.head_front": "Голова прямо",
             "class.head_turned": "Голова повёрнута",
             "class.arms_raised": "Рука поднята",
@@ -395,6 +396,7 @@ QtObject {
             "class.head_pose": "Head position",
             "class.body_pose": "Body position",
             "class.pose_mismatch": "Different static poses",
+            "class.action_mismatch": "Different actions",
             "class.head_front": "Head facing forward",
             "class.head_turned": "Head turned",
             "class.arms_raised": "Arm raised",

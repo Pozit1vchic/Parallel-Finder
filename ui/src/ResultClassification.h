@@ -50,6 +50,7 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
     for(const auto action:movement.actions)
         actions.push_back(QString::fromLatin1(pfcore::MovementClassifier::gestureName(action)));
     row.insert("classificationActions",actions);
+    row.insert("classificationConflict",movement.conflictingActions);
     row.insert("classificationPartial",match.headOnlyComparison || movement.headOnlyEvidence);
     if (row.value("classificationManual").toBool()) return;
     QString classification;
@@ -74,6 +75,10 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
             classification = QString::fromStdString(fallback);
         }
     } else {
+        if(movement.conflictingActions) {
+            row.insert("classification",QStringLiteral("action_mismatch"));
+            return;
+        }
         classification = QString::fromStdString(match.gestureLabel + "/" + match.directionLabel);
         auto groupingActions=actions;
         if(movement.gesture==pfcore::GestureClass::HeadTurn || actions.contains("head_turn")) {

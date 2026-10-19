@@ -138,7 +138,7 @@ QString exportMovementLabel(QString classification, bool russian)
         {"arms_raised", "Рука поднята"}, {"arms_extended", "Рука выпрямлена"},
         {"arms_folded", "Руки скрещены"}, {"legs_bent", "Ноги согнуты"},
         {"legs_straight", "Ноги выпрямлены"}, {"body_pose", "Положение тела"},
-        {"pose_mismatch", "Разные статичные позы"}, {"head_nod", "Кивок головы"},
+        {"pose_mismatch", "Разные статичные позы"}, {"action_mismatch", "Разные действия"}, {"head_nod", "Кивок головы"},
         {"head_tilt", "Наклон головы"}, {"raise", "Подъём руки"}, {"lower", "Опускание руки"},
         {"raise_lower", "Подъём и опускание руки"}, {"wave", "Взмах"},
         {"push", "Разгибание руки"}, {"pull", "Сгибание руки"},
@@ -152,7 +152,7 @@ QString exportMovementLabel(QString classification, bool russian)
         {"arms_raised", "Arm raised"}, {"arms_extended", "Arm extended"},
         {"arms_folded", "Arms crossed"}, {"legs_bent", "Legs bent"},
         {"legs_straight", "Legs straight"}, {"body_pose", "Body position"},
-        {"pose_mismatch", "Different static poses"}, {"head_nod", "Head nod"},
+        {"pose_mismatch", "Different static poses"}, {"action_mismatch", "Different actions"}, {"head_nod", "Head nod"},
         {"head_tilt", "Head tilt"}, {"raise", "Raise arm"}, {"lower", "Lower arm"},
         {"raise_lower", "Arm raise and lower"}, {"wave", "Wave"},
         {"push", "Arm extension"}, {"pull", "Arm flexion"},
@@ -1723,7 +1723,7 @@ void AnalysisController::setSceneThreshold(double value)
 void AnalysisController::setResultClassification(const QVariantList& ids, const QString& classification)
 {
     if (busy_ || exportBusy_ || reviewBusy_) return;
-    const QStringList allowed{"head_turn_away", "head_turn_back", "head_pose", "head_front", "head_turned", "body_pose", "pose_mismatch", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "head_turn", "head_nod", "head_tilt", "push", "pull", "reach_return", "raise", "lower", "raise_lower", "turn", "step", "wave", "static", "mixed", "unknown"};
+    const QStringList allowed{"head_turn_away", "head_turn_back", "head_pose", "head_front", "head_turned", "body_pose", "pose_mismatch", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "head_turn", "head_nod", "head_tilt", "push", "pull", "reach_return", "raise", "lower", "raise_lower", "turn", "step", "wave", "static", "mixed", "action_mismatch", "unknown"};
     if (!allowed.contains(classification)) return;
     QVariantList changed;
     for (const auto& value : ids) {

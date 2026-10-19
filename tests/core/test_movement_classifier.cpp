@@ -847,8 +847,13 @@ TEST(MovementGrouping, DifferentActionsAcrossPairSidesDoNotBecomeCompositeMoveme
     EXPECT_EQ(pfcore::MovementClassifier::combineForGrouping(left,right).gesture,G::Unknown);
     EXPECT_EQ(pfcore::MovementClassifier::combineForGrouping(right,left).gesture,G::Unknown);
 
+    EXPECT_TRUE(pfcore::MovementClassifier::combineForGrouping(left,right).conflictingActions);
+    EXPECT_TRUE(pfcore::MovementClassifier::combineForGrouping(right,left).conflictingActions);
+    EXPECT_FALSE(pfcore::MovementClassifier::combineForGrouping(left,{}).conflictingActions);
+
     right.gesture=G::Raise;right.gestureConfidence=.9;
     EXPECT_EQ(pfcore::MovementClassifier::combineForGrouping(left,right).gesture,G::Unknown);
+    EXPECT_TRUE(pfcore::MovementClassifier::combineForGrouping(left,right).conflictingActions);
 }
 TEST(MovementGrouping, KeepsOnlyActionsMeasuredOnBothParallelViews)
 {

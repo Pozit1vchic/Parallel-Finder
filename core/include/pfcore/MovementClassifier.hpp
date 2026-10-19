@@ -47,6 +47,9 @@ struct MovementClassification {
     // This gives result grouping a stable shared facet instead of putting all
     // composite movements into one broad "mixed" bucket.
     std::vector<GestureClass> actions;
+    // Both sides have supported actions, but share no action facet. This is
+    // different from missing evidence and must not become an Unknown bucket.
+    bool conflictingActions = false;
 };
 
 class MovementClassifier {
