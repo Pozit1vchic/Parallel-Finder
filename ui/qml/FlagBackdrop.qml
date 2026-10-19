@@ -1,8 +1,8 @@
 import QtQuick
 import PfUi
 
-// Repeating native-ratio flag tiles fill a wide language card without
-// distorting or cropping away defining stripes and emblems.
+// A single complete flag keeps its native proportions in the card. A quiet
+// edge-to-edge crop underneath lets the paint reveal fill the wide button.
 Item {
     id: root
     property string country: "ru"
@@ -85,13 +85,20 @@ Item {
                 }
                 ctx.closePath()
             }
-            const drawTiles = function() {
-                const tileHeight = height
-                const tileWidth = tileHeight * 2
-                const centerX = (width - tileWidth) / 2
-                const count = Math.ceil(width / tileWidth) + 2
-                for (let i = -count; i <= count; ++i)
-                    ctx.drawImage(flagSource, centerX + i * tileWidth, 0, tileWidth, tileHeight)
+            const drawFlag = function() {
+                const alpha = ctx.globalAlpha
+                ctx.globalAlpha = alpha * 0.24
+                const coverScale = Math.max(width / 300, height / 150)
+                const coverWidth = 300 * coverScale
+                const coverHeight = 150 * coverScale
+                ctx.drawImage(flagSource, (width - coverWidth) / 2, (height - coverHeight) / 2, coverWidth, coverHeight)
+
+                // Show one intact emblem/flag at 2:1 in the middle so wide
+                // cards never lose stripes or symbols to the cover crop.
+                const flagWidth = Math.min(width, height * 2)
+                const flagHeight = flagWidth / 2
+                ctx.globalAlpha = alpha * 0.98
+                ctx.drawImage(flagSource, (width - flagWidth) / 2, (height - flagHeight) / 2, flagWidth, flagHeight)
             }
 
             // Match the card silhouette so the painted reveal reaches its
@@ -111,14 +118,14 @@ Item {
             makeEdgePath(style.direction === "up" || style.direction === "right" ? -0.055 : 0.055)
             ctx.clip()
             ctx.globalAlpha = 0.24
-            if (isImageLoaded(flagSource)) drawTiles()
+            if (isImageLoaded(flagSource)) drawFlag()
             ctx.restore()
 
             ctx.save()
             makeEdgePath(0)
             ctx.clip()
             ctx.globalAlpha = 1
-            if (isImageLoaded(flagSource)) drawTiles()
+            if (isImageLoaded(flagSource)) drawFlag()
             ctx.restore()
             ctx.restore()
         }
