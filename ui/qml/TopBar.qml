@@ -69,8 +69,8 @@ Item {
             width: 226; height: 28; radius: 8
             color: providerMenu.visible || gpuHover.hovered ? Theme.accentMuted : Theme.surfaceRaised
             border.color: providerMenu.visible || gpuHover.hovered ? Theme.accent : Theme.hairline
-            Behavior on color { ColorAnimation { duration: Theme.motionChangeDuration } }
-            Behavior on border.color { ColorAnimation { duration: Theme.motionChangeDuration } }
+            Behavior on color { ColorAnimation { duration: Theme.reducedMotion ? 0 : 260; easing.type: Easing.InOutSine } }
+            Behavior on border.color { ColorAnimation { duration: Theme.reducedMotion ? 0 : 260; easing.type: Easing.InOutSine } }
             RowLayout { anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 8
                 Rectangle { Layout.alignment: Qt.AlignVCenter; Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: !AppInfo.backendInitializing && AppInfo.backendAvailable(Analysis.providerChoice) ? "#22C55E" : Theme.textDisabled
                 }
@@ -110,14 +110,14 @@ Item {
                 background: Rectangle { color: Theme.tooltipSurface; radius: Theme.radiusCard; border.color: Theme.hairlineStrong }
                 enter: Transition {
                     ParallelAnimation {
-                        NumberAnimation { property: "scale"; from: Theme.motionPopupScale; to: 1; duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic }
-                        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic }
+                        NumberAnimation { property: "scale"; from: Theme.reducedMotion ? 1 : 0.988; to: 1; duration: Theme.reducedMotion ? 0 : 360; easing.type: Easing.InOutSine }
+                        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.reducedMotion ? 0 : 280; easing.type: Easing.InOutSine }
                     }
                 }
                 exit: Transition {
                     ParallelAnimation {
-                        NumberAnimation { property: "scale"; to: Theme.motionPopupScale; duration: Theme.motionDuration; easing.type: Easing.InCubic }
-                        NumberAnimation { property: "opacity"; to: 0; duration: Theme.motionDuration; easing.type: Easing.InCubic }
+                        NumberAnimation { property: "scale"; to: Theme.reducedMotion ? 1 : 0.988; duration: Theme.reducedMotion ? 0 : 240; easing.type: Easing.InOutSine }
+                        NumberAnimation { property: "opacity"; to: 0; duration: Theme.reducedMotion ? 0 : 240; easing.type: Easing.InOutSine }
                     }
                 }
                 contentItem: Column {
@@ -152,9 +152,9 @@ Item {
                                 text: "✓"; color: Theme.accentText; font.pixelSize: 14
                                 horizontalAlignment: Text.AlignHCenter
                                 opacity: providerRow.selectedProvider ? 1 : 0
-                                scale: providerRow.selectedProvider ? 1 : 0.65
-                                Behavior on opacity { NumberAnimation { duration: Theme.motionChangeDuration } }
-                                Behavior on scale { NumberAnimation { duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic } }
+                                scale: providerRow.selectedProvider ? 1 : 0.9
+                                Behavior on opacity { NumberAnimation { duration: Theme.reducedMotion ? 0 : 260; easing.type: Easing.InOutSine } }
+                                Behavior on scale { NumberAnimation { duration: Theme.reducedMotion ? 0 : 300; easing.type: Easing.InOutSine } }
                             }
                         }
                         background: Rectangle {
@@ -162,8 +162,8 @@ Item {
                             color: providerRow.selectedProvider ? Theme.accentMuted : providerRow.hovered ? Theme.surfaceRaised : "transparent"
                             border.width: 1
                             border.color: providerRow.hovered ? Theme.hairlineStrong : "transparent"
-                            Behavior on color { ColorAnimation { duration: Theme.motionChangeDuration } }
-                            Behavior on border.color { ColorAnimation { duration: Theme.motionChangeDuration } }
+                            Behavior on color { ColorAnimation { duration: Theme.reducedMotion ? 0 : 260; easing.type: Easing.InOutSine } }
+                            Behavior on border.color { ColorAnimation { duration: Theme.reducedMotion ? 0 : 260; easing.type: Easing.InOutSine } }
                         }
                         onClicked: root.chooseProvider(modelData)
                     }
