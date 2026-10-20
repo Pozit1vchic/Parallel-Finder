@@ -9,8 +9,7 @@ Item {
     property bool active: false
     property real reveal: active ? 1 : 0
     property bool imageReady: false
-    readonly property string bannerCode: ({ ru: "ru", en: "uk", ky: "ky", kk: "kk", uk: "ukr", tr: "tr" })[country] || "ru"
-    readonly property string bannerSource: "qrc:/qt/qml/PfUi/qml/assets/flags/banner-" + root.bannerCode + ".svg"
+    readonly property string bannerSource: "qrc:/qt/qml/PfUi/qml/assets/flags/" + root.country + ".svg"
     clip: true
 
     Behavior on reveal {
@@ -78,8 +77,12 @@ Item {
                     + amplitude * (Math.sin(t * Math.PI * 4 + progress * 2.2)
                         + 0.24 * Math.sin(t * Math.PI * 7 - 0.7))))
             }
-            const step = Math.max(2, height / 14)
-            for (let y = 0; y <= height; y += step) ctx.lineTo(edgeAt(y), y)
+            // Integer steps must include the bottom edge exactly. Floating-point
+            // accumulation could omit the last row and leave an unpainted wedge.
+            for (let i = 0; i <= 14; ++i) {
+                const y = height * i / 14
+                ctx.lineTo(progress >= 1 ? width : edgeAt(y), y)
+            }
             ctx.lineTo(0, height)
             ctx.closePath(); ctx.clip()
 

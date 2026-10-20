@@ -762,7 +762,7 @@ Popup {
                                     objectName: "languageButton_" + index
                                     readonly property bool currentLanguage: L10n.language === root.languageIds[index]
                                     readonly property bool flagActive: hovered || visualFocus
-                                    Layout.fillWidth: true; Layout.preferredHeight: 58
+                                    Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: 58
                                     hoverEnabled: true; focusPolicy: Qt.StrongFocus
                                     scale: hovered && !currentLanguage && !Theme.reducedMotion ? 1.025 : 1
                                     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 155; easing.type: Easing.OutCubic } }
