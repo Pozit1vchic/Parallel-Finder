@@ -23,7 +23,7 @@ ExportBatchResult detail::runExportQueueWithExecutor(const std::vector<CutReques
     std::vector<std::optional<CutResult>> indexedResults(jobs.size());
     std::size_t completedCount = 0;
     using Key = std::tuple<std::filesystem::path, double, double, CutMode, int, int,
-        int, int, int, int, double, bool, bool, std::string, std::filesystem::path>;
+        int, int, int, int, double, bool, bool, std::string, int, int, int, int, std::string, std::filesystem::path>;
     struct CompletedCut { std::filesystem::path path; CutResult result; };
     std::map<Key, CompletedCut> completedCuts;
     // Futures must be joined before their callback lock is destroyed, even
@@ -71,6 +71,8 @@ ExportBatchResult detail::runExportQueueWithExecutor(const std::vector<CutReques
                 request.quality, request.videoBitrateKbps, request.maxWidth, request.maxHeight,
                 request.canvasWidth, request.canvasHeight, request.outputFrameRate,
                 request.ensureStereoAudio, request.sourceHasAudio,
+                request.losslessPixelFormat.toStdString(), request.losslessAudioRate, request.losslessAudioChannels,
+                request.losslessDisplayWidth, request.losslessDisplayHeight,
                 request.transitionSignature.toUtf8().toStdString(), request.outputPath.extension()};
             // A duplicate waits for the first encode, then copies its bytes.
             while (activeKeys.contains(key)) finishOne();

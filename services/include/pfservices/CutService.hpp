@@ -42,6 +42,13 @@ struct CutRequest {
     int canvasWidth = 0;
     int canvasHeight = 0;
     double outputFrameRate = 0.0;
+    // Internal lossless montage plan: native pixels on a padded canvas, VFR,
+    // a deterministic lossless encoder and PCM. No bitrate limit or lossy encoder fallback is allowed.
+    QString losslessPixelFormat;
+    int losslessAudioRate = 0;
+    int losslessAudioChannels = 0;
+    int losslessDisplayWidth = 0;
+    int losslessDisplayHeight = 0;
     bool ensureStereoAudio = false;
     bool sourceHasAudio = true;
     // Optional in-picture label for a result transition. Burned into the

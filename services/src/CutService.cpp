@@ -1,4 +1,5 @@
 #include <pfservices/CutService.hpp>
+#include <pfcore/VideoDecoder.hpp>
 
 #include <QFile>
 #include <QCoreApplication>
@@ -224,13 +225,21 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
         result.error = "target bitrate requires re-encoding; choose exact cut mode";
         return result;
     }
+    const bool losslessMontage = lossless && !request.losslessPixelFormat.isEmpty();
     const bool montage = request.canvasWidth > 0 || request.canvasHeight > 0 || request.ensureStereoAudio;
     if(lossless && (outputExtension != ".mov"
-        || request.maxWidth || request.maxHeight || montage || request.videoBitrateKbps)) {
+        || request.maxWidth || request.maxHeight || (montage && !losslessMontage) || request.videoBitrateKbps)) {
         result.error="exact lossless requires MOV without resizing, normalization, or target bitrate";
         return result;
     }
-    if (montage && (request.mode != CutMode::Exact || request.canvasWidth < 2 || request.canvasHeight < 2
+    if (losslessMontage && (request.canvasWidth < 2 || request.canvasHeight < 2
+        || request.canvasWidth > 32768 || request.canvasHeight > 32768
+        || static_cast<int64_t>(request.canvasWidth)*request.canvasHeight > 64LL*1024*1024
+        || request.losslessAudioRate < 0 || request.losslessAudioRate > 768000
+        || request.losslessAudioChannels < 0 || request.losslessAudioChannels > 64)) {
+        result.error = "invalid lossless montage plan"; return result;
+    }
+    if (montage && !losslessMontage && (request.mode != CutMode::Exact || request.canvasWidth < 2 || request.canvasHeight < 2
         || request.canvasWidth % 2 || request.canvasHeight % 2
         || !std::isfinite(request.outputFrameRate) || request.outputFrameRate <= 0.0)) {
         result.error = "montage normalization requires an exact cut and valid even canvas/FPS";
@@ -254,6 +263,11 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
         }
     }
 
+    std::optional<pfcore::VideoInfo> sourceInfo;
+    if (lossless) {
+        try { pfcore::VideoDecoder decoder; decoder.open(QString::fromStdWString(request.inputPath.wstring()).toUtf8().toStdString()); sourceInfo = decoder.info(); }
+        catch (const std::exception& error) { result.error = error.what(); return result; }
+    }
     const double duration = request.endSeconds - request.startSeconds;
     QString signaturePath;
     QTemporaryDir signatureDirectory;
@@ -313,9 +327,15 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
         } else encoders = capabilities_->h264Candidates();
         if(lossless) {
             encoders.clear();
-            for(const auto* name:{"hevc_nvenc","libx264"})
+            const bool commonH264 = losslessMontage && (request.losslessPixelFormat == "yuv420p"
+                || request.losslessPixelFormat == "yuv422p" || request.losslessPixelFormat == "yuv444p"
+                || request.losslessPixelFormat == "yuv420p10le" || request.losslessPixelFormat == "yuv422p10le"
+                || request.losslessPixelFormat == "yuv444p10le" || request.losslessPixelFormat == "yuvj420p"
+                || request.losslessPixelFormat == "yuvj422p" || request.losslessPixelFormat == "yuvj444p");
+            const std::string commonEncoder = commonH264 ? "libx264" : "ffv1";
+            for(const auto* name:{"hevc_nvenc", "libx264", "ffv1"})
                 if(std::find(capabilities_->videoEncoders.begin(),capabilities_->videoEncoders.end(),name)
-                    !=capabilities_->videoEncoders.end())encoders.emplace_back(name);
+                    !=capabilities_->videoEncoders.end() && (!losslessMontage || std::string(name)==commonEncoder))encoders.emplace_back(name);
             if(std::find(capabilities_->audioEncoders.begin(),capabilities_->audioEncoders.end(),"pcm_f64le")
                 ==capabilities_->audioEncoders.end()) {
                 result.error="exact lossless requires the pcm_f64le audio encoder";
@@ -325,7 +345,7 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
         // Compiled-in hardware support does not mean this PC has that GPU.
         // Try the encoder that actually succeeded first for subsequent clips.
         const auto preferred = std::find(encoders.begin(), encoders.end(), preferredEncoder_);
-        if (preferred != encoders.end()) std::rotate(encoders.begin(), preferred, preferred + 1);
+        if (!losslessMontage && preferred != encoders.end()) std::rotate(encoders.begin(), preferred, preferred + 1);
         if (!capabilities_->error.empty() || encoders.empty()) {
             result.error = result.executable + ": " + (capabilities_->error.empty()
                 ? (webm ? "no supported VP9 encoder; install an FFmpeg build with libvpx-vp9"
@@ -365,6 +385,9 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
         arguments << QStringLiteral("-threads") << QString::number(threads);
         arguments << QStringLiteral("-i")
                   << QString::fromStdWString(request.inputPath.wstring());
+        const bool silence = losslessMontage && request.losslessAudioRate > 0 && !request.sourceHasAudio;
+        if (silence) arguments << "-f" << "lavfi" << "-i"
+            << QString("anullsrc=r=%1:cl=%2c").arg(request.losslessAudioRate).arg(request.losslessAudioChannels);
         if (request.ensureStereoAudio && !request.sourceHasAudio)
             arguments << "-f" << "lavfi" << "-i" << "anullsrc=r=48000:cl=stereo";
         const int signatureInput = request.ensureStereoAudio && !request.sourceHasAudio ? 2 : 1;
@@ -376,9 +399,9 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
         arguments << QStringLiteral("-t") << seconds(duration)
                   << QStringLiteral("-map") << (signaturePath.isEmpty()
                     ? QStringLiteral("0:v:0") : QStringLiteral("[pf_video]"))
-                  << QStringLiteral("-map") << (request.ensureStereoAudio
+                  << QStringLiteral("-map") << (silence ? QStringLiteral("1:a:0") : request.ensureStereoAudio
                     ? (request.sourceHasAudio ? QStringLiteral("0:a:0") : QStringLiteral("1:a:0"))
-                    : QStringLiteral("0:a?"));
+                    : losslessMontage ? QStringLiteral("0:a:0?") : QStringLiteral("0:a?"));
         if (request.mode == CutMode::Fast) {
             arguments << QStringLiteral("-c") << QStringLiteral("copy");
             // Keep the preceding keyframe and its dependent frames visible.
@@ -397,17 +420,48 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
             if (outputExtension == ".mp4" || outputExtension == ".mov")
                 arguments << QStringLiteral("-movflags") << QStringLiteral("+faststart");
             if(lossless) {
+                if (sourceInfo) {
+                    if (sourceInfo->colorRange) arguments << "-color_range" << QString::number(sourceInfo->colorRange);
+                    if (sourceInfo->colorPrimaries != 2) arguments << "-color_primaries" << QString::number(sourceInfo->colorPrimaries);
+                    if (sourceInfo->colorTransfer != 2) arguments << "-color_trc" << QString::number(sourceInfo->colorTransfer);
+                    if (sourceInfo->colorSpace != 2) arguments << "-colorspace" << QString::number(sourceInfo->colorSpace);
+                }
+                arguments << "-movflags" << "+faststart+write_colr";
                 // '+' preserves the input pixel format and rejects automatic
                 // conversions when an encoder cannot represent that format.
                 arguments << "-pix_fmt" << "+";
-                if(encoder=="libx264")arguments << "-preset" << "veryfast" << "-qp" << "0" << "-threads:v" << QString::number(threads);
+                if(encoder=="ffv1") arguments << "-level" << "3" << "-coder" << "1" << "-context" << "1" << "-threads:v" << QString::number(threads);
+                else if(encoder=="libx264")arguments << "-preset" << "veryfast" << "-qp" << "0" << "-threads:v" << QString::number(threads);
                 else arguments << "-preset" << "p5" << "-tune" << "lossless";
             } else {
                 arguments << "-b:a" << (webm ? QStringLiteral("160k") : QStringLiteral("256k"));
                 for (const auto& option : videoEncodingArguments(encoder, request.quality, request.videoBitrateKbps, threads))
                     arguments << QString::fromStdString(option);
             }
-            if (montage) {
+            if (losslessMontage) {
+                QString filter = QString("trim=start=%1:end=%2,setpts=PTS-%1/TB")
+                    .arg(seconds(request.startSeconds), seconds(request.endSeconds));
+                // Keep native samples for equal formats. Mixed YUV sources expand
+                // chroma with nearest-neighbour sampling, never downsample to 420.
+                filter += QString(",scale=iw:ih:flags=neighbor+bitexact,format=%1")
+                    .arg(request.losslessPixelFormat);
+                filter += QString(",scale=%1:%2:flags=neighbor+bitexact,pad=%3:%4:floor((ow-iw)/2):floor((oh-ih)/2),setsar=1")
+                    .arg(request.losslessDisplayWidth).arg(request.losslessDisplayHeight)
+                    .arg(request.canvasWidth).arg(request.canvasHeight);
+                arguments << "-vf" << filter << "-fps_mode" << "passthrough"
+                          << "-enc_time_base:v" << "1:1000000" << "-video_track_timescale" << "1000000";
+                if (request.losslessAudioRate > 0) {
+                    const QString trim = silence
+                        ? QString("atrim=end=%1,asetpts=PTS-STARTPTS").arg(seconds(duration))
+                        : QString("atrim=start=%1:end=%2,asetpts=PTS-%1/TB")
+                            .arg(seconds(request.startSeconds),seconds(request.endSeconds));
+                    // Matching rates pass samples through unchanged; only mixed
+                    // rates/layouts require resampling. Never use AAC in lossless.
+                    arguments << "-ar" << QString::number(request.losslessAudioRate)
+                              << "-ac" << QString::number(request.losslessAudioChannels)
+                              << "-af" << trim + ",apad";
+                }
+            } else if (montage) {
                 const QString trim = QString("trim=start=%1:end=%2,setpts=PTS-%1/TB,")
                     .arg(seconds(request.startSeconds), seconds(request.endSeconds));
                 const QString videoFilter = trim + QString("scale=w='min(iw\\,%1)':h='min(ih\\,%2)':force_original_aspect_ratio=decrease:force_divisible_by=2,pad=%1:%2:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=%3:round=down,format=yuv420p")

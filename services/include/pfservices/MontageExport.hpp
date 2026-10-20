@@ -10,8 +10,9 @@ using MontageProgress = std::function<void(std::size_t completed, std::size_t to
 // Exact mode encodes sequentially, normalizes to the first
 // clip's display size/FPS, preserves audio (silence for silent sources),
 // concatenates by stream copy, and atomically installs only a complete MP4.
-// ExactLossless preserves pixels/samples in MOV without normalization;
-// incompatible input or prepared streams fail without a lossy fallback.
+// ExactLossless uses lossless AVC (or FFV1 for high precision/alpha) with PCM in MOV on the largest native-size canvas.
+// Smaller pictures are padded, never reduced; VFR timestamps are retained.
+// Mixed pixel formats expand to 10/16-bit, mixed audio rates/layouts are adapted.
 CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
     const std::filesystem::path& output, std::stop_token stop = {},
     MontageProgress progress = {}, const std::string& executable = "ffmpeg", bool preserveInputOrder = false,

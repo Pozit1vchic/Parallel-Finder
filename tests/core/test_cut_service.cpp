@@ -555,7 +555,7 @@ TEST(MontageExport, LosslessClipsAndCombinedVideoKeepOriginalVideoAndAudioPacket
     ASSERT_TRUE(montage.success) << montage.error; checkOriginalPackets(combined);
 }
 
-TEST(MontageExport, LosslessRejectsIncompatibleSourcesWithoutReplacingDestination)
+TEST(MontageExport, LosslessAdaptsDifferentSizesAndProtectsExistingDestination)
 {
     const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg"); ASSERT_FALSE(ffmpeg.isEmpty());
     QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
@@ -576,7 +576,8 @@ TEST(MontageExport, LosslessRejectsIncompatibleSourcesWithoutReplacingDestinatio
     const auto losslessOutput=directory.filePath("keep.mov");
     {QFile sentinel(losslessOutput);ASSERT_TRUE(sentinel.open(QIODevice::WriteOnly));sentinel.write("previous");}
     const auto lossless=pfservices::exportChronologicalMontage({a,b},losslessOutput.toStdWString(),{},{},ffmpeg.toStdString());
-    EXPECT_FALSE(lossless.success);EXPECT_NE(lossless.error.find("geometry mismatch"),std::string::npos);
+    ASSERT_TRUE(lossless.success) << lossless.error;
+    EXPECT_NE(lossless.outputPath, std::filesystem::path(losslessOutput.toStdWString()));
     {QFile sentinel(losslessOutput);ASSERT_TRUE(sentinel.open(QIODevice::ReadOnly));EXPECT_EQ(sentinel.readAll(),"previous");}
     a.maxWidth=80;
     const auto resized=pfservices::exportChronologicalMontage({a},losslessOutput.toStdWString(),{},{},ffmpeg.toStdString());
@@ -613,6 +614,56 @@ TEST(MontageExport, ExactLosslessAcceptsDifferentSourceCodecsAndPreservesPixels)
     const auto result = pfservices::exportChronologicalMontage(clips,output.toStdWString(),{},{},ffmpeg.toStdString(),true);
     ASSERT_TRUE(result.success) << result.error;
     EXPECT_EQ(hashes(output),expected);
+}
+
+TEST(MontageExport, LosslessMixedCanvasFormatsRatesAndSilenceKeepEveryFrame)
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg"); ASSERT_FALSE(ffmpeg.isEmpty());
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    const auto run = [&](QStringList args) {
+        QProcess process; args.prepend("error"); args.prepend("-v"); process.start(ffmpeg,args);
+        EXPECT_TRUE(process.waitForFinished(60000));
+        EXPECT_EQ(process.exitCode(),0) << process.readAllStandardError().toStdString();
+        return process.readAllStandardOutput();
+    };
+    const auto hashes = [&](const QString& path, const QString& filter) {
+        QStringList args{"-i",path,"-map","0:v:0","-an"};
+        if (!filter.isEmpty()) args << "-vf" << filter;
+        args << "-fps_mode" << "passthrough" << "-f" << "framemd5" << "-";
+        const auto output = run(args); QByteArray values;
+        for (const auto& line : output.split('\n')) if (!line.startsWith('#') && line.contains(','))
+            values += line.mid(line.lastIndexOf(',')+1).trimmed()+'\n';
+        return values;
+    };
+    std::vector<pfservices::CutRequest> clips;
+    QByteArray expected;
+    for (int i=0;i<3;++i) {
+        const auto path = directory.filePath(QString::number(i)+".mkv");
+        QStringList args{"-f","lavfi","-i",i==0 ? "testsrc2=s=160x96:r=12:d=1"
+            : "testsrc2=s=192x128:r=24:d=1"};
+        if (i<2) args << "-f" << "lavfi" << "-i" << (i==0 ? "sine=r=44100:d=1" : "sine=r=48000:d=1")
+                     << "-ac" << (i==0 ? "1" : "2") << "-c:a" << "pcm_s16le";
+        args << "-c:v" << "ffv1" << "-pix_fmt" << (i==1 ? "yuv420p10le" : "yuv420p") << path;
+        run(args); ASSERT_TRUE(QFileInfo::exists(path));
+        // Compare native padded pixels in the same expanded 10-bit colour
+        // representation; smaller frames must not be stretched or shrunk.
+        expected += hashes(path,"scale=iw:ih:flags=neighbor+bitexact,format=yuv444p10le,pad=192:128:floor((ow-iw)/2):floor((oh-ih)/2),setsar=1");
+        pfservices::CutRequest clip;clip.inputPath=path.toStdWString();clip.endSeconds=1;
+        clip.mode=pfservices::CutMode::ExactLossless;clips.push_back(clip);
+    }
+    const auto output = directory.filePath("mixed.mov");
+    const auto result = pfservices::exportChronologicalMontage(clips,output.toStdWString(),{},{},ffmpeg.toStdString(),true);
+    ASSERT_TRUE(result.success) << result.error;
+    pfcore::VideoDecoder decoder; decoder.open(output.toStdString());
+    EXPECT_EQ(decoder.info().width,192); EXPECT_EQ(decoder.info().height,128);
+    EXPECT_EQ(decoder.info().audioSampleRate,48000); EXPECT_EQ(decoder.info().audioChannels,2);
+    EXPECT_EQ(hashes(output,{}),expected);
+    // Three seconds of stereo PCM, with a silent final second. Decode with
+    // strict error handling as a concat-header mismatch can still exit cleanly.
+    const auto pcm=run({"-xerror","-i",output,"-map","0:a:0","-f","f64le","-"});
+    EXPECT_EQ(pcm.size(),3*48000*2*8);
+    EXPECT_EQ(pcm.right(48000*2*8),QByteArray(48000*2*8,'\0'));
+    run({"-xerror","-i",output,"-f","null","-"});
 }
 
 TEST(MontageExport, RejectsEmptyRequestsAndSourceReplacement)
@@ -993,6 +1044,9 @@ TEST(CutService, ExactLosslessRealSourcePixelsAudioAndMontage)
     const auto checkMetadata=[&](const QString& path) {
         const auto actual=videoMetadata(path);
         for(const auto* key:{"pix_fmt","color_range","color_space","color_transfer","color_primaries","sample_aspect_ratio"}) {
+            // AVC and MOV may omit an explicit limited-range flag (the YUV
+            // default). Full range and every explicit colour tag remain strict.
+            if (QString(key)=="color_range" && sourceMetadata[key]=="tv" && !actual.contains(key)) continue;
             if(sourceMetadata.contains(key)){EXPECT_EQ(actual[key],sourceMetadata[key]) << key;}
         }
     };

@@ -13,8 +13,8 @@ The queue chooses between one and four simultaneous FFmpeg processes using:
 Unavailable source metadata or memory information selects one worker. Each
 process receives a bounded decoder, encoder and filter thread budget. The
 scheduler does not change quality, bitrate, native pixel format, clip bounds or
-lossless admission. A source that cannot be concatenated losslessly still fails
-without a lossy fallback.
+lossless compression. Fast stream-copy still rejects incompatible streams;
+exact lossless montage adapts them as described below without a lossy fallback.
 
 Preparation callbacks run serially, just ahead of the bounded encoding window.
 Progress callbacks cannot overlap. Output names are reserved in input order;
@@ -55,3 +55,33 @@ encoder session limits can determine the actual speed. The implementation
 bounds CPU and system RAM; it does not measure free GPU VRAM or disk throughput.
 The opt-in check passed from the current build with byte-identical lossless
 decoded frames, ordered results and non-overlapping progress callbacks.
+
+## Adaptive exact lossless montage (2026-10-20)
+
+Exact lossless montage no longer rejects different frame sizes before encoding.
+It selects a canvas from the maximum width and height of all sources, pads
+smaller frames, retains each frame timestamp, and uses one deterministic codec
+for every worker. Ordinary 8/10-bit YUV uses lossless AVC (`libx264 -qp 0`);
+higher precision/alpha uses FFV1. Missing audio receives silence only if another
+clip has audio. PCM float64 avoids an additional lossy audio encode.
+
+Matching video formats and audio rates keep native pixel/sample values. Mixed
+YUV formats expand to 4:4:4 at 10 bits (16 bits when needed), using nearest
+sampling, without chroma downsampling. RGB/YUV mixing needs colour conversion.
+Anamorphic pictures expand the long-pixel axis; there is no shrinking. Mixed
+audio rates/channels use the largest source rate/channel count and resample as
+necessary. These adaptations change sample representation: lossless compression
+must not be described as bit-identical mixed-format conversion. MOV codec
+support in third-party editing applications, especially FFV1, is separate from
+pixel preservation and is not certified by the export tests.
+
+The prepared outputs are validated against the common canvas/pixel/audio plan
+before concatenation. The queue reuse key includes the complete plan. Existing
+files remain protected and cancellation discards only unfinished staging.
+
+Verification includes mixed sizes, 8/10-bit formats, 12/24 FPS, 44.1/48 kHz,
+mono/stereo and silent clips in one montage; decoded frame hashes and the exact
+PCM output duration are checked. A generated 3840x1600 10-bit fixture also
+checks fractional trims, unchanged decoded pixel/audio values, and montage.
+The personal `D:/for_tests_pf` folder is empty during this audit, so these are
+synthetic integration checks, not a claimed scenepack or After Effects test.

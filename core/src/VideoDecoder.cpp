@@ -22,6 +22,7 @@ extern "C" {
 #include <libavutil/intreadwrite.h>
 #include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
 }
 
@@ -492,6 +493,19 @@ void VideoDecoder::open(const std::string& path, VideoDecodeOptions options)
 
     impl_->metadata.width = impl_->codec->width;
     impl_->metadata.hasAudio = av_find_best_stream(impl_->format, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0) >= 0;
+    if (const char* name = av_get_pix_fmt_name(impl_->codec->pix_fmt)) impl_->metadata.pixelFormat = name;
+    for (unsigned i = 0; i < format->nb_streams; ++i) {
+        const auto* parameters = format->streams[i]->codecpar;
+        if (parameters->codec_type == AVMEDIA_TYPE_AUDIO) {
+            impl_->metadata.audioSampleRate = parameters->sample_rate;
+            impl_->metadata.audioChannels = parameters->ch_layout.nb_channels;
+            break;
+        }
+    }
+    impl_->metadata.colorRange = stream->codecpar->color_range;
+    impl_->metadata.colorPrimaries = stream->codecpar->color_primaries;
+    impl_->metadata.colorTransfer = stream->codecpar->color_trc;
+    impl_->metadata.colorSpace = stream->codecpar->color_space;
     impl_->metadata.height = impl_->codec->height;
     impl_->metadata.durationSeconds = stream->duration == AV_NOPTS_VALUE
         ? (format->duration == AV_NOPTS_VALUE ? 0.0 : format->duration / static_cast<double>(AV_TIME_BASE))

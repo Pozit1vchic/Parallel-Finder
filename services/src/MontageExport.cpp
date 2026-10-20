@@ -92,37 +92,48 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             return it->second;
         };
         const auto first = info(clips.front().inputPath);
-        if (streamCopy || exactLossless) {
-            for (std::size_t index = 0; index < clips.size(); ++index) {
-                if (cancelled()) return result;
-                const auto& clip = clips[index];
-                const auto& current = info(clip.inputPath);
-                // Exact lossless re-encodes decoded pixels into a common
-                // lossless codec. Different source codecs/extradata are not a
-                // reason to reject it; verify the prepared streams below.
-                const bool incompatible = streamCopy
-                    ? current.streamCopySignature != first.streamCopySignature
-                    : current.width != first.width || current.height != first.height
-                        || current.sampleAspectRatio != first.sampleAspectRatio
-                        || current.rotationDegrees != first.rotationDegrees;
-                if (incompatible && exactLossless) {
-                    const auto geometry = [](const pfcore::VideoInfo& video) {
-                        return QStringLiteral("%1x%2, SAR %3, rotation %4°")
-                            .arg(video.width).arg(video.height)
-                            .arg(video.sampleAspectRatio, 0, 'f', 3)
-                            .arg(video.rotationDegrees, 0, 'f', 1);
-                    };
-                    result.error = "Lossless montage geometry mismatch: "
-                        + geometry(first).toStdString() + " vs "
-                        + geometry(current).toStdString();
-                    return result;
-                }
-                if (incompatible) {
-                    result.error = "Fast montage requires compatible video/audio stream parameters. Choose exact/lossless or re-encoding quality.";
-                    return result;
-                }
+        // Every exact montage uses one deterministic lossless encoder. Selecting
+        // hardware independently per worker can produce incompatible HEVC/H.264.
+        int losslessWidth = 0, losslessHeight = 0, audioRate = 0, audioChannels = 0;
+        QString pixelFormat = QString::fromStdString(first.pixelFormat);
+        bool mixedPixels = false, rgb = false, highDepthOrAlpha = false;
+        const auto displaySize = [](const pfcore::VideoInfo& video) {
+            // Expand the long-pixel axis only; never shrink source pixels.
+            double w = video.width, h = video.height;
+            if (video.sampleAspectRatio >= 1) w *= video.sampleAspectRatio;
+            else h /= video.sampleAspectRatio;
+            if (std::abs(video.rotationDegrees) > 45 && std::abs(video.rotationDegrees) < 135) std::swap(w,h);
+            if (!std::isfinite(w) || !std::isfinite(h) || w < 2 || h < 2
+                || w > 32768 || h > 32768 || w*h > 64.0*1024*1024)
+                throw std::runtime_error("montage display dimensions exceed the safe limit");
+            return std::pair<int,int>{static_cast<int>(std::ceil(w)), static_cast<int>(std::ceil(h))};
+        };
+        for (const auto& clip : clips) {
+            if (cancelled()) return result;
+            const auto& current = info(clip.inputPath);
+            if (streamCopy && current.streamCopySignature != first.streamCopySignature) {
+                result.error = "Fast montage requires compatible video/audio stream parameters. Choose exact/lossless or re-encoding quality.";
+                return result;
+            }
+            if (exactLossless) {
+                const auto [w,h] = displaySize(current);
+                losslessWidth = std::max(losslessWidth,w); losslessHeight = std::max(losslessHeight,h);
+                mixedPixels |= current.pixelFormat != first.pixelFormat;
+                rgb |= current.pixelFormat.find("rgb") != std::string::npos
+                    || current.pixelFormat.find("bgr") != std::string::npos;
+                highDepthOrAlpha |= current.pixelFormat.find("12") != std::string::npos
+                    || current.pixelFormat.find("14") != std::string::npos || current.pixelFormat.find("16") != std::string::npos
+                    || current.pixelFormat.find("yuva") != std::string::npos || current.pixelFormat.find("rgba") != std::string::npos
+                    || current.pixelFormat.find("bgra") != std::string::npos || current.pixelFormat.find("gbrap") != std::string::npos;
+                audioRate = std::max(audioRate,current.audioSampleRate);
+                audioChannels = std::max(audioChannels,current.audioChannels);
             }
         }
+        losslessWidth = (losslessWidth+1)/2*2; losslessHeight = (losslessHeight+1)/2*2;
+        if (exactLossless && (pixelFormat.isEmpty() || mixedPixels))
+            pixelFormat = rgb ? "gbrap16le" : highDepthOrAlpha ? "yuva444p16le" : "yuv444p10le";
+        if (static_cast<int64_t>(losslessWidth)*losslessHeight > 64LL*1024*1024)
+            throw std::runtime_error("montage display dimensions exceed the safe limit");
         const auto canvas = detail::montageCanvas(first, maxWidth, maxHeight);
         if (!canvas) { result.error = "montage display dimensions exceed the safe limit"; return result; }
         const auto [width, height] = *canvas;
@@ -130,7 +141,6 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         QByteArray manifest("ffconcat version 1.0\n");
         QByteArray audioManifest("ffconcat version 1.0\n");
         double montageDuration = 0;
-        std::string preparedSignature;
         std::vector<CutRequest> prepared(clips.size());
         std::vector<double> fractions(clips.size(), 0);
         std::vector<CutRequest> jobs;
@@ -149,11 +159,18 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
                     + outputExtension).toStdWString());
                 ready.mode = mode;
                 ready.maxWidth = ready.maxHeight = 0;
-                ready.canvasWidth = streamCopy || exactLossless ? 0 : width;
-                ready.canvasHeight = streamCopy || exactLossless ? 0 : height;
+                ready.canvasWidth = streamCopy ? 0 : exactLossless ? losslessWidth : width;
+                ready.canvasHeight = streamCopy ? 0 : exactLossless ? losslessHeight : height;
                 ready.outputFrameRate = streamCopy || exactLossless ? 0 : fps;
                 ready.ensureStereoAudio = !streamCopy && !exactLossless;
                 ready.sourceHasAudio = info(ready.inputPath).hasAudio;
+                if (exactLossless) {
+                    ready.losslessPixelFormat = pixelFormat;
+                    ready.losslessAudioRate = audioRate;
+                    ready.losslessAudioChannels = audioChannels;
+                    const auto [w,h] = displaySize(info(ready.inputPath));
+                    ready.losslessDisplayWidth = w; ready.losslessDisplayHeight = h;
+                }
                 ready.stopToken = stop;
                 ready.progress = [&, i, duration = ready.endSeconds-ready.startSeconds](double seconds) {
                     fractions[i] = std::max(fractions[i], duration > 0
@@ -177,14 +194,16 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             if (!result.success) return result;
             const auto& request = prepared[i];
             const QString name = QString::fromStdWString(result.outputPath.wstring());
-            if(exactLossless) {
-                const auto signature=info(result.outputPath).streamCopyCodecSignature;
-                if(i && signature!=preparedSignature) {
-                    result.success=false;
-                    result.error="exact lossless clips produced incompatible streams; no lossy fallback was used";
+            if (exactLossless) {
+                const auto& actual = info(result.outputPath);
+                if (actual.width != losslessWidth || actual.height != losslessHeight
+                    || QString::fromStdString(actual.pixelFormat) != pixelFormat
+                    || actual.hasAudio != (audioRate > 0)
+                    || (audioRate > 0 && (actual.audioSampleRate != audioRate || actual.audioChannels != audioChannels))) {
+                    result.success = false;
+                    result.error = "lossless preparation did not match the common canvas/audio plan";
                     return result;
                 }
-                preparedSignature=signature;
             }
             const QString spliceName = streamCopy ? staging.filePath(QString::number(i) + "-splice" + outputExtension) : name;
             const double clipDuration = streamCopy
