@@ -764,8 +764,8 @@ Popup {
                                     readonly property bool flagActive: hovered || visualFocus
                                     Layout.fillWidth: true; Layout.preferredHeight: 58
                                     hoverEnabled: true; focusPolicy: Qt.StrongFocus
-                                    scale: down && !Theme.reducedMotion ? 0.992 : 1
-                                    Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+                                    scale: hovered && !currentLanguage && !Theme.reducedMotion ? 1.025 : 1
+                                    Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 155; easing.type: Easing.OutCubic } }
                                     background: Rectangle {
                                         radius: Theme.radiusCard
                                         clip: true
@@ -795,13 +795,6 @@ Popup {
                                         Item {
                                             objectName: "languageLabelSlot_" + languageButton.index
                                             Layout.fillWidth: true; Layout.fillHeight: true
-                                            Rectangle {
-                                                anchors.fill: languageLabel
-                                                anchors.margins: -6
-                                                radius: 5
-                                                color: languageButton.flagActive ? "#d911141b" : "transparent"
-                                                Behavior on color { ColorAnimation { duration: 140 } }
-                                            }
                                             Text {
                                                 id: languageLabel
                                                 objectName: "languageLabel_" + languageButton.index
@@ -809,6 +802,8 @@ Popup {
                                                 text: root.languageNames[languageButton.index]
                                                 color: languageButton.flagActive ? "#ffffff"
                                                     : languageButton.currentLanguage ? Theme.textPrimary : Theme.textSecondary
+                                                style: languageButton.flagActive ? Text.Outline : Text.Normal
+                                                styleColor: "#df111820"
                                                 font.family: Theme.fontFamily; font.pixelSize: 14; font.weight: languageButton.currentLanguage ? Font.DemiBold : Font.Medium
                                             }
                                         }
