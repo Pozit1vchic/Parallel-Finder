@@ -146,6 +146,13 @@ QVariantMap AppInfo::providerInstallation(const QString& backend) const
     return installations_.value(backend.trimmed().toLower()).toMap();
 }
 
+bool AppInfo::providerInstalled(const QString& backend) const
+{
+    const auto provider = backend.trimmed().toLower();
+    return backendAvailable(provider)
+        || providerInstallation(provider).value(QStringLiteral("installed")).toBool();
+}
+
 void AppInfo::rescanProviders()
 {
     if (backendInitializing_ || providersScanning_ || providerDownloading_) return;
@@ -293,6 +300,15 @@ void AppInfo::downloadProvider(const QString& backend)
         return;
     }
     if (backendInitializing_ || providerDownloading_ || providersScanning_) return;
+    if (provider != QStringLiteral("cuda") && provider != QStringLiteral("dml")
+        && provider != QStringLiteral("tensorrt")) return;
+    if (providerInstalled(provider)) {
+        providerDownloadState_ = QStringLiteral("present");
+        providerDownloadProgress_ = 1.0;
+        providerDownloadStatus_ = QStringLiteral("Runtime already installed");
+        emit providerDownloadChanged();
+        return;
+    }
     providerDownloading_ = true;
     providerDownloadState_ = QStringLiteral("checking");
     providerDownloadProgress_ = 0.0;
@@ -301,6 +317,29 @@ void AppInfo::downloadProvider(const QString& backend)
 
     QThread* thread = QThread::create([this, provider] {
         try {
+        // Check disk before any manifest/network request, even when settings
+        // have not scanned yet or a caller bypasses the disabled download button.
+        const QStringList roots{
+            QString::fromStdString(pfservices::SettingsStore::defaultDirectory()) + "/providers",
+            QCoreApplication::applicationDirPath() + "/providers"};
+        const auto existingRuntime = pfservices::ProviderManager::locateRuntime(roots, provider);
+        if (!existingRuntime.isEmpty()) {
+            QMetaObject::invokeMethod(this, [this, provider, existingRuntime] {
+                auto installation = installations_.value(provider).toMap();
+                installation.insert("installed", true);
+                installation.insert("pendingValidation", true);
+                installation.insert("runtimePath", existingRuntime);
+                installations_.insert(provider, installation);
+                providerDownloading_ = false;
+                providerDownloadState_ = QStringLiteral("present");
+                providerDownloadProgress_ = 1.0;
+                providerDownloadStatus_ = QStringLiteral("Runtime already installed");
+                ++providersRevision_;
+                emit providersChanged();
+                emit providerDownloadChanged();
+            }, Qt::QueuedConnection);
+            return;
+        }
         std::string error;
         std::string manifestUrl = qEnvironmentVariable("PF_PROVIDER_MANIFEST_URL").toStdString();
         if (manifestUrl.empty()) manifestUrl = kProviderManifestUrl;
@@ -363,11 +402,19 @@ void AppInfo::downloadProvider(const QString& backend)
         const QString message = installed
             ? QStringLiteral("Runtime установлен. Перезапустите приложение, чтобы применить провайдер.")
             : QStringLiteral("Не удалось установить runtime: ") + QString::fromStdString(error);
-        QMetaObject::invokeMethod(this, [this, installed, message] {
+        QMetaObject::invokeMethod(this, [this, provider, destination, installed, message] {
             providerDownloading_ = false;
             providerDownloadState_ = installed ? QStringLiteral("installed") : QStringLiteral("error");
             providerDownloadProgress_ = installed ? 1.0 : 0.0;
             providerDownloadStatus_ = message;
+            if (installed) {
+                // Publish installation immediately, before the asynchronous
+                // validation scan; availability can still require a restart.
+                installations_.insert(provider, QVariantMap{{"installed", true}, {"pendingValidation", true},
+                    {"available", false}, {"runtimePath", QString::fromStdWString((destination / "onnxruntime.dll").wstring())}});
+                ++providersRevision_;
+                emit providersChanged();
+            }
             emit providerDownloadChanged();
             if (installed) rescanProviders();
         }, Qt::QueuedConnection);

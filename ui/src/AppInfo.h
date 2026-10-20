@@ -64,6 +64,7 @@ public:
     Q_INVOKABLE void downloadProvider(const QString& backend);
     Q_INVOKABLE void rescanProviders();
     Q_INVOKABLE QVariantMap providerInstallation(const QString& backend) const;
+    Q_INVOKABLE bool providerInstalled(const QString& backend) const;
     int providersRevision() const { return providersRevision_; }
     bool providersScanning() const { return providersScanning_; }
     Q_INVOKABLE QVariantMap loadPreferences() const;

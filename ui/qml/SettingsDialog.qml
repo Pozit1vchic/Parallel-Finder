@@ -17,6 +17,10 @@ Popup {
     property var rootWindow
     property bool userPositioned: false
     property string themeStatus: ""
+    readonly property bool selectedProviderInstalled: {
+        const revision = AppInfo.providersRevision
+        return AppInfo.providerInstalled(Analysis.providerChoice)
+    }
     readonly property var installedFonts: Qt.fontFamilies()
     readonly property var fontChoices: {
         const installed = root.installedFonts
@@ -417,6 +421,7 @@ Popup {
         if (AppInfo.backendAvailable(key)) return "✓ " + L10n.t("settings.providerReady")
         if (AppInfo.providersScanning) return L10n.t("settings.providerChecking")
         const installation = AppInfo.providerInstallation(key)
+        if (installation.pendingValidation) return L10n.t("settings.providerRestart")
         if (installation.available) return L10n.t("settings.providerValidatedRestart")
         if (installation.installed) return L10n.t("settings.providerInvalid") + ": " + installation.reason
         const reason = String(AppInfo.backendReason(key) || "").toLowerCase()
@@ -427,6 +432,7 @@ Popup {
     }
     function providerDownloadText(raw) {
         const status = String(raw || "")
+        if (AppInfo.providerDownloadState === "present") return root.providerStatusText(Analysis.providerChoice)
         if (AppInfo.providerDownloadState === "installed") return L10n.t("settings.providerRestart")
         if (AppInfo.providerDownloadState === "checking") return L10n.t("settings.providerChecking")
         if (AppInfo.providerDownloadState === "downloading") return L10n.t("settings.providerDownloading") + " " + Math.round(AppInfo.providerDownloadProgress * 100) + "%"
@@ -611,11 +617,14 @@ Popup {
                                 && Analysis.providerChoice !== "cpu"
                                 && !AppInfo.backendAvailable(Analysis.providerChoice)
                             PfButton {
+                                objectName: "providerDownloadButton"
                                 Layout.preferredWidth: 154
                                 Layout.minimumWidth: 0
                                 compact: true
-                                text: AppInfo.providerDownloading ? L10n.t("settings.providerDownloading") : L10n.t("settings.providerDownload")
-                                enabled: !AppInfo.backendInitializing && !AppInfo.providerDownloading && !AppInfo.providersScanning
+                                text: root.selectedProviderInstalled ? L10n.t("settings.providerInstalled")
+                                    : AppInfo.providerDownloading ? L10n.t("settings.providerDownloading") : L10n.t("settings.providerDownload")
+                                enabled: !root.selectedProviderInstalled && !Analysis.busy && !Analysis.exportBusy
+                                    && !AppInfo.backendInitializing && !AppInfo.providerDownloading && !AppInfo.providersScanning
                                 onClicked: AppInfo.downloadProvider(Analysis.providerChoice)
                             }
                             PfButton {

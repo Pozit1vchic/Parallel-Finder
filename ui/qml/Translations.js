@@ -975,7 +975,9 @@ var dictionaries = {
     "High": "Жогорку",
     "Custom bitrate and resolution": "Өз битрейти жана өлчөмү",
     "Side A": "A тарабы",
-    "Side B": "B тарабы"
+    "Side B": "B тарабы",
+    "settings.providerInstalled": "Орнотулган",
+    "Installed": "Орнотулган"
   },
   "kk": {
     "colors.none": "Түссіз",
@@ -1951,7 +1953,9 @@ var dictionaries = {
     "High": "Жоғары",
     "Custom bitrate and resolution": "Өз битрейті мен өлшемі",
     "Side A": "A жағы",
-    "Side B": "B жағы"
+    "Side B": "B жағы",
+    "settings.providerInstalled": "Орнатылған",
+    "Installed": "Орнатылған"
   },
   "uk": {
     "colors.none": "Без кольору",
@@ -2927,7 +2931,9 @@ var dictionaries = {
     "High": "Висока",
     "Custom bitrate and resolution": "Власний бітрейт і роздільність",
     "Side A": "Сторона A",
-    "Side B": "Сторона B"
+    "Side B": "Сторона B",
+    "settings.providerInstalled": "Встановлено",
+    "Installed": "Встановлено"
   },
   "tr": {
     "colors.none": "Renksiz",
@@ -3903,6 +3909,8 @@ var dictionaries = {
     "High": "Yüksek",
     "Custom bitrate and resolution": "Özel bit hızı ve çözünürlük",
     "Side A": "A tarafı",
-    "Side B": "B tarafı"
+    "Side B": "B tarafı",
+    "settings.providerInstalled": "Kurulu",
+    "Installed": "Kurulu"
   }
 }

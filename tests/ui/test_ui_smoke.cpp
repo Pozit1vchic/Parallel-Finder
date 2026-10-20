@@ -79,6 +79,7 @@ private slots:
     void gpuInfoPropagatesToQml();
     void backendProbeDoesNotBlockUiAndPublishesReadiness();
     void backendProbeFailureLeavesHonestUnavailableState();
+    void installedProvidersNeverDownloadAgain();
     void settingsAndNumericTypography();
     void repeatSearchTogglesFromTheActualSidebar();
     void appearancePersistsAndRejectsMissingFonts();
@@ -981,6 +982,60 @@ void UiSmokeTests::backendProbeFailureLeavesHonestUnavailableState()
     QVERIFY(!info.backendAvailable("auto"));
     QVERIFY(!info.backendAvailable("cuda"));
     QCOMPARE(info.backendReason("auto"), QStringLiteral("test probe failure"));
+}
+
+void UiSmokeTests::installedProvidersNeverDownloadAgain()
+{
+    // A private application-data directory keeps fake packages away from the
+    // user's providers and from every other UI test.
+    const auto savedName = QCoreApplication::applicationName();
+    const auto savedManifest = qgetenv("PF_PROVIDER_MANIFEST_URL");
+    QTemporaryDir unique; QVERIFY(unique.isValid());
+    const auto testName = "ProviderDownloadGuard-" + QFileInfo(unique.path()).fileName();
+    QCoreApplication::setApplicationName(testName);
+    const auto root = QString::fromStdString(pfservices::SettingsStore::defaultDirectory());
+    const auto restore = qScopeGuard([&] {
+        if (QFileInfo(root).fileName() == testName) QDir(root).removeRecursively();
+        QCoreApplication::setApplicationName(savedName);
+        if (savedManifest.isNull()) qunsetenv("PF_PROVIDER_MANIFEST_URL");
+        else qputenv("PF_PROVIDER_MANIFEST_URL", savedManifest);
+    });
+    QTcpServer network; QVERIFY(network.listen(QHostAddress::LocalHost));
+    QSignalSpy networkRequests(&network, &QTcpServer::newConnection);
+    qputenv("PF_PROVIDER_MANIFEST_URL", QString("http://127.0.0.1:%1/manifest.json").arg(network.serverPort()).toUtf8());
+
+    for (const auto* provider : {"cuda", "tensorrt", "dml"}) {
+        const auto folder = root + "/providers/" + provider;
+        QVERIFY(QDir().mkpath(folder));
+        const auto runtime = folder + "/onnxruntime.dll";
+        const QByteArray original("Existing package must not be overwritten");
+        { QFile file(runtime); QVERIFY(file.open(QIODevice::WriteOnly)); QCOMPARE(file.write(original), qint64(original.size())); }
+        pfui::AppInfo info;
+        // No scan or activation yet: disk discovery alone must stop download.
+        QVERIFY(!info.providerInstalled(provider));
+        info.downloadProvider(provider);
+        QTRY_VERIFY_WITH_TIMEOUT(!info.providerDownloading(), 3000);
+        QCOMPARE(info.providerDownloadState(), QStringLiteral("present"));
+        QVERIFY(info.providerInstalled(provider));
+        info.downloadProvider(provider);
+        QVERIFY(!info.providerDownloading());
+        QCOMPARE(info.providerDownloadState(), QStringLiteral("present"));
+        QFile file(runtime); QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(), original);
+    }
+    QCOMPARE(networkRequests.count(), 0);
+
+    // A runtime loaded from another location is installed too, even if it is
+    // absent from the managed providers directory.
+    pfui::AppInfo active;
+    pfgpu::BackendProbe probe; probe.ortLoaded = true;
+    probe.backends.push_back({pfgpu::Provider::Cuda, true, {}, "Test GPU"});
+    active.publishBackendProbe(probe);
+    QVERIFY(active.providerInstalled(" CUDA "));
+    QVERIFY(!active.providerInstalled("tensorrt"));
+    active.downloadProvider(" CUDA ");
+    QVERIFY(!active.providerDownloading());
+    QCOMPARE(active.providerDownloadState(), QStringLiteral("present"));
+    QCOMPARE(networkRequests.count(), 0);
 }
 
 // The app's init step pushes the pfgpu probe result through setGpuInfo; QML
@@ -2891,7 +2946,8 @@ void UiSmokeTests::directMlDownloadIntegration()
     auto* info = pfui::AppInfo::instance();
     info->downloadProvider("dml");
     QTRY_VERIFY_WITH_TIMEOUT(!info->providerDownloading(), 300000);
-    QCOMPARE(info->providerDownloadState(), QStringLiteral("installed"));
+    QVERIFY(info->providerDownloadState() == QStringLiteral("installed")
+        || info->providerDownloadState() == QStringLiteral("present"));
     const auto root = QString::fromStdString(pfservices::SettingsStore::defaultDirectory());
     QVERIFY(QFileInfo::exists(root + "/providers/dml/onnxruntime.dll"));
     QVERIFY(QFileInfo::exists(root + "/providers/dml/DirectML.dll"));
