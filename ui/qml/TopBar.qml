@@ -67,7 +67,10 @@ Item {
             Layout.minimumWidth: 168
             Layout.maximumWidth: 250
             width: 226; height: 28; radius: 8
-            color: providerMenu.visible ? Theme.accentMuted : Theme.surfaceRaised; border.color: providerMenu.visible ? Theme.accent : Theme.hairline
+            color: providerMenu.visible || gpuHover.hovered ? Theme.accentMuted : Theme.surfaceRaised
+            border.color: providerMenu.visible || gpuHover.hovered ? Theme.accent : Theme.hairline
+            Behavior on color { ColorAnimation { duration: Theme.motionChangeDuration } }
+            Behavior on border.color { ColorAnimation { duration: Theme.motionChangeDuration } }
             RowLayout { anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 8
                 Rectangle { Layout.alignment: Qt.AlignVCenter; Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: !AppInfo.backendInitializing && AppInfo.backendAvailable(Analysis.providerChoice) ? "#22C55E" : Theme.textDisabled
                 }
@@ -95,37 +98,73 @@ Item {
                      ? (AppInfo.gpuDevice || L10n.t("top.ready"))
                      : (AppInfo.backendReason(Analysis.providerChoice) || L10n.t("settings.providerUnavailable")))
             HoverHandler { id: gpuHover }
-            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: providerMenu.open() }
+            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: providerMenu.visible ? providerMenu.close() : providerMenu.open() }
             Popup {
                 id: providerMenu
                 objectName: "providerMenu"
+                x: providerStatus.width - width
                 y: providerStatus.height + 6
-                width: 278; padding: 6
-                implicitHeight: contentItem.implicitHeight + 12
+                width: 296; padding: 7
+                implicitHeight: contentItem.implicitHeight + topPadding + bottomPadding
+                transformOrigin: Popup.TopRight
                 background: Rectangle { color: Theme.tooltipSurface; radius: Theme.radiusCard; border.color: Theme.hairlineStrong }
-                enter: Transition { NumberAnimation { property: "scale"; from: Theme.motionPopupScale; to: 1; duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic } }
+                enter: Transition {
+                    ParallelAnimation {
+                        NumberAnimation { property: "scale"; from: Theme.motionPopupScale; to: 1; duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic }
+                        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic }
+                    }
+                }
+                exit: Transition {
+                    ParallelAnimation {
+                        NumberAnimation { property: "scale"; to: Theme.motionPopupScale; duration: Theme.motionDuration; easing.type: Easing.InCubic }
+                        NumberAnimation { property: "opacity"; to: 0; duration: Theme.motionDuration; easing.type: Easing.InCubic }
+                    }
+                }
                 contentItem: Column {
                   spacing: 3
                   Repeater {
                     model: ["auto", "cuda", "tensorrt", "dml", "cpu"]
                     delegate: ItemDelegate {
+                        id: providerRow
                         required property string modelData
                         objectName: "providerItem_" + modelData
                         readonly property bool isReady: !AppInfo.backendInitializing && AppInfo.providersRevision >= 0 && AppInfo.backendAvailable(modelData)
                         readonly property bool selectedProvider: Analysis.providerChoice === modelData
-                        width: 266; height: 44; hoverEnabled: true
+                        width: providerMenu.availableWidth; height: 48; hoverEnabled: true
+                        leftPadding: 12; rightPadding: 12; topPadding: 7; bottomPadding: 7
                         enabled: isReady && !Analysis.busy && !Analysis.exportBusy
                         contentItem: RowLayout {
                             spacing: 10
-                            Rectangle { Layout.preferredWidth: 5; Layout.preferredHeight: 5; radius: 3; color: parent.parent.isReady ? Theme.accentText : Theme.textDisabled }
+                            Rectangle { Layout.alignment: Qt.AlignVCenter; Layout.preferredWidth: 5; Layout.preferredHeight: 5; radius: 3; color: providerRow.isReady ? Theme.accentText : Theme.textDisabled }
                             Column {
-                                Layout.fillWidth: true; spacing: 2
+                                Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter; spacing: 3
                                 Text { objectName: "providerName_" + modelData; width: parent.width; text: root.backendLabel(modelData); color: Theme.textPrimary; opacity: isReady ? 1 : 0.55; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: Font.Medium; elide: Text.ElideRight }
-                                Text { width: parent.width; text: root.backendStatus(modelData); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10; elide: Text.ElideRight }
+                                Text {
+                                    width: parent.width
+                                    text: AppInfo.backendInitializing ? L10n.t("settings.providerChecking")
+                                        : providerRow.isReady ? L10n.t("top.ready")
+                                        : L10n.t("settings.providerUnavailable").split(":")[0]
+                                    color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10
+                                }
                             }
-                            Text { text: selectedProvider ? "✓" : ""; color: Theme.accentText; font.pixelSize: 14 }
+                            Text {
+                                Layout.preferredWidth: 18; Layout.alignment: Qt.AlignVCenter
+                                text: "✓"; color: Theme.accentText; font.pixelSize: 14
+                                horizontalAlignment: Text.AlignHCenter
+                                opacity: providerRow.selectedProvider ? 1 : 0
+                                scale: providerRow.selectedProvider ? 1 : 0.65
+                                Behavior on opacity { NumberAnimation { duration: Theme.motionChangeDuration } }
+                                Behavior on scale { NumberAnimation { duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic } }
+                            }
                         }
-                        background: Rectangle { radius: 7; color: parent.selectedProvider ? Theme.accentMuted : parent.hovered ? Theme.surfaceRaised : "transparent"; Behavior on color { ColorAnimation { duration: Theme.motionDuration } } }
+                        background: Rectangle {
+                            radius: 8
+                            color: providerRow.selectedProvider ? Theme.accentMuted : providerRow.hovered ? Theme.surfaceRaised : "transparent"
+                            border.width: 1
+                            border.color: providerRow.hovered ? Theme.hairlineStrong : "transparent"
+                            Behavior on color { ColorAnimation { duration: Theme.motionChangeDuration } }
+                            Behavior on border.color { ColorAnimation { duration: Theme.motionChangeDuration } }
+                        }
                         onClicked: root.chooseProvider(modelData)
                     }
                   }

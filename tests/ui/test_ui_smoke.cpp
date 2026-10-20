@@ -1295,6 +1295,12 @@ QtObject {
     if(!capture.isEmpty()) {QTest::qWait(200);QVERIFY(window->grabWindow().save(capture+"/rc23-light.png"));}
     auto* menu=window->findChild<QObject*>("providerMenu");QVERIFY(menu);
     QVERIFY(QMetaObject::invokeMethod(menu,"open"));
+    if(!capture.isEmpty()) {
+        for(int frame=0;frame<5;++frame) {
+            QTest::qWait(40);
+            QVERIFY(window->grabWindow().save(capture+QStringLiteral("/provider-opening-%1.png").arg(frame)));
+        }
+    }
     QTRY_VERIFY(menu->property("opened").toBool());
     auto* automatic=findVisual(window->contentItem(),"providerName_auto",findVisual);QVERIFY(automatic);
     auto* cuda=findVisual(window->contentItem(),"providerName_cuda",findVisual);QVERIFY(cuda);
@@ -1302,6 +1308,12 @@ QtObject {
     auto* cudaItem=findVisual(window->contentItem(),"providerItem_cuda",findVisual);QVERIFY(cudaItem);
     QCOMPARE(cudaItem->property("isReady").toBool(),pfui::AppInfo::instance()->backendAvailable("cuda"));
     if(!capture.isEmpty())QVERIFY(window->grabWindow().save(capture+"/rc23-provider-light.png"));
+    if(!capture.isEmpty()) {
+        QVERIFY(QMetaObject::invokeMethod(probe.get(),"dark"));
+        QTest::qWait(250);
+        QVERIFY(window->grabWindow().save(capture+"/rc23-provider-dark.png"));
+        QVERIFY(QMetaObject::invokeMethod(probe.get(),"light"));
+    }
     QVERIFY(QMetaObject::invokeMethod(menu,"close"));
 }
 
