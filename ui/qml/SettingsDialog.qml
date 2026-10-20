@@ -764,8 +764,8 @@ Popup {
                                     readonly property bool flagActive: hovered || visualFocus
                                     Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: 58
                                     hoverEnabled: true; focusPolicy: Qt.StrongFocus
-                                    scale: hovered && !currentLanguage && !Theme.reducedMotion ? 1.025 : 1
-                                    Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 155; easing.type: Easing.OutCubic } }
+                                    scale: hovered && !currentLanguage && !Theme.reducedMotion ? 1.008 : 1
+                                    Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 340; easing.type: Easing.InOutSine } }
                                     background: Rectangle {
                                         radius: Theme.radiusCard
                                         clip: true

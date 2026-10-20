@@ -15,8 +15,8 @@ Item {
     Behavior on reveal {
         enabled: !Theme.reducedMotion
         NumberAnimation {
-            duration: root.active ? 650 : 180
-            easing.type: root.active ? Easing.OutCubic : Easing.InCubic
+            duration: root.active ? 1000 : 380
+            easing.type: Easing.InOutSine
         }
     }
 
@@ -89,6 +89,10 @@ Item {
             // Fill the whole button surface uniformly; no empty bands or repeats.
             ctx.globalAlpha = 1
             ctx.drawImage(loadedSource, 0, 0, width, height)
+            // Subdue the bright flag colors without introducing transparent gaps.
+            ctx.globalAlpha = 0.28
+            ctx.fillStyle = "#18202a"
+            ctx.fillRect(0, 0, width, height)
             ctx.restore()
         }
     }

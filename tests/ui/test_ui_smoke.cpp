@@ -1286,7 +1286,7 @@ QtObject {
             QTRY_VERIFY(backdrop->property("imageReady").toBool());
             QTRY_COMPARE(backdrop->property("reveal").toDouble(),1.0);
             if(ids[i]=="tr") QCOMPARE(button->property("scale").toDouble(),1.0);
-            else QVERIFY(button->property("scale").toDouble()>1.01);
+            else QVERIFY(button->property("scale").toDouble()>1.0 && button->property("scale").toDouble()<1.01);
             QVERIFY(window->grabWindow().save(capture+QStringLiteral("/rc23-language-%1-complete.png").arg(ids[i])));
         }
     }
