@@ -32,6 +32,13 @@ void enforceUniqueFaceOwnership(std::vector<PersonDetection>& people,std::span<c
         }
         return result;
     };
+    // A single detected face can still belong to a neighbour. Check geometry
+    // before resolving duplicates, rather than trusting uncontested ownership.
+    for(std::size_t i=0;i<people.size();++i) {
+        if(!valid(i))continue;
+        const double residual=score(i);
+        if(!std::isfinite(residual)||residual>.8)people[i].faceEmbedding.clear();
+    }
     std::vector<bool> visited(people.size());
     for(std::size_t i=0;i<people.size();++i) {
         if(visited[i]||!valid(i))continue;

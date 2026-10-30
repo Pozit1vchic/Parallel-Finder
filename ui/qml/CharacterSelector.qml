@@ -36,6 +36,7 @@ Item {
             delegate: Rectangle {
                 id: candidate
                 required property var modelData
+                readonly property var representative: modelData.representative || (modelData.previews.length ? modelData.previews[0] : null)
                 width: ListView.view.width
                 height: 112 + (root.inspectedId === modelData.id ? 158 : 0)
                 radius: Theme.radiusButton
@@ -49,8 +50,8 @@ Item {
                     height: 88; spacing: 12
                     CharacterAppearance {
                         Layout.preferredWidth: Math.min(156,candidate.width*.28); Layout.preferredHeight: 88
-                        source: candidate.modelData.previews.length ? candidate.modelData.previews[0].url : ""
-                        personBox: candidate.modelData.previews.length ? candidate.modelData.previews[0].box : null
+                        source: candidate.representative ? candidate.representative.url : ""
+                        personBox: candidate.representative ? candidate.representative.box : null
                     }
                     ColumnLayout {
                         Layout.fillWidth: true; spacing: 6

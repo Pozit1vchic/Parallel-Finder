@@ -42,6 +42,24 @@ TEST(CharacterCandidates, AmbiguousDisconnectedAppearanceIsNotAnotherUniquePerso
     EXPECT_EQ(candidates[1].trackIds,(std::vector<std::size_t>{2}));
 }
 
+TEST(CharacterCandidates, RepresentativeSamplingRetainsAVisibleFaceBetweenUniformSamples)
+{
+    auto person=track(1,0,{},8);
+    for(auto& observation:person.observations) {
+        observation.appearanceEmbedding={1,0};observation.keypointConfidence=.95;
+    }
+    person.observations[2].faceEmbedding={1,0};person.observations[2].keypointConfidence=.6;
+    const auto candidates=pfcore::characterCandidates({person});
+    ASSERT_EQ(candidates.size(),1);
+    const auto& previews=candidates.front().appearances;
+    ASSERT_EQ(previews.size(),5);
+    const auto representative=std::max_element(previews.begin(),previews.end(),
+        [](const auto& a,const auto& b){return a.quality<b.quality;});
+    EXPECT_DOUBLE_EQ(representative->timestampSeconds,.5);
+    EXPECT_TRUE(std::is_sorted(previews.begin(),previews.end(),
+        [](const auto& a,const auto& b){return a.timestampSeconds<b.timestampSeconds;}));
+}
+
 TEST(CharacterCandidates, RepeatedSeparatePeopleEstablishDistinctnessWithoutStrongFaceContradiction)
 {
     auto a=track(1,0,{1,0}),b=track(2,0,{.25F,.9682458F});
@@ -70,8 +88,20 @@ TEST(CharacterCandidates, AMeasuredFaceCannotBeBorrowedByAnOverlappingBystander)
     people={actual,actual};pfcore::enforceUniqueFaceOwnership(people,std::vector{face,face});
     EXPECT_TRUE(people[0].faceEmbedding.empty());EXPECT_TRUE(people[1].faceEmbedding.empty());
     auto other=face;for(std::size_t i=0;i<10;i+=2)other.points[i]+=200;
-    people={actual,actual};pfcore::enforceUniqueFaceOwnership(people,std::vector{face,other});
+    auto otherPerson=actual;for(auto& point:otherPerson.keypoints)point.x+=200;
+    people={actual,otherPerson};pfcore::enforceUniqueFaceOwnership(people,std::vector{face,other});
     EXPECT_FALSE(people[0].faceEmbedding.empty());EXPECT_FALSE(people[1].faceEmbedding.empty());
+}
+
+TEST(CharacterCandidates, AnUncontestedFaceStillRequiresAgreementWithTheObservedHead) {
+    const pfcore::ObservedFaceLandmarks face{true,{100,100,140,100,120,120,105,140,135,140}};
+    pfcore::PersonDetection person;person.faceEmbedding={1,0};
+    person.keypoints={{120,120,1},{20,100,1},{60,100,1}};
+    std::vector people{person};pfcore::enforceUniqueFaceOwnership(people,std::vector{face});
+    EXPECT_TRUE(people[0].faceEmbedding.empty());
+    person.keypoints={{120,120,1},{100,100,1},{140,100,1}};
+    people={person};pfcore::enforceUniqueFaceOwnership(people,std::vector{face});
+    EXPECT_FALSE(people[0].faceEmbedding.empty());
 }
 
 TEST(CharacterCandidates, IdentitySwitchCannotCreateAFalseCoVisibilityVetoForTheSameLead) {

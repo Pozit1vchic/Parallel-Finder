@@ -2235,8 +2235,9 @@ bool AnalysisController::selectTargetCharacter(const QString& id)
 
 void AnalysisController::reselectTargetCharacter(const QString& source)
 {
-    if (busy_ || reviewBusy_ || exportBusy_ || !lastAnalysisPaths_.contains(source)) return;
-    forceTargetSource_ = source;
+    const auto normalized=normalizedPaths({source});
+    if (busy_ || reviewBusy_ || exportBusy_ || normalized.size()!=1 || !lastAnalysisPaths_.contains(normalized.front())) return;
+    forceTargetSource_ = normalized.front();
     analyzeFiles(lastAnalysisPaths_);
 }
 
@@ -2610,7 +2611,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
                 const auto generation = sourceGenerations[path.toStdString()];
                 if (!generation.empty()) cacheKey += "|generation=" + generation;
-                if (interactiveTargets) cacheKey += "|all-characters-v8-distinct-identities";
+                if (interactiveTargets) cacheKey += "|all-characters-v9-head-face-agreement";
                 if (interactiveTargets) characterArtifactKeys[path.toStdString()]=cacheKey;
                 sequenceCacheKeys[path.toStdString()]=cacheKey;
                 if (analysisCache) {
@@ -3611,12 +3612,16 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     int identityNumber=0,unresolvedNumber=0;
                     for (std::size_t i=0;i<candidates.size() && !isCancelled();++i) {
                         const auto& c=candidates[i];const auto& previews=candidatePreviews[i];
+                        std::size_t representative=0;
+                        for(std::size_t j=1;j<c.appearances.size();++j)
+                            if(c.appearances[j].quality>c.appearances[representative].quality)representative=j;
                         const bool unresolved=!c.distinctIdentity;
                         rows.push_back(QVariantMap{{"id",QString::number(c.id)},{"number",unresolved?++unresolvedNumber:++identityNumber},
                             {"unresolved",unresolved},
                             {"presence",c.presenceSeconds},{"observations",static_cast<qulonglong>(c.observationCount)},
                             {"tracks",static_cast<int>(c.trackIds.size())},{"quality",c.evidenceQuality},
-                            {"previews",previews},{"suggested",suggestion.candidateId && *suggestion.candidateId==c.id}});
+                            {"previews",previews},{"representative",previews.empty()?QVariantMap{}:previews[representative].toMap()},
+                            {"suggested",suggestion.candidateId && *suggestion.candidateId==c.id}});
                     }
                     std::stable_sort(rows.begin(),rows.end(),[](const auto& a,const auto& b) {
                         const auto x=a.toMap(),y=b.toMap();

@@ -131,7 +131,7 @@ private slots:
         QVERIFY(analysis->analysisCompleted());
         QCOMPARE(analysis->analyzedFrames(),0);
         analysis->setAnalysisMode("motion");
-        analysis->reselectTargetCharacter(source);
+        analysis->reselectTargetCharacter(QDir::toNativeSeparators(source));
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
         QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
         QVERIFY(analysis->selectTargetCharacter(second));

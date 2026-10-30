@@ -576,6 +576,14 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
         return BoundingBox{observation.box.left/observation.frameWidth,observation.box.top/observation.frameHeight,
             observation.box.right/observation.frameWidth,observation.box.bottom/observation.frameHeight};
     };
+    const auto appearanceQuality = [](const PersonDetection& observation) {
+        const double pose=std::isfinite(observation.keypointConfidence)
+            ? std::clamp(observation.keypointConfidence,0.,1.) : 0.;
+        // Prefer an actually measured face over a well-observed back/torso
+        // when explaining which person this candidate represents.
+        return embeddingScore(observation.faceEmbedding,observation.faceEmbedding)>.99
+            ? .5+.5*pose : .5*pose;
+    };
     for (const auto& component : components) {
         if (control.cancelled && control.cancelled()) return {};
         CharacterCandidate candidate;
@@ -607,8 +615,8 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
             // Choose one good observed frame per track, then distribute previews
             // over the whole appearance history instead of choosing adjacent crops.
             const auto best = std::max_element(track.observations.begin(), track.observations.end(),
-                [](const auto& a, const auto& b) { return a.keypointConfidence < b.keypointConfidence; });
-            appearances.push_back({track.id, best->timestampSeconds, std::clamp(best->keypointConfidence, 0.0, 1.0), appearanceBox(*best)});
+                [&](const auto& a, const auto& b) { return appearanceQuality(a) < appearanceQuality(b); });
+            appearances.push_back({track.id, best->timestampSeconds, appearanceQuality(*best), appearanceBox(*best)});
         }
         std::sort(intervals.begin(), intervals.end());
         double end = -std::numeric_limits<double>::infinity();
@@ -634,8 +642,18 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
             for (std::size_t i = 0; i < n; ++i) {
                 const auto& observation = track.observations[i * (track.observations.size()-1) / (n-1)];
                 candidate.appearances.push_back({track.id, observation.timestampSeconds,
-                    std::clamp(observation.keypointConfidence, 0.0, 1.0), appearanceBox(observation)});
+                    appearanceQuality(observation), appearanceBox(observation)});
             }
+        }
+        // Temporal sampling must not accidentally discard the clearest face.
+        const auto best=std::max_element(appearances.begin(),appearances.end(),
+            [](const auto& a,const auto& b){return a.quality<b.quality;});
+        if(best!=appearances.end() && std::none_of(candidate.appearances.begin(),candidate.appearances.end(),
+            [&](const auto& a){return a.trackId==best->trackId && a.timestampSeconds==best->timestampSeconds;})) {
+            *std::min_element(candidate.appearances.begin(),candidate.appearances.end(),
+                [](const auto& a,const auto& b){return a.quality<b.quality;})=*best;
+            std::sort(candidate.appearances.begin(),candidate.appearances.end(),
+                [](const auto& a,const auto& b){return a.timestampSeconds<b.timestampSeconds;});
         }
         result.push_back(std::move(candidate));
     }
