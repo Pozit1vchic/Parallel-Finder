@@ -1,3 +1,4 @@
+#include <chrono>
 #include "BackendProbeProcess.h"
 #include "AppInfo.h"
 #include <QKeySequence>
@@ -301,6 +302,11 @@ QString AppInfo::backendReason(const QString& backend) const
     return QStringLiteral("Provider initialization pending");
 }
 
+void AppInfo::cancelProviderDownload()
+{
+    if(providerDownloading_ && providerDownloadThread_)providerDownloadThread_->requestInterruption();
+}
+
 void AppInfo::downloadProvider(const QString& backend)
 {
     const QString provider = backend.trimmed().toLower();
@@ -321,6 +327,7 @@ void AppInfo::downloadProvider(const QString& backend)
         return;
     }
     providerDownloading_ = true;
+    providerDownloadedBytes_=providerTotalBytes_=0;providerBytesPerSecond_=0;
     providerDownloadState_ = QStringLiteral("checking");
     providerDownloadProgress_ = 0.0;
     providerDownloadStatus_ = QStringLiteral("Проверяем интернет и release-манифест…");
@@ -377,26 +384,21 @@ void AppInfo::downloadProvider(const QString& backend)
         const std::filesystem::path destination = std::filesystem::path(
             QString::fromStdString(pfservices::SettingsStore::defaultDirectory()).toStdWString())
             / "providers" / provider.toStdWString();
-        const auto reportProgress = [this, lastPercent = -1](std::uint64_t received, std::uint64_t total) mutable {
-                const double progress = total > 0
-                    ? std::clamp(static_cast<double>(received) / static_cast<double>(total), 0.0, 1.0)
-                    : 0.0;
-                const int percent = static_cast<int>(std::round(progress * 100.0));
-                // QNetwork/curl style progress callbacks can arrive for every
-                // small chunk. Flooding the GUI thread with queued updates made
-                // the draggable settings popup visibly stutter during a large
-                // provider download. One UI update per percentage point is more
-                // than enough and bounds the event rate to ~101 updates.
-                if (percent == lastPercent) return;
-                lastPercent = percent;
-                QMetaObject::invokeMethod(this, [this, progress, percent] {
-                    providerDownloadProgress_ = progress;
-                    providerDownloadState_ = QStringLiteral("downloading");
-                    providerDownloadStatus_ = QStringLiteral("Скачивание runtime… %1%")
-                        .arg(percent);
-                    emit providerDownloadChanged();
-                }, Qt::QueuedConnection);
-            };
+        const auto reportProgress = [this,lastPercent=-1,lastBytes=std::uint64_t{0},
+            lastTime=std::chrono::steady_clock::now(),started=false](std::uint64_t received,std::uint64_t total) mutable {
+            const auto now=std::chrono::steady_clock::now();
+            const double elapsed=std::chrono::duration<double>(now-lastTime).count();
+            const double progress=total?std::clamp(double(received)/total,0.,1.):0.;
+            const int percent=static_cast<int>(progress*100);
+            if(started && percent==lastPercent && elapsed<.25)return;
+            const double speed=started && received>=lastBytes && elapsed>0 ? (received-lastBytes)/elapsed:0;
+            started=true;lastPercent=percent;lastBytes=received;lastTime=now;
+            QMetaObject::invokeMethod(this,[this,received,total,speed,progress] {
+                providerDownloadedBytes_=received;providerTotalBytes_=total;providerBytesPerSecond_=speed;
+                providerDownloadProgress_=progress;providerDownloadState_=QStringLiteral("downloading");
+                emit providerDownloadChanged();
+            },Qt::QueuedConnection);
+        };
         const auto validateStaging=[this,provider](const std::filesystem::path& staging,std::string& failure) {
             QMetaObject::invokeMethod(this,[this] {
                 providerDownloadState_=QStringLiteral("verifying");
@@ -425,9 +427,10 @@ void AppInfo::downloadProvider(const QString& backend)
         const QString message = installed
             ? QStringLiteral("Runtime установлен. Перезапустите приложение, чтобы применить провайдер.")
             : QStringLiteral("Не удалось установить runtime: ") + QString::fromStdString(error);
-        QMetaObject::invokeMethod(this, [this, provider, destination, installed, message] {
-            providerDownloading_ = false;
-            providerDownloadState_ = installed ? QStringLiteral("installed") : QStringLiteral("error");
+        const bool cancelled=QThread::currentThread()->isInterruptionRequested();
+        QMetaObject::invokeMethod(this, [this, provider, destination, installed, message,cancelled] {
+            providerDownloading_ = false;providerBytesPerSecond_=0;
+            providerDownloadState_ = installed ? QStringLiteral("installed") : cancelled ? QStringLiteral("cancelled") : QStringLiteral("error");
             providerDownloadProgress_ = installed ? 1.0 : 0.0;
             providerDownloadStatus_ = message;
             if (installed) {
@@ -451,6 +454,7 @@ void AppInfo::downloadProvider(const QString& backend)
             }, Qt::QueuedConnection);
         }
     });
+    providerDownloadThread_=thread;
     workerThreads_.start(thread);
 }
 

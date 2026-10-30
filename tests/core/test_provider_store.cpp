@@ -11,6 +11,9 @@
 #include <pfservices/ModelStore.hpp>
 #include <pfcore/PathEncoding.hpp>
 #include <QDir>
+#include "../../services/src/ProviderDownload.hpp"
+#include <atomic>
+#include <QSemaphore>
 
 namespace {
 std::string digest(const QByteArray& data) {
@@ -79,6 +82,63 @@ TEST(ProviderStore, PartsAreVerifiedBeforeReplacingExistingArchive)
     EXPECT_FALSE(pfservices::ProviderStore::assembleParts(asset, {paths[0]}, output.toStdWString(), error));
     EXPECT_TRUE(pfservices::ProviderStore::assembleParts(asset, paths, output.toStdWString(), error));
     EXPECT_EQ(get(output), "abcdefgh");
+}
+
+TEST(ProviderDownload, BoundedWorkersKeepCompletedChunksAndReportAggregateProgress)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString());
+    pfservices::ProviderAsset asset;asset.sizeBytes=24;
+    for(int i=0;i<6;++i)asset.parts.push_back({std::to_string(i),std::string(64,'a'),4,"https://github.com/test/chunk"});
+    std::atomic<int> active=0,peak=0;
+    std::uint64_t progress=0;std::string error;
+    ASSERT_TRUE(pfservices::detail::downloadProviderParts(asset,root,[&](auto count,auto total) {
+        EXPECT_EQ(total,24);progress=count;
+    },error,[&](const auto& chunk,const auto& path,auto report,std::string&) {
+        const int count=++active;int before=peak.load();while(before<count&&!peak.compare_exchange_weak(before,count)){}
+        QThread::msleep(15);
+        QFile file(QString::fromStdWString(path.wstring()));
+        const bool ok=file.open(QIODevice::WriteOnly)&&file.write("data")==4;
+        report(chunk.sizeBytes,chunk.sizeBytes);--active;return ok;
+    })) << error;
+    EXPECT_LE(peak.load(),4);EXPECT_GT(peak.load(),1);EXPECT_EQ(progress,24);
+    for(int i=0;i<6;++i)EXPECT_EQ(get(directory.filePath(QString::number(i))),"data");
+}
+
+TEST(ProviderDownload, TransientFailureRetriesTheSamePersistentPartial)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto path=std::filesystem::path(directory.filePath("chunk").toStdWString());
+    pfservices::ModelAsset asset;asset.sizeBytes=8;std::string error;int attempts=0;
+    ASSERT_TRUE(pfservices::detail::downloadWithRetry(asset,path,{},error,
+        [&](const auto&,const auto& destination,auto,std::string& failure) {
+            ++attempts;auto partial=destination;partial+=".part";
+            const auto name=QString::fromStdWString(partial.wstring());
+            if(attempts==1) {put(name,"saved");failure="download model: connection lost";return false;}
+            EXPECT_EQ(get(name),"saved");return true;
+        })) << error;
+    EXPECT_EQ(attempts,2);
+}
+
+TEST(ProviderDownload, CancellationJoinsWorkersAndPreservesPartialData)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString());
+    pfservices::ProviderAsset asset;asset.sizeBytes=8;asset.parts={{"chunk",std::string(64,'a'),8,"https://github.com/test/chunk"}};
+    QSemaphore started;std::string error;bool success=true;
+    std::unique_ptr<QThread> parent(QThread::create([&] {
+        success=pfservices::detail::downloadProviderParts(asset,root,{},error,
+            [&](const auto&,const auto& destination,auto,std::string& failure) {
+                auto partial=destination;partial+=".part";
+                put(QString::fromStdWString(partial.wstring()),"saved");started.release();
+                while(!QThread::currentThread()->isInterruptionRequested())QThread::msleep(5);
+                failure="download cancelled";return false;
+            });
+    }));
+    parent->start();ASSERT_TRUE(started.tryAcquire(1,5000));parent->requestInterruption();
+    ASSERT_TRUE(parent->wait(5000));EXPECT_FALSE(success);
+    EXPECT_EQ(error,"PROVIDER_DOWNLOAD_CANCELLED");
+    EXPECT_EQ(get(directory.filePath("chunk.part")),"saved");
 }
 
 TEST(ProviderStore, ManifestRejectsUnsafeDuplicateAndWrongSizeParts)

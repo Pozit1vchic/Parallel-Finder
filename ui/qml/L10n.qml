@@ -31,6 +31,7 @@ QtObject {
 
     readonly property var _dict: ({
         ru: {
+            "provider.transfer": "%1 / %2 МБ · %3 МБ/с",
             "sort.best": "Лучшее совпадение",
             "sort.continuity": "Монтажная последовательность",
             "sort.pose": "Сходство позы",
@@ -517,6 +518,7 @@ QtObject {
             "ui.433": "Пара собрана вручную"
         },
         en: {
+            "provider.transfer": "%1 / %2 MB · %3 MB/s",
             "sort.best": "Best match",
             "sort.continuity": "Editing continuity",
             "sort.pose": "Pose similarity",
@@ -1091,6 +1093,7 @@ QtObject {
             "Подготавливаем проверку лиц": "Preparing face verification",
             "Подготавливаем кадры для матчера": "Preparing footage for matching",
             "Сохраняем кеш анализа": "Saving analysis cache",
+            "Подготавливаем появления персонажей": "Preparing character appearances",
             "Проверяем общего персонажа в видео": "Verifying the shared character across videos",
             "Подготавливаем поиск параллелей": "Preparing parallel search",
             "Исключаем одинаковые фрагменты": "Removing copied footage",

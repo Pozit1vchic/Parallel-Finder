@@ -1042,7 +1042,10 @@ var dictionaries = {
     "Verified": "Ырасталган",
     "explain.note": "Окшоштук жана байкоонун сапаты өзүнчө бааланат. Маалымат жок болсо, ишенимдүү тыянак чыгарылбайт.",
     "Similarity and evidence quality are separate measurements. Missing information is not a confident observation.": "Окшоштук жана байкоонун сапаты өзүнчө бааланат. Маалымат жок болсо, ишенимдүү тыянак чыгарылбайт.",
-    "explain.close": "Жабуу"
+    "explain.close": "Жабуу",
+    "provider.transfer": "%1 / %2 МБ · %3 МБ/с",
+    "%1 / %2 MB · %3 MB/s": "%1 / %2 МБ · %3 МБ/с",
+    "Preparing character appearances": "Каармандардын көрүнүштөрү даярдалууда"
   },
   "kk": {
     "colors.none": "Түссіз",
@@ -2085,7 +2088,10 @@ var dictionaries = {
     "Verified": "Расталған",
     "explain.note": "Ұқсастық пен бақылау сапасы бөлек бағаланады. Дерек болмауы сенімді қорытынды емес.",
     "Similarity and evidence quality are separate measurements. Missing information is not a confident observation.": "Ұқсастық пен бақылау сапасы бөлек бағаланады. Дерек болмауы сенімді қорытынды емес.",
-    "explain.close": "Жабу"
+    "explain.close": "Жабу",
+    "provider.transfer": "%1 / %2 МБ · %3 МБ/с",
+    "%1 / %2 MB · %3 MB/s": "%1 / %2 МБ · %3 МБ/с",
+    "Preparing character appearances": "Кейіпкерлердің көріністері дайындалуда"
   },
   "uk": {
     "colors.none": "Без кольору",
@@ -3128,7 +3134,10 @@ var dictionaries = {
     "Verified": "Підтверджена",
     "explain.note": "Схожість і якість спостережень — різні оцінки. Відсутність даних не означає впевненість.",
     "Similarity and evidence quality are separate measurements. Missing information is not a confident observation.": "Схожість і якість спостережень — різні оцінки. Відсутність даних не означає впевненість.",
-    "explain.close": "Закрити"
+    "explain.close": "Закрити",
+    "provider.transfer": "%1 / %2 МБ · %3 МБ/с",
+    "%1 / %2 MB · %3 MB/s": "%1 / %2 МБ · %3 МБ/с",
+    "Preparing character appearances": "Підготовка появ персонажів"
   },
   "tr": {
     "colors.none": "Renksiz",
@@ -4171,6 +4180,9 @@ var dictionaries = {
     "Verified": "Doğrulandı",
     "explain.note": "Benzerlik ve gözlem kalitesi ayrı ölçümlerdir. Eksik bilgi kesin bir gözlem sayılmaz.",
     "Similarity and evidence quality are separate measurements. Missing information is not a confident observation.": "Benzerlik ve gözlem kalitesi ayrı ölçümlerdir. Eksik bilgi kesin bir gözlem sayılmaz.",
-    "explain.close": "Kapat"
+    "explain.close": "Kapat",
+    "provider.transfer": "%1 / %2 MB · %3 MB/sn",
+    "%1 / %2 MB · %3 MB/s": "%1 / %2 MB · %3 MB/sn",
+    "Preparing character appearances": "Karakter görünümleri hazırlanıyor"
   }
 }

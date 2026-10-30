@@ -163,6 +163,7 @@ bool ModelStore::verifySha256(const std::filesystem::path& path,
     }
     QCryptographicHash hash(QCryptographicHash::Sha256);
     while (!file.atEnd()) {
+        if(QThread::currentThread()->isInterruptionRequested()) {error="download cancelled";return false;}
         const QByteArray chunk = file.read(1024 * 1024);
         if (chunk.isEmpty() && !file.atEnd()) {
             error = "read model while hashing: " + file.errorString().toStdString();
@@ -171,7 +172,7 @@ bool ModelStore::verifySha256(const std::filesystem::path& path,
         hash.addData(chunk);
     }
     const std::string actual = hash.result().toHex().toStdString();
-    if (actual != expected) {
+    if (QString::fromStdString(actual).compare(QString::fromStdString(expected),Qt::CaseInsensitive)!=0) {
         error = "model SHA-256 mismatch: expected " + expected + ", got " + actual;
         return false;
     }
@@ -253,6 +254,7 @@ std::optional<ModelAsset> ModelStore::fetchManifest(const std::string& url,
                          QNetworkRequest::UserVerifiedRedirectPolicy);
     request.setTransferTimeout(30000);
     QNetworkReply* reply = manager.get(request);
+    reply->setReadBufferSize(4*1024*1024);
     QTimer interruption;
     detail::watchInterruption(interruption, *reply, error);
     detail::boundManifestReply(*reply, kMaxManifestBytes, error, "model manifest is too large");
@@ -352,7 +354,10 @@ bool ModelStore::download(const ModelAsset& asset,
             return false;
         }
         if ((asset.sizeBytes == 0 || std::filesystem::file_size(destination, filesystemError) == asset.sizeBytes)
-            && verifySha256(destination, asset.sha256, error)) return true;
+            && verifySha256(destination, asset.sha256, error)) {
+            if(progress)progress(asset.sizeBytes,asset.sizeBytes);
+            return true;
+        }
     }
     error.clear();
 
@@ -381,7 +386,12 @@ bool ModelStore::download(const ModelAsset& asset,
     // requesting Range at EOF would otherwise get HTTP 416 forever.
     if (asset.sizeBytes != 0 && static_cast<std::uint64_t>(offset) == asset.sizeBytes) {
         part.close();
-        if (!verifySha256(partPath, asset.sha256, error)) return false;
+        if (!verifySha256(partPath, asset.sha256, error)) {
+            // Proven corrupt completed data cannot be resumed. Retain valid
+            // sibling chunks, but let a retry redownload this chunk alone.
+            if(error.starts_with("model SHA-256 mismatch"))std::filesystem::remove(partPath,filesystemError);
+            return false;
+        }
         filesystemError.clear();
         std::filesystem::rename(partPath, destination, filesystemError);
         if (filesystemError) {
@@ -407,6 +417,7 @@ bool ModelStore::download(const ModelAsset& asset,
     detail::watchInterruption(interruption, *reply, error);
     QEventLoop loop;
     bool metadataSeen = false;
+    bool metadataValid = false;
     qint64 expectedTotal = asset.sizeBytes == 0 ? -1 : static_cast<qint64>(asset.sizeBytes);
     QObject::connect(reply, &QNetworkReply::redirected, [&](const QUrl& target) {
         if (qEnvironmentVariableIsSet("PF_DEBUG_DOWNLOAD"))
@@ -437,21 +448,27 @@ bool ModelStore::download(const ModelAsset& asset,
             return;
         }
         if (offset > 0 && status == 200) {
-            part.resize(0);
+            if(!part.resize(0)) {error="PROVIDER_PART_RESET_FAILED";reply->abort();return;}
             offset = 0;
         }
-        const qint64 total = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
+        const auto length=reply->header(QNetworkRequest::ContentLengthHeader);
+        const qint64 total = length.isValid()?length.toLongLong():-1;
+        if(status==206 && !detail::validContentRange(reply->rawHeader("Content-Range"),offset,asset.sizeBytes,total)) {
+            error="PROVIDER_RANGE_RESPONSE_INVALID";reply->abort();return;
+        }
         if (total > 0 && status == 206) expectedTotal = offset + total;
         else if (total > 0) expectedTotal = total;
         if (expectedTotal > static_cast<qint64>(kMaxDownloadBytes)
             || (expectedTotal > 0 && expectedTotal < offset)) {
             error = "model download exceeds the maximum supported size";
             reply->abort();
+            return;
         }
+        metadataValid=true;
     });
     QObject::connect(reply, &QNetworkReply::readyRead, [&] {
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (status != 200 && status != 206) {
+        if (!metadataValid || (status != 200 && status != 206)) {
             reply->readAll(); // never write a redirect/error response into .part
             return;
         }
@@ -529,7 +546,10 @@ bool ModelStore::download(const ModelAsset& asset,
         error = "downloaded model size mismatch";
         return false;
     }
-    if (!verifySha256(partPath, asset.sha256, error)) return false;
+    if (!verifySha256(partPath, asset.sha256, error)) {
+        if(error.starts_with("model SHA-256 mismatch"))std::filesystem::remove(partPath,filesystemError);
+        return false;
+    }
     // rename replaces a regular destination atomically on the same filesystem.
     // Removing it first loses the previous verified model if publication fails.
     filesystemError.clear();

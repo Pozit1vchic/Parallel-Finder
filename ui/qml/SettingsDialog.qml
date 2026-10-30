@@ -432,12 +432,15 @@ Popup {
     }
     function providerDownloadText(raw) {
         const status = String(raw || "")
+        if (AppInfo.providerDownloadState === "cancelled") return L10n.t("provider.saved")
         if (AppInfo.providerDownloadState === "error") return L10n.t("provider.installError") + "\n" + L10n.t("provider.saved") + "\n" + AppInfo.providerDiagnosticCode
         if (AppInfo.providerDownloadState === "verifying") return L10n.t("provider.verifying")
         if (AppInfo.providerDownloadState === "present") return root.providerStatusText(Analysis.providerChoice)
         if (AppInfo.providerDownloadState === "installed") return L10n.t("settings.providerRestart")
         if (AppInfo.providerDownloadState === "checking") return L10n.t("settings.providerChecking")
-        if (AppInfo.providerDownloadState === "downloading") return L10n.t("settings.providerDownloading") + " " + Math.round(AppInfo.providerDownloadProgress * 100) + "%"
+        if (AppInfo.providerDownloadState === "downloading") return L10n.t("settings.providerDownloading") + " " + Math.round(AppInfo.providerDownloadProgress * 100) + "%\n"
+            + L10n.t("provider.transfer").arg((AppInfo.providerDownloadedBytes/1048576).toFixed(1))
+                .arg((AppInfo.providerTotalBytes/1048576).toFixed(1)).arg((AppInfo.providerBytesPerSecond/1048576).toFixed(1))
         if (!status.length) return L10n.t("settings.providerDownloadHint")
         const lower = status.toLowerCase()
         if (lower.indexOf("404") >= 0 || lower.indexOf("providers.json") >= 0) return L10n.t("settings.providerManifestMissing")
@@ -647,6 +650,7 @@ Popup {
                                 wrapMode: Text.WordWrap
                             }
                         }
+                        PfButton { Layout.fillWidth: true; compact: true; visible: AppInfo.providerDownloading; quiet: true; text: L10n.t("search.stop"); onClicked: AppInfo.cancelProviderDownload() }
                         PfButton { Layout.fillWidth: true; compact: true; text: L10n.t("settings.providerRescan"); enabled: !AppInfo.backendInitializing && !AppInfo.providersScanning && !AppInfo.providerDownloading; onClicked: AppInfo.rescanProviders() }
                         CollapsibleSection {
                             Layout.fillWidth: true

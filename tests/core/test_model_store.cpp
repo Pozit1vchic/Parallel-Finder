@@ -177,6 +177,32 @@ TEST(ModelStore, BufferedManifestStopsAtLimitBeforeTransferFinishes) {
     EXPECT_EQ(error, "too large");
 }
 
+TEST(ModelStore, ResumedResponsesMustAgreeWithSavedRangeAndAuthoritativeTotal) {
+    using pfservices::detail::validContentRange;
+    EXPECT_TRUE(validContentRange("bytes 320-399/400",320,400,80));
+    EXPECT_FALSE(validContentRange("bytes 0-79/400",320,400,80));
+    EXPECT_FALSE(validContentRange("bytes 320-399/500",320,400,80));
+    EXPECT_FALSE(validContentRange("bytes 320-399/400",320,400,79));
+    EXPECT_FALSE(validContentRange("bytes 320-999/400",320,400,680));
+    EXPECT_FALSE(validContentRange("",320,400,80));
+}
+
+TEST(ModelStore, CorruptCompletePartialDoesNotTrapEveryRetryAtEndOfFile) {
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto destination=std::filesystem::path(directory.filePath("chunk").toStdWString());
+    auto partial=destination;partial+=".part";
+    QFile file(QString::fromStdWString(partial.wstring()));ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    ASSERT_EQ(file.write("corrupt"),7);file.close();
+    pfservices::ModelAsset asset;
+    asset.filename="chunk";asset.sizeBytes=7;
+    asset.sha256=QCryptographicHash::hash(QByteArray("correct"),QCryptographicHash::Sha256).toHex().toStdString();
+    asset.downloadUrl="https://github.com/example/unused";
+    std::string error;
+    EXPECT_FALSE(pfservices::ModelStore::download(asset,destination,{},error));
+    EXPECT_TRUE(error.starts_with("model SHA-256 mismatch"));
+    EXPECT_FALSE(std::filesystem::exists(partial));
+}
+
 TEST(ModelStore, CompleteVerifiedPartialRetriesPublicationWithoutNetwork) {
     QTemporaryDir directory;
     ASSERT_TRUE(directory.isValid());

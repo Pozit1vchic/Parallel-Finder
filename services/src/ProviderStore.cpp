@@ -1,3 +1,4 @@
+#include "ProviderDownload.hpp"
 #include "NetworkOperation.hpp"
 #include <pfservices/ProviderStore.hpp>
 
@@ -282,6 +283,7 @@ bool ProviderStore::downloadDirectMl(const std::filesystem::path& destination,
         if (ec) { error = "prepare DirectML: " + ec.message(); return false; }
     }
     if (validate && !validate(ready,error)) return false;
+    if(QThread::currentThread()->isInterruptionRequested()) {error="PROVIDER_INSTALL_CANCELLED";return false;}
     // Do not overwrite a runtime potentially loaded in this process.
     if (std::filesystem::exists(destination, ec)) {
         error = "DirectML directory already exists; restart the application before retrying";
@@ -451,22 +453,21 @@ bool ProviderStore::downloadAndInstall(const ProviderAsset& asset,
     }
     const auto temporary = packageRoot / asset.archive;
     if (asset.parts.empty()) {
-        if (!ModelStore::download(archive, temporary, std::move(progress), error)) return false;
+        if (!detail::downloadWithRetry(archive,temporary,std::move(progress),error,ModelStore::download)) return false;
     } else {
         const auto downloads=packageRoot/"parts";
         if (!QDir().mkpath(QString::fromStdWString(downloads.wstring()))) { error="cannot create provider parts cache";return false; }
         std::vector<std::filesystem::path> paths;
-        std::uint64_t completed = 0;
-        for (const auto& part : asset.parts) {
-            const auto path = downloads / part.archive;
-            ModelAsset chunk{part.archive, part.sha256, part.sizeBytes, part.downloadUrl};
-            if (!ModelStore::download(chunk, path, [&](std::uint64_t received, std::uint64_t) {
-                if (progress) progress(completed + received, asset.sizeBytes);
-            }, error)) return false;
-            completed += part.sizeBytes;
-            paths.push_back(path);
+        for(const auto& part:asset.parts)paths.push_back(downloads/part.archive);
+        std::string cachedError;std::error_code statError;
+        const bool cached=std::filesystem::is_regular_file(temporary,statError)
+            && std::filesystem::file_size(temporary,statError)==asset.sizeBytes
+            && ModelStore::verifySha256(temporary,asset.sha256,cachedError);
+        if(cached) {if(progress)progress(asset.sizeBytes,asset.sizeBytes);}
+        else {
+            if(!detail::downloadProviderParts(asset,downloads,std::move(progress),error,ModelStore::download))return false;
+            if (!assembleParts(asset, paths, temporary, error)) return false;
         }
-        if (!assembleParts(asset, paths, temporary, error)) return false;
     }
     // ModelStore installs the downloaded file at `temporary`; keep it out of
     // the runtime directory until extraction has completed successfully.
@@ -500,12 +501,14 @@ bool ProviderStore::downloadAndInstall(const ProviderAsset& asset,
         std::filesystem::remove_all(staging, ignored);
         return false;
     }
+    if(QThread::currentThread()->isInterruptionRequested()) {error="PROVIDER_INSTALL_CANCELLED";return false;}
     // Do not replace a live provider directory until the complete archive is
     // extracted.  Keep a short-lived backup so a failed rename can restore it.
     if (validate && !validate(staging,error)) {
         if (error.empty()) error="PROVIDER_STAGING_PROBE_FAILED";
         return false;
     }
+    if(QThread::currentThread()->isInterruptionRequested()) {error="PROVIDER_INSTALL_CANCELLED";return false;}
     const auto backup = destination.parent_path() / (asset.provider + ".previous");
     std::error_code installError;
     if (std::filesystem::exists(backup,installError) && !std::filesystem::exists(destination,installError)) {

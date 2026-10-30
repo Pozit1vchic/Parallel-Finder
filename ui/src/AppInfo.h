@@ -8,6 +8,7 @@
 #include <thread>
 #include <functional>
 #include <optional>
+#include <QPointer>
 #include <pfgpu/DeviceInfo.hpp>
 
 namespace pfui {
@@ -30,6 +31,9 @@ class AppInfo : public QObject {
     Q_PROPERTY(bool backendIsGpu READ backendIsGpu NOTIFY gpuInfoChanged)
     Q_PROPERTY(bool providerDownloading READ providerDownloading NOTIFY providerDownloadChanged)
     Q_PROPERTY(double providerDownloadProgress READ providerDownloadProgress NOTIFY providerDownloadChanged)
+    Q_PROPERTY(qulonglong providerDownloadedBytes READ providerDownloadedBytes NOTIFY providerDownloadChanged)
+    Q_PROPERTY(qulonglong providerTotalBytes READ providerTotalBytes NOTIFY providerDownloadChanged)
+    Q_PROPERTY(double providerBytesPerSecond READ providerBytesPerSecond NOTIFY providerDownloadChanged)
     Q_PROPERTY(QString providerDownloadStatus READ providerDownloadStatus NOTIFY providerDownloadChanged)
     Q_PROPERTY(QString providerDiagnosticCode READ providerDiagnosticCode NOTIFY providerDownloadChanged)
     Q_PROPERTY(QString providerDownloadState READ providerDownloadState NOTIFY providerDownloadChanged)
@@ -38,6 +42,10 @@ class AppInfo : public QObject {
     Q_PROPERTY(bool backendInitializing READ backendInitializing NOTIFY backendInitializationChanged)
 
 public:
+    qulonglong providerDownloadedBytes() const {return providerDownloadedBytes_;}
+    qulonglong providerTotalBytes() const {return providerTotalBytes_;}
+    double providerBytesPerSecond() const {return providerBytesPerSecond_;}
+    Q_INVOKABLE void cancelProviderDownload();
     ~AppInfo() override;
     static AppInfo* instance();
 
@@ -101,6 +109,9 @@ private:
     bool m_backendIsGpu = false;
     bool providerDownloading_ = false;
     double providerDownloadProgress_ = 0.0;
+    qulonglong providerDownloadedBytes_=0,providerTotalBytes_=0;
+    double providerBytesPerSecond_=0;
+    QPointer<QThread> providerDownloadThread_;
     QString providerDownloadStatus_;
     QString providerDownloadState_ = QStringLiteral("idle");
     int providersRevision_ = 0;

@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QThread>
 #if defined(_WIN32)
 #include <windows.h>
 #endif
@@ -69,12 +70,13 @@ std::vector<ProviderInstallation> ProviderManager::scan(const QStringList& roots
         else {
             QElapsedTimer timer;
             timer.start();
-            while (process.state() != QProcess::NotRunning && !stop.stop_requested() && timer.elapsed() < 120000)
+            while (process.state() != QProcess::NotRunning && !stop.stop_requested()
+                && !QThread::currentThread()->isInterruptionRequested() && timer.elapsed() < 120000)
                 process.waitForFinished(100);
             if (process.state() != QProcess::NotRunning) {
                 process.kill();
                 process.waitForFinished(5000);
-                state.reason = stop.stop_requested() ? "Probe cancelled" : "Probe timed out";
+                state.reason = stop.stop_requested() || QThread::currentThread()->isInterruptionRequested() ? "Probe cancelled" : "Probe timed out";
             } else if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
                 state.reason = "Probe process failed: " + QString::fromUtf8(process.readAllStandardError()).right(2048);
             } else {

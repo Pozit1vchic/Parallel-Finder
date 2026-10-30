@@ -4,8 +4,20 @@
 #include <QThread>
 #include <QTimer>
 #include <string>
+#include <QRegularExpression>
 
 namespace pfservices::detail {
+inline bool validContentRange(const QByteArray& header,std::uint64_t offset,
+    std::uint64_t expectedSize,qint64 contentLength) {
+    const auto match=QRegularExpression(QStringLiteral("^bytes ([0-9]+)-([0-9]+)/([0-9]+)$"))
+        .match(QString::fromLatin1(header));
+    if(!match.hasMatch())return false;
+    bool a=false,b=false,c=false;
+    const auto first=match.captured(1).toULongLong(&a),last=match.captured(2).toULongLong(&b),total=match.captured(3).toULongLong(&c);
+    return a&&b&&c&&first==offset&&last>=first&&last<total
+        &&(!expectedSize||total==expectedSize)
+        &&(contentLength<0||static_cast<qulonglong>(contentLength)==last-first+1);
+}
 inline void watchInterruption(QTimer& timer, QNetworkReply& reply, std::string& error)
 {
     auto* worker = QThread::currentThread();
