@@ -71,6 +71,8 @@ add_executable(pf_tests
     core/test_export_concurrency.cpp
     core/test_export_order.cpp
     core/test_dominant_person.cpp
+    core/test_character_candidates.cpp
+    core/test_character_analysis_cache.cpp
     gpu/test_device_info.cpp
     gpu/test_provider.cpp
     gpu/test_provider_factory.cpp

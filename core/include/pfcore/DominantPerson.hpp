@@ -23,6 +23,8 @@ struct PersonDetection {
     double timestampSeconds = 0.0;
     double frameDurationSeconds = 0.0;
     BoundingBox box;
+    int frameWidth = 0;
+    int frameHeight = 0;
     double confidence = 0.0;
     double keypointConfidence = 0.0;
     std::vector<Keypoint> keypoints;
@@ -108,6 +110,40 @@ struct DominantSelectionControl {
 };
 std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities,
     const DominantSelectionControl& control={});
+
+struct CharacterAppearance {
+    std::size_t trackId = 0;
+    double timestampSeconds = 0;
+    double quality = 0;
+    BoundingBox box; // normalized inference coordinates, for target highlighting
+};
+
+// IDs and track IDs are stable within one source artifact, never global names.
+struct CharacterCandidate {
+    std::size_t id = 0;
+    std::vector<std::size_t> trackIds;
+    IdentitySummary prototype;
+    std::size_t observationCount = 0;
+    double presenceSeconds = 0;
+    double evidenceQuality = 0;
+    std::vector<CharacterAppearance> appearances;
+};
+
+// Reuses the same face-veto/co-visibility graph as dominant selection. No
+// minimum screen-share gate: a brief target must remain available to select.
+std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrack>& tracks,
+    const DominantSelectionControl& control = {});
+
+enum class TargetSuggestionReason { StrongFaceAgreement, Ambiguous, InsufficientEvidence, NoMatch };
+struct TargetSuggestion {
+    std::optional<std::size_t> candidateId;
+    double similarity = 0;
+    double margin = 0;
+    bool automatic = false;
+    TargetSuggestionReason reason = TargetSuggestionReason::InsufficientEvidence;
+};
+TargetSuggestion suggestTargetCharacter(const CharacterCandidate& target,
+    const std::vector<CharacterCandidate>& candidates);
 
 struct DominantVideoSelection {
     std::vector<bool> windows;

@@ -12,6 +12,7 @@
 #include <set>
 #include <array>
 #include <map>
+#include <limits>
 #include <atomic>
 #include <future>
 #include <thread>
@@ -372,8 +373,8 @@ std::optional<PersonTrack> DominantPersonTracker::dominant() const
     return *best;
 }
 
-std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities,
-    const DominantSelectionControl& control)
+static std::vector<bool> selectIdentityComponents(const std::vector<IdentitySummary>& identities,
+    const DominantSelectionControl& control, std::vector<std::vector<std::size_t>>* components)
 {
     const auto count = identities.size();
     std::vector<bool> selected(count, false);
@@ -511,6 +512,9 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
     }
     if(control.progress)control.progress(DominantSelectionStage::Cluster,edges.size(),edges.size());
     if(cancelled())return selected;
+    if (components) {
+        for (const auto& group : members) if (!group.empty()) components->push_back(group);
+    }
     std::size_t best = 0;
     double bestDuration = -1, bestArea = -1;
     bool bestEvidence = false;
@@ -536,6 +540,128 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
     }
     for (const auto i : members[best]) selected[i] = true;
     return selected;
+}
+
+std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& identities,
+    const DominantSelectionControl& control)
+{
+    return selectIdentityComponents(identities, control, nullptr);
+}
+
+std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrack>& tracks,
+    const DominantSelectionControl& control)
+{
+    std::vector<IdentitySummary> summaries;
+    std::vector<std::size_t> indices;
+    for (std::size_t i = 0; i < tracks.size(); ++i) {
+        if (control.cancelled && control.cancelled()) return {};
+        if (tracks[i].observations.size() < 2) continue;
+        summaries.push_back(summarizeObservations(tracks[i].observations));
+        indices.push_back(i);
+    }
+    std::vector<std::vector<std::size_t>> components;
+    selectIdentityComponents(summaries, control, &components);
+    std::vector<CharacterCandidate> result;
+    const auto addPrototype = [](std::vector<float>& sum, const std::vector<float>& value) {
+        double norm = 0;
+        for (float v : value) { if (!std::isfinite(v)) return; norm += double(v) * v; }
+        if (norm <= 1e-12 || (!sum.empty() && sum.size() != value.size())) return;
+        if (sum.empty()) sum.resize(value.size());
+        for (std::size_t j = 0; j < sum.size(); ++j) sum[j] += value[j] / std::sqrt(norm);
+    };
+    const auto appearanceBox = [](const PersonDetection& observation) {
+        if (observation.frameWidth<=0 || observation.frameHeight<=0) return BoundingBox{};
+        return BoundingBox{observation.box.left/observation.frameWidth,observation.box.top/observation.frameHeight,
+            observation.box.right/observation.frameWidth,observation.box.bottom/observation.frameHeight};
+    };
+    for (const auto& component : components) {
+        if (control.cancelled && control.cancelled()) return {};
+        CharacterCandidate candidate;
+        candidate.id = std::numeric_limits<std::size_t>::max();
+        std::vector<CharacterAppearance> appearances;
+        std::vector<std::pair<double,double>> intervals;
+        double quality = 0;
+        for (auto index : component) {
+            const auto& track = tracks[indices[index]];
+            const auto& summary = summaries[index];
+            candidate.id = std::min(candidate.id, track.id);
+            candidate.trackIds.push_back(track.id);
+            candidate.observationCount += track.observations.size();
+            addPrototype(candidate.prototype.body, summary.body);
+            addPrototype(candidate.prototype.face, summary.face);
+            candidate.prototype.bodyEvidence = std::max(candidate.prototype.bodyEvidence, summary.bodyEvidence);
+            candidate.prototype.faceEvidence = std::max(candidate.prototype.faceEvidence, summary.faceEvidence);
+            // Presence is a union of observed intervals, never a sliding-window count.
+            for (const auto& observation : track.observations) {
+                const double t = observation.timestampSeconds;
+                if (!std::isfinite(t)) continue;
+                const double duration = std::isfinite(observation.frameDurationSeconds)
+                    ? std::max(0.0, observation.frameDurationSeconds) : 0.0;
+                intervals.emplace_back(t, t + duration);
+                const double q = std::isfinite(observation.keypointConfidence)
+                    ? std::clamp(observation.keypointConfidence, 0.0, 1.0) : 0.0;
+                quality += q;
+            }
+            // Choose one good observed frame per track, then distribute previews
+            // over the whole appearance history instead of choosing adjacent crops.
+            const auto best = std::max_element(track.observations.begin(), track.observations.end(),
+                [](const auto& a, const auto& b) { return a.keypointConfidence < b.keypointConfidence; });
+            appearances.push_back({track.id, best->timestampSeconds, std::clamp(best->keypointConfidence, 0.0, 1.0), appearanceBox(*best)});
+        }
+        std::sort(intervals.begin(), intervals.end());
+        double end = -std::numeric_limits<double>::infinity();
+        for (const auto& [first,last] : intervals) {
+            candidate.presenceSeconds += std::max(0.0, last - std::max(first,end));
+            end = std::max(end,last);
+        }
+        candidate.prototype.duration = candidate.presenceSeconds;
+        candidate.evidenceQuality = candidate.observationCount ? quality / candidate.observationCount : 0;
+        std::sort(candidate.trackIds.begin(), candidate.trackIds.end());
+        std::sort(appearances.begin(), appearances.end(), [](const auto& a, const auto& b) {
+            return a.timestampSeconds < b.timestampSeconds;
+        });
+        for (std::size_t i = 0; i < std::min<std::size_t>(5, appearances.size()); ++i) {
+            const auto index = appearances.size() <= 5 ? i : i * (appearances.size()-1) / 4;
+            candidate.appearances.push_back(appearances[index]);
+        }
+        // A single long track still needs several actual appearances for inspection.
+        if (component.size() == 1) {
+            const auto& track = tracks[indices[component.front()]];
+            candidate.appearances.clear();
+            const auto n = std::min<std::size_t>(5, track.observations.size());
+            for (std::size_t i = 0; i < n; ++i) {
+                const auto& observation = track.observations[i * (track.observations.size()-1) / (n-1)];
+                candidate.appearances.push_back({track.id, observation.timestampSeconds,
+                    std::clamp(observation.keypointConfidence, 0.0, 1.0), appearanceBox(observation)});
+            }
+        }
+        result.push_back(std::move(candidate));
+    }
+    std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.id < b.id; });
+    return result;
+}
+
+TargetSuggestion suggestTargetCharacter(const CharacterCandidate& target,
+    const std::vector<CharacterCandidate>& candidates)
+{
+    TargetSuggestion result;
+    if (target.prototype.faceEvidence < .45 || embeddingScore(target.prototype.face,target.prototype.face) < .99)
+        return result;
+    double best = -1, second = -1;
+    for (const auto& candidate : candidates) {
+        if (candidate.prototype.faceEvidence < .45) continue;
+        const double score = embeddingScore(target.prototype.face,candidate.prototype.face);
+        if (score > best) {
+            second = best; best = score; result.candidateId = candidate.id;
+        } else second = std::max(second,score);
+    }
+    result.similarity = std::max(0.0,best);
+    result.margin = best - std::max(0.0,second);
+    if (!result.candidateId) return result;
+    result.automatic = best >= .65 && result.margin >= .12;
+    result.reason = result.automatic ? TargetSuggestionReason::StrongFaceAgreement
+        : best >= .363 ? TargetSuggestionReason::Ambiguous : TargetSuggestionReason::NoMatch;
+    return result;
 }
 
 DominantVideoSelection selectDominantVideoWindows(const std::vector<MotionWindow>& windows,
