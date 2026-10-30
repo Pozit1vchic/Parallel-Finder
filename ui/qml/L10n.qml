@@ -31,6 +31,16 @@ QtObject {
 
     readonly property var _dict: ({
         ru: {
+            "character.title": "Выбери персонажа",
+            "character.hint": "Посмотри появления и выбери одного персонажа для анализа.",
+            "character.number": "Персонаж %1",
+            "character.presence": "%1 с · треков: %2",
+            "character.select": "Выбрать",
+            "character.scenes": "Появления",
+            "character.continue": "Продолжить анализ",
+            "character.change": "Сменить персонажа",
+            "character.time": "%1 с",
+
             "colors.none": "Без цвета",
             "export.colorOrder": "Порядок цветов",
             "export.colorOrderHint": "Цвета идут сверху вниз; нумерация применяется внутри каждого цвета. Общий ролик остаётся хронологическим.",
@@ -479,6 +489,16 @@ QtObject {
             "ui.433": "Пара собрана вручную"
         },
         en: {
+            "character.title": "Choose a character",
+            "character.hint": "Inspect appearances and choose one target for analysis.",
+            "character.number": "Character %1",
+            "character.presence": "%1 s · %2 tracks",
+            "character.select": "Select",
+            "character.scenes": "View scenes",
+            "character.continue": "Continue analysis",
+            "character.change": "Change character",
+            "character.time": "%1 s",
+
             "colors.none": "No color",
             "export.colorOrder": "Color order",
             "export.colorOrderHint": "Colors export from top to bottom; numbering applies within each color. The combined video stays chronological.",

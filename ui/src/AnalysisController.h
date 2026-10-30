@@ -31,6 +31,9 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(int poseDetectionCount READ poseDetectionCount NOTIFY summaryChanged)
     Q_PROPERTY(int matchCount READ matchCount NOTIFY summaryChanged)
     Q_PROPERTY(QVariantMap sourceSummaries READ sourceSummaries NOTIFY summaryChanged)
+    Q_PROPERTY(QVariantList characterCandidates READ targetCandidates NOTIFY targetSelectionChanged)
+    Q_PROPERTY(QString targetSelectionSource READ targetSelectionSource NOTIFY targetSelectionChanged)
+    Q_PROPERTY(bool awaitingTarget READ awaitingTarget NOTIFY targetSelectionChanged)
     Q_PROPERTY(QVariantList results READ results NOTIFY resultsChanged)
     Q_PROPERTY(int resultCategoryRevision READ resultCategoryRevision NOTIFY resultCategoriesChanged)
     Q_PROPERTY(double progress READ progress NOTIFY progressChanged)
@@ -87,6 +90,11 @@ public:
     int poseDetectionCount() const noexcept { return poseDetectionCount_; }
     int matchCount() const noexcept { return matchCount_; }
     QVariantMap sourceSummaries() const { return sourceSummaries_; }
+    QVariantList targetCandidates() const { return targetCandidates_; }
+    QString targetSelectionSource() const { return targetSelectionSource_; }
+    bool awaitingTarget() const { return !targetCandidates_.isEmpty() && busy_; }
+    Q_INVOKABLE bool selectTargetCharacter(const QString& id);
+    Q_INVOKABLE void reselectTargetCharacter(const QString& source);
     Q_INVOKABLE QVariantMap summaryForSource(const QString& path) const;
     QVariantList results() const { return results_; }
     int resultCategoryRevision() const { return resultCategoryRevision_; }
@@ -192,6 +200,7 @@ public:
     Q_INVOKABLE bool exportFindings(const QString& folder, const QVariantList& ids, int framesPerSide);
 
 signals:
+    void targetSelectionChanged();
     void summaryChanged();
     void resultsChanged();
     void resultCategoriesChanged();
@@ -244,6 +253,11 @@ private:
     int poseDetectionCount_ = 0;
     int matchCount_ = 0;
     QVariantMap sourceSummaries_;
+    QVariantList targetCandidates_;
+    QString targetSelectionSource_;
+    QString forceTargetSource_;
+    QStringList lastAnalysisPaths_;
+    std::shared_ptr<std::atomic_size_t> targetChoice_;
     QVariantList results_;
     int resultCategoryRevision_ = 0;
     std::vector<pfcore::MotionMatch> matches_;

@@ -1,3 +1,5 @@
+#include <pfcore/PathEncoding.hpp>
+#include <pfservices/CharacterAnalysisCache.hpp>
 #include <pfservices/MotionWindowCache.hpp>
 #include "ExportOrder.h"
 #include <pfcore/SceneSequenceCache.hpp>
@@ -19,6 +21,7 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QImage>
+#include <QPainter>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
@@ -178,7 +181,7 @@ QString exportMovementLabel(QString classification, bool russian)
 
 std::filesystem::path userModelsRoot()
 {
-    return std::filesystem::path(pfservices::SettingsStore::defaultDirectory()) / "models";
+    return pfcore::pathFromUtf8(pfservices::SettingsStore::defaultDirectory()) / "models";
 }
 
 std::vector<std::filesystem::path> modelRoots()
@@ -188,15 +191,15 @@ std::vector<std::filesystem::path> modelRoots()
     // including face models. This also keeps controlled cache comparisons
     // tied to the same model files when changing the executable location.
     if (const char* root = std::getenv("PF_MODEL_ROOT"); root && *root)
-        roots.emplace_back(root);
+        roots.emplace_back(pfcore::pathFromUtf8(root));
     // Portable/custom installations keep identity models beside the selected
     // pose model, not necessarily beside the executable or in AppLocalData.
     if (const char* path = std::getenv("PF_MODEL_PATH"); path && *path)
-        roots.emplace_back(std::filesystem::path(path).parent_path());
+        roots.emplace_back(pfcore::pathFromUtf8(path).parent_path());
     std::string settingsError;
     const auto settings = pfservices::SettingsStore().load(settingsError);
     if (!settings.modelPath.empty())
-        roots.emplace_back(std::filesystem::path(settings.modelPath).parent_path());
+        roots.emplace_back(pfcore::pathFromUtf8(settings.modelPath).parent_path());
     roots.emplace_back(std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) / "models");
     roots.emplace_back(userModelsRoot());
     roots.emplace_back(R"(D:\PF_CUDA\models)");
@@ -238,20 +241,20 @@ std::shared_ptr<pfgpu::PoseEstimator> sharedPoseEstimator(const std::filesystem:
     if (const auto provider = pfgpu::parseProvider(providerChoice.toStdString()); provider.has_value())
         params.provider = *provider;
     params.intraOpThreads = processingThreads;
-    const std::string modelName = model.filename().string();
+    const std::string modelName = pfcore::pathToUtf8(model.filename());
     if (modelName.find("-b16") != std::string::npos) params.profile = "b16";
     else if (modelName.find("-b8") != std::string::npos) params.profile = "b8";
     else if (modelName.find("-b4") != std::string::npos) params.profile = "b4";
     else if (modelName.find("-b2") != std::string::npos) params.profile = "b2";
     else params.profile = "b1";
-    const std::string key = model.string() + "|" + providerKey(providerChoice)
+    const std::string key = pfcore::pathToUtf8(model) + "|" + providerKey(providerChoice)
         + "|" + std::to_string(processingThreads) + "|" + params.profile;
     auto& pool = estimatorPool();
     const std::lock_guard<std::mutex> lock(pool.mutex);
     std::erase_if(pool.pose, [](const auto& item) { return item.second.expired(); });
     if (const auto it = pool.pose.find(key); it != pool.pose.end())
         if (auto existing = it->second.lock()) return existing;
-    auto estimator = std::make_shared<pfgpu::PoseEstimator>(model.string(), params);
+    auto estimator = std::make_shared<pfgpu::PoseEstimator>(pfcore::pathToUtf8(model), params);
     pool.pose.emplace(key, estimator);
     return estimator;
 }
@@ -264,14 +267,14 @@ std::shared_ptr<pfgpu::ReIdEstimator> sharedReIdEstimator(const std::filesystem:
     if (const auto provider = pfgpu::parseProvider(providerChoice.toStdString()); provider.has_value())
         params.provider = *provider;
     params.intraOpThreads = processingThreads;
-    const std::string key = model.string() + "|" + providerKey(providerChoice)
+    const std::string key = pfcore::pathToUtf8(model) + "|" + providerKey(providerChoice)
         + "|" + std::to_string(processingThreads);
     auto& pool = estimatorPool();
     const std::lock_guard<std::mutex> lock(pool.mutex);
     std::erase_if(pool.reid, [](const auto& item) { return item.second.expired(); });
     if (const auto it = pool.reid.find(key); it != pool.reid.end())
         if (auto existing = it->second.lock()) return existing;
-    auto estimator = std::make_shared<pfgpu::ReIdEstimator>(model.string(), params);
+    auto estimator = std::make_shared<pfgpu::ReIdEstimator>(pfcore::pathToUtf8(model), params);
     pool.reid.emplace(key, estimator);
     return estimator;
 }
@@ -281,14 +284,14 @@ std::shared_ptr<pfgpu::FaceEstimator> sharedFaceEstimator(const std::filesystem:
                                                           const QString& providerChoice)
 {
     const auto provider = pfgpu::parseProvider(providerChoice.toStdString()).value_or(pfgpu::Provider::Auto);
-    const std::string key = detector.string() + "|" + recognizer.string() + "|"
+    const std::string key = pfcore::pathToUtf8(detector) + "|" + pfcore::pathToUtf8(recognizer) + "|"
         + providerKey(providerChoice);
     auto& pool = estimatorPool();
     const std::lock_guard<std::mutex> lock(pool.mutex);
     std::erase_if(pool.face, [](const auto& item) { return item.second.expired(); });
     if (const auto it = pool.face.find(key); it != pool.face.end())
         if (auto existing = it->second.lock()) return existing;
-    auto estimator = std::make_shared<pfgpu::FaceEstimator>(detector.string(), recognizer.string(), provider);
+    auto estimator = std::make_shared<pfgpu::FaceEstimator>(pfcore::pathToUtf8(detector), pfcore::pathToUtf8(recognizer), provider);
     pool.face.emplace(key, estimator);
     return estimator;
 }
@@ -297,7 +300,7 @@ std::optional<std::filesystem::path> findLocalModelFile(const QString& filename)
 {
     if (!isSafeModelFilename(filename)) return std::nullopt;
     if (const char* configured = std::getenv("PF_MODEL_PATH"); configured && *configured) {
-        const std::filesystem::path path(configured);
+        const auto path=pfcore::pathFromUtf8(configured);
         if (QFileInfo(QString::fromLocal8Bit(configured)).fileName() == filename) {
             std::error_code error;
             if (std::filesystem::is_regular_file(path, error)) return path;
@@ -329,10 +332,10 @@ std::string cacheFileFingerprint(const std::filesystem::path& path)
 {
     std::error_code error;
     const auto size = std::filesystem::file_size(path, error);
-    if (error) return path.string() + "|unavailable";
+    if (error) return pfcore::pathToUtf8(path) + "|unavailable";
     const auto writeTime = std::filesystem::last_write_time(path, error);
-    if (error) return path.string() + "|" + std::to_string(size) + "|time-unavailable";
-    return path.string() + "|" + std::to_string(size) + "|"
+    if (error) return pfcore::pathToUtf8(path) + "|" + std::to_string(size) + "|time-unavailable";
+    return pfcore::pathToUtf8(path) + "|" + std::to_string(size) + "|"
         + std::to_string(writeTime.time_since_epoch().count());
 }
 
@@ -949,7 +952,7 @@ public:
 std::filesystem::path findPoseModel()
 {
     if (const char* configured = std::getenv("PF_MODEL_PATH"); configured && *configured) {
-        const std::filesystem::path path(configured);
+        const auto path=pfcore::pathFromUtf8(configured);
         if (std::filesystem::is_regular_file(path)) return path;
     }
     std::string settingsError;
@@ -1013,11 +1016,11 @@ std::filesystem::path findPoseModel()
 std::filesystem::path findBodyReIdModel()
 {
     if (const char* configured = std::getenv("PF_REID_MODEL_PATH"); configured && *configured) {
-        const std::filesystem::path path(configured);
+        const auto path=pfcore::pathFromUtf8(configured);
         if (std::filesystem::is_regular_file(path)) return path;
     }
     const auto executableModels = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) / "models";
-    const auto localModels = std::filesystem::path(pfservices::SettingsStore::defaultDirectory()) / "models";
+    const auto localModels = pfcore::pathFromUtf8(pfservices::SettingsStore::defaultDirectory()) / "models";
     const auto roots = modelRoots();
     const std::vector<std::string> preferred {
         "person-reid-osnet.onnx", "osnet_x1_0.onnx", "osnet.onnx",
@@ -1067,8 +1070,8 @@ std::filesystem::path findBodyReIdModel()
         if (!std::filesystem::is_directory(root, error)) continue;
         for (const auto& entry : std::filesystem::directory_iterator(root, error)) {
             if (error || !entry.is_regular_file(error)) continue;
-            const auto extension = entry.path().extension().string();
-            std::string name = entry.path().filename().string();
+            const auto extension = pfcore::pathToUtf8(entry.path().extension());
+            std::string name = pfcore::pathToUtf8(entry.path().filename());
             std::transform(name.begin(), name.end(), name.begin(), [](unsigned char value) {
                 return static_cast<char>(std::tolower(value));
             });
@@ -2209,6 +2212,27 @@ QStringList AnalysisController::filesInFolder(const QString& folder) const
     return files;
 }
 
+bool AnalysisController::selectTargetCharacter(const QString& id)
+{
+    if (!awaitingTarget() || !targetChoice_) return false;
+    bool valid = false;
+    for (const auto& value : targetCandidates_) if (value.toMap().value("id").toString() == id) valid = true;
+    bool ok = false;
+    const auto selected = id.toULongLong(&ok);
+    if (!valid || !ok || selected == 0 || selected == std::numeric_limits<std::size_t>::max()) return false;
+    targetChoice_->store(static_cast<std::size_t>(selected), std::memory_order_release);
+    targetCandidates_.clear();
+    emit targetSelectionChanged();
+    return true;
+}
+
+void AnalysisController::reselectTargetCharacter(const QString& source)
+{
+    if (busy_ || reviewBusy_ || exportBusy_ || !lastAnalysisPaths_.contains(source)) return;
+    forceTargetSource_ = source;
+    analyzeFiles(lastAnalysisPaths_);
+}
+
 void AnalysisController::analyzeFiles(const QStringList& paths)
 {
     if (reviewBusy_ || exportBusy_) return;
@@ -2301,12 +2325,19 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     const bool expandedSearch = expandedSearch_;
     const bool normalizeSize = normalizeSize_;
     const bool mirrorPoses = mirrorPoses_;
+    lastAnalysisPaths_ = normalized;
+    const QString forceTargetSource = std::exchange(forceTargetSource_, QString{});
+    targetCandidates_.clear(); targetSelectionSource_.clear();
+    const auto targetChoice = targetChoice_ = std::make_shared<std::atomic_size_t>(0);
+    emit targetSelectionChanged();
     const QString previewToken = QString::number(QDateTime::currentMSecsSinceEpoch());
     QThread* thread = QThread::create([this, cancel, paths = normalized, similarityThreshold, candidateThreshold, repeatGap,
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
                                         maxUniqueResults, timeWeight, providerChoice,
-                                        qualityProfile, analysisMode, expandedSearch, normalizeSize, mirrorPoses, previewToken] {
+                                        qualityProfile, analysisMode, expandedSearch, normalizeSize, mirrorPoses, previewToken, forceTargetSource, targetChoice] {
         try {
+        const bool interactiveTargets = !QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"));
+        std::map<std::string,std::vector<pfcore::CharacterCandidate>> sourceCandidates;
         int files = 0;
         int scenes = 0;
         int poseDetections = 0;
@@ -2356,13 +2387,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             || (providerChoice == QStringLiteral("auto")
                 && requestedProvider.has_value()
                 && pfgpu::resolveProvider(*requestedProvider) == pfgpu::Provider::Cpu);
-        const std::string modelFilename = model.filename().string();
+        const std::string modelFilename = pfcore::pathToUtf8(model.filename());
         if (cpuOnly && (modelFilename.find("-b8") != std::string::npos
                         || modelFilename.find("-b16") != std::string::npos)) {
             auto cpuModel = model;
-            const auto marker = cpuModel.filename().string().find("-b8") != std::string::npos
+            const auto marker = pfcore::pathToUtf8(cpuModel.filename()).find("-b8") != std::string::npos
                 ? "-b8" : "-b16";
-            auto name = cpuModel.filename().string();
+            auto name = pfcore::pathToUtf8(cpuModel.filename());
             name.replace(name.find(marker), std::char_traits<char>::length(marker), "-b1");
             cpuModel.replace_filename(name);
             std::error_code modelError;
@@ -2564,10 +2595,19 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
                 const auto generation = sourceGenerations[path.toStdString()];
                 if (!generation.empty()) cacheKey += "|generation=" + generation;
+                if (interactiveTargets) cacheKey += "|all-characters-v1";
                 sequenceCacheKeys[path.toStdString()]=cacheKey;
                 if (analysisCache) {
-                    if (const auto cached = analysisCache->get(cacheKey))
-                        cacheHit = pfservices::deserializeMotionWindows(*cached, cachedWindows, cachedSceneCount);
+                    if (const auto cached = analysisCache->get(cacheKey)) {
+                        if (interactiveTargets) {
+                            pfservices::CharacterAnalysis artifact;
+                            cacheHit = pfservices::deserializeCharacterAnalysis(*cached,artifact);
+                            if (cacheHit) {
+                                cachedWindows = std::move(artifact.windows); cachedSceneCount = artifact.sceneCount;
+                                sourceCandidates[path.toStdString()] = std::move(artifact.candidates);
+                            }
+                        } else cacheHit = pfservices::deserializeMotionWindows(*cached, cachedWindows, cachedSceneCount);
+                    }
                 }
                 ++files;
                 duration += info.durationSeconds;
@@ -2586,7 +2626,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     if (isCancelled()) { markCancelled(); break; }
                     if (analysisCache && missingViews) {
                         std::string cacheError;
-                        analysisCache->putForSource(path.toStdString(),cacheKey, pfservices::serializeMotionWindows(cachedWindows, cachedSceneCount), cacheError);
+                        analysisCache->putForSource(path.toStdString(),cacheKey, interactiveTargets
+                            ? pfservices::serializeCharacterAnalysis({sourceCandidates[path.toStdString()],cachedWindows,cachedSceneCount})
+                            : pfservices::serializeMotionWindows(cachedWindows, cachedSceneCount), cacheError);
                     }
                     scenes += cachedSceneCount;
                     auto summary = summaries.value(path).toMap();
@@ -2697,6 +2739,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         pfcore::PersonDetection person;
                         person.timestampSeconds = sample.timestamp;
                         person.box = {detection.left, detection.top, detection.right, detection.bottom};
+                        person.frameWidth = sample.width; person.frameHeight = sample.height;
                         person.confidence = detection.confidence;
                         for (std::size_t i = 0; i + 2 < detection.keypoints.size(); i += 3) {
                             person.keypoints.push_back({detection.keypoints[i], detection.keypoints[i + 1], detection.keypoints[i + 2]});
@@ -3067,8 +3110,17 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         QStringLiteral("Объединяем подтверждённые треки"),QStringLiteral("Проверяем дополнительные появления персонажа")};
                     reportPreparation(stages[static_cast<int>(stage)],done,total);
                 };
-                const auto sourceSelection = cacheHit ? pfcore::DominantSourceSelection{}
-                    : pfcore::selectDominantSourceTracks(tracker.tracks(), &rc16Tracker.tracks(),identityControl);
+                pfcore::DominantSourceSelection sourceSelection;
+                if (!cacheHit && interactiveTargets) {
+                    sourceCandidates[path.toStdString()] = pfcore::characterCandidates(tracker.tracks(),identityControl);
+                    sourceSelection.tracks.assign(tracker.tracks().size(),true);
+                    sourceSelection.recovered.assign(tracker.tracks().size(),false);
+                    sourceSelection.observationRuns.resize(tracker.tracks().size());
+                    for (std::size_t i=0;i<tracker.tracks().size();++i)
+                        if (tracker.tracks()[i].observations.size() >= 2)
+                            sourceSelection.observationRuns[i].push_back({0,tracker.tracks()[i].observations.size()});
+                } else if (!cacheHit) sourceSelection = pfcore::selectDominantSourceTracks(
+                    tracker.tracks(), &rc16Tracker.tracks(),identityControl);
                 if(isCancelled()) {markCancelled();break;}
                 const auto& preferredTracks = sourceSelection.tracks;
                 // Opt-in identity audit: preserve independently sampled crops
@@ -3157,7 +3209,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         for (const auto range : sourceSelection.observationRuns[i])
                             runs.append(QJsonArray{static_cast<qint64>(range.begin), static_cast<qint64>(range.end)});
                         tracks.append(QJsonObject{{"id", static_cast<qint64>(track.id)},
-                            {"sourceLead", preferredTracks[i]}, {"recovered", sourceSelection.recovered[i]},
+                            {"sourceLead", preferredTracks[i]}, {"recovered", static_cast<bool>(sourceSelection.recovered[i])},
                             {"allowedRuns", runs}, {"observations", observations}});
                     }
                     const QString destination = paths.size() == 1 ? trackAuditPath
@@ -3416,8 +3468,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 const auto windowsReadyNs = stageNow();
                 if (analysisCache && !isCancelled() && faceFailure.isEmpty() && reidFailure.isEmpty()) {
                     std::string cacheError;
-                    analysisCache->putForSource(path.toStdString(),cacheKey, pfservices::serializeMotionWindows(fileWindows,
-                        static_cast<int>(sceneBoundaries.size()) + 1), cacheError);
+                    analysisCache->putForSource(path.toStdString(),cacheKey, interactiveTargets
+                        ? pfservices::serializeCharacterAnalysis({sourceCandidates[path.toStdString()],fileWindows,
+                            static_cast<int>(sceneBoundaries.size())+1})
+                        : pfservices::serializeMotionWindows(fileWindows,static_cast<int>(sceneBoundaries.size())+1), cacheError);
                 }
                 if (profilePipeline)
                     std::fprintf(stderr, "PF_DEBUG_TIMING cold_pipeline_ms=%.1f decode_infer_ms=%.1f pose_ms=%.1f face_ms=%.1f reid_ms=%.1f tracker_ms=%.1f scene_ms=%.1f windows_ms=%.1f cache_write_ms=%.1f pose_samples=%zu tracks=%zu prefetch=%d peak_buffered=%zu\n",
@@ -3431,6 +3485,101 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 break;
             }
         }
+        if (interactiveTargets && error.isEmpty() && !isCancelled()) {
+            std::optional<pfcore::CharacterCandidate> batchTarget;
+            std::map<std::string,std::set<std::size_t>> selectedTracks;
+            for (const auto& [source,candidates] : sourceCandidates) {
+                if (isCancelled()) break;
+                if (candidates.empty()) continue;
+                std::size_t selected = 0;
+                const auto selectionKey = sequenceCacheKeys.at(source) + "|selected-target-v1";
+                if (analysisCache && QString::fromStdString(source) != forceTargetSource) {
+                    if (const auto saved=analysisCache->get(selectionKey)) {
+                        bool ok=false;
+                        const auto id=QByteArray(reinterpret_cast<const char*>(saved->data()),saved->size()).toULongLong(&ok);
+                        if (ok && std::any_of(candidates.begin(),candidates.end(),[&](const auto& c){return c.id==id;}))
+                            selected=static_cast<std::size_t>(id);
+                    }
+                }
+                pfcore::TargetSuggestion suggestion;
+                if (!selected && batchTarget && QString::fromStdString(source) != forceTargetSource) {
+                    suggestion=pfcore::suggestTargetCharacter(*batchTarget,candidates);
+                    if (suggestion.automatic) selected=*suggestion.candidateId;
+                }
+                if (!selected) {
+                    QVariantList rows;
+                    pfcore::VideoDecoder previewDecoder;
+                    try { previewDecoder.open(source); previewDecoder.setRgbaMaxDimensions(480,270); }
+                    catch (const std::exception& exception) { qWarning() << "TARGET_PREVIEW_OPEN_FAILED" << exception.what(); }
+                    for (std::size_t i=0;i<candidates.size() && !isCancelled();++i) {
+                        const auto& c=candidates[i]; QVariantList previews;
+                        for (std::size_t j=0;j<c.appearances.size() && !isCancelled();++j) {
+                            QString url;
+                            if (previewDecoder.isOpen()) url=savePreviewAt(previewDecoder,c.appearances[j].timestampSeconds,
+                                QStringLiteral("%1_character_%2_%3_%4.png").arg(previewToken)
+                                    .arg(QString::fromLatin1(QCryptographicHash::hash(QByteArray::fromStdString(source),QCryptographicHash::Sha256).toHex().left(12)))
+                                    .arg(c.id).arg(j),[&](const pfcore::DecodedFrame& frame,const QString& name) {
+                                        auto marked=frame;
+                                        const auto& box=c.appearances[j].box;
+                                        if (box.area()>0) {
+                                            QImage image(marked.rgba.data(),marked.width,marked.height,QImage::Format_RGBA8888);
+                                            QPainter painter(&image); painter.setPen(QPen(Qt::white,2));
+                                            painter.drawRect(QRectF(box.left*frame.width,box.top*frame.height,
+                                                (box.right-box.left)*frame.width,(box.bottom-box.top)*frame.height));
+                                        }
+                                        return savePreview(marked,name);
+                                    });
+                            previews.push_back(QVariantMap{{"url",url},{"time",c.appearances[j].timestampSeconds}});
+                        }
+                        rows.push_back(QVariantMap{{"id",QString::number(c.id)},{"number",static_cast<int>(i+1)},
+                            {"presence",c.presenceSeconds},{"observations",static_cast<qulonglong>(c.observationCount)},
+                            {"tracks",static_cast<int>(c.trackIds.size())},{"quality",c.evidenceQuality},
+                            {"previews",previews},{"suggested",suggestion.candidateId && *suggestion.candidateId==c.id}});
+                    }
+                    if (isCancelled()) break;
+                    targetChoice->store(0,std::memory_order_release);
+                    QMetaObject::invokeMethod(this,[this,cancel,rows,source] {
+                        if (analysisCancel_!=cancel || cancel->load()) return;
+                        targetCandidates_=rows; targetSelectionSource_=QString::fromStdString(source);
+                        emit targetSelectionChanged();
+                    },Qt::QueuedConnection);
+                    // UI remains responsive; Stop and controller destruction wake
+                    // this cooperative wait through the existing cancellation flag.
+                    while (!isCancelled() && !(selected=targetChoice->load(std::memory_order_acquire)))
+                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                }
+                if (isCancelled()) break;
+                const auto chosen=std::find_if(candidates.begin(),candidates.end(),[&](const auto& c){return c.id==selected;});
+                if (chosen==candidates.end()) { error=QStringLiteral("TARGET_SELECTION_INVALID"); break; }
+                if (!batchTarget || QString::fromStdString(source)==forceTargetSource) batchTarget=*chosen;
+                selectedTracks[source].insert(chosen->trackIds.begin(),chosen->trackIds.end());
+                auto summary=summaries.value(QString::fromStdString(source)).toMap();
+                summary.insert("targetCharacterId",QString::number(selected));
+                summary.insert("characterCount",static_cast<int>(candidates.size()));
+                summary.insert("targetAutomatic",suggestion.automatic);
+                summaries.insert(QString::fromStdString(source),summary);
+                if (analysisCache) {
+                    const auto bytes=QByteArray::number(selected); std::string writeError;
+                    analysisCache->putForSource(source,selectionKey,{bytes.begin(),bytes.end()},writeError);
+                    if (!writeError.empty()) qWarning() << "TARGET_SELECTION_CACHE_WRITE_FAILED" << QString::fromStdString(writeError);
+                }
+                if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
+                    std::fprintf(stderr,"PF_TARGET_SELECTED id=%zu automatic=%d reason=%d similarity=%.3f margin=%.3f tracks=%zu\n",
+                        selected,suggestion.automatic,static_cast<int>(suggestion.reason),suggestion.similarity,
+                        suggestion.margin,chosen->trackIds.size());
+            }
+            std::vector<pfcore::MotionWindow> targetWindows;
+            QStringList targetA,targetB;
+            for (std::size_t i=0;i<windows.size();++i) if (selectedTracks[windows[i].sourceId].contains(windows[i].trackId)) {
+                targetWindows.push_back(std::move(windows[i]));
+                targetA.push_back(previewA[static_cast<qsizetype>(i)]); targetB.push_back(previewB[static_cast<qsizetype>(i)]);
+            }
+            windows=std::move(targetWindows); previewA=std::move(targetA); previewB=std::move(targetB);
+            QMetaObject::invokeMethod(this,[this,cancel] {
+                if (analysisCancel_!=cancel) return;
+                targetCandidates_.clear(); targetSelectionSource_.clear(); emit targetSelectionChanged();
+            },Qt::QueuedConnection);
+        }
         markCancelled();
         if (error.isEmpty() && windows.size() >= 2 && !isCancelled()) {
             reportPreparation(QStringLiteral("Проверяем общего персонажа в видео"));
@@ -3438,8 +3587,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             sourceIdentityControl.auditShotRecovery=QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
                 && !qEnvironmentVariable("PF_BENCHMARK_CACHE_ROOT").isEmpty()
                 && qEnvironmentVariable("PF_AUDIT_SOURCE_SHOT_RECOVERY")==QStringLiteral("1");
-            const auto sharedIdentity = pfcore::selectDominantVideoWindows(windows,sourceIdentityControl);
-            if (paths.size() > 1) {
+            auto sharedIdentity = pfcore::selectDominantVideoWindows(windows,sourceIdentityControl);
+            if (interactiveTargets) {
+                sharedIdentity.sources.clear();
+                for (const auto& [source, candidates] : sourceCandidates) sharedIdentity.sources.push_back(source);
+            }
+            if (!interactiveTargets && paths.size() > 1) {
                 std::vector<pfcore::MotionWindow> admitted;
                 QStringList admittedA, admittedB;
                 for (std::size_t i=0;i<windows.size();++i) if (sharedIdentity.windows[i]) {
@@ -3776,7 +3929,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     actionContext->poseModel=model;actionContext->actionModel=*actionModel;
                     actionContext->cacheDirectory=cache;actionContext->sourceNamespaces=namespaces;
                     actionContext->poseProvider=resolved;actionContext->actionProvider=actionProvider;
-                    const auto name=QString::fromStdString(model.filename().string()).toLower();
+                    const auto name=QString::fromStdString(pfcore::pathToUtf8(model.filename())).toLower();
                     for(const auto profile:{"b8","b4","b2"})
                         if(name.contains(QStringLiteral("-")+profile)) {actionContext->poseProfile=profile;break;}
                 }
@@ -4095,6 +4248,7 @@ void AnalysisController::stopAnalysis()
 {
     if (!busy_ || !analysisCancel_) return;
     analysisCancel_->store(true, std::memory_order_relaxed);
+    targetCandidates_.clear(); emit targetSelectionChanged();
     setStatus(QStringLiteral("Останавливаем анализ…"));
     setProgress(progress_, QStringLiteral("Останавливаем анализ"), processedFrames_, totalFrames_);
 }

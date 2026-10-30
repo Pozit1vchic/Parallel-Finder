@@ -539,3 +539,12 @@ Custom bitrate and resolution|Өз битрейти жана өлчөмү|Өз �
 Side A|A тарабы|A жағы|Сторона A|A tarafı
 Side B|B тарабы|B жағы|Сторона B|B tarafı
 settings.providerInstalled|Орнотулган|Орнатылған|Встановлено|Kurulu
+character.title|Каарманды танда|Кейіпкерді таңда|Вибери персонажа|Karakter seç
+character.hint|Көрүнүштөрүн карап, талдоо үчүн бир каарманды танда.|Көріністерді қарап, талдау үшін бір кейіпкерді таңда.|Переглянь появи й вибери одного персонажа для аналізу.|Görünümleri inceleyip analiz için bir karakter seç.
+character.number|Каарман %1|Кейіпкер %1|Персонаж %1|Karakter %1
+character.presence|%1 с · %2 трек|%1 с · %2 трек|%1 с · треків: %2|%1 sn · %2 iz
+character.select|Тандоо|Таңдау|Вибрати|Seç
+character.scenes|Көрүнүштөр|Көріністер|Появи|Sahneleri gör
+character.continue|Талдоону улантуу|Талдауды жалғастыру|Продовжити аналіз|Analize devam et
+character.change|Каарманды өзгөртүү|Кейіпкерді ауыстыру|Змінити персонажа|Karakteri değiştir
+character.time|%1 с|%1 с|%1 с|%1 sn

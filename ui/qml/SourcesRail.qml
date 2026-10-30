@@ -21,6 +21,8 @@ Rectangle {
         "YOLO26 · nano", "YOLO26 · small", "YOLO26 · medium", "YOLO26 · large", "YOLO26 · xlarge"
     ]
     property var modelLabels: []
+    property string chosenCharacterId: ""
+    property string inspectedCharacterId: ""
     signal filesRequested(var urls)
     signal folderRequested()
     signal clearRequested()
@@ -53,6 +55,7 @@ Rectangle {
         target: Analysis
         function onModelCatalogChanged() { root.refreshModelLabels() }
         function onModelStatusChanged() { root.refreshModelLabels() }
+        function onTargetSelectionChanged() { root.chosenCharacterId = ""; root.inspectedCharacterId = "" }
     }
 
     function applyAccuracyPreset(preset) {
@@ -164,6 +167,71 @@ Rectangle {
             RowLayout { Layout.fillWidth: true; spacing: 7
                 PfButton { objectName: "clearSourcesButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.clear"); quiet: true; enabled: root.sourceFiles.length > 0; onClicked: root.clearRequested() }
                 PfButton { objectName: "removeSourceButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.remove"); quiet: true; enabled: root.selectedSourceIndex >= 0 && root.selectedSourceIndex < root.sourceFiles.length; onClicked: root.removeRequested(root.selectedSourceIndex) }
+            }
+            Rectangle {
+                objectName: "targetCharacterPanel"
+                Layout.fillWidth: true
+                visible: Analysis.awaitingTarget
+                color: Theme.panelAlt; radius: Theme.radiusButton; border.color: Theme.border
+                implicitHeight: characterColumn.implicitHeight + 24
+                Behavior on implicitHeight { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.InOutCubic } }
+                ColumnLayout {
+                    id: characterColumn; anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12; spacing: 8
+                    Text { Layout.fillWidth: true; text: L10n.t("character.title"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: Font.DemiBold }
+                    Text { Layout.fillWidth: true; text: root.sourceName(Analysis.targetSelectionSource); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10; elide: Text.ElideMiddle }
+                    Text { Layout.fillWidth: true; text: L10n.t("character.hint"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }
+                    Repeater {
+                        model: Analysis.characterCandidates
+                        delegate: Rectangle {
+                            id: characterRow
+                            required property var modelData
+                            Layout.fillWidth: true
+                            implicitHeight: characterDetails.implicitHeight + 14
+                            radius: Theme.radiusButton; border.color: root.chosenCharacterId === modelData.id ? Theme.accent : Theme.border
+                            color: root.chosenCharacterId === modelData.id ? Theme.accentMuted : Theme.well
+                            Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
+                            ColumnLayout {
+                                id: characterDetails; anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 7; spacing: 6
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 7
+                                    Image { Layout.preferredWidth: 56; Layout.preferredHeight: 38; source: characterRow.modelData.previews.length ? characterRow.modelData.previews[0].url : ""; fillMode: Image.PreserveAspectFit; asynchronous: true }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true; spacing: 3
+                                        Text { Layout.fillWidth: true; text: L10n.t("character.number").arg(String(characterRow.modelData.number).padStart(2,"0")); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 11 }
+                                        Text { Layout.fillWidth: true; text: L10n.t("character.presence").arg(Math.round(characterRow.modelData.presence)).arg(characterRow.modelData.tracks); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 9; wrapMode: Text.WordWrap }
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 4
+                                    PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; selected: root.chosenCharacterId === characterRow.modelData.id; text: L10n.t("character.select"); onClicked: root.chosenCharacterId = characterRow.modelData.id }
+                                    PfButton { Layout.fillWidth: true; Layout.minimumWidth: 0; compact: true; quiet: true; text: L10n.t("character.scenes"); onClicked: root.inspectedCharacterId = root.inspectedCharacterId === characterRow.modelData.id ? "" : characterRow.modelData.id }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    visible: root.inspectedCharacterId === characterRow.modelData.id
+                                    Repeater {
+                                        model: characterRow.modelData.previews
+                                        delegate: ColumnLayout {
+                                            required property var modelData
+                                            Layout.fillWidth: true; spacing: 3
+                                            Image { Layout.fillWidth: true; Layout.preferredHeight: 100; source: modelData.url; fillMode: Image.PreserveAspectFit; asynchronous: true }
+                                            Text { text: L10n.t("character.time").arg(Number(modelData.time).toFixed(1)); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 9 }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    PfButton { objectName: "confirmCharacterButton"; Layout.fillWidth: true; text: L10n.t("character.continue"); enabled: root.chosenCharacterId.length > 0; onClicked: Analysis.selectTargetCharacter(root.chosenCharacterId) }
+                }
+            }
+            PfButton {
+                objectName: "reselectCharacterButton"
+                Layout.fillWidth: true; quiet: true
+                text: L10n.t("character.change")
+                visible: !Analysis.busy && Analysis.analysisCompleted && root.selectedSourceIndex >= 0
+                enabled: !Analysis.exportBusy && !Analysis.reviewBusy
+                onClicked: Analysis.reselectTargetCharacter(String(root.sourceFiles[root.selectedSourceIndex]))
             }
             Rectangle { objectName: "frameProcessingCard"; Layout.fillWidth: true; width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: qualityCard.implicitHeight + 24
                 Column { id: qualityCard; anchors.fill: parent; anchors.margins: 12; spacing: 8
