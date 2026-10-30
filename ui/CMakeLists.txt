@@ -31,6 +31,7 @@ set(PFUI_QML_FILES
     qml/SourcesRail.qml
     qml/MotionCenter.qml
     qml/CharacterSelector.qml
+        qml/CharacterAppearance.qml
     qml/ComparisonView.qml
     qml/ResultsRail.qml
     qml/SettingsDialog.qml

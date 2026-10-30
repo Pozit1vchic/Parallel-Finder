@@ -1,4 +1,5 @@
 #include <pfcore/DominantPerson.hpp>
+#include <pfcore/FaceAssociation.hpp>
 #include <gtest/gtest.h>
 
 namespace {
@@ -28,6 +29,37 @@ TEST(CharacterCandidates, RetainsMinorityTargetAndStableTrackIds)
     EXPECT_DOUBLE_EQ(candidates[1].presenceSeconds,1);
     EXPECT_EQ(candidates[1].observationCount,4);
     EXPECT_GT(candidates[1].appearances.size(),1);
+}
+
+TEST(CharacterCandidates, AMeasuredFaceCannotBeBorrowedByAnOverlappingBystander) {
+    const pfcore::ObservedFaceLandmarks face{true,{100,100,140,100,120,120,105,140,135,140}};
+    pfcore::PersonDetection actual,back;
+    actual.faceEmbedding=back.faceEmbedding={1,0};
+    actual.keypoints={{120,120,1},{100,100,1},{140,100,1}};
+    back.keypoints={{110,123,1},{75,100,1},{110,100,1}};
+    std::vector people{back,actual};pfcore::enforceUniqueFaceOwnership(people,std::vector{face,face});
+    EXPECT_TRUE(people[0].faceEmbedding.empty());EXPECT_FALSE(people[1].faceEmbedding.empty());
+    people={actual,actual};pfcore::enforceUniqueFaceOwnership(people,std::vector{face,face});
+    EXPECT_TRUE(people[0].faceEmbedding.empty());EXPECT_TRUE(people[1].faceEmbedding.empty());
+    auto other=face;for(std::size_t i=0;i<10;i+=2)other.points[i]+=200;
+    people={actual,actual};pfcore::enforceUniqueFaceOwnership(people,std::vector{face,other});
+    EXPECT_FALSE(people[0].faceEmbedding.empty());EXPECT_FALSE(people[1].faceEmbedding.empty());
+}
+
+TEST(CharacterCandidates, IdentitySwitchCannotCreateAFalseCoVisibilityVetoForTheSameLead) {
+    pfcore::PersonTracker tracker(.30,1.,true,.65);
+    pfcore::PersonDetection lead;lead.box={0,0,100,200};lead.confidence=.95;
+    lead.keypointConfidence=.8;lead.faceEmbedding={1,0};lead.appearanceEmbedding={1,0};
+    for(double time:{0.,.25,.5,.75})tracker.update(time,.25,{lead});
+    auto bystander=lead;bystander.faceEmbedding.clear();bystander.appearanceEmbedding={.5F,.8660254F};
+    auto returning=lead;returning.box={300,0,400,200};
+    for(double time:{1.,1.25,1.5})tracker.update(time,.25,{bystander,returning});
+    const auto characters=pfcore::characterCandidates(tracker.tracks());
+    ASSERT_EQ(characters.size(),2);
+    const auto found=std::find_if(characters.begin(),characters.end(),[](const auto& c){return !c.prototype.face.empty();});
+    ASSERT_NE(found,characters.end());EXPECT_EQ(found->trackIds.size(),2);
+    EXPECT_EQ(found->observationCount,7);
+    EXPECT_THROW(pfcore::PersonTracker(.3,1.,true,1.1),std::invalid_argument);
 }
 
 TEST(CharacterCandidates, ReusesFaceVetoAndCoVisibility)

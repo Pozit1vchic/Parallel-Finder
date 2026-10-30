@@ -183,10 +183,11 @@ double PersonTrack::firstTimestampSeconds() const noexcept
     return observations.empty() ? 0.0 : observations.front().timestampSeconds;
 }
 
-DominantPersonTracker::DominantPersonTracker(double iouThreshold, double maxGapSeconds, bool identityRetirement)
+DominantPersonTracker::DominantPersonTracker(double iouThreshold, double maxGapSeconds, bool identityRetirement,double minimumBodySimilarity)
     : iouThreshold_(iouThreshold)
     , maxGapSeconds_(maxGapSeconds)
     , identityRetirement_(identityRetirement)
+    , minimumBodySimilarity_(minimumBodySimilarity)
 {
     if (!(iouThreshold_ >= 0.0 && iouThreshold_ <= 1.0)) {
         throw std::invalid_argument("DominantPersonTracker: IoU threshold must be in [0, 1]");
@@ -194,6 +195,7 @@ DominantPersonTracker::DominantPersonTracker(double iouThreshold, double maxGapS
     if (!(maxGapSeconds_ > 0.0)) {
         throw std::invalid_argument("DominantPersonTracker: max gap must be > 0");
     }
+    if(!(minimumBodySimilarity_>=0&&minimumBodySimilarity_<=1))throw std::invalid_argument("PersonTracker: body similarity must be in [0,1]");
 }
 
 void DominantPersonTracker::reset()
@@ -315,9 +317,9 @@ void DominantPersonTracker::update(double timestampSeconds,
             const double witnessBody = appearanceReference
                 ? embeddingScore(appearanceReference->appearanceEmbedding, witness.appearanceEmbedding) : -1;
             const bool conflict = (face > -1 && face < .363)
-                || (face <= -1 && appearance >= 0 && appearance < .45)
+                || (face <= -1 && appearance >= 0 && appearance < minimumBodySimilarity_)
                 || (witnessFace > -1 && witnessFace < .363)
-                || (witnessFace <= -1 && witnessBody >= 0 && witnessBody < .45);
+                || (witnessFace <= -1 && witnessBody >= 0 && witnessBody < minimumBodySimilarity_);
             if (conflict) { identityConflict = true; continue; }
             viableContinuation = true;
             const double score = 0.48 * iou + 0.22 * center + 0.18 * keypoints

@@ -49,7 +49,8 @@ class DominantPersonTracker {
 public:
     explicit DominantPersonTracker(double iouThreshold = 0.30,
                                    double maxGapSeconds = 1.0,
-                                   bool identityRetirement = true);
+                                   bool identityRetirement = true,
+                                   double minimumBodySimilarity = .45);
 
     void reset();
     void update(double timestampSeconds,
@@ -66,6 +67,7 @@ private:
     double iouThreshold_;
     double maxGapSeconds_;
     bool identityRetirement_;
+    double minimumBodySimilarity_;
     std::size_t nextId_ = 1;
     std::size_t sceneTrackStart_ = 0;
     std::vector<PersonTrack> tracks_;

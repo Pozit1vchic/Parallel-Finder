@@ -61,6 +61,12 @@ QtObject {
             "provider.details": "Технические подробности",
 
             "character.title": "Выбери персонажа",
+            "character.modelsUnavailable": "Не удалось подготовить распознавание персонажей. Установи полный комплект приложения с моделями персонажей.",
+            "explain.headScope": "Оценка относится к голове; положение и видимость тела оцениваются отдельно.",
+            "explain.bodyScope": "Оценка относится к наблюдаемой позе и движению тела.",
+            "character.showUnresolved": "Нераспознанные появления · %1",
+            "character.hideUnresolved": "Скрыть нераспознанные появления",
+            "character.unresolvedAppearance": "Нераспознанное появление %1",
             "character.hint": "Посмотри появления и выбери одного персонажа для анализа.",
             "character.number": "Персонаж %1",
             "character.presence": "%1 с · треков: %2",
@@ -548,6 +554,12 @@ QtObject {
             "provider.details": "Technical details",
 
             "character.title": "Choose a character",
+            "character.modelsUnavailable": "Character recognition could not be prepared. Install the full application package with character models.",
+            "explain.headScope": "Evidence concerns the head; body pose and visibility are measured separately.",
+            "explain.bodyScope": "Evidence concerns the observed body pose and movement.",
+            "character.showUnresolved": "Unresolved appearances · %1",
+            "character.hideUnresolved": "Hide unresolved appearances",
+            "character.unresolvedAppearance": "Unresolved appearance %1",
             "character.hint": "Inspect appearances and choose one target for analysis.",
             "character.number": "Character %1",
             "character.presence": "%1 s · %2 tracks",
@@ -1044,6 +1056,7 @@ QtObject {
     // UI copy. Keep that contract in C++, but translate the known states here
     // so switching to English never leaves a Russian footer/status behind.
     function status(value) {
+        if(String(value).indexOf("Не удалось подготовить распознавание персонажей.")>=0)return t("character.modelsUnavailable")
         const english = statusBase(value)
         if (language === "ru" || language === "en") return english
         const catalog = Catalog.dictionaries[language]

@@ -1045,7 +1045,19 @@ var dictionaries = {
     "explain.close": "Жабуу",
     "provider.transfer": "%1 / %2 МБ · %3 МБ/с",
     "%1 / %2 MB · %3 MB/s": "%1 / %2 МБ · %3 МБ/с",
-    "Preparing character appearances": "Каармандардын көрүнүштөрү даярдалууда"
+    "Preparing character appearances": "Каармандардын көрүнүштөрү даярдалууда",
+    "character.showUnresolved": "Аныкталбаган көрүнүштөр · %1",
+    "Unresolved appearances · %1": "Аныкталбаган көрүнүштөр · %1",
+    "character.hideUnresolved": "Аныкталбаган көрүнүштөрдү жашыруу",
+    "Hide unresolved appearances": "Аныкталбаган көрүнүштөрдү жашыруу",
+    "character.unresolvedAppearance": "Аныкталбаган көрүнүш %1",
+    "Unresolved appearance %1": "Аныкталбаган көрүнүш %1",
+    "explain.headScope": "Баалоо башка тиешелүү; дененин абалы жана көрүнүшү өзүнчө бааланат.",
+    "Evidence concerns the head; body pose and visibility are measured separately.": "Баалоо башка тиешелүү; дененин абалы жана көрүнүшү өзүнчө бааланат.",
+    "explain.bodyScope": "Баалоо байкалган дене абалына жана кыймылына тиешелүү.",
+    "Evidence concerns the observed body pose and movement.": "Баалоо байкалган дене абалына жана кыймылына тиешелүү.",
+    "character.modelsUnavailable": "Каармандарды таануу даярдалган жок. Каарман моделдери менен толук колдонмо топтомун орнот.",
+    "Character recognition could not be prepared. Install the full application package with character models.": "Каармандарды таануу даярдалган жок. Каарман моделдери менен толук колдонмо топтомун орнот."
   },
   "kk": {
     "colors.none": "Түссіз",
@@ -2091,7 +2103,19 @@ var dictionaries = {
     "explain.close": "Жабу",
     "provider.transfer": "%1 / %2 МБ · %3 МБ/с",
     "%1 / %2 MB · %3 MB/s": "%1 / %2 МБ · %3 МБ/с",
-    "Preparing character appearances": "Кейіпкерлердің көріністері дайындалуда"
+    "Preparing character appearances": "Кейіпкерлердің көріністері дайындалуда",
+    "character.showUnresolved": "Анықталмаған көріністер · %1",
+    "Unresolved appearances · %1": "Анықталмаған көріністер · %1",
+    "character.hideUnresolved": "Анықталмаған көріністерді жасыру",
+    "Hide unresolved appearances": "Анықталмаған көріністерді жасыру",
+    "character.unresolvedAppearance": "Анықталмаған көрініс %1",
+    "Unresolved appearance %1": "Анықталмаған көрініс %1",
+    "explain.headScope": "Баға басқа қатысты; дене қалпы мен көрінуі бөлек бағаланады.",
+    "Evidence concerns the head; body pose and visibility are measured separately.": "Баға басқа қатысты; дене қалпы мен көрінуі бөлек бағаланады.",
+    "explain.bodyScope": "Баға байқалған дене қалпы мен қимылына қатысты.",
+    "Evidence concerns the observed body pose and movement.": "Баға байқалған дене қалпы мен қимылына қатысты.",
+    "character.modelsUnavailable": "Кейіпкерлерді тану дайындалмады. Кейіпкер модельдері бар қолданбаның толық жинағын орнат.",
+    "Character recognition could not be prepared. Install the full application package with character models.": "Кейіпкерлерді тану дайындалмады. Кейіпкер модельдері бар қолданбаның толық жинағын орнат."
   },
   "uk": {
     "colors.none": "Без кольору",
@@ -3137,7 +3161,19 @@ var dictionaries = {
     "explain.close": "Закрити",
     "provider.transfer": "%1 / %2 МБ · %3 МБ/с",
     "%1 / %2 MB · %3 MB/s": "%1 / %2 МБ · %3 МБ/с",
-    "Preparing character appearances": "Підготовка появ персонажів"
+    "Preparing character appearances": "Підготовка появ персонажів",
+    "character.showUnresolved": "Нерозпізнані появи · %1",
+    "Unresolved appearances · %1": "Нерозпізнані появи · %1",
+    "character.hideUnresolved": "Сховати нерозпізнані появи",
+    "Hide unresolved appearances": "Сховати нерозпізнані появи",
+    "character.unresolvedAppearance": "Нерозпізнана поява %1",
+    "Unresolved appearance %1": "Нерозпізнана поява %1",
+    "explain.headScope": "Оцінка стосується голови; положення й видимість тіла оцінюються окремо.",
+    "Evidence concerns the head; body pose and visibility are measured separately.": "Оцінка стосується голови; положення й видимість тіла оцінюються окремо.",
+    "explain.bodyScope": "Оцінка стосується спостережуваної пози й руху тіла.",
+    "Evidence concerns the observed body pose and movement.": "Оцінка стосується спостережуваної пози й руху тіла.",
+    "character.modelsUnavailable": "Не вдалося підготувати розпізнавання персонажів. Установи повний комплект програми з моделями персонажів.",
+    "Character recognition could not be prepared. Install the full application package with character models.": "Не вдалося підготувати розпізнавання персонажів. Установи повний комплект програми з моделями персонажів."
   },
   "tr": {
     "colors.none": "Renksiz",
@@ -4183,6 +4219,18 @@ var dictionaries = {
     "explain.close": "Kapat",
     "provider.transfer": "%1 / %2 MB · %3 MB/sn",
     "%1 / %2 MB · %3 MB/s": "%1 / %2 MB · %3 MB/sn",
-    "Preparing character appearances": "Karakter görünümleri hazırlanıyor"
+    "Preparing character appearances": "Karakter görünümleri hazırlanıyor",
+    "character.showUnresolved": "Tanımlanamayan görünümler · %1",
+    "Unresolved appearances · %1": "Tanımlanamayan görünümler · %1",
+    "character.hideUnresolved": "Tanımlanamayan görünümleri gizle",
+    "Hide unresolved appearances": "Tanımlanamayan görünümleri gizle",
+    "character.unresolvedAppearance": "Tanımlanamayan görünüm %1",
+    "Unresolved appearance %1": "Tanımlanamayan görünüm %1",
+    "explain.headScope": "Değerlendirme başa aittir; vücut duruşu ve görünürlüğü ayrı ölçülür.",
+    "Evidence concerns the head; body pose and visibility are measured separately.": "Değerlendirme başa aittir; vücut duruşu ve görünürlüğü ayrı ölçülür.",
+    "explain.bodyScope": "Değerlendirme gözlenen vücut duruşuna ve hareketine aittir.",
+    "Evidence concerns the observed body pose and movement.": "Değerlendirme gözlenen vücut duruşuna ve hareketine aittir.",
+    "character.modelsUnavailable": "Karakter tanıma hazırlanamadı. Karakter modellerini içeren tam uygulama paketini yükle.",
+    "Character recognition could not be prepared. Install the full application package with character models.": "Karakter tanıma hazırlanamadı. Karakter modellerini içeren tam uygulama paketini yükle."
   }
 }

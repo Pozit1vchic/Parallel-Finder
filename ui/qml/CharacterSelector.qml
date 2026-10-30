@@ -9,10 +9,13 @@ Item {
     objectName: "targetCharacterPanel"
     property string chosenId: ""
     property string inspectedId: ""
+    property bool showUnresolved: false
+    readonly property int unresolvedCount: Analysis.characterCandidates.filter(function(row) { return row.unresolved }).length
+    readonly property var visibleCandidates: Analysis.characterCandidates.filter(function(row) { return root.showUnresolved || !row.unresolved })
     function sourceName(path) { return String(path).replace(/\\/g,"/").split("/").pop() }
     Connections {
         target: Analysis
-        function onTargetSelectionChanged() { root.chosenId=""; root.inspectedId="" }
+        function onTargetSelectionChanged() { root.chosenId=""; root.inspectedId=""; root.showUnresolved=false }
     }
     ColumnLayout {
         anchors.fill: parent; spacing: 12
@@ -23,7 +26,7 @@ Item {
             id: candidates
             objectName: "targetCharacterList"
             Layout.fillWidth: true; Layout.fillHeight: true
-            model: Analysis.characterCandidates
+            model: root.visibleCandidates
             spacing: 8; clip: true; boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             Accessible.name: L10n.t("character.title")
@@ -43,14 +46,14 @@ Item {
                 RowLayout {
                     anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12
                     height: 88; spacing: 12
-                    Image {
+                    CharacterAppearance {
                         Layout.preferredWidth: Math.min(156,candidate.width*.28); Layout.preferredHeight: 88
                         source: candidate.modelData.previews.length ? candidate.modelData.previews[0].url : ""
-                        fillMode: Image.PreserveAspectFit; asynchronous: true
+                        personBox: candidate.modelData.previews.length ? candidate.modelData.previews[0].box : null
                     }
                     ColumnLayout {
                         Layout.fillWidth: true; spacing: 6
-                        Text { Layout.fillWidth: true; text: L10n.t("character.number").arg(String(candidate.modelData.number).padStart(2,"0")); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 14; font.weight: Font.DemiBold }
+                        Text { Layout.fillWidth: true; text: L10n.t(candidate.modelData.unresolved ? "character.unresolvedAppearance" : "character.number").arg(String(candidate.modelData.number).padStart(2,"0")); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 14; font.weight: Font.DemiBold }
                         Text { Layout.fillWidth: true; text: L10n.t("character.presence").arg(Math.round(candidate.modelData.presence)).arg(candidate.modelData.tracks); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
                         PfButton { compact: true; quiet: true; text: L10n.t("character.scenes"); onClicked: root.inspectedId = root.inspectedId === candidate.modelData.id ? "" : candidate.modelData.id }
                     }
@@ -71,11 +74,17 @@ Item {
                     delegate: Column {
                         required property var modelData
                         width: 200; spacing: 6
-                        Image { width: 200; height: 112; source: modelData.url; fillMode: Image.PreserveAspectFit; asynchronous: true }
+                        CharacterAppearance { width: 200; height: 112; source: modelData.url; personBox: modelData.box || null }
                         Text { text: L10n.t("character.time").arg(Number(modelData.time).toFixed(1)); color: Theme.textSecondary; font.family: Theme.monoFont; font.pixelSize: 10 }
                     }
                 }
             }
+        }
+        PfButton {
+            objectName: "unresolvedAppearancesButton"
+            visible: root.unresolvedCount>0; compact: true; quiet: true
+            text: root.showUnresolved ? L10n.t("character.hideUnresolved") : L10n.t("character.showUnresolved").arg(root.unresolvedCount)
+            onClicked: root.showUnresolved=!root.showUnresolved
         }
         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hairline }
         PfButton {

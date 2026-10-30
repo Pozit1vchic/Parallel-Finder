@@ -1,4 +1,5 @@
 #include <pfcore/PathEncoding.hpp>
+#include <pfcore/FaceAssociation.hpp>
 #include <pfservices/CharacterAnalysisCache.hpp>
 #include <pfservices/MotionWindowCache.hpp>
 #include "ExportOrder.h"
@@ -21,7 +22,6 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QImage>
-#include <QPainter>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
@@ -2489,6 +2489,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             }
         }
         QString sharedIdentityStatus;
+        if(interactiveTargets&&(!face||!reid)&&qEnvironmentVariable("PF_ALLOW_UNVERIFIED_TARGETS")!="1") {
+            qWarning()<<"CHARACTER_IDENTITY_MODELS_UNAVAILABLE"<<faceFailure<<reidFailure;
+            throw std::runtime_error("Не удалось подготовить распознавание персонажей. Установи полный комплект приложения с моделями персонажей.");
+        }
         std::unordered_map<std::string,std::string> sequenceCacheKeys;
         std::unordered_set<std::string> preparedSequenceSources;
         const auto reportPreparation=[&,this](const QString& label,std::size_t done=0,std::size_t total=0) {
@@ -2606,7 +2610,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
                 const auto generation = sourceGenerations[path.toStdString()];
                 if (!generation.empty()) cacheKey += "|generation=" + generation;
-                if (interactiveTargets) cacheKey += "|all-characters-v3";
+                if (interactiveTargets) cacheKey += "|all-characters-v6-identity-coherent-tracks";
                 if (interactiveTargets) characterArtifactKeys[path.toStdString()]=cacheKey;
                 sequenceCacheKeys[path.toStdString()]=cacheKey;
                 if (analysisCache) {
@@ -2683,7 +2687,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 std::vector<double> sceneTimestamps;
                 sceneBuffers.reserve(static_cast<std::size_t>(std::max(1.0, info.durationSeconds * 4.0)) + 1U);
                 sceneTimestamps.reserve(sceneBuffers.capacity());
-                pfcore::PersonTracker tracker;
+                pfcore::PersonTracker tracker(.30,1.0,true,interactiveTargets?.65:.45);
                 pfcore::PersonTracker rc16Tracker(.30, 1.0, false);
                 pfcore::DecodedFrame firstFrame;
                 pfcore::DecodedFrame lastFrame;
@@ -2740,6 +2744,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                               const std::vector<pfgpu::PoseDetection>& detections) {
                     poseDetections += static_cast<int>(detections.size());
                     std::vector<pfcore::PersonDetection> frameDetections;
+                    std::vector<pfcore::ObservedFaceLandmarks> observedFaces(detections.size());
                     frameDetections.reserve(detections.size());
                     const bool sampleAppearance = (reid || face)
                         && sample.timestamp + 1e-9 >= nextReIdTimestamp;
@@ -2762,14 +2767,22 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         if (!person.keypoints.empty())
                             person.keypointConfidence /= static_cast<double>(person.keypoints.size());
                         frameDetections.push_back(std::move(person));
-                        if (sampleAppearance && face && detection.confidence >= 0.4F) {
+                        const auto& observedPerson=frameDetections.back();
+                        const bool observedNose=!observedPerson.keypoints.empty()
+                            && observedPerson.keypoints[0].confidence>=.5
+                            && std::isfinite(observedPerson.keypoints[0].x)&&std::isfinite(observedPerson.keypoints[0].y);
+                        const std::array<double,2> expectedNose=observedNose
+                            ? std::array<double,2>{observedPerson.keypoints[0].x,observedPerson.keypoints[0].y}
+                            : std::array<double,2>{};
+                        if (sampleAppearance && face && detection.confidence >= 0.4F && (!interactiveTargets||observedNose)) {
                             try {
                                 const auto stageStart = stageNow();
                                 pfgpu::FaceRecognitionDiagnostics diagnostic;
                                 const bool captureFace = !faceCropAuditDir.isEmpty() && faceCropAudit.size() < 128;
                                 frameDetections.back().faceEmbedding = face->infer({sample.width, sample.height,
                                     sample.pixels(), detection.left, detection.top, detection.right, detection.bottom},
-                                    captureFace ? &diagnostic : nullptr, .85, nullptr, forwardFaceAlignmentAudit);
+                                    &diagnostic, .85, interactiveTargets?&expectedNose:nullptr, forwardFaceAlignmentAudit);
+                                observedFaces[frameDetections.size()-1]={diagnostic.accepted,diagnostic.landmarks};
                                 faceNs += stageNow() - stageStart;
                                 if (captureFace && diagnostic.accepted) {
                                     const auto imagePath = QDir(faceCropAuditDir).absoluteFilePath(
@@ -2813,6 +2826,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             reidDetectionIndices.push_back(frameDetections.size() - 1U);
                         }
                     }
+                    if(interactiveTargets)pfcore::enforceUniqueFaceOwnership(frameDetections,observedFaces);
                     if (sampleAppearance && reid && !reidImages.empty()) {
                         try {
                             const auto stageStart = stageNow();
@@ -3551,7 +3565,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     std::vector<std::string> keys;
                     for(std::size_t i=0;i<candidates.size();++i)for(std::size_t j=0;j<candidates[i].appearances.size();++j) {
                         requests.push_back({i,j,candidates[i].appearances[j].timestampSeconds,{},{}});
-                        keys.push_back(characterArtifactKeys[source]+"|character-preview-v1|"+std::to_string(candidates[i].id)+"|"+std::to_string(j));
+                        keys.push_back(characterArtifactKeys[source]+"|character-preview-v2-clean-frame|"+std::to_string(candidates[i].id)+"|"+std::to_string(j));
                     }
                     const auto cached=pfservices::materializeCachedPreviews(analysisCache.get(),keys,previewSessionPath(),isCancelled,4);
                     std::vector<std::size_t> order(requests.size());std::iota(order.begin(),order.end(),0);
@@ -3570,18 +3584,11 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                 options.maxWidth=480;options.maxHeight=270;
                                 previewDecoder.open(source,options);previewDecoder.setRgbaMaxDimensions(480,270);
                             }
-                            const auto& candidate=candidates[request.candidate];
                             savePreviewAt(previewDecoder,request.time,QStringLiteral("%1_character_%2_%3.png").arg(previewToken)
                                 .arg(QString::fromLatin1(QCryptographicHash::hash(QByteArray::fromStdString(source),QCryptographicHash::Sha256).toHex().left(12))).arg(index),
                                 [&](const pfcore::DecodedFrame& frame,const QString& name) {
                                     QImage image(frame.rgba.data(),frame.width,frame.height,QImage::Format_RGBA8888);
                                     image=image.copy();
-                                    const auto& box=candidate.appearances[request.appearance].box;
-                                    if(box.area()>0) {
-                                        QPainter painter(&image);painter.setPen(QPen(Qt::white,2));
-                                        painter.drawRect(QRectF(box.left*frame.width,box.top*frame.height,
-                                            (box.right-box.left)*frame.width,(box.bottom-box.top)*frame.height));
-                                    }
                                     if(!writer)writer=std::make_unique<pfservices::PreviewWriter>(analysisCache.get(),3,source);
                                     request.encoded=writer->submit(std::move(image),previewSessionPath()+"/"+name,keys[index]);
                                     return QString{};
@@ -3596,13 +3603,31 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     for(auto& request:requests)if(request.encoded.valid())request.url=request.encoded.get();
                     if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))std::fprintf(stderr,"PF_CHARACTER_PREVIEWS requested=%zu cached=%zu elapsed_ms=%lld\n",requests.size(),cacheHits,static_cast<long long>(previewClock.elapsed()));
                     std::vector<QVariantList> candidatePreviews(candidates.size());
-                    for(const auto& request:requests)candidatePreviews[request.candidate].push_back(QVariantMap{{"url",request.url},{"time",request.time}});
+                    for(const auto& request:requests) {
+                        const auto& box=candidates[request.candidate].appearances[request.appearance].box;
+                        candidatePreviews[request.candidate].push_back(QVariantMap{{"url",request.url},{"time",request.time},
+                            {"box",QVariantMap{{"left",box.left},{"top",box.top},{"right",box.right},{"bottom",box.bottom}}}});
+                    }
+                    int identityNumber=0,unresolvedNumber=0;
                     for (std::size_t i=0;i<candidates.size() && !isCancelled();++i) {
                         const auto& c=candidates[i];const auto& previews=candidatePreviews[i];
-                        rows.push_back(QVariantMap{{"id",QString::number(c.id)},{"number",static_cast<int>(i+1)},
+                        const bool unresolved=c.prototype.faceEvidence<.45
+                            && !(c.trackIds.size()>1&&c.prototype.bodyEvidence>=.45);
+                        rows.push_back(QVariantMap{{"id",QString::number(c.id)},{"number",unresolved?++unresolvedNumber:++identityNumber},
+                            {"unresolved",unresolved},
                             {"presence",c.presenceSeconds},{"observations",static_cast<qulonglong>(c.observationCount)},
                             {"tracks",static_cast<int>(c.trackIds.size())},{"quality",c.evidenceQuality},
                             {"previews",previews},{"suggested",suggestion.candidateId && *suggestion.candidateId==c.id}});
+                    }
+                    std::stable_sort(rows.begin(),rows.end(),[](const auto& a,const auto& b) {
+                        const auto x=a.toMap(),y=b.toMap();
+                        if(x.value("unresolved").toBool()!=y.value("unresolved").toBool())return !x.value("unresolved").toBool();
+                        return x.value("presence").toDouble()>y.value("presence").toDouble();
+                    });
+                    identityNumber=0;unresolvedNumber=0;
+                    for(auto& row:rows) {
+                        auto values=row.toMap();values["number"]=values.value("unresolved").toBool()?++unresolvedNumber:++identityNumber;
+                        row=values;
                     }
                     if (isCancelled()) break;
                     targetChoice->store(0,std::memory_order_release);

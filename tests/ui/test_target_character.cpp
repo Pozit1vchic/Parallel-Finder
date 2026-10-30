@@ -16,6 +16,36 @@
 class TargetCharacterTests : public QObject {
     Q_OBJECT
 private slots:
+    void realVideoSelectionScreenshot() {
+        const auto source=qEnvironmentVariable("PF_TEST_REAL_CHARACTER_VIDEO");
+        if(source.isEmpty())QSKIP("Opt-in real-source character/visual regression");
+        const auto model=qEnvironmentVariable("PF_MODEL_PATH"),cache=qEnvironmentVariable("PF_TEST_REAL_CHARACTER_CACHE");
+        QVERIFY(QFileInfo::exists(source)&&QFileInfo::exists(model)&&!cache.isEmpty());
+        pfservices::Settings settings;settings.modelPath=model.toStdString();settings.provider="cuda";
+        settings.modelChoice=QFileInfo(model).fileName().toStdString();settings.qualityProfile="fast";settings.cachePath=cache.toStdString();
+        std::string error;QVERIFY2(pfservices::SettingsStore().save(settings,error),error.c_str());
+        pfui::AppInfo::registerQmlTypes();auto* appInfo=pfui::AppInfo::instance();appInfo->initializeBackendsAsync();
+        QTRY_VERIFY_WITH_TIMEOUT(!appInfo->backendInitializing(),30000);
+        auto* analysis=pfui::AnalysisController::instance();analysis->setProviderChoice("cuda");analysis->setAnalysisMode("combined");
+        QQmlApplicationEngine engine;engine.addImportPath("qrc:/qt/qml");engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));
+        QVERIFY(!engine.rootObjects().isEmpty());auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().front());QVERIFY(window);
+        window->setProperty("sourceFiles",QVariantList{source});
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),10000);
+        analysis->analyzeFiles({source});QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),90000);
+        if(!analysis->awaitingTarget()&&analysis->analysisCompleted()) {
+            analysis->reselectTargetCharacter(source);
+            QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),90000);
+        }
+        QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
+        int leadGroups=0;
+        for(const auto& value:analysis->targetCandidates()) {
+            const auto row=value.toMap();
+            if(row.value("presence").toDouble()>60&&row.value("tracks").toInt()>30&&!row.value("unresolved").toBool())++leadGroups;
+        }
+        QCOMPARE(leadGroups,1);QCOMPARE(analysis->analyzedFrames(),0);QCOMPARE(analysis->poseDetectionCount(),0);
+        QTest::qWait(800);QVERIFY(window->grabWindow().save(QCoreApplication::applicationDirPath()+"/kyle-character-selection.png"));
+        analysis->stopAnalysis();QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),10000);
+    }
     void selectionCachedReselectionAndCancellation() {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
@@ -42,15 +72,24 @@ private slots:
         QVERIFY(window);
         window->setProperty("sourceFiles",QVariantList{source});
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),10000);
+        qunsetenv("PF_ALLOW_UNVERIFIED_TARGETS");
+        analysis->analyzeFiles({source});QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),10000);
+        QVERIFY(!analysis->awaitingTarget());QVERIFY(!analysis->analysisCompleted());
+        QVERIFY(analysis->status().contains(QStringLiteral("распознавание персонажей")));
+        qputenv("PF_ALLOW_UNVERIFIED_TARGETS","1");
         analysis->analyzeFiles({source});
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
         QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
+        auto* selector=window->findChild<QQuickItem*>("targetCharacterPanel");
+        QVERIFY(selector && selector->isVisible());
+        // Pose-only fixture observations are explicitly unresolved, not new
+        // unique identities. They remain inspectable and selectable.
+        QVERIFY(selector->property("unresolvedCount").toInt()>0);
+        selector->setProperty("showUnresolved",true);
         QTest::qWait(300);
         const auto image=window->grabWindow();
         QVERIFY(!image.isNull());
         QVERIFY(image.save(QCoreApplication::applicationDirPath()+"/target-character-panel.png"));
-        auto* selector=window->findChild<QQuickItem*>("targetCharacterPanel");
-        QVERIFY(selector && selector->isVisible());
         const auto center=selector->mapToScene(QPointF(selector->width()/2,selector->height()/2));
         QVERIFY(std::abs(center.x()-window->width()/2)<window->width()*.1);
         QVERIFY(selector->width()>window->width()*.4);
