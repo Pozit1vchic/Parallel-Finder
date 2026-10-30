@@ -3,6 +3,10 @@
 This work follows the existing Qt/QML desktop architecture. It is not a release
 checklist with presumed successes. Only completed checks are recorded below.
 
+For the subsequent Kyle identity-switch correction, distinct-person confirmation,
+clean themed highlights, scoped head evidence and reviewed association controls,
+see the [RC.23.3 follow-up](quality-kyle-followup.md).
+
 ## Baseline and dependency plan
 
 - Starting revision: `e590b27` (RC.23.2); clean `main` checkout.

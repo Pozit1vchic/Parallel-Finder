@@ -16,6 +16,9 @@ set_target_properties(pf_decode_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC
 target_link_libraries(pf_decode_probe PRIVATE pf::core)
 
 add_executable(pf_matcher_probe matcher_probe.cpp)
+add_executable(pf_character_probe character_probe.cpp)
+set_target_properties(pf_character_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_link_libraries(pf_character_probe PRIVATE pf::core Qt6::Core)
 set_target_properties(pf_matcher_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(pf_matcher_probe PRIVATE pf::core Qt6::Core)
 
@@ -52,6 +55,9 @@ add_executable(pf_cuda_graph_probe cuda_graph_probe.cpp)
 set_target_properties(pf_cuda_graph_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(pf_cuda_graph_probe PRIVATE pf::gpu Qt6::Core Qt6::Gui)
 add_executable(pf_pose_batch_probe pose_batch_probe.cpp)
+add_executable(pf_pose3d_probe pose3d_probe.cpp)
+set_target_properties(pf_pose3d_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_link_libraries(pf_pose3d_probe PRIVATE pf::gpu pf::core Qt6::Core Qt6::Gui)
 set_target_properties(pf_pose_batch_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(pf_pose_batch_probe PRIVATE pf::gpu Qt6::Core Qt6::Gui)
 
@@ -61,6 +67,7 @@ pf_set_executable_output_group(pf_matcher_regression tests)
 foreach(target IN ITEMS
         pf_decode_probe
         pf_matcher_probe
+        pf_character_probe
         pf_face_probe
         pf_dominant_probe
         pf_scene_memory_probe
@@ -69,6 +76,7 @@ foreach(target IN ITEMS
         pf_cut_probe
         pf_scene_candidates_probe
         pf_cuda_graph_probe
-        pf_pose_batch_probe)
+        pf_pose_batch_probe
+        pf_pose3d_probe)
     pf_set_executable_output_group(${target} tools)
 endforeach()
