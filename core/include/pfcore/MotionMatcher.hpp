@@ -289,6 +289,16 @@ struct MotionMatch {
     std::string directionLabel;
     std::string gestureLabel;
     double rankScore = 0.0;
+    // Result organization is separate from measured matcher similarity.
+    double evidenceQuality = 0.0;
+    double bestMatchScore = 0.0;
+    double redundancyPenalty = 0.0;
+    double poseSimilarity = -1.0;
+    std::size_t continuityRank = 0;
+    std::string leftSceneFamily, rightSceneFamily;
+    std::size_t leftFamilySize = 1, rightFamilySize = 1;
+    double leftCanonicalStart = -1, leftCanonicalEnd = -1;
+    double rightCanonicalStart = -1, rightCanonicalEnd = -1;
     double appearanceSimilarity = 0.0;
     double sceneSimilarity = 0.0;
     bool appearanceVerified = false;
@@ -307,6 +317,11 @@ struct MotionMatch {
 
 class MotionMatcher {
 public:
+    // Strict measured-pixel proof for repeated edits. Unlike similar poses or
+    // returning cameras, at least 80% of BOTH sampled ranges must agree.
+    static bool sameFootageRange(const MotionWindow& left,double leftStart,double leftEnd,
+        const MotionWindow& right,double rightStart,double rightEnd,
+        const std::function<bool()>& cancelled = {});
     explicit MotionMatcher(MotionMatcherParams params = {});
 
     const MotionMatcherParams& params() const noexcept { return params_; }

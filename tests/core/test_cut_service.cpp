@@ -1842,6 +1842,28 @@ TEST(MontageExport, StreamCopyReorderedFramesMatchSourceAndHaveIncreasingTimesta
 }
 
 
+TEST(ExportQueue, CanonicalSceneGuardReturnsExistingOutputWithoutDuplicateFile)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    std::vector<pfservices::CutRequest> jobs(2);
+    for(std::size_t i=0;i<jobs.size();++i) {
+        jobs[i].inputPath="canonical-source.mp4";jobs[i].startSeconds=1;jobs[i].endSeconds=2;
+        jobs[i].canonicalSceneId="scene-v1-fixture";
+        jobs[i].outputPath=directory.filePath(QString::number(i)+".mp4").toStdWString();
+    }
+    int executions=0;
+    const auto batch=pfservices::detail::runExportQueueWithExecutor(jobs,{2,1},
+        [&](const pfservices::CutRequest& request) {
+            ++executions;pfservices::CutResult result;
+            QFile file(QString::fromStdWString(request.outputPath.wstring()));
+            result.success=file.open(QIODevice::WriteOnly)&&file.write("canonical")>0;return result;
+        });
+    ASSERT_EQ(batch.completed.size(),2);
+    EXPECT_EQ(executions,1);EXPECT_TRUE(batch.completed[1].reused);
+    EXPECT_EQ(batch.completed[0].outputPath,batch.completed[1].outputPath);
+    EXPECT_FALSE(QFileInfo::exists(QString::fromStdWString(jobs[1].outputPath.wstring())));
+}
+
 TEST(ExportQueue, ReadyFollowersReuseFreedSlotsBeforeSlowFirstAndKeepInputOrder)
 {
     QTemporaryDir directory; ASSERT_TRUE(directory.isValid());

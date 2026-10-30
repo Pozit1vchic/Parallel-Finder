@@ -194,8 +194,12 @@ TEST(Exporters, SingleClipMetadataRetainsDisabledSideAndUsesSurvivingDuration)
         EXPECT_EQ(row.value("right").toObject().value("source").toString(),QStringLiteral("b.csv"));
         options.format=pfexporters::ExportFormat::Csv;
         const auto csv=pfexporters::formatResults({item},options);
-        EXPECT_NE(csv.find(",left_enabled,right_enabled\n"),std::string::npos);
-        EXPECT_NE(csv.find(retainLeft ? ",true,false\n":",false,true\n"),std::string::npos);
+        const auto lines=QString::fromStdString(csv).split('\n');
+        const auto columns=lines[0].split(',');const auto values=lines[1].split(',');
+        ASSERT_EQ(columns.size(),values.size());
+        EXPECT_EQ(values[columns.indexOf("left_enabled")],retainLeft?"true":"false");
+        EXPECT_EQ(values[columns.indexOf("right_enabled")],retainLeft?"false":"true");
+        EXPECT_EQ(values[columns.indexOf("evidence_quality")].toDouble(),item.evidenceQuality);
         options.format=pfexporters::ExportFormat::Txt;
         const auto text=pfexporters::formatResults({item},options);
         EXPECT_NE(text.find(retainLeft ? "B: [disabled] b.csv":"A: [disabled] a clip.mp4"),std::string::npos);

@@ -189,10 +189,12 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         if (progress) progress(0, clips.size()+1, 0);
         const auto batch = runExportQueue(jobs, stop, {}, executable);
         if (cancelled()) return result;
+        std::set<std::filesystem::path> canonicalOutputs;
         for (std::size_t i = 0; i < batch.completed.size(); ++i) {
             result = batch.completed[i];
             if (!result.success) return result;
             const auto& request = prepared[i];
+            if (!request.canonicalSceneId.empty() && !canonicalOutputs.insert(result.outputPath).second) continue;
             const QString name = QString::fromStdWString(result.outputPath.wstring());
             if (exactLossless) {
                 const auto& actual = info(result.outputPath);

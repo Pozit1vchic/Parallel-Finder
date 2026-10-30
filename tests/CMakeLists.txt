@@ -78,6 +78,8 @@ add_executable(pf_tests
     core/test_dominant_person.cpp
     core/test_character_candidates.cpp
     core/test_character_analysis_cache.cpp
+    core/test_scene_descriptor.cpp
+    core/test_scene_family.cpp
     gpu/test_device_info.cpp
     gpu/test_provider.cpp
     gpu/test_provider_factory.cpp

@@ -260,7 +260,8 @@ struct FootageStatsCache {
 };
 
 bool copiedScene(const MotionWindow& a,const MotionWindow& b,bool cameraOnly=false,
-                 const std::function<bool()>& cancelled = {}, FootageStatsCache* statisticsCache=nullptr)
+                 const std::function<bool()>& cancelled = {}, FootageStatsCache* statisticsCache=nullptr,
+                 double minimumCoverage=0)
 {
     // A returning camera is just as redundant within one film as across files.
     // Keep the stricter copied-footage policy separate from portrait filtering.
@@ -439,6 +440,17 @@ bool copiedScene(const MotionWindow& a,const MotionWindow& b,bool cameraOnly=fal
                 || a.sceneSequenceTimes[i+2]<=a.sceneSequenceTimes[i+1]
                 || b.sceneSequenceTimes[j+1]<=b.sceneSequenceTimes[j]
                 || b.sceneSequenceTimes[j+2]<=b.sceneSequenceTimes[j+1]) continue;
+        }
+        if(minimumCoverage>0) {
+            std::size_t run=3;
+            while(i+run<countA && j+run<countB && equalFrame(i+run,j+run,mirror,shift)) {
+                if(cancelled&&cancelled())return false;
+                if(a.sceneSequenceTimes.size()==countA && b.sceneSequenceTimes.size()==countB
+                    && std::abs((a.sceneSequenceTimes[i+run]-a.sceneSequenceTimes[i+run-1])
+                        -(b.sceneSequenceTimes[j+run]-b.sceneSequenceTimes[j+run-1]))>.10)break;
+                ++run;
+            }
+            if(double(run)/countA<minimumCoverage || double(run)/countB<minimumCoverage)continue;
         }
         return true;
         }
@@ -2231,6 +2243,32 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
 }
 
 } // namespace
+
+bool MotionMatcher::sameFootageRange(const MotionWindow& left,double leftStart,double leftEnd,
+    const MotionWindow& right,double rightStart,double rightEnd,const std::function<bool()>& cancelled)
+{
+    const auto crop=[](const MotionWindow& original,double start,double end) {
+        MotionWindow result;result.sourceId=original.sourceId;result.sceneIndex=original.sceneIndex;
+        result.hasSceneIndex=original.hasSceneIndex;
+        if(!std::isfinite(start)||!std::isfinite(end)||end<=start
+            ||original.sceneSequenceTimes.size()*432!=original.sceneSequence.size())return result;
+        for(std::size_t i=0;i<original.sceneSequenceTimes.size();++i) {
+            const auto time=original.sceneSequenceTimes[i];
+            if(!std::isfinite(time)||time<start||time>=end)continue;
+            if(!result.sceneSequenceTimes.empty() && (time<=result.sceneSequenceTimes.back()
+                ||time-result.sceneSequenceTimes.back()>.4)) {result.sceneSequence.clear();return result;}
+            result.sceneSequenceTimes.push_back(time);
+            result.sceneSequence.insert(result.sceneSequence.end(),original.sceneSequence.begin()+i*432,
+                original.sceneSequence.begin()+(i+1)*432);
+        }
+        // A few coincidentally matching frames cannot speak for a long cut.
+        if(result.sceneSequenceTimes.size()<3 || result.sceneSequenceTimes.front()-start>.4
+            ||end-result.sceneSequenceTimes.back()>.4)result.sceneSequence.clear();
+        return result;
+    };
+    const auto a=crop(left,leftStart,leftEnd),b=crop(right,rightStart,rightEnd);
+    return copiedScene(a,b,false,cancelled,nullptr,.8);
+}
 
 struct MotionSearchReuse::Data {
     std::size_t budget;

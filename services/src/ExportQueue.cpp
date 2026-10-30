@@ -26,10 +26,11 @@ ExportBatchResult detail::runExportQueueWithExecutor(const std::vector<CutReques
         int, int, int, int, double, bool, bool, std::string, int, int, int, int, std::string, std::filesystem::path>;
     struct CompletedCut { std::filesystem::path path; CutResult result; };
     std::map<Key, CompletedCut> completedCuts;
+    std::map<std::pair<std::string,Key>,CompletedCut> canonicalCuts;
     // Futures must be joined before their callback lock is destroyed, even
     // if an external progress callback throws during stack unwinding.
     std::mutex callbackMutex;
-    struct Pending { std::size_t index; Key key; std::shared_ptr<detail::ExportDestination> destination; std::future<CutResult> future; };
+    struct Pending { std::size_t index; Key key; std::string canonicalId; std::shared_ptr<detail::ExportDestination> destination; std::future<CutResult> future; };
     std::deque<Pending> pending;
     std::set<Key> activeKeys;
     const auto finishOne = [&] {
@@ -52,6 +53,7 @@ ExportBatchResult detail::runExportQueueWithExecutor(const std::vector<CutReques
             item.destination->commit();
             result.outputPath = item.destination->path();
             if (!result.reused) completedCuts.insert_or_assign(item.key, CompletedCut{result.outputPath, result});
+            if (!item.canonicalId.empty()) canonicalCuts.insert_or_assign({item.canonicalId,item.key},CompletedCut{result.outputPath,result});
         }
         indexedResults[item.index] = std::move(result);
         if (progress) { std::lock_guard lock(callbackMutex); progress(++completedCount, jobs.size()); }
@@ -77,6 +79,17 @@ ExportBatchResult detail::runExportQueueWithExecutor(const std::vector<CutReques
             // A duplicate waits for the first encode, then copies its bytes.
             while (activeKeys.contains(key)) finishOne();
             if (stop.stop_requested()) break;
+            if (!request.canonicalSceneId.empty()) {
+                const auto found=canonicalCuts.find({request.canonicalSceneId,key});
+                if(found!=canonicalCuts.end()) {
+                    auto result=found->second.result;result.reused=true;result.arguments.clear();
+                    indexedResults[index]=std::move(result);
+                    std::lock_guard lock(callbackMutex);
+                    if(request.progress)request.progress(request.endSeconds-request.startSeconds);
+                    if(progress)progress(++completedCount,jobs.size());else ++completedCount;
+                    continue;
+                }
+            }
             auto destination = std::make_shared<detail::ExportDestination>(request.outputPath);
             request.outputPath = destination->path();
             request.workerThreads = budget.threads;
@@ -88,7 +101,7 @@ ExportBatchResult detail::runExportQueueWithExecutor(const std::vector<CutReques
             }
             std::optional<CompletedCut> previous;
             if (auto found = completedCuts.find(key); found != completedCuts.end()) previous = found->second;
-            pending.push_back({index, key, destination, std::async(std::launch::async,
+            pending.push_back({index, key, request.canonicalSceneId, destination, std::async(std::launch::async,
                 [&, request = std::move(request), previous]() mutable {
                     CutResult result;
                     try {

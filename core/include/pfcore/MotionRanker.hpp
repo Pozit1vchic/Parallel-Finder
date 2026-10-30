@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <map>
 
 #include "pfcore/MotionMatcher.hpp"
 
@@ -13,6 +14,10 @@ public:
     // receive the same order and metadata.
     static void rank(std::vector<MotionMatch>& matches,
                      const std::vector<MotionWindow>& windows);
+    static bool organize(std::vector<MotionMatch>& matches,
+        const std::vector<MotionWindow>& windows,
+        const std::map<std::string,std::size_t>& selectedIdentities = {},
+        const std::function<bool()>& cancelled = {});
 };
 
 } // namespace pfcore

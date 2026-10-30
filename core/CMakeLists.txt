@@ -13,6 +13,9 @@ add_library(pfcore STATIC
     src/MovementGrouping.cpp
     src/HeadOrientation.cpp
     src/MotionRanker.cpp
+    src/SceneDescriptor.cpp
+    src/SceneFamily.cpp
+    src/ResultOrganization.cpp
 )
 add_library(pf::core ALIAS pfcore)
 set_target_properties(pfcore PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
@@ -22,6 +25,11 @@ target_compile_features(pfcore PUBLIC cxx_std_23)
 
 # Guard: pfcore must not include Qt headers (spec section 2: "ядро без Qt").
 set(PF_CORE_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/SceneDescriptor.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/SceneFamily.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/SceneDescriptor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/SceneFamily.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ResultOrganization.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/VisualObjectEvidence.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/PoseAssociation.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/SceneWindow.hpp

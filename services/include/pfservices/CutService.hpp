@@ -25,6 +25,9 @@ enum class CutMode {
 [[nodiscard]] bool isSupportedVideoContainer(std::string_view extension);
 
 struct CutRequest {
+    // Nonempty for canonical scenes: a repeated request in one export batch
+    // returns the existing output instead of writing a second physical clip.
+    std::string canonicalSceneId;
     std::filesystem::path inputPath;
     std::filesystem::path outputPath;
     double startSeconds = 0.0;
