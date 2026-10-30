@@ -24,12 +24,12 @@ bool MotionRanker::organize(std::vector<MotionMatch>& matches,const std::vector<
                 if(const auto found=selectedIdentities.find(window.sourceId);found!=selectedIdentities.end())id=found->second;
                 descriptor=describeScene(window,start,end,id);
             }
-            occurrences.push_back({index,start,end,match.similarity,std::move(descriptor)});
+            occurrences.push_back({index,start,end,match.similarity,std::move(descriptor),match.headOnlyComparison});
         }
         const auto& a=occurrences[occurrences.size()-2].descriptor;
         const auto& b=occurrences.back().descriptor;
-        match.evidenceQuality=std::min(a.evidenceQuality,b.evidenceQuality);
-        if(const auto distance=scenePoseDistance(a,b))match.poseSimilarity=std::exp(-*distance);
+        match.evidenceQuality=comparisonEvidenceQuality(a,b,match.headOnlyComparison);
+        match.poseSimilarity=comparisonPoseSimilarity(a,b,match.headOnlyComparison).value_or(-1.);
         match.bestMatchScore=match.similarity*(.55+.45*match.evidenceQuality)
             *((match.appearanceVerified||match.faceVerified)?1.:.85);
     }

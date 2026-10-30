@@ -699,6 +699,14 @@ Rectangle {
             }
         }
 
+        PfButton {
+            objectName: "viewPossibleMatchesButton"
+            Layout.fillWidth: true; compact: true; quiet: true
+            visible: root.results.length>0 && root.visibleResults.length===0 && root.matchTierFilter==="strong"
+                && root.results.some(function(row) { return !row.hidden && row.matchTier==="possible" })
+            text: L10n.t("matches.possible")+" · "+root.results.filter(function(row) { return !row.hidden && row.matchTier==="possible" }).length
+            onClicked: root.matchTierFilter="possible"
+        }
         RowLayout {
             Layout.fillWidth: true
             Layout.minimumWidth: 0

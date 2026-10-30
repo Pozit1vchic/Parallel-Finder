@@ -187,6 +187,8 @@ std::string jsonResults(const std::vector<pfcore::MotionMatch>& matches)
                << "      \"gesture\": \"" << jsonEscape(item.gestureLabel) << "\",\n"
                << "      \"rankScore\": " << item.rankScore << ",\n"
                << "      \"evidenceQuality\": " << item.evidenceQuality << ",\n"
+               << "      \"evidenceScope\": \"" << (item.headOnlyComparison?"head":"body") << "\",\n"
+               << "      \"faceVerified\": " << (item.faceVerified?"true":"false") << ",\n"
                << "      \"bestMatchScore\": " << item.bestMatchScore << ",\n"
                << "      \"redundancyPenalty\": " << item.redundancyPenalty << ",\n"
                << "      \"poseSimilarity\": " << item.poseSimilarity << ",\n"

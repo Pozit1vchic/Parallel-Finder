@@ -68,6 +68,19 @@ TEST(SceneFamily, RepeatedEditRequiresCoverageOfBothMovingPixelSequences) {
     EXPECT_EQ(pfcore::buildSceneFamilies(std::vector{x,y},{},[](const auto&,const auto&){return true;}).families.size(),2);
 }
 
+TEST(SceneFamily, HeadOccurrencesUseMeasuredHeadRotationAndHeadEvidence) {
+    auto a=occurrence(10,13),b=occurrence(10.2,13.2);
+    a.headOnly=b.headOnly=true;a.descriptor.jointEvidence.fill(0);b.descriptor.jointEvidence.fill(0);
+    a.descriptor.head.rotation=b.descriptor.head.rotation=std::array<double,9>{1,0,0,0,1,0,0,0,1};
+    a.descriptor.evidenceQuality=.01;b.descriptor.evidenceQuality=.1;
+    a.descriptor.headEvidenceQuality=.9;b.descriptor.headEvidenceQuality=.5;
+    auto families=pfcore::buildSceneFamilies(std::vector{a,b});
+    ASSERT_EQ(families.families.size(),1);EXPECT_EQ(families.families[0].representative,0);
+    b.descriptor.head.rotation=std::array<double,9>{-1,0,0,0,1,0,0,0,-1};
+    EXPECT_EQ(pfcore::buildSceneFamilies(std::vector{a,b}).families.size(),2);
+    b.descriptor.head.rotation.reset();EXPECT_EQ(pfcore::buildSceneFamilies(std::vector{a,b}).families.size(),2);
+}
+
 TEST(SceneFamily, ProductionOrganizationDeduplicatesPairsAndPreservesDeterministicCanonicalIds) {
     std::vector<pfcore::MotionWindow> windows(2);
     const std::vector<pfcore::Keypoint> pose={{0,-.5,1},{-.1,-.5,1},{.1,-.5,1},{-.2,-.4,1},{.2,-.4,1},

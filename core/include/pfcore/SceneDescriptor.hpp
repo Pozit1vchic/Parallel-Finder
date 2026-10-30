@@ -34,6 +34,7 @@ struct SceneDescriptor {
     double identityConfidence=0;
     double temporalCoverage=0;
     double evidenceQuality=0;
+    double headVisibleCoverage=0,headTemporalCoverage=0,headEvidenceQuality=0;
     bool cameraMotionKnown=false;
     // Missing camera information is not proof of a static camera.
     std::optional<double> cameraInfluence;
@@ -43,4 +44,7 @@ ViewDirection viewDirection(double yawDegrees) noexcept;
 double angularDistanceDegrees(double a,double b) noexcept;
 // Missing or disjoint skeleton evidence does not produce a perfect similarity.
 std::optional<double> scenePoseDistance(const SceneDescriptor& a,const SceneDescriptor& b);
+std::optional<double> sceneHeadDistance(const SceneDescriptor& a,const SceneDescriptor& b);
+double comparisonEvidenceQuality(const SceneDescriptor& a,const SceneDescriptor& b,bool headOnly);
+std::optional<double> comparisonPoseSimilarity(const SceneDescriptor& a,const SceneDescriptor& b,bool headOnly);
 }

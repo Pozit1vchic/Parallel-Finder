@@ -8,6 +8,7 @@ struct SceneOccurrence {
     double start=0,end=0;
     double matchSimilarity=0;
     SceneDescriptor descriptor;
+    bool headOnly=false;
 };
 struct SceneFamily {
     std::string canonicalId;

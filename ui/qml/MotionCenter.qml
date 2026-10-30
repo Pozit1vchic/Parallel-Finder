@@ -387,6 +387,7 @@ ColumnLayout {
         contentItem: ColumnLayout {
             spacing: 12
             Text { Layout.fillWidth: true; text: L10n.t("explain.title"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 18; font.weight: Font.DemiBold }
+            Text { Layout.fillWidth: true; text: L10n.t(root.selectedRecord && root.selectedRecord.headOnlyComparison ? "explain.headScope" : "explain.bodyScope"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
             Repeater {
                 model: ["identity","pose","motion","temporal","visibility","camera"]
                 delegate: RowLayout {

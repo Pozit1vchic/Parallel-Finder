@@ -17,7 +17,8 @@ std::string canonicalSceneFingerprint(const std::string& source,std::size_t iden
 }
 double representativeQuality(const SceneOccurrence& o) {
     const auto& d=o.descriptor;
-    return std::clamp(.55*d.evidenceQuality+.20*d.identityConfidence+.15*d.temporalCoverage
+    return std::clamp(.55*(o.headOnly?d.headEvidenceQuality:d.evidenceQuality)+.20*d.identityConfidence
+        +.15*(o.headOnly?d.headTemporalCoverage:d.temporalCoverage)
         +.10*std::clamp(o.matchSimilarity,0.,1.)-.15*d.cameraInfluence.value_or(0.),0.,1.);
 }
 namespace {
@@ -45,7 +46,7 @@ bool compatible(const SceneOccurrence& a,const SceneOccurrence& b,
     const double overlap=intersection/std::min(a.end-a.start,b.end-b.start);
     const double gap=std::max(a.start,b.start)-std::min(a.end,b.end);
     if (overlap+1e-9<.60 && !(gap>=0 && gap<=.12)) return false;
-    const auto distance=scenePoseDistance(a.descriptor,b.descriptor);
+    const auto distance=a.headOnly&&b.headOnly?sceneHeadDistance(a.descriptor,b.descriptor):scenePoseDistance(a.descriptor,b.descriptor);
     if (!distance || *distance>(overlap>=.60?.16:.08)) return false;
     const auto& x=a.descriptor.motion;const auto& y=b.descriptor.motion;
     if (x.gesture!=GestureClass::Unknown && y.gesture!=GestureClass::Unknown && x.gesture!=y.gesture) return false;
@@ -64,7 +65,10 @@ double transitionCost(const SceneOccurrence& a,const SceneOccurrence& b) {
     if(x.sequenceId&&y.sequenceId&&x.sequenceId!=y.sequenceId)cost+=12;
     cost+=scenePoseDistance(x,y).value_or(1.)*4;
     if(x.body.yawDegrees&&y.body.yawDegrees)cost+=angularDistanceDegrees(*x.body.yawDegrees,*y.body.yawDegrees)/90.;
+    if(x.body.rollDegrees&&y.body.rollDegrees)cost+=angularDistanceDegrees(*x.body.rollDegrees,*y.body.rollDegrees)/90.;
     if(x.head.yawDegrees&&y.head.yawDegrees)cost+=angularDistanceDegrees(*x.head.yawDegrees,*y.head.yawDegrees)/180.;
+    if(x.head.pitchDegrees&&y.head.pitchDegrees)cost+=angularDistanceDegrees(*x.head.pitchDegrees,*y.head.pitchDegrees)/180.;
+    if(x.head.rollDegrees&&y.head.rollDegrees)cost+=angularDistanceDegrees(*x.head.rollDegrees,*y.head.rollDegrees)/180.;
     if(x.motion.gesture!=y.motion.gesture)cost+=1;
     if(x.posture!=y.posture)cost+=1;
     return cost;
