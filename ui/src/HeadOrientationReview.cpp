@@ -1,3 +1,4 @@
+#include <pfcore/PathEncoding.hpp>
 #include "HeadOrientationReview.h"
 #include <pfgpu/FaceEstimator.hpp>
 #include <pfgpu/HeadPoseEstimator.hpp>
@@ -16,7 +17,7 @@
 namespace pfui {
 namespace {
 std::string hashFile(const std::filesystem::path& path) {
-    QFile file(QString::fromStdString(path.string()));
+    QFile file(QString::fromStdString(pfcore::pathToUtf8(path)));
     if(!file.open(QIODevice::ReadOnly))throw std::runtime_error("Cannot read head-orientation model");
     QCryptographicHash hash(QCryptographicHash::Sha256);
     if(!hash.addData(&file))throw std::runtime_error("Cannot fingerprint head-orientation model");
@@ -118,8 +119,8 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
         std::sort(requests.begin(),requests.end(),[](const auto& a,const auto& b) {
             return a.source!=b.source ? a.source<b.source:a.frame.timestampSeconds<b.frame.timestampSeconds;
         });
-        pfgpu::FaceEstimator faces(detector.string(),{},provider);
-        pfgpu::HeadPoseEstimator heads(model.string(),provider);
+        pfgpu::FaceEstimator faces(pfcore::pathToUtf8(detector),{},provider);
+        pfgpu::HeadPoseEstimator heads(pfcore::pathToUtf8(model),provider);
         stats.preparationMicros=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::steady_clock::now()-preparationStarted).count());
         pfcore::VideoDecoder decoder;pfcore::DecodedFrame retained;

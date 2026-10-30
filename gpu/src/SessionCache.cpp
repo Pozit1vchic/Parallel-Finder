@@ -1,3 +1,4 @@
+#include <pfcore/PathEncoding.hpp>
 #include "pfgpu/SessionCache.hpp"
 
 #include <algorithm>
@@ -34,7 +35,7 @@ std::string normalizePath(const std::string& path)
 std::string modelIdentity(const ModelRef& model)
 {
     if (model.isPath()) {
-        const std::filesystem::path path(model.path);
+        const auto path=pfcore::pathFromUtf8(model.path);
         std::error_code sizeError;
         const auto size = std::filesystem::file_size(path, sizeError);
         std::error_code timeError;
@@ -276,7 +277,7 @@ SessionCache::Result SessionCache::getOrCreate(const ModelRef& model, const Sess
     } sessionCleanup{api, session};
     if (model.isPath()) {
 #if defined(_WIN32)
-        const std::wstring widePath = std::filesystem::path(model.path).wstring();
+        const std::wstring widePath = pfcore::pathFromUtf8(model.path).wstring();
         const ORTCHAR_T* modelPath = widePath.c_str();
 #else
         const ORTCHAR_T* modelPath = model.path.c_str();

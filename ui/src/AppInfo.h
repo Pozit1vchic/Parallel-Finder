@@ -31,6 +31,7 @@ class AppInfo : public QObject {
     Q_PROPERTY(bool providerDownloading READ providerDownloading NOTIFY providerDownloadChanged)
     Q_PROPERTY(double providerDownloadProgress READ providerDownloadProgress NOTIFY providerDownloadChanged)
     Q_PROPERTY(QString providerDownloadStatus READ providerDownloadStatus NOTIFY providerDownloadChanged)
+    Q_PROPERTY(QString providerDiagnosticCode READ providerDiagnosticCode NOTIFY providerDownloadChanged)
     Q_PROPERTY(QString providerDownloadState READ providerDownloadState NOTIFY providerDownloadChanged)
     Q_PROPERTY(int providersRevision READ providersRevision NOTIFY providersChanged)
     Q_PROPERTY(bool providersScanning READ providersScanning NOTIFY providersChanged)
@@ -73,6 +74,7 @@ public:
     bool providerDownloading() const noexcept { return providerDownloading_; }
     double providerDownloadProgress() const noexcept { return providerDownloadProgress_; }
     QString providerDownloadStatus() const { return providerDownloadStatus_; }
+    QString providerDiagnosticCode() const;
     QString providerDownloadState() const { return providerDownloadState_; }
 
     // Single entry point for the init step: one signal for the whole badge

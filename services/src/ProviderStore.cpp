@@ -12,10 +12,14 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
-#include <QProcess>
+#include <archive.h>
+#include <archive_entry.h>
+#include <QSet>
+#include <memory>
 #include <QTimer>
 #include <QTemporaryDir>
 #include <QSaveFile>
+#include <QLockFile>
 #include <QCryptographicHash>
 #include <QUrl>
 
@@ -47,18 +51,6 @@ bool safeArchive(const std::string& archive)
         && archive.find("..") == std::string::npos;
 }
 
-QString tarProgram()
-{
-#if defined(_WIN32)
-    const QString windir = qEnvironmentVariable("WINDIR");
-    if (!windir.isEmpty()) {
-        const QString systemTar = QDir(windir).filePath(QStringLiteral("System32/tar.exe"));
-        if (QFileInfo(systemTar).isFile()) return systemTar;
-    }
-#endif
-    return QStringLiteral("tar.exe");
-}
-
 bool safeArchiveMember(const QString& rawName)
 {
     QString name = QDir::fromNativeSeparators(rawName.trimmed());
@@ -67,7 +59,8 @@ bool safeArchiveMember(const QString& rawName)
         return false;
     const QStringList components = name.split(QLatin1Char('/'), Qt::SkipEmptyParts);
     for (const QString& component : components) {
-        if (component == QStringLiteral("..") || component.contains(QChar(0))) return false;
+        if (component==".." || component=="." || component.contains(QChar(0)) || component.contains(':')
+            || component.endsWith('.') || component.endsWith(' ')) return false;
     }
     return !components.isEmpty();
 }
@@ -82,95 +75,6 @@ bool trustedHost(const QUrl& url)
             || host == QStringLiteral("githubusercontent.com")
             || host.endsWith(QStringLiteral(".github.com"))
             || host.endsWith(QStringLiteral(".githubusercontent.com")));
-}
-
-bool runTarProcess(const QStringList& arguments, QByteArray& output,
-                   std::string& error, int timeoutMs, qsizetype outputLimit)
-{
-    QProcess process;
-    process.setProgram(tarProgram());
-    process.setArguments(arguments);
-#if defined(_WIN32)
-    process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args) {
-        args->flags |= CREATE_NO_WINDOW;
-    });
-#endif
-    process.setProcessChannelMode(QProcess::SeparateChannels);
-    QByteArray diagnostic;
-    bool oversized = false;
-    const auto consume = [&] {
-        while (process.bytesAvailable() > 0) {
-            const auto chunk = process.read(65536);
-            if (chunk.isEmpty()) break;
-            if (chunk.size() > outputLimit - output.size()) {
-                oversized = true; process.kill(); break;
-            }
-            output += chunk;
-        }
-        diagnostic += process.readAllStandardError();
-        if (diagnostic.size() > 65536) diagnostic = diagnostic.right(65536);
-    };
-    QObject::connect(&process, &QProcess::readyReadStandardOutput, &process, consume);
-    QObject::connect(&process, &QProcess::readyReadStandardError, &process, consume);
-    process.start();
-    if (!process.waitForStarted(5000)) {
-        error = "start provider archive operation: " + process.errorString().toStdString();
-        return false;
-    }
-    QElapsedTimer elapsed; elapsed.start();
-    while (process.state() != QProcess::NotRunning && !oversized
-           && !QThread::currentThread()->isInterruptionRequested() && elapsed.elapsed() < timeoutMs)
-        process.waitForFinished(100);
-    consume();
-    const bool cancelled = QThread::currentThread()->isInterruptionRequested();
-    if (oversized || cancelled || process.state() != QProcess::NotRunning) {
-        process.kill(); process.waitForFinished(5000);
-        error = oversized ? "provider archive listing is too large"
-            : cancelled ? "provider archive operation cancelled" : "provider archive operation timed out";
-        return false;
-    }
-    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
-        error = "provider archive operation failed: " + diagnostic.toStdString();
-        return false;
-    }
-    return true;
-}
-
-bool runTarListing(const QStringList& arguments, QByteArray& output, std::string& error)
-{
-    return runTarProcess(arguments, output, error, 30000, 32 * 1024 * 1024);
-}
-
-bool validateArchive(const std::filesystem::path& archive, std::string& error)
-{
-    const QString archiveArgument = QString::fromStdWString(archive.wstring());
-    QByteArray names;
-    if (!runTarListing({QStringLiteral("-tf"), archiveArgument}, names, error)) return false;
-    for (const QByteArray& rawLine : names.split('\n')) {
-        const QString line = QString::fromLocal8Bit(rawLine).trimmed();
-        if (line.isEmpty()) continue;
-        if (!safeArchiveMember(line)) {
-            error = "provider archive contains an unsafe path";
-            return false;
-        }
-    }
-
-    // A symlink or hardlink inside the archive can escape the extraction
-    // directory even when its displayed name is harmless.  Reject links and
-    // special files before tar gets a chance to materialize them.
-    QByteArray details;
-    if (!runTarListing({QStringLiteral("-tvf"), archiveArgument}, details, error)) return false;
-    for (const QByteArray& rawLine : details.split('\n')) {
-        const QByteArray line = rawLine.trimmed();
-        if (line.isEmpty()) continue;
-        const char type = line.front();
-        if (type == 'l' || type == 'h' || type == 'c' || type == 'b'
-            || type == 'p' || type == 's') {
-            error = "provider archive contains a link or special file";
-            return false;
-        }
-    }
-    return true;
 }
 
 bool validateExtractedTree(const std::filesystem::path& root, std::string& error)
@@ -277,23 +181,69 @@ bool extractArchive(const std::filesystem::path& archive,
                     const std::filesystem::path& destination,
                     std::string& error)
 {
-    if (!validateArchive(archive, error)) return false;
-    std::error_code filesystemError;
-    std::filesystem::create_directories(destination, filesystemError);
-    if (filesystemError) {
-        error = "create provider directory: " + filesystemError.message();
-        return false;
+    std::unique_ptr<struct archive,decltype(&archive_read_free)> reader(archive_read_new(),archive_read_free);
+    archive_read_support_format_zip(reader.get());
+    archive_read_support_filter_none(reader.get());
+#ifdef Q_OS_WIN
+    const auto opened=archive_read_open_filename_w(reader.get(),archive.c_str(),64*1024);
+#else
+    const auto opened=archive_read_open_filename(reader.get(),archive.c_str(),64*1024);
+#endif
+    if (opened!=ARCHIVE_OK) {error="PROVIDER_ARCHIVE_OPEN_FAILED";return false;}
+    const auto root=QString::fromStdWString(destination.wstring());
+    if (!QDir().mkpath(root)) {error="PROVIDER_STAGING_CREATE_FAILED";return false;}
+    QSet<QString> names;
+    std::uint64_t extracted=0;
+    constexpr std::uint64_t maximumExtracted=16ULL*1024*1024*1024;
+    archive_entry* entry=nullptr;int status;
+    while ((status=archive_read_next_header(reader.get(),&entry))==ARCHIVE_OK) {
+        if (QThread::currentThread()->isInterruptionRequested()) {error="PROVIDER_INSTALL_CANCELLED";return false;}
+        const auto* utf8=archive_entry_pathname_utf8(entry);
+        if (!utf8) {error="PROVIDER_ARCHIVE_PATH_ENCODING";return false;}
+        const auto raw=QString::fromUtf8(utf8);
+        const auto name=QDir::fromNativeSeparators(raw);
+        if (!safeArchiveMember(name) || archive_entry_symlink(entry) || archive_entry_hardlink(entry)) {
+            error="PROVIDER_ARCHIVE_UNSAFE_PATH";return false;
+        }
+        const auto type=archive_entry_filetype(entry);
+        const auto target=root+'/'+name;
+        if (type==AE_IFDIR) {
+            if (!QDir().mkpath(target)) {error="PROVIDER_STAGING_CREATE_FAILED";return false;}
+            continue;
+        }
+        if (type!=AE_IFREG || names.contains(name.toCaseFolded()) || names.size()>=8192) {
+            error="PROVIDER_ARCHIVE_UNSAFE_ENTRY";return false;
+        }
+        names.insert(name.toCaseFolded());
+        const auto size=archive_entry_size(entry);
+        if (size<0 || static_cast<std::uint64_t>(size)>maximumExtracted-extracted) {
+            error="PROVIDER_ARCHIVE_SIZE_LIMIT";return false;
+        }
+        if (!QDir().mkpath(QFileInfo(target).absolutePath())) {error="PROVIDER_STAGING_CREATE_FAILED";return false;}
+        QSaveFile file(target);file.setDirectWriteFallback(false);
+        if (!file.open(QIODevice::WriteOnly)) {error="PROVIDER_STAGING_WRITE_FAILED";return false;}
+        char block[64*1024];la_ssize_t received;std::uint64_t written=0;
+        while ((received=archive_read_data(reader.get(),block,sizeof block))>0) {
+            if (QThread::currentThread()->isInterruptionRequested()) {error="PROVIDER_INSTALL_CANCELLED";return false;}
+            written+=received;
+            if (written>static_cast<std::uint64_t>(size) || file.write(block,received)!=received) {
+                error="PROVIDER_STAGING_WRITE_FAILED";return false;
+            }
+        }
+        if (received<0 || written!=static_cast<std::uint64_t>(size) || !file.commit()) {
+            error="PROVIDER_ARCHIVE_INCOMPLETE";return false;
+        }
+        extracted+=written;
     }
-    QByteArray output;
-    return runTarProcess({QStringLiteral("-xf"), QString::fromStdWString(archive.wstring()),
-                          QStringLiteral("-C"), QString::fromStdWString(destination.wstring())},
-                         output, error, 120000, 65536);
+    if (status!=ARCHIVE_EOF) {error="PROVIDER_ARCHIVE_INCOMPLETE";return false;}
+    return true;
 }
 
 } // namespace
 
 bool ProviderStore::downloadDirectMl(const std::filesystem::path& destination,
-                                    ProviderDownloadProgress progress, std::string& error)
+                                    ProviderDownloadProgress progress, std::string& error,
+                                    ProviderStagingValidator validate)
 {
     if (destination.filename() != "dml") { error = "unsafe DirectML destination"; return false; }
     const auto parent = QString::fromStdWString(destination.parent_path().wstring());
@@ -309,7 +259,7 @@ bool ProviderStore::downloadDirectMl(const std::filesystem::path& destination,
     };
     std::uint64_t completed = 0;
     for (const auto& package : packages) {
-        const auto archive = root / package.filename;
+        const auto archive=destination.parent_path()/"installer-cache"/"dml"/package.sha256/package.filename;
         if (!ModelStore::download(package, archive, [&](std::uint64_t bytes, std::uint64_t) {
                 if (progress) progress(completed + bytes, 214751266);
             }, error)) return false;
@@ -317,7 +267,7 @@ bool ProviderStore::downloadDirectMl(const std::filesystem::path& destination,
         completed += package.sizeBytes;
     }
     // Only the Windows x64 release DLLs are installed, never ARM/x86/debug/Xbox.
-    const auto ready = root / "ready";
+    const auto ready = root / "dml";
     std::error_code ec;
     std::filesystem::create_directory(ready, ec);
     const std::pair<std::filesystem::path, const char*> files[] = {
@@ -331,6 +281,7 @@ bool ProviderStore::downloadDirectMl(const std::filesystem::path& destination,
         std::filesystem::copy_file(source, ready / name, ec);
         if (ec) { error = "prepare DirectML: " + ec.message(); return false; }
     }
+    if (validate && !validate(ready,error)) return false;
     // Do not overwrite a runtime potentially loaded in this process.
     if (std::filesystem::exists(destination, ec)) {
         error = "DirectML directory already exists; restart the application before retrying";
@@ -450,35 +401,64 @@ bool ProviderStore::assembleParts(const ProviderAsset& asset,
     return true;
 }
 
+std::filesystem::path ProviderStore::installerCacheDirectory(const ProviderAsset& asset,
+    const std::filesystem::path& destination)
+{
+    const auto safeHash = asset.sha256.size()==64 && std::all_of(asset.sha256.begin(),asset.sha256.end(),
+        [](char c) {return (c>='0' && c<='9') || (c>='a' && c<='f') || (c>='A' && c<='F');});
+    if (!safeProvider(asset.provider) || !safeHash) return {};
+    return destination.parent_path() / "installer-cache" / asset.provider / asset.sha256;
+}
+
 bool ProviderStore::downloadAndInstall(const ProviderAsset& asset,
                                        const std::filesystem::path& destination,
                                        ProviderDownloadProgress progress,
-                                       std::string& error)
+                                       std::string& error,
+                                       ProviderStagingValidator validate)
 {
     if (!safeProvider(asset.provider) || !safeArchive(asset.archive)) {
         error = "provider asset contains unsafe paths";
         return false;
     }
-    if (destination.empty() || destination.filename().string() != asset.provider) {
+    if (destination.empty() || destination.filename() != std::filesystem::path(asset.provider)) {
         error = "provider destination is unsafe";
         return false;
+    }
+    for (const auto& part : asset.parts) {
+        if (!safeArchive(part.archive) || !part.sizeBytes || part.sha256.size()!=64) {
+            error="PROVIDER_PART_METADATA_INVALID";return false;
+        }
     }
     ModelAsset archive;
     archive.filename = asset.archive;
     archive.sha256 = asset.sha256;
     archive.sizeBytes = asset.sizeBytes;
     archive.downloadUrl = asset.downloadUrl;
-    const auto temporary = destination / (asset.archive + ".part");
+    const auto packageRoot=installerCacheDirectory(asset,destination);
+    if (packageRoot.empty() || !asset.sizeBytes || asset.sizeBytes>8ULL*1024*1024*1024) {
+        error="PROVIDER_PACKAGE_METADATA_INVALID"; return false;
+    }
+    if (!QDir().mkpath(QString::fromStdWString(packageRoot.wstring()))) {
+        error="PROVIDER_CACHE_CREATE_FAILED"; return false;
+    }
+    QLockFile installLock(QString::fromStdWString((destination.parent_path()/(asset.provider+".install.lock")).wstring()));
+    if (!installLock.tryLock(0)) {error="PROVIDER_INSTALL_BUSY";return false;}
+    const auto interruptedBackup=destination.parent_path()/(asset.provider+".previous");
+    std::error_code recoveryError;
+    if (std::filesystem::exists(interruptedBackup,recoveryError) && !std::filesystem::exists(destination,recoveryError)) {
+        std::filesystem::rename(interruptedBackup,destination,recoveryError);
+        if (recoveryError) {error="PROVIDER_PREVIOUS_RESTORE_FAILED: "+recoveryError.message();return false;}
+    }
+    const auto temporary = packageRoot / asset.archive;
     if (asset.parts.empty()) {
         if (!ModelStore::download(archive, temporary, std::move(progress), error)) return false;
     } else {
-        if (!QDir().mkpath(QString::fromStdWString(destination.wstring()))) { error = "cannot create provider directory"; return false; }
-        QTemporaryDir downloads(QString::fromStdWString(destination.parent_path().wstring()) + "/provider-parts-XXXXXX");
-        if (!downloads.isValid()) { error = "cannot create provider download staging"; return false; }
+        const auto downloads=packageRoot/"parts";
+        if (!QDir().mkpath(QString::fromStdWString(downloads.wstring()))) { error="cannot create provider parts cache";return false; }
         std::vector<std::filesystem::path> paths;
         std::uint64_t completed = 0;
         for (const auto& part : asset.parts) {
-            const auto path = std::filesystem::path(downloads.path().toStdWString()) / part.archive;
+            const auto path = downloads / part.archive;
             ModelAsset chunk{part.archive, part.sha256, part.sizeBytes, part.downloadUrl};
             if (!ModelStore::download(chunk, path, [&](std::uint64_t received, std::uint64_t) {
                 if (progress) progress(completed + received, asset.sizeBytes);
@@ -490,36 +470,52 @@ bool ProviderStore::downloadAndInstall(const ProviderAsset& asset,
     }
     // ModelStore installs the downloaded file at `temporary`; keep it out of
     // the runtime directory until extraction has completed successfully.
-    const auto staging = destination.parent_path()
-        / (destination.filename().string() + ".staging");
+    QTemporaryDir stagingRoot(QString::fromStdWString(destination.parent_path().wstring())+"/provider-stage-XXXXXX");
+    if (!stagingRoot.isValid()) {error="PROVIDER_STAGING_CREATE_FAILED";return false;}
+    const auto staging = std::filesystem::path(stagingRoot.path().toStdWString()) / asset.provider;
+    // A manifest is informational only: reuse always rechecks size and SHA-256.
+    QSaveFile manifest(QString::fromStdWString((packageRoot/"verified.json").wstring()));
+    if (manifest.open(QIODevice::WriteOnly)) {
+        const auto bytes=QJsonDocument(QJsonObject{{"schema",1},{"provider",QString::fromStdString(asset.provider)},
+            {"sha256",QString::fromStdString(asset.sha256)},{"sizeBytes",static_cast<qint64>(asset.sizeBytes)},
+            {"verified",true}}).toJson(QJsonDocument::Compact);
+        if (manifest.write(bytes)==bytes.size()) manifest.commit();
+    }
     std::error_code stagingError;
     std::filesystem::remove_all(staging, stagingError);
     if (stagingError) {
         error = "clear provider staging directory: " + stagingError.message();
-        std::filesystem::remove(temporary, stagingError);
+
         return false;
     }
     if (!extractArchive(temporary, staging, error)) {
         std::error_code ignored;
-        std::filesystem::remove(temporary, ignored);
+
         std::filesystem::remove_all(staging, ignored);
         return false;
     }
     if (!validateExtractedTree(staging, error)) {
         std::error_code ignored;
-        std::filesystem::remove(temporary, ignored);
+
         std::filesystem::remove_all(staging, ignored);
         return false;
     }
     // Do not replace a live provider directory until the complete archive is
     // extracted.  Keep a short-lived backup so a failed rename can restore it.
-    const auto backup = destination.parent_path()
-        / (destination.filename().string() + ".previous");
+    if (validate && !validate(staging,error)) {
+        if (error.empty()) error="PROVIDER_STAGING_PROBE_FAILED";
+        return false;
+    }
+    const auto backup = destination.parent_path() / (asset.provider + ".previous");
     std::error_code installError;
+    if (std::filesystem::exists(backup,installError) && !std::filesystem::exists(destination,installError)) {
+        std::filesystem::rename(backup,destination,installError);
+        if (installError) {error="PROVIDER_PREVIOUS_RESTORE_FAILED: "+installError.message();return false;}
+    }
     std::filesystem::remove_all(backup, installError);
     if (installError) {
         error = "clear previous provider backup: " + installError.message();
-        std::filesystem::remove(temporary, installError);
+
         std::filesystem::remove_all(staging, installError);
         return false;
     }
@@ -527,7 +523,7 @@ bool ProviderStore::downloadAndInstall(const ProviderAsset& asset,
         std::filesystem::rename(destination, backup, installError);
         if (installError) {
             error = "stage current provider runtime: " + installError.message();
-            std::filesystem::remove(temporary, installError);
+
             std::filesystem::remove_all(staging, installError);
             return false;
         }
@@ -538,13 +534,13 @@ bool ProviderStore::downloadAndInstall(const ProviderAsset& asset,
         if (std::filesystem::exists(backup, restoreError))
             std::filesystem::rename(backup, destination, restoreError);
         error = "install provider runtime: " + installError.message();
-        std::filesystem::remove(temporary, restoreError);
+
         std::filesystem::remove_all(staging, restoreError);
         return false;
     }
     std::error_code ignored;
     std::filesystem::remove_all(backup, ignored);
-    std::filesystem::remove(temporary, ignored);
+
     return true;
 }
 

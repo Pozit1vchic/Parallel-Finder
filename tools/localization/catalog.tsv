@@ -548,3 +548,29 @@ character.scenes|Көрүнүштөр|Көріністер|Появи|Sahneleri 
 character.continue|Талдоону улантуу|Талдауды жалғастыру|Продовжити аналіз|Analize devam et
 character.change|Каарманды өзгөртүү|Кейіпкерді ауыстыру|Змінити персонажа|Karakteri değiştir
 character.time|%1 с|%1 с|%1 с|%1 sn
+provider.installError|Провайдерди орнотуу аяктаган жок.|Провайдерді орнату аяқталмады.|Не вдалося завершити встановлення провайдера.|Sağlayıcı kurulumu tamamlanamadı.
+provider.saved|Жүктөлгөн маалымат сакталды. Кайра аракет кылса болот.|Жүктелген деректер сақталды. Қайталап көруге болады.|Завантажені дані збережено. Можна повторити спробу.|İndirilen veriler kaydedildi. Yeniden deneyebilirsin.
+provider.verifying|Орнотуудан мурун провайдер текшерилүүдө…|Орнату алдында провайдер тексерілуде…|Перевіряємо провайдер перед встановленням…|Kurulum öncesi sağlayıcı sınanıyor…
+provider.details|Техникалык маалымат|Техникалық мәліметтер|Технічні подробиці|Teknik ayrıntılar
+sort.best|Мыкты дал келүү|Үздік сәйкестік|Найкращий збіг|En iyi eşleşme
+sort.continuity|Монтаж ырааты|Монтаж реті|Монтажна послідовність|Kurgu sürekliliği
+sort.pose|Позанын окшоштугу|Дене қалпының ұқсастығы|Схожість пози|Poz benzerliği
+sort.identity|Инсанды ырастоо|Тұлғаны растау|Підтвердження особи|Kimlik kanıtı
+sort.evidence|Байкоонун сапаты|Бақылау сапасы|Якість спостережень|Gözlem kalitesi
+sort.longest|Узундары биринчи|Ұзындары алдымен|Спочатку довгі|Önce uzunlar
+sort.shortest|Кыскалары биринчи|Қысқалары алдымен|Спочатку короткі|Önce kısalar
+sort.source|Булак|Дереккөз|Джерело|Kaynak
+matches.strong|Ишенимдүү дал келүүлөр|Сенімді сәйкестіктер|Впевнені збіги|Güçlü eşleşmeler
+matches.possible|Мүмкүн болгон дал келүүлөр|Ықтимал сәйкестіктер|Можливі збіги|Olası eşleşmeler
+matches.tier|Дал келүүнүн ишенимдүүлүгү|Сәйкестік сенімділігі|Надійність збігу|Eşleşme kanıtı
+explain.title|Дал келүүнүн себеби|Сәйкестік себебі|Чому знайдено збіг|Eşleşmeyi açıkla
+explain.identity|Инсан|Тұлға|Особа|Kimlik
+explain.pose|Позанын окшоштугу|Дене қалпының ұқсастығы|Схожість пози|Poz benzerliği
+explain.motion|Кыймылдын окшоштугу|Қозғалыс ұқсастығы|Схожість руху|Hareket benzerliği
+explain.temporal|Убакыттык камтуу|Уақыттық қамту|Часове покриття|Zamansal kapsam
+explain.visibility|Дененин көрүнүшү|Дененің көрінуі|Видимість тіла|Vücut görünürlüğü
+explain.camera|Камеранын таасири|Камера әсері|Вплив камери|Kamera etkisi
+explain.unknown|Ишенимдүү маалымат жок|Сенімді дерек жоқ|Немає надійних даних|Ölçülmedi
+explain.confirmed|Ырасталган|Расталған|Підтверджена|Doğrulandı
+explain.note|Окшоштук жана байкоонун сапаты өзүнчө бааланат. Маалымат жок болсо, ишенимдүү тыянак чыгарылбайт.|Ұқсастық пен бақылау сапасы бөлек бағаланады. Дерек болмауы сенімді қорытынды емес.|Схожість і якість спостережень — різні оцінки. Відсутність даних не означає впевненість.|Benzerlik ve gözlem kalitesi ayrı ölçümlerdir. Eksik bilgi kesin bir gözlem sayılmaz.
+explain.close|Жабуу|Жабу|Закрити|Kapat

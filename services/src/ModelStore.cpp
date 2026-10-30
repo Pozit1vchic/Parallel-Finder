@@ -1,3 +1,4 @@
+#include <pfcore/PathEncoding.hpp>
 #include "NetworkOperation.hpp"
 #include <pfservices/ModelStore.hpp>
 
@@ -75,7 +76,7 @@ std::vector<std::filesystem::path> candidateRoots(const std::filesystem::path& e
 {
     std::vector<std::filesystem::path> roots;
     roots.push_back(executableDirectory / "models");
-    roots.push_back(std::filesystem::path(SettingsStore::defaultDirectory()) / "models");
+    roots.push_back(pfcore::pathFromUtf8(SettingsStore::defaultDirectory()) / "models");
     if (const char* root = std::getenv("PF_MODEL_ROOT"); root && *root)
         roots.emplace_back(root);
     return roots;
@@ -199,7 +200,7 @@ std::optional<std::filesystem::path> ModelStore::resolve(
         const auto candidate = root / asset.filename;
         std::error_code filesystemError;
         if (!std::filesystem::is_regular_file(candidate, filesystemError)) {
-            checked << candidate.string() << "; ";
+            checked << pfcore::pathToUtf8(candidate) << "; ";
             continue;
         }
         std::string hashError;
@@ -209,7 +210,7 @@ std::optional<std::filesystem::path> ModelStore::resolve(
         }
         if (asset.sizeBytes != 0 && std::filesystem::file_size(candidate, filesystemError)
             != asset.sizeBytes) {
-            error = "model size mismatch: " + candidate.string();
+            error = "model size mismatch: " + pfcore::pathToUtf8(candidate);
             return std::nullopt;
         }
         return candidate;

@@ -1,3 +1,4 @@
+#include <pfcore/PathEncoding.hpp>
 #include "AnalysisController.h"
 #include "AppInfo.h"
 #include "VideoActionReview.h"
@@ -307,7 +308,7 @@ bool AnalysisController::startReviewPreview(int id, const QVariantMap& row, bool
             if(actionEvidence && actionMatch && !stop.stop_requested()) {
                 pfgpu::PoseEstimatorParams params;params.provider=actionContext->poseProvider;
                 params.profile=actionContext->poseProfile;params.intraOpThreads=4;
-                pfgpu::PoseEstimator pose(actionContext->poseModel.string(),params);
+                pfgpu::PoseEstimator pose(pfcore::pathToUtf8(actionContext->poseModel),params);
                 auto match=*actionMatch;match.leftIndex=0;match.rightIndex=1;
                 std::vector<pfcore::MotionWindow> windows{(*actionEvidence)[0],(*actionEvidence)[1]};
                 pfcore::VideoDecodeOptions options;options.threads=2;

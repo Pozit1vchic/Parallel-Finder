@@ -27,6 +27,7 @@ struct ProviderAsset {
 
 using ProviderDownloadProgress = std::function<void(std::uint64_t received,
                                                     std::uint64_t total)>;
+using ProviderStagingValidator = std::function<bool(const std::filesystem::path& staging, std::string& error)>;
 
 class ProviderStore {
 public:
@@ -38,7 +39,8 @@ public:
                               const std::vector<std::filesystem::path>& paths,
                               const std::filesystem::path& destination, std::string& error);
     static bool downloadDirectMl(const std::filesystem::path& destination,
-                                 ProviderDownloadProgress progress, std::string& error);
+                                 ProviderDownloadProgress progress, std::string& error,
+                                 ProviderStagingValidator validate = {});
     // Manifest format: { "providers": [{ "provider":"cuda",
     // "archive":"runtime-cuda.zip", "sha256":"...", "sizeBytes":123,
     // "downloadUrl":"https://..." }] }
@@ -52,7 +54,10 @@ public:
     static bool downloadAndInstall(const ProviderAsset& asset,
                                    const std::filesystem::path& destination,
                                    ProviderDownloadProgress progress,
-                                   std::string& error);
+                                   std::string& error,
+                                   ProviderStagingValidator validate = {});
+    static std::filesystem::path installerCacheDirectory(const ProviderAsset& asset,
+                                   const std::filesystem::path& destination);
 };
 
 } // namespace pfservices

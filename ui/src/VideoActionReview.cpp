@@ -1,3 +1,4 @@
+#include <pfcore/PathEncoding.hpp>
 #include "VideoActionReview.h"
 #include <pfcore/PoseAssociation.hpp>
 #include <pfcore/SceneDetector.hpp>
@@ -18,7 +19,7 @@
 namespace pfui {
 namespace {
 std::string hashFile(const std::filesystem::path& path) {
-    QFile file(QString::fromStdString(path.string()));QCryptographicHash hash(QCryptographicHash::Sha256);
+    QFile file(QString::fromStdString(pfcore::pathToUtf8(path)));QCryptographicHash hash(QCryptographicHash::Sha256);
     if(!file.open(QIODevice::ReadOnly) || !hash.addData(&file))throw std::runtime_error("Cannot fingerprint action-review model");
     return hash.result().toHex().toStdString();
 }
@@ -166,7 +167,7 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
             return a.evidence.sourceId!=b.evidence.sourceId ? a.evidence.sourceId<b.evidence.sourceId:a.evidence.start<b.evidence.start;
         });
         if(!cacheDirectory.empty())try {cache=std::make_unique<pfservices::PfCache>(cacheDirectory,64ULL*1024*1024);}catch(...) {}
-        pfgpu::VideoActionEstimator actions(actionModel.string(),provider,8);
+        pfgpu::VideoActionEstimator actions(pfcore::pathToUtf8(actionModel),provider,8);
         pfcore::VideoDecoder decoder;std::string opened;
         options.maxWidth=1280;options.maxHeight=720;options.preferNvidia=false;
         std::size_t done=0;

@@ -432,6 +432,8 @@ Popup {
     }
     function providerDownloadText(raw) {
         const status = String(raw || "")
+        if (AppInfo.providerDownloadState === "error") return L10n.t("provider.installError") + "\n" + L10n.t("provider.saved") + "\n" + AppInfo.providerDiagnosticCode
+        if (AppInfo.providerDownloadState === "verifying") return L10n.t("provider.verifying")
         if (AppInfo.providerDownloadState === "present") return root.providerStatusText(Analysis.providerChoice)
         if (AppInfo.providerDownloadState === "installed") return L10n.t("settings.providerRestart")
         if (AppInfo.providerDownloadState === "checking") return L10n.t("settings.providerChecking")
@@ -646,6 +648,13 @@ Popup {
                             }
                         }
                         PfButton { Layout.fillWidth: true; compact: true; text: L10n.t("settings.providerRescan"); enabled: !AppInfo.backendInitializing && !AppInfo.providersScanning && !AppInfo.providerDownloading; onClicked: AppInfo.rescanProviders() }
+                        CollapsibleSection {
+                            Layout.fillWidth: true
+                            visible: AppInfo.providerDownloadState === "error"
+                            title: L10n.t("provider.details")
+                            onToggled: function(next) { expanded=next }
+                            Text { width: parent.width; text: AppInfo.providerDownloadStatus; color: Theme.textSecondary; font.family: Theme.monoFont; font.pixelSize: 10; wrapMode: Text.WrapAnywhere }
+                        }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.cache"); color: Theme.secondaryText; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout { Layout.fillWidth: true; spacing: 8
                             PfTextField { Layout.fillWidth: true; font.family: Theme.monoFont; text: Analysis.cachePath; placeholderText: L10n.t("settings.cachePlaceholder"); Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }

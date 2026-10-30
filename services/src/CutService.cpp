@@ -1,3 +1,4 @@
+#include <pfcore/PathEncoding.hpp>
 #include <pfservices/CutService.hpp>
 #include <pfcore/VideoDecoder.hpp>
 
@@ -247,7 +248,7 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
     }
     std::error_code filesystemError;
     if (!std::filesystem::is_regular_file(request.inputPath, filesystemError)) {
-        result.error = "input video does not exist: " + request.inputPath.string();
+        result.error = "input video does not exist: " + pfcore::pathToUtf8(request.inputPath);
         return result;
     }
     if (std::filesystem::equivalent(request.inputPath, request.outputPath, filesystemError)) {
@@ -287,7 +288,7 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
     // Keep the real media extension on the temporary file.  FFmpeg selects
     // its muxer from the output suffix; `clip.mp4.part` has no known format
     // and produces "Unable to choose an output format" on Windows.
-    const std::string extension = request.outputPath.extension().string();
+    const std::string extension = pfcore::pathToUtf8(request.outputPath.extension());
     std::filesystem::path temporaryPath;
     {
         QTemporaryFile temporaryFile(QFileInfo(QString::fromStdWString(request.outputPath.wstring())).absolutePath() + "/"

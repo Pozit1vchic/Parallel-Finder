@@ -17,6 +17,8 @@
 #include <QQmlEngine>
 #include <QThread>
 #include <QPointer>
+#include <QSaveFile>
+#include <QRegularExpression>
 
 #include <algorithm>
 #include <cmath>
@@ -25,6 +27,15 @@
 #include <fstream>
 
 namespace pfui {
+QString AppInfo::providerDiagnosticCode() const
+{
+    if (providerDownloadState_!=QStringLiteral("error")) return {};
+    const auto code=QRegularExpression(QStringLiteral("PROVIDER_[A-Z_]+")).match(providerDownloadStatus_);
+    if (code.hasMatch()) return code.captured();
+    if (providerDownloadStatus_.contains(QStringLiteral("SHA-256"))) return QStringLiteral("PROVIDER_HASH_MISMATCH");
+    if (providerDownloadStatus_.contains(QStringLiteral("download"),Qt::CaseInsensitive)) return QStringLiteral("PROVIDER_DOWNLOAD_FAILED");
+    return QStringLiteral("PROVIDER_INSTALL_FAILED");
+}
 namespace {
 constexpr QChar kSeparator = QChar(0x00B7); // middle dot: "CUDA · RTX 4070"
 constexpr auto kProviderManifestUrl = "https://github.com/Pozit1vchic/Parallel-Finder/releases/download/runtime-v1/providers.json";
@@ -386,15 +397,27 @@ void AppInfo::downloadProvider(const QString& backend)
                     emit providerDownloadChanged();
                 }, Qt::QueuedConnection);
             };
+        const auto validateStaging=[this,provider](const std::filesystem::path& staging,std::string& failure) {
+            QMetaObject::invokeMethod(this,[this] {
+                providerDownloadState_=QStringLiteral("verifying");
+                emit providerDownloadChanged();
+            },Qt::QueuedConnection);
+            const auto states=pfservices::ProviderManager::scan(
+                {QString::fromStdWString(staging.parent_path().wstring())},QCoreApplication::applicationFilePath());
+            for (const auto& state : states) if (state.name==provider) {
+                if (state.available) return true;
+                failure="PROVIDER_STAGING_PROBE_FAILED: "+state.reason.toStdString();return false;
+            }
+            failure="PROVIDER_STAGING_PROBE_MISSING";return false;
+        };
         const bool ok = provider == QStringLiteral("dml")
-            ? pfservices::ProviderStore::downloadDirectMl(destination, reportProgress, error)
-            : pfservices::ProviderStore::downloadAndInstall(*asset, destination, reportProgress, error);
+            ? pfservices::ProviderStore::downloadDirectMl(destination, reportProgress, error,validateStaging)
+            : pfservices::ProviderStore::downloadAndInstall(*asset, destination, reportProgress, error,validateStaging);
         bool installed = ok;
         if (installed) {
-            std::ofstream active(destination.parent_path() / "active.txt",
-                                 std::ios::binary | std::ios::trunc);
-            active << provider.toStdString();
-            if (!active) {
+            QSaveFile active(QString::fromStdWString((destination.parent_path()/"active.txt").wstring()));
+            const auto bytes=provider.toUtf8();
+            if (!active.open(QIODevice::WriteOnly) || active.write(bytes)!=bytes.size() || !active.commit()) {
                 installed = false;
                 error = "runtime installed, but provider activation marker could not be written";
             }

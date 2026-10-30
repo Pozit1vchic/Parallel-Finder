@@ -9,15 +9,55 @@
 #include <QJsonArray>
 #include <QProcess>
 #include <pfservices/ModelStore.hpp>
+#include <pfcore/PathEncoding.hpp>
+#include <QDir>
 
 namespace {
 std::string digest(const QByteArray& data) {
     return QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex().toStdString();
 }
+
 void put(const QString& path, const QByteArray& data) {
     QFile file(path); ASSERT_TRUE(file.open(QIODevice::WriteOnly)); ASSERT_EQ(file.write(data), data.size());
 }
 QByteArray get(const QString& path) { QFile file(path); if (!file.open(QIODevice::ReadOnly)) return {}; return file.readAll(); }
+}
+
+TEST(ProviderStore, CachedVerifiedInstallerSurvivesFailedProbeAndSupportsOfflineRetry)
+{
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString())/pfcore::pathFromUtf8("Пакеты 日本語 spaces");
+    const auto destination=root/"cuda";
+    std::filesystem::create_directories(destination);
+    put(QString::fromStdWString((destination/"onnxruntime.dll").wstring()),"previous-runtime");
+    const auto input=directory.filePath("input");
+    ASSERT_TRUE(QDir().mkpath(input));put(input+"/onnxruntime.dll","new-runtime");
+    const auto archive=directory.filePath("runtime.zip");
+    QProcess tar;
+    tar.start("tar",{"-a","-cf",archive,"-C",input,"onnxruntime.dll"});
+    ASSERT_TRUE(tar.waitForFinished(30000));ASSERT_EQ(tar.exitCode(),0) << tar.readAllStandardError().constData();
+    const auto payload=get(archive);
+    pfservices::ProviderAsset asset{"cuda","runtime.zip",digest(payload),static_cast<std::uint64_t>(payload.size()),
+        "https://github.com/parallel-finder/test-unreachable/releases/download/test/runtime.zip",{}};
+    const auto cache=pfservices::ProviderStore::installerCacheDirectory(asset,destination);
+    std::filesystem::create_directories(cache);
+    put(QString::fromStdWString((cache/asset.archive).wstring()),payload);
+    std::string error;int probes=0;
+    EXPECT_FALSE(pfservices::ProviderStore::downloadAndInstall(asset,destination,{},error,
+        [&](const auto& staging,std::string& reason) {
+            ++probes;EXPECT_TRUE(std::filesystem::is_regular_file(staging/"onnxruntime.dll"));
+            reason="TEST_PROBE_REJECTED";return false;
+        }));
+    EXPECT_EQ(probes,1);EXPECT_EQ(error,"TEST_PROBE_REJECTED");
+    EXPECT_EQ(get(QString::fromStdWString((destination/"onnxruntime.dll").wstring())),"previous-runtime");
+    EXPECT_EQ(get(QString::fromStdWString((cache/asset.archive).wstring())),payload);
+    error.clear();
+    ASSERT_TRUE(pfservices::ProviderStore::downloadAndInstall(asset,destination,{},error,
+        [&](const auto&,std::string&) {++probes;return true;})) << error;
+    EXPECT_EQ(probes,2);
+    EXPECT_EQ(get(QString::fromStdWString((destination/"onnxruntime.dll").wstring())),"new-runtime");
+    EXPECT_EQ(get(QString::fromStdWString((cache/asset.archive).wstring())),payload);
+    EXPECT_TRUE(std::filesystem::is_regular_file(cache/"verified.json"));
 }
 
 TEST(ProviderStore, PartsAreVerifiedBeforeReplacingExistingArchive)
