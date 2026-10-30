@@ -89,6 +89,7 @@ private slots:
         analysis->analyzeFiles({source});QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),10000);
         QVERIFY(!analysis->awaitingTarget());QVERIFY(!analysis->analysisCompleted());
         QVERIFY(analysis->status().contains(QStringLiteral("распознавание персонажей")));
+        QCOMPARE(analysis->analyzedFrames(),0);QCOMPARE(analysis->poseDetectionCount(),0);
         qputenv("PF_ALLOW_UNVERIFIED_TARGETS","1");
         analysis->analyzeFiles({source});
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);

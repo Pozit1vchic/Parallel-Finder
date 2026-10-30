@@ -1014,7 +1014,7 @@ std::filesystem::path findPoseModel()
     return {};
 }
 
-std::filesystem::path findBodyReIdModel()
+std::filesystem::path findBodyReIdModel(bool allowDownload)
 {
     if (const char* configured = std::getenv("PF_REID_MODEL_PATH"); configured && *configured) {
         const auto path=pfcore::pathFromUtf8(configured);
@@ -1033,6 +1033,25 @@ std::filesystem::path findBodyReIdModel()
             if (std::filesystem::is_regular_file(candidate)) return candidate;
         }
     }
+    // Prefer every supported local export before considering network work.
+    for (const auto& root : roots) {
+        std::error_code error;
+        if (!std::filesystem::is_directory(root, error)) continue;
+        for (const auto& entry : std::filesystem::directory_iterator(root, error)) {
+            if (error || !entry.is_regular_file(error)) continue;
+            const auto extension = pfcore::pathToUtf8(entry.path().extension());
+            std::string name = pfcore::pathToUtf8(entry.path().filename());
+            std::transform(name.begin(), name.end(), name.begin(), [](unsigned char value) {
+                return static_cast<char>(std::tolower(value));
+            });
+            if (extension == ".onnx" && (name.find("reid") != std::string::npos || name.find("osnet") != std::string::npos))
+                return entry.path();
+        }
+    }
+    // Target selection requires the packaged identity models. Checking its
+    // prerequisites must not silently fetch manifests on every cached run.
+    // The legacy diagnostic path retains its historical automatic preparation.
+    if(!allowDownload)return {};
     // A release may publish the optional ReID asset in the same manifest as
     // pose models. Download only when the manifest explicitly describes the
     // file (URL/hash/size validation remains ModelStore's responsibility).
@@ -1062,25 +1081,6 @@ std::filesystem::path findBodyReIdModel()
             const auto destination = localModels / canonical;
             if (pfservices::ModelStore::download(*asset, destination, {}, downloadError))
                 return destination;
-        }
-    }
-    // Accept custom release names as long as they clearly identify a ReID
-    // export.  Never scan outside explicitly supported model roots.
-    for (const auto& root : roots) {
-        std::error_code error;
-        if (!std::filesystem::is_directory(root, error)) continue;
-        for (const auto& entry : std::filesystem::directory_iterator(root, error)) {
-            if (error || !entry.is_regular_file(error)) continue;
-            const auto extension = pfcore::pathToUtf8(entry.path().extension());
-            std::string name = pfcore::pathToUtf8(entry.path().filename());
-            std::transform(name.begin(), name.end(), name.begin(), [](unsigned char value) {
-                return static_cast<char>(std::tolower(value));
-            });
-            if (extension == ".onnx"
-                && (name.find("reid") != std::string::npos
-                    || name.find("osnet") != std::string::npos)) {
-                return entry.path();
-            }
         }
     }
     return {};
@@ -2411,6 +2411,17 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             std::error_code modelError;
             if (std::filesystem::is_regular_file(cpuModel, modelError)) model = cpuModel;
         }
+        const auto reidModel = findBodyReIdModel(!interactiveTargets);
+        const auto faceDetectorPath = findLocalModelFile(QStringLiteral("face_detection_yunet_2023mar.onnx"));
+        const auto faceRecognizerPath = findLocalModelFile(QStringLiteral("face_recognition_sface_2021dec.onnx"));
+        const bool requireIdentityModels=interactiveTargets&&qEnvironmentVariable("PF_ALLOW_UNVERIFIED_TARGETS")!="1";
+        const auto identityModelsError="Не удалось подготовить распознавание персонажей. Установи полный комплект приложения с моделями персонажей.";
+        // Missing prerequisites should fail before source probing, cache scans
+        // or expensive ONNX session preparation, not after an apparent hang.
+        if(requireIdentityModels&&(reidModel.empty()||!faceDetectorPath||!faceRecognizerPath)) {
+            qWarning()<<"CHARACTER_IDENTITY_MODELS_UNAVAILABLE";
+            throw std::runtime_error(identityModelsError);
+        }
         QVariantMap inspectedSummaries;
         double inspectedDuration = 0;
         qlonglong inspectedFrames = 0;
@@ -2463,9 +2474,6 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         }
         std::shared_ptr<pfgpu::PoseEstimator> pose =
             sharedPoseEstimator(model, providerChoice, settings.processingThreads);
-        const auto reidModel = findBodyReIdModel();
-        const auto faceDetectorPath = findLocalModelFile(QStringLiteral("face_detection_yunet_2023mar.onnx"));
-        const auto faceRecognizerPath = findLocalModelFile(QStringLiteral("face_recognition_sface_2021dec.onnx"));
         std::shared_ptr<pfgpu::FaceEstimator> face;
         const bool forwardFaceAlignmentAudit = QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
             && !qEnvironmentVariable("PF_BENCHMARK_CACHE_ROOT").isEmpty()
@@ -2490,9 +2498,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             }
         }
         QString sharedIdentityStatus;
-        if(interactiveTargets&&(!face||!reid)&&qEnvironmentVariable("PF_ALLOW_UNVERIFIED_TARGETS")!="1") {
+        if(requireIdentityModels&&(!face||!reid)) {
             qWarning()<<"CHARACTER_IDENTITY_MODELS_UNAVAILABLE"<<faceFailure<<reidFailure;
-            throw std::runtime_error("Не удалось подготовить распознавание персонажей. Установи полный комплект приложения с моделями персонажей.");
+            throw std::runtime_error(identityModelsError);
         }
         std::unordered_map<std::string,std::string> sequenceCacheKeys;
         std::unordered_set<std::string> preparedSequenceSources;
