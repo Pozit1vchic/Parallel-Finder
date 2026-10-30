@@ -2333,7 +2333,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     const bool normalizeSize = normalizeSize_;
     const bool mirrorPoses = mirrorPoses_;
     lastAnalysisPaths_ = normalized;
-    const QString forceTargetSource = std::exchange(forceTargetSource_, QString{});
+    QString forceTargetSource = std::exchange(forceTargetSource_, QString{});
+    if(QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
+        &&qEnvironmentVariableIsSet("PF_SMOKE_TARGET_ID"))forceTargetSource=normalized.first();
     targetCandidates_.clear(); targetSelectionSource_.clear();
     const auto targetChoice = targetChoice_ = std::make_shared<std::atomic_size_t>(0);
     emit targetSelectionChanged();

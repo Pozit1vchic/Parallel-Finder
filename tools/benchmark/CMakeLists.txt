@@ -1,4 +1,8 @@
 find_package(GTest CONFIG REQUIRED)
+find_package(Python3 QUIET COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME pf_quality_metrics COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_quality_metrics.py")
+endif()
 add_executable(pf_matcher_regression
     test_motion_matcher.cpp
     test_scene_detector.cpp

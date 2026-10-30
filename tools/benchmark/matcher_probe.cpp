@@ -3,6 +3,10 @@
 #include <pfcore/MotionRanker.hpp>
 #include <pfcore/DominantPerson.hpp>
 #include <pfcore/MovementClassifier.hpp>
+#if __has_include(<pfcore/SceneFamily.hpp>)
+#include <pfcore/SceneFamily.hpp>
+#define PF_ORGANIZATION_PROBE 1
+#endif
 #include <QCoreApplication>
 #include <QFile>
 #include <QJsonDocument>
@@ -78,26 +82,69 @@ int main(int argc, char** argv)
         }
         windows.push_back(std::move(w));
     }
-    if (args[2]=="--actions") {
+#ifdef PF_ORGANIZATION_PROBE
+    if(args[2]=="--copied-scenes" || args[2]=="--scene-neighbours") {
+        const bool neighbours=args[2]=="--scene-neighbours";
+        const auto started=std::chrono::steady_clock::now();
+        std::map<std::pair<std::string,std::size_t>,const pfcore::MotionWindow*> scenes;
+        for(const auto& w:windows)if(w.hasSceneIndex&&!w.sceneSequence.empty())
+            scenes.try_emplace(std::make_pair(w.sourceId,w.sceneIndex),&w);
+        QJsonArray pairs;
+        for(auto a=scenes.begin();a!=scenes.end();++a)for(auto b=std::next(a);b!=scenes.end();++b) {
+            const auto& x=*a->second;const auto& y=*b->second;
+            double difference=.06;
+            if(neighbours)for(std::size_t i=0;i+2<x.sceneSequence.size()/432;++i)
+                for(std::size_t j=0;j+2<y.sceneSequence.size()/432;++j) {
+                    double error=0;
+                    for(std::size_t p=0;p<1296;++p) {
+                        error+=std::abs(x.sceneSequence[i*432+p]-y.sceneSequence[j*432+p]);
+                        if(error>difference*1296)break;
+                    }
+                    difference=std::min(difference,error/1296);
+                }
+            if((neighbours&&difference<.06)||(!neighbours&&pfcore::MotionMatcher::sameFootageRange(x,x.sceneStartSeconds,x.sceneEndSeconds,
+                y,y.sceneStartSeconds,y.sceneEndSeconds)))
+                pairs.append(QJsonObject{{"leftScene",static_cast<qint64>(x.sceneIndex)},
+                    {"rightScene",static_cast<qint64>(y.sceneIndex)},
+                    {"leftStart",x.sceneStartSeconds},{"leftEnd",x.sceneEndSeconds},
+                    {"rightStart",y.sceneStartSeconds},{"rightEnd",y.sceneEndSeconds},{"sampleDifference",difference}});
+        }
+        const QJsonObject report{{"scope","measured sampled pixels; candidate copies require manual review; not identity ground truth"},
+            {"sceneCount",static_cast<qint64>(scenes.size())},{"pairs",pairs},
+            {"elapsedMs",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count()}};
+        std::cout<<QJsonDocument(report).toJson(QJsonDocument::Compact).constData()<<"\n";return 0;
+    }
+#endif
+    if (args[2]=="--actions" || args[2]=="--labelled-actions") {
         const pfcore::MovementClassifier classifier;
+        const bool labelled=args[2]=="--labelled-actions";
+        const auto started=std::chrono::steady_clock::now();
         QJsonArray rows;
         for(std::size_t index=0;index<windows.size();++index) {
             const auto& window=windows[index];
             if(window.frames.empty())return 2;
             const auto start=window.frames.front().timestampSeconds;
-            const auto end=window.frames.back().timestampSeconds;
-            const auto classification=classifier.classifyForGrouping(window,start,end,false);
+            const auto metadata=json.array()[static_cast<qsizetype>(index)].toObject();
+            const auto end=window.frames.back().timestampSeconds+(labelled && window.frames.size()>1
+                ? window.frames.back().timestampSeconds-window.frames[window.frames.size()-2].timestampSeconds:0);
+            const bool head=labelled && metadata["headOnly"].toBool();
+            const auto classification=classifier.classifyForGrouping(window,start,end,head);
+            const auto predicted=labelled && metadata["pose"].toBool()
+                ? classifier.classifyPoseForGrouping(window,start,end,head)
+                : std::string(pfcore::MovementClassifier::gestureName(classification.gesture));
             QJsonArray actions;
             for(const auto action:classification.actions)
                 actions.append(pfcore::MovementClassifier::gestureName(action));
             rows.append(QJsonObject{{"index",static_cast<qint64>(index)},
                 {"source",QString::fromStdString(window.sourceId)},
                 {"start",start},{"end",end},
-                {"gesture",pfcore::MovementClassifier::gestureName(classification.gesture)},
+                {"gesture",QString::fromStdString(predicted)},{"expected",labelled?metadata["expected"]:QJsonValue()},
+                {"caseId",labelled?metadata["name"]:QJsonValue()},
                 {"actions",actions},{"confidence",classification.gestureConfidence}});
         }
         std::cout<<QJsonDocument(QJsonObject{{"scope","grouping only; no identity or matcher admission"},
-            {"results",rows}}).toJson(QJsonDocument::Compact).constData()<<'\n';
+            {"results",rows},{"elapsedMs",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count()},
+            {"labelled",labelled}}).toJson(QJsonDocument::Compact).constData()<<'\n';
         return 0;
     }
     if (args[2]=="--identity") {
@@ -163,7 +210,7 @@ int main(int argc, char** argv)
 #undef PF_BOOL
     }
     const auto resultJson = [](const pfcore::MotionMatch& m) {
-        return QJsonObject{{"leftIndex", static_cast<qint64>(m.leftIndex)},
+        QJsonObject result{{"leftIndex", static_cast<qint64>(m.leftIndex)},
             {"rightIndex", static_cast<qint64>(m.rightIndex)},
             {"leftSource",QString::fromStdString(m.leftSourceId)},
             {"rightSource",QString::fromStdString(m.rightSourceId)},
@@ -173,6 +220,13 @@ int main(int argc, char** argv)
             {"identityVerified",m.appearanceVerified},{"faceVerified",m.faceVerified},
             {"appearanceSimilarity",m.appearanceSimilarity},{"sceneSimilarity",m.sceneSimilarity},
             {"headOnlyComparison",m.headOnlyComparison},{"rankScore",m.rankScore}};
+#ifdef PF_ORGANIZATION_PROBE
+        result["leftSceneFamily"]=QString::fromStdString(m.leftSceneFamily);
+        result["rightSceneFamily"]=QString::fromStdString(m.rightSceneFamily);
+        result["evidenceQuality"]=m.evidenceQuality;result["bestMatchScore"]=m.bestMatchScore;
+        result["continuityRank"]=static_cast<qint64>(m.continuityRank);
+#endif
+        return result;
     };
     if (all) {
         const int passes=std::clamp(configuration.value("reusePasses").toInt(1),1,10);
@@ -188,14 +242,23 @@ int main(int argc, char** argv)
         }
         const auto matcherMs = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
         pfcore::MotionRanker::rank(matches,windows);
+#ifdef PF_ORGANIZATION_PROBE
+        const auto organizationStart=std::chrono::steady_clock::now();
+        if(configuration.value("organizeResults").toBool())pfcore::MotionRanker::organize(matches,windows);
+        const auto organizationMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-organizationStart).count();
+#endif
         QJsonArray results, inputs;
         std::set<std::string> sources;
         for (const auto& w : windows) sources.insert(w.sourceId);
         for (const auto& s : sources) inputs.append(QString::fromStdString(s));
         for (const auto& match : matches) results.append(resultJson(match));
-        const QJsonObject report{{"inputVideos",inputs},{"results",results},{"elapsedMs",matcherMs},
+        QJsonObject report{{"inputVideos",inputs},{"results",results},{"elapsedMs",matcherMs},
             {"passTimesMs",passTimes},
             {"matcherOnly",true},{"windowCount",static_cast<qint64>(windows.size())}};
+#ifdef PF_ORGANIZATION_PROBE
+        report["organizationMs"]=organizationMs;
+        report["organizedResults"]=configuration.value("organizeResults").toBool();
+#endif
         std::cout << QJsonDocument(report).toJson(QJsonDocument::Compact).constData() << "\n";
         return 0;
     }
