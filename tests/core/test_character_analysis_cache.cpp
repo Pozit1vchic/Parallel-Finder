@@ -50,3 +50,14 @@ TEST(CharacterAnalysisCache, RejectsForeignWindowsDuplicateTracksAndIncompatible
     auto bytes=pfservices::serializeCharacterAnalysis(artifact()); bytes[4]=99;
     EXPECT_FALSE(pfservices::deserializeCharacterAnalysis(bytes,output));
 }
+
+TEST(CharacterAnalysisCache, DetectsSameSizeCorruptionAndCooperativeWriteCancellation)
+{
+    auto bytes=pfservices::serializeCharacterAnalysis(artifact());
+    bytes[bytes.size()/2]^=1;
+    pfservices::CharacterAnalysis output;
+    EXPECT_FALSE(pfservices::deserializeCharacterAnalysis(bytes,output));
+    EXPECT_TRUE(pfservices::serializeCharacterAnalysis(artifact(),[]{return true;}).empty());
+    int calls=0;
+    EXPECT_TRUE(pfservices::serializeCharacterAnalysis(artifact(),[&]{return ++calls>2;}).empty());
+}

@@ -3,6 +3,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QCryptographicHash>
 #include <cmath>
 #include <set>
 #include <limits>
@@ -33,10 +34,12 @@ bool idFromJson(const QJsonValue& value, std::size_t& result)
 bool unit(double value) { return std::isfinite(value) && value >= 0 && value <= 1; }
 }
 
-std::vector<std::uint8_t> serializeCharacterAnalysis(const CharacterAnalysis& analysis)
+std::vector<std::uint8_t> serializeCharacterAnalysis(const CharacterAnalysis& analysis,
+    const std::function<bool()>& cancelled)
 {
     QJsonArray candidates;
     for (const auto& c : analysis.candidates) {
+        if (cancelled && cancelled()) return {};
         QJsonArray tracks, appearances;
         for (auto id : c.trackIds) tracks.append(QString::number(id));
         for (const auto& a : c.appearances) appearances.append(QJsonObject{
@@ -49,18 +52,25 @@ std::vector<std::uint8_t> serializeCharacterAnalysis(const CharacterAnalysis& an
             {"quality",c.evidenceQuality},{"appearances",appearances}});
     }
     const auto header = QJsonDocument(QJsonObject{{"schema",1},{"candidates",candidates}}).toJson(QJsonDocument::Compact);
-    std::vector<std::uint8_t> result {'P','F','C','H',1};
+    std::vector<std::uint8_t> result {'P','F','C','H',2};
     const auto size = static_cast<std::uint32_t>(header.size());
     for (int i=0;i<4;++i) result.push_back(static_cast<std::uint8_t>(size >> (8*i)));
     result.insert(result.end(),header.begin(),header.end());
-    const auto windows = serializeMotionWindows(analysis.windows,analysis.sceneCount);
+    const auto windows = serializeMotionWindows(analysis.windows,analysis.sceneCount,cancelled);
+    if (windows.empty() || (cancelled && cancelled())) return {};
     result.insert(result.end(),windows.begin(),windows.end());
+    const auto digest=QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char*>(result.data()),result.size()),QCryptographicHash::Sha256);
+    result.insert(result.end(),digest.begin(),digest.end());
     return result;
 }
 
 bool deserializeCharacterAnalysis(std::span<const std::uint8_t> bytes, CharacterAnalysis& analysis)
 {
-    if (bytes.size()<9 || bytes[0]!='P' || bytes[1]!='F' || bytes[2]!='C' || bytes[3]!='H' || bytes[4]!=1) return false;
+    if (bytes.size()<41 || bytes[0]!='P' || bytes[1]!='F' || bytes[2]!='C' || bytes[3]!='H' || bytes[4]!=2) return false;
+    const auto payload=bytes.first(bytes.size()-32);
+    const auto digest=QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char*>(payload.data()),payload.size()),QCryptographicHash::Sha256);
+    if (!std::equal(bytes.end()-32,bytes.end(),reinterpret_cast<const std::uint8_t*>(digest.constData()))) return false;
+    bytes=payload;
     std::uint32_t size=0; for (int i=0;i<4;++i) size |= std::uint32_t(bytes[5+i]) << (8*i);
     if (size > 16*1024*1024 || size > bytes.size()-9) return false;
     QJsonParseError error;

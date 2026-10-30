@@ -12,6 +12,7 @@ struct CharacterAnalysis {
 // The outer PfCache key fingerprints source, models, inference settings and
 // pipeline version. This envelope versions the candidate/window relationship.
 // Readers validate into a temporary object and publish only a complete record.
-std::vector<std::uint8_t> serializeCharacterAnalysis(const CharacterAnalysis& analysis);
+std::vector<std::uint8_t> serializeCharacterAnalysis(const CharacterAnalysis& analysis,
+    const std::function<bool()>& cancelled = {});
 bool deserializeCharacterAnalysis(std::span<const std::uint8_t> bytes, CharacterAnalysis& analysis);
 }

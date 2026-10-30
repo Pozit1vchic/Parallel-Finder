@@ -23,7 +23,8 @@ bool readBytes(std::span<const std::uint8_t> input, std::size_t& offset, T& valu
 
 } // namespace
 
-std::vector<std::uint8_t> serializeMotionWindows(std::span<const pfcore::MotionWindow> windows, int sceneCount)
+std::vector<std::uint8_t> serializeMotionWindows(std::span<const pfcore::MotionWindow> windows, int sceneCount,
+    const std::function<bool()>& cancelled)
 {
     std::vector<std::uint8_t> output;
     const std::uint32_t version = std::any_of(windows.begin(),windows.end(),[](const auto& window) {
@@ -33,6 +34,7 @@ std::vector<std::uint8_t> serializeMotionWindows(std::span<const pfcore::MotionW
     appendBytes(output, static_cast<std::uint32_t>(windows.size()));
     appendBytes(output, static_cast<std::uint32_t>(sceneCount));
     for (const auto& window : windows) {
+        if (cancelled && cancelled()) return {};
         appendBytes(output, static_cast<std::uint32_t>(window.sourceId.size()));
         output.insert(output.end(), window.sourceId.begin(), window.sourceId.end());
         appendBytes(output, static_cast<std::uint64_t>(window.trackId));
@@ -54,6 +56,7 @@ std::vector<std::uint8_t> serializeMotionWindows(std::span<const pfcore::MotionW
         for (const float value : window.faceEmbedding) appendBytes(output, value);
         appendBytes(output, static_cast<std::uint32_t>(window.frames.size()));
         for (const auto& frame : window.frames) {
+            if (cancelled && cancelled()) return {};
             appendBytes(output, frame.timestampSeconds);
             appendBytes(output, static_cast<std::uint32_t>(frame.keypoints.size()));
             for (const auto& point : frame.keypoints) {
