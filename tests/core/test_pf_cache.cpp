@@ -6,6 +6,24 @@
 #include <QCryptographicHash>
 #include <QTemporaryDir>
 #include <fstream>
+#include <pfcore/PathEncoding.hpp>
+
+TEST(PfCache, UnicodePathsAndAtomicReplacementPreserveOtherSources)
+{
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString())
+        / pfcore::pathFromUtf8("Кэш 日本語 spaces 🖤");
+    EXPECT_EQ(pfcore::pathFromUtf8(pfcore::pathToUtf8(root)),root);
+    pfservices::PfCache cache(root,65536);
+    std::string error;
+    ASSERT_TRUE(cache.put("target",{1,2,3},error)) << error;
+    ASSERT_TRUE(cache.put("other",{8,9},error)) << error;
+    ASSERT_TRUE(cache.put("target",{4,5,6},error)) << error;
+    EXPECT_EQ(*cache.get("target"),(std::vector<std::uint8_t>{4,5,6}));
+    EXPECT_EQ(*cache.get("other"),(std::vector<std::uint8_t>{8,9}));
+    EXPECT_FALSE(cache.put("target",std::vector<std::uint8_t>(65537),error));
+    EXPECT_EQ(*cache.get("target"),(std::vector<std::uint8_t>{4,5,6}));
+}
 
 TEST(PfCache, ForgedPayloadLengthAndTrailingBytesAreCacheMisses)
 {

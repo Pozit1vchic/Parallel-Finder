@@ -3,6 +3,7 @@
 #include <QCryptographicHash>
 #include <QCoreApplication>
 #include <QUuid>
+#include <QSaveFile>
 
 #include <algorithm>
 #include <array>
@@ -23,14 +24,6 @@ constexpr std::uint64_t kMaxCacheEntryBytes = 512ULL * 1024ULL * 1024ULL;
 // Observation keys include source/model paths and the inference contract.
 // Long Windows paths can exceed 1 KiB without indicating a malformed entry.
 constexpr std::uint32_t kMaxCacheKeyBytes = 16U * 1024U;
-std::atomic_uint64_t kTemporaryCounter {0};
-
-template <typename T>
-void writeScalar(std::ostream& stream, T value)
-{
-    stream.write(reinterpret_cast<const char*>(&value), sizeof(value));
-}
-
 template <typename T>
 bool readScalar(std::istream& stream, T& value)
 {
@@ -106,34 +99,23 @@ bool PfCache::writeEntry(const std::filesystem::path& path, const std::string& k
         error = "create cache directory: " + filesystemError.message();
         return false;
     }
-    const auto temporary = path.string() + ".tmp."
-        + std::to_string(QCoreApplication::applicationPid()) + "."
-        + std::to_string(kTemporaryCounter.fetch_add(1, std::memory_order_relaxed));
-    std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
-    if (!stream) {
-        error = "open cache entry for write failed";
+    QSaveFile output(QString::fromStdWString(path.wstring()));
+    output.setDirectWriteFallback(false);
+    if (!output.open(QIODevice::WriteOnly)) {
+        error = "open cache entry for write: " + output.errorString().toStdString();
         return false;
     }
-    stream.write(kMagic.data(), static_cast<std::streamsize>(kMagic.size()));
-    writeScalar(stream, kVersion);
-    writeScalar(stream, static_cast<std::uint32_t>(key.size()));
-    writeScalar(stream, static_cast<std::uint64_t>(payload.size()));
-    stream.write(key.data(), static_cast<std::streamsize>(key.size()));
-    if (!payload.empty()) stream.write(reinterpret_cast<const char*>(payload.data()),
-                                       static_cast<std::streamsize>(payload.size()));
-    stream.flush();
-    stream.close();
-    if (!stream) {
-        error = "write cache entry failed";
-        std::filesystem::remove(temporary, filesystemError);
-        return false;
-    }
-    std::filesystem::remove(path, filesystemError);
-    filesystemError.clear();
-    std::filesystem::rename(temporary, path, filesystemError);
-    if (filesystemError) {
-        error = "install cache entry: " + filesystemError.message();
-        std::filesystem::remove(temporary, filesystemError);
+    const auto write = [&](const auto& value) {
+        return output.write(reinterpret_cast<const char*>(&value),sizeof(value)) == sizeof(value);
+    };
+    const bool written = output.write(kMagic.data(),kMagic.size()) == static_cast<qint64>(kMagic.size())
+        && write(kVersion) && write(static_cast<std::uint32_t>(key.size()))
+        && write(static_cast<std::uint64_t>(payload.size()))
+        && output.write(key.data(),key.size()) == static_cast<qint64>(key.size())
+        && output.write(reinterpret_cast<const char*>(payload.data()),payload.size()) == static_cast<qint64>(payload.size());
+    if (!written || !output.commit()) {
+        error = "write cache entry: " + output.errorString().toStdString();
+        output.cancelWriting();
         return false;
     }
     return true;

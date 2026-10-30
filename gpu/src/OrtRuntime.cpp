@@ -1,3 +1,4 @@
+#include <pfcore/PathEncoding.hpp>
 #include "pfgpu/OrtRuntime.hpp"
 
 #include <algorithm>
@@ -105,7 +106,7 @@ HMODULE loadLibrary(const std::filesystem::path& path, std::string& error)
         return module;
     }
     const DWORD code = ::GetLastError();
-    error = "LoadLibraryW(\"" + path.string() + "\") failed, GetLastError="
+    error = "LoadLibraryW(\"" + pfcore::pathToUtf8(path) + "\") failed, GetLastError="
         + std::to_string(code);
     return nullptr;
 }

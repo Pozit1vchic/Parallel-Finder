@@ -18,6 +18,7 @@ add_library(pf::gpu ALIAS pfgpu)
 set_target_properties(pfgpu PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 
 target_include_directories(pfgpu PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(pfgpu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../core/include)
 target_compile_features(pfgpu PUBLIC cxx_std_23)
 
 # ORT is intentionally NOT link-time dependent: pfgpu uses LoadLibraryW +

@@ -1,3 +1,4 @@
+#include <pfcore/PathEncoding.hpp>
 #include <pfservices/SettingsStore.hpp>
 
 #include <QDir>
@@ -144,7 +145,7 @@ std::string SettingsStore::defaultDirectory()
 
 std::string SettingsStore::defaultPath()
 {
-    return (std::filesystem::path(defaultDirectory()) / "settings.json").string();
+    return pfcore::pathToUtf8(pfcore::pathFromUtf8(defaultDirectory()) / "settings.json");
 }
 
 SettingsStore::SettingsStore(std::string path)
