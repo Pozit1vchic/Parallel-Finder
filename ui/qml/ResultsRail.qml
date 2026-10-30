@@ -33,7 +33,7 @@ Rectangle {
     property int pendingRowIndex: 0
     property real pendingContentY: 0
     readonly property int activeFilterCount: (classFilter ? 1 : 0) + (sourceQuery.trim() ? 1 : 0)
-        + (sourceFilter ? 1 : 0) + (sortCriterion !== "classification" || sortDescending ? 1 : 0)
+        + (matchTierFilter !== "strong" ? 1 : 0) + (sourceFilter ? 1 : 0) + (sortCriterion !== "classification" || sortDescending ? 1 : 0)
     function classKey(row) {
         return L10n.movementKey(row.classification)
     }
@@ -71,6 +71,7 @@ Rectangle {
         }
         reviewNotice = Review.t("allReviewed")
     }
+    property string matchTierFilter: "strong"
     property string reviewFilter: "all"
     property int selectionAnchorId: -1
     property var revealedCards: ({})
@@ -284,6 +285,14 @@ Rectangle {
                     ToolTip.visible: hovered && !!root.sourceFilter; ToolTip.text: root.sourceFilter
                 }
                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.hairline; Layout.topMargin: 2; Layout.bottomMargin: 2 }
+                PfComboBox {
+                    objectName: "matchTierFilter"; Layout.fillWidth: true
+                    model: [L10n.t("matches.strong")+" · "+root.results.filter(function(row) { return !row.hidden && (row.matchTier || "strong") === "strong" }).length,
+                        L10n.t("matches.possible")+" · "+root.results.filter(function(row) { return !row.hidden && row.matchTier === "possible" }).length]
+                    currentIndex: root.matchTierFilter === "possible" ? 1 : 0
+                    onActivated: function(index) { root.matchTierFilter=index === 1 ? "possible" : "strong" }
+                    Accessible.name: L10n.t("matches.tier")
+                }
                 Text { Layout.fillWidth: true; text: L10n.t("results.sortBy"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10 }
                 PfComboBox {
                     id: resultSort
@@ -299,8 +308,12 @@ Rectangle {
                     Layout.fillWidth: true
                     Accessible.name: L10n.t("results.sortBy")
                     model: [L10n.t("results.scoreHigh"), L10n.t("results.scoreLow"), L10n.t("results.sceneHigh"), L10n.t("results.sceneLow"),
-                            L10n.t("results.timeEarly"), L10n.t("results.timeLate"), L10n.t("ui.350")]
-                    currentIndex: root.sortCriterion === "classification" ? 6 : root.sortCriterion === "time" ? (root.sortDescending ? 5 : 4)
+                            L10n.t("results.timeEarly"), L10n.t("results.timeLate"), L10n.t("ui.350"),
+                            L10n.t("sort.best"),L10n.t("sort.continuity"),L10n.t("sort.pose"),L10n.t("sort.identity"),
+                            L10n.t("sort.evidence"),L10n.t("sort.longest"),L10n.t("sort.shortest"),L10n.t("sort.source")]
+                    currentIndex: ["best","continuity","pose","identity","evidence","longest","shortest","source"].indexOf(root.sortCriterion)>=0
+                        ? 7+["best","continuity","pose","identity","evidence","longest","shortest","source"].indexOf(root.sortCriterion)
+                        : root.sortCriterion === "classification" ? 6 : root.sortCriterion === "time" ? (root.sortDescending ? 5 : 4)
                         : root.sortCriterion === "scene" ? (root.sortDescending ? 2 : 3) : (root.sortDescending ? 0 : 1)
                     onActivated: function(index) { root.chooseSort(index) }
                 }
@@ -361,6 +374,7 @@ Rectangle {
         sourceQuery = ""
         sourceFilter = ""
         classFilter = ""
+        matchTierFilter = "strong"
         sortCriterion = "classification"
         sortDescending = false
         suppressFilterRebuild = false
@@ -370,7 +384,8 @@ Rectangle {
 
     function chooseSort(index) {
         suppressFilterRebuild = true
-        sortCriterion = index === 6 ? "classification" : index >= 4 ? "time" : index >= 2 ? "scene" : "movement"
+        sortCriterion = index>=7 ? ["best","continuity","pose","identity","evidence","longest","shortest","source"][index-7]
+            : index === 6 ? "classification" : index >= 4 ? "time" : index >= 2 ? "scene" : "movement"
         sortDescending = index < 4 ? index % 2 === 0 : index === 5
         suppressFilterRebuild = false
         rebuild()
@@ -386,11 +401,23 @@ Rectangle {
 
     function compareValues(a, b) {
         let delta = 0
+        const strongA=Number(a.bestMatchScore !== undefined ? a.bestMatchScore : root.movementSimilarity(a))
+        const strongB=Number(b.bestMatchScore !== undefined ? b.bestMatchScore : root.movementSimilarity(b))
+        if (sortCriterion === "best") return (strongB-Number(b.redundancyPenalty || 0))-(strongA-Number(a.redundancyPenalty || 0)) || Number(a.id)-Number(b.id)
+        if (sortCriterion === "continuity") return Number(a.continuityRank || 0)-Number(b.continuityRank || 0) || timeValue(a)-timeValue(b) || Number(a.id)-Number(b.id)
+        if (sortCriterion === "pose") return Number(b.poseSimilarity || 0)-Number(a.poseSimilarity || 0) || strongB-strongA || Number(a.id)-Number(b.id)
+        if (sortCriterion === "identity") return Number(b.faceVerified ? 2 : b.identityVerified ? 1 : 0)-Number(a.faceVerified ? 2 : a.identityVerified ? 1 : 0) || strongB-strongA || Number(a.id)-Number(b.id)
+        if (sortCriterion === "evidence") return Number(b.evidenceQuality || 0)-Number(a.evidenceQuality || 0) || strongB-strongA || Number(a.id)-Number(b.id)
+        if (sortCriterion === "longest" || sortCriterion === "shortest") {
+            const da=Number(a.leftEnd || 0)-Number(a.leftStart || 0),db=Number(b.leftEnd || 0)-Number(b.leftStart || 0)
+            return (da-db)*(sortCriterion === "longest" ? -1 : 1) || strongB-strongA || Number(a.id)-Number(b.id)
+        }
+        if (sortCriterion === "source") return String(a.leftSource || "").localeCompare(String(b.leftSource || "")) || timeValue(a)-timeValue(b) || Number(a.id)-Number(b.id)
         if (sortCriterion === "classification") {
             const ga = String(a.manualGroup || ""), gb = String(b.manualGroup || "")
             if (ga !== gb) return ga && gb ? ga.localeCompare(gb) : ga ? -1 : 1
             delta = classKeys.indexOf(classKey(a)) - classKeys.indexOf(classKey(b))
-            if (!delta) return movementSimilarity(b) - movementSimilarity(a) || Number(a.id) - Number(b.id)
+            if (!delta) return strongB-strongA || Number(a.id)-Number(b.id)
         } else if (sortCriterion === "scene")
             delta = sceneSimilarity(a) - sceneSimilarity(b)
         else if (sortCriterion === "time")
@@ -458,6 +485,7 @@ Rectangle {
             if (reviewFilter === "favorites" && !item.favorite) continue
             if ((item.leftRemoved || !matchesSource(item.leftSource)) && (item.rightRemoved || !matchesSource(item.rightSource))) continue
             if (classFilter && classKey(item) !== classFilter) continue
+            if (!item.manualPair && (item.matchTier || "strong") !== matchTierFilter) continue
             next.push(item)
         }
         next.sort(compareValues)
@@ -588,6 +616,7 @@ Rectangle {
     onResultsChanged: rebuild()
     onSortDescendingChanged: if (!suppressFilterRebuild) rebuild()
     onSortCriterionChanged: if (!suppressFilterRebuild) rebuild()
+    onMatchTierFilterChanged: if (!suppressFilterRebuild) rebuild()
     onReviewFilterChanged: { rebuild(); if (selectedIndex >= 0 && currentVisibleIndex < 0) resultSelected(visibleResults.length ? Number(visibleResults[0].id) : -1) }
     Connections { target: Analysis; function onResultsChanged() { root.revealedCards = ({}) } }
     Component.onCompleted: rebuild()

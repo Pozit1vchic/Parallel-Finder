@@ -17,16 +17,21 @@ struct PreviewWriter::Impl {
         std::promise<QString> done;
     };
     PfCache* cache;
+    std::string source;
     std::size_t capacity;
     std::mutex mutex;
     std::condition_variable available, space;
     std::deque<Task> tasks;
     bool closed = false;
     std::jthread worker;
-    Impl(PfCache* value, std::size_t slotCount) : cache(value), capacity(slotCount)
+    Impl(PfCache* value, std::size_t slotCount,std::string owner) : cache(value),source(std::move(owner)), capacity(slotCount)
     {
         if (slotCount == 0 || slotCount > 4) throw std::invalid_argument("PreviewWriter: invalid capacity");
         worker = std::jthread([this] {
+            std::vector<std::pair<std::string,std::vector<std::uint8_t>>> batch;
+            const auto flush=[&] {
+                if(cache&&!batch.empty()) {std::string error;cache->putForSourceBatch(source,batch,error);batch.clear();}
+            };
             for (;;) {
                 Task task;
                 {
@@ -45,13 +50,18 @@ struct PreviewWriter::Impl {
                             if (file.open(QIODevice::ReadOnly)) {
                                 const auto bytes = file.readAll();
                                 std::string error;
-                                cache->put(task.key, std::vector<std::uint8_t>(bytes.begin(), bytes.end()), error);
+                                if(source.empty())cache->put(task.key,std::vector<std::uint8_t>(bytes.begin(),bytes.end()),error);
+                                else {
+                                    batch.emplace_back(task.key,std::vector<std::uint8_t>(bytes.begin(),bytes.end()));
+                                    if(batch.size()>=32)flush();
+                                }
                             }
                         }
                     }
                 } catch (...) { /* Preserve serial preview failure/fallback behavior. */ }
                 task.done.set_value(std::move(url));
             }
+            flush();
         });
     }
     void finish() noexcept
@@ -61,7 +71,7 @@ struct PreviewWriter::Impl {
         if (worker.joinable()) worker.join();
     }
 };
-PreviewWriter::PreviewWriter(PfCache* cache, std::size_t capacity) : impl_(std::make_unique<Impl>(cache, capacity)) {}
+PreviewWriter::PreviewWriter(PfCache* cache, std::size_t capacity,std::string source) : impl_(std::make_unique<Impl>(cache, capacity,std::move(source))) {}
 PreviewWriter::~PreviewWriter() { finish(); }
 void PreviewWriter::finish() noexcept { impl_->finish(); }
 std::shared_future<QString> PreviewWriter::submit(QImage image, QString path, std::string key)

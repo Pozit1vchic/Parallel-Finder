@@ -109,6 +109,22 @@ TEST(PreviewWriter, FailedWritesCompleteWithoutDeadlock)
     writer.finish();
     EXPECT_TRUE(empty.get().isEmpty()); EXPECT_TRUE(missing.get().isEmpty());
 }
+TEST(PreviewWriter, SourceBatchesFlushTheTailAndRemainResettable)
+{
+    QTemporaryDir directory,images;
+    pfservices::PfCache cache(std::filesystem::path(directory.path().toStdWString()));
+    pfservices::PreviewWriter writer(&cache,3,"film");
+    std::vector<std::shared_future<QString>> results;
+    for(int i=0;i<35;++i) {
+        QImage image(32,32,QImage::Format_RGBA8888);image.fill(Qt::red);
+        results.push_back(writer.submit(image,images.filePath(QString::number(i)+".png"),"character-"+std::to_string(i)));
+    }
+    writer.finish();
+    EXPECT_EQ(cache.keysForSource("film").size(),35);
+    for(int i=0;i<35;++i) {EXPECT_FALSE(results[i].get().isEmpty());EXPECT_TRUE(cache.get("character-"+std::to_string(i)));}
+    std::string error;ASSERT_TRUE(cache.resetSource("film",error))<<error;
+    EXPECT_FALSE(cache.get("character-34"));
+}
 TEST(CachedPreview, OptionalExistingCachePreparationBenchmark)
 {
     const auto* root = std::getenv("PF_BENCH_PREVIEW_CACHE");

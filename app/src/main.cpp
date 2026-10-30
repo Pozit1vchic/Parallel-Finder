@@ -276,6 +276,24 @@ int main(int argc, char* argv[])
         }
         auto* analysis = pfui::AnalysisController::instance();
         QEventLoop loop;
+        // Opt-in real-data diagnostic exercises the SAME explicit selection
+        // workflow. "inspect" stops after writing previews; a numeric ID must
+        // be chosen from that artifact, never inferred from screen dominance.
+        if(qEnvironmentVariableIsSet("PF_SMOKE_TARGET_ID")) {
+            QObject::connect(analysis,&pfui::AnalysisController::targetSelectionChanged,&loop,[&] {
+                if(!analysis->awaitingTarget())return;
+                const auto output=qEnvironmentVariable("PF_SMOKE_TARGET_CANDIDATES_JSON");
+                if(!output.isEmpty()) {
+                    QSaveFile file(output);
+                    if(file.open(QIODevice::WriteOnly)) {
+                        const auto bytes=QJsonDocument::fromVariant(analysis->targetCandidates()).toJson();
+                        if(file.write(bytes)==bytes.size())file.commit();
+                    }
+                }
+                const auto target=qEnvironmentVariable("PF_SMOKE_TARGET_ID");
+                if(target==QStringLiteral("inspect") || !analysis->selectTargetCharacter(target))analysis->stopAnalysis();
+            });
+        }
         QTimer timeout;
         timeout.setSingleShot(true);
         const int requestedTimeout = qEnvironmentVariableIntValue("PF_ANALYSIS_TIMEOUT_SEC");

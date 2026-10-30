@@ -3,6 +3,10 @@
 #include <UiRuntime.h>
 #include <pfservices/SettingsStore.hpp>
 #include <QGuiApplication>
+#include <QQmlApplicationEngine>
+#include <QQuickWindow>
+#include <QQuickItem>
+#include <cmath>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QDir>
@@ -30,9 +34,27 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!appInfo->backendInitializing(),30000);
         auto* analysis=pfui::AnalysisController::instance();
         const QString source=QStringLiteral(PF_TARGET_VIDEO);
+        QQmlApplicationEngine engine;
+        engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+        engine.load(QUrl(QStringLiteral("qrc:/qt/qml/PfUi/qml/Main.qml")));
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().front());
+        QVERIFY(window);
+        window->setProperty("sourceFiles",QVariantList{source});
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),10000);
         analysis->analyzeFiles({source});
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
         QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
+        QTest::qWait(300);
+        const auto image=window->grabWindow();
+        QVERIFY(!image.isNull());
+        QVERIFY(image.save(QCoreApplication::applicationDirPath()+"/target-character-panel.png"));
+        auto* selector=window->findChild<QQuickItem*>("targetCharacterPanel");
+        QVERIFY(selector && selector->isVisible());
+        const auto center=selector->mapToScene(QPointF(selector->width()/2,selector->height()/2));
+        QVERIFY(std::abs(center.x()-window->width()/2)<window->width()*.1);
+        QVERIFY(selector->width()>window->width()*.4);
+        QVERIFY(!window->findChild<QObject*>("sourcesRail")->findChild<QObject*>("targetCharacterPanel"));
         const auto candidates=analysis->targetCandidates();
         QVERIFY(candidates.size()>=2);
         const auto first=candidates[0].toMap().value("id").toString();
@@ -47,6 +69,12 @@ private slots:
         QVERIFY(analysis->analysisCompleted());
         QCOMPARE(analysis->analyzedFrames(),0);
         QCOMPARE(analysis->poseDetectionCount(),0);
+        analysis->setAnalysisMode("static");
+        analysis->analyzeFiles({source});
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
+        QVERIFY(analysis->analysisCompleted());
+        QCOMPARE(analysis->analyzedFrames(),0);
+        analysis->setAnalysisMode("motion");
         analysis->reselectTargetCharacter(source);
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
         QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
@@ -60,6 +88,24 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),5000);
         QVERIFY(!analysis->awaitingTarget());
         QVERIFY(!analysis->analysisCompleted());
+        // A second source with no face evidence requires explicit confirmation,
+        // and its manual choice must survive a cached batch run.
+        const auto episode=directory.filePath("episode-two.mp4");
+        QVERIFY(QFile::copy(source,episode));
+        analysis->analyzeFiles({source,episode});
+        QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
+        QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
+        QCOMPARE(analysis->targetSelectionSource(),episode);
+        QVERIFY(analysis->selectTargetCharacter(first));
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
+        QVERIFY(analysis->analysisCompleted());
+        QCOMPARE(analysis->summaryForSource(source).value("targetCharacterId").toString(),second);
+        QCOMPARE(analysis->summaryForSource(episode).value("targetCharacterId").toString(),first);
+        analysis->analyzeFiles({source,episode});
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
+        QVERIFY(analysis->analysisCompleted());
+        QCOMPARE(analysis->analyzedFrames(),0);
+        QCOMPARE(analysis->summaryForSource(episode).value("targetCharacterId").toString(),first);
         pfservices::SettingsStore::flushPendingWrites();
     }
 };

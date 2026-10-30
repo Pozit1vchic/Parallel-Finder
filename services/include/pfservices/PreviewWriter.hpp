@@ -11,7 +11,7 @@ namespace pfservices {
 // Every returned future is ready before finish()/destruction returns.
 class PreviewWriter {
 public:
-    explicit PreviewWriter(PfCache* cache, std::size_t capacity = 3);
+    explicit PreviewWriter(PfCache* cache, std::size_t capacity = 3,std::string source = {});
     ~PreviewWriter();
     PreviewWriter(const PreviewWriter&) = delete;
     PreviewWriter& operator=(const PreviewWriter&) = delete;

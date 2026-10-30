@@ -123,6 +123,7 @@ ColumnLayout {
                     width: Math.min(parent.width * 0.58, implicitWidth)
                     textFormat: root.selectedRecord && !root.selectedRecord.manualPair && !Analysis.busy ? Text.RichText : Text.PlainText
                     text: {
+                        if (Analysis.awaitingTarget) return L10n.t("character.title")
                         if (Analysis.busy) return L10n.status(Analysis.progressStage)
                         if (root.selectedRecord) {
                             if (root.selectedRecord.manualPair) return L10n.matchLabel(root.selectedRecord)
@@ -199,6 +200,12 @@ ColumnLayout {
                 radius: Theme.radiusButton
                 border.color: Theme.hairline
                 clip: true
+
+                CharacterSelector {
+                    anchors.fill: parent
+                    anchors.margins: 20
+                    visible: Analysis.awaitingTarget
+                }
 
                 Item {
                     anchors.fill: parent
@@ -289,7 +296,7 @@ ColumnLayout {
                 Item {
                     anchors.fill: parent
                     anchors.margins: 16
-                    visible: !root.selectedRecord
+                    visible: !root.selectedRecord && !Analysis.awaitingTarget
                     Column {
                         anchors.centerIn: parent
                         width: Math.min(parent.width - 32, 560)
@@ -313,7 +320,7 @@ ColumnLayout {
                             anchors.horizontalCenter: parent.horizontalCenter
                             width: parent.width
                             text: Analysis.busy
-                                ? L10n.status(Analysis.progressStage)
+                                ? (Analysis.awaitingTarget ? L10n.t("character.title") : L10n.status(Analysis.progressStage))
                                 : root.sourceFiles.length === 0
                                     ? L10n.t("center.emptyTitle")
                                     : root.analysisCompleted
@@ -328,7 +335,7 @@ ColumnLayout {
                         Text { font.family: Theme.fontFamily;
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: Analysis.busy
-                                ? L10n.t("center.analyzingHint")
+                                ? (Analysis.awaitingTarget ? L10n.t("character.hint") : L10n.t("center.analyzingHint"))
                                 : root.sourceFiles.length === 0
                                     ? L10n.t("center.emptyHint")
                                     : root.analysisCompleted
@@ -365,6 +372,44 @@ ColumnLayout {
     }
 
     Popup {
+        id: matchExplanation
+        objectName: "matchExplanation"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(440,parent ? parent.width-40 : 440)
+        padding: 20; modal: true; focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairlineStrong }
+        enter: Transition { enabled: !Theme.reducedMotion; ParallelAnimation {
+            NumberAnimation { property: "scale"; from: Theme.motionPopupScale; to: 1; duration: Theme.motionPopupDuration; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionChangeDuration }
+        } }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Text { Layout.fillWidth: true; text: L10n.t("explain.title"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 18; font.weight: Font.DemiBold }
+            Repeater {
+                model: ["identity","pose","motion","temporal","visibility","camera"]
+                delegate: RowLayout {
+                    required property string modelData
+                    Layout.fillWidth: true
+                    Text { Layout.fillWidth: true; text: L10n.t("explain."+modelData); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                    Text {
+                        color: Theme.textPrimary; font.family: Theme.monoFont; font.pixelSize: 12
+                        text: {
+                            const row=root.selectedRecord || {}
+                            if (modelData === "identity") return row.faceVerified || row.identityVerified ? L10n.t("explain.confirmed") : L10n.t("explain.unknown")
+                            const value=modelData === "pose" ? row.poseSimilarity : modelData === "motion" ? (row.matchType === "motion" ? row.similarity : undefined)
+                                : modelData === "temporal" ? row.temporalCoverage : modelData === "visibility" ? row.visibilityCoverage : undefined
+                            return value !== undefined && value >= 0 ? Math.round(Number(value)*100)+"%" : L10n.t("explain.unknown")
+                        }
+                    }
+                }
+            }
+            Text { Layout.fillWidth: true; text: L10n.t("explain.note"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
+            PfButton { Layout.alignment: Qt.AlignRight; compact: true; text: L10n.t("explain.close"); onClicked: matchExplanation.close() }
+        }
+    }
+    Popup {
         id: pairActions
         objectName: "pairActionsMenu"
         parent: Overlay.overlay
@@ -399,6 +444,11 @@ ColumnLayout {
         }
         contentItem: ColumnLayout {
             spacing: 6
+            PfButton {
+                objectName: "explainMatchAction"; Layout.fillWidth: true; compact: true; quiet: true
+                text: L10n.t("explain.title"); enabled: !!root.selectedRecord && !root.selectedRecord.manualPair
+                onClicked: { pairActions.close(); matchExplanation.open() }
+            }
             PfButton {
                 objectName: "adjustPairAction"
                 Layout.fillWidth: true

@@ -5,6 +5,7 @@
 #include <QStringList>
 #include <algorithm>
 #include <array>
+#include "ScenePresentation.h"
 
 namespace pfui {
 using ResultPoseEvidence = std::array<pfcore::MotionWindow, 2>;
@@ -20,6 +21,8 @@ inline pfcore::MotionWindow groupingEvidence(const pfcore::MotionWindow& source)
     result.headOrientations = source.headOrientations;
     result.sourceId = source.sourceId;
     result.videoActions = source.videoActions;
+    result.trackId=source.trackId;result.sceneIndex=source.sceneIndex;result.hasSceneIndex=source.hasSceneIndex;
+    result.appearanceConfidence=source.appearanceConfidence;result.faceConfidence=source.faceConfidence;
     return result;
 }
 
@@ -36,6 +39,7 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
         match.directionLabel=single.directionLabel; match.gestureLabel=single.gestureLabel;
         return;
     }
+    if(!row.value("manualPair").toBool())updateSceneEvidence(row,match,evidence[0],evidence[1]);
     const pfcore::MovementClassifier classifier;
     const auto a = classifier.classifyForGrouping(evidence[0], match.leftStartSeconds,
                                                   match.leftEndSeconds, match.headOnlyComparison);

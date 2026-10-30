@@ -67,6 +67,7 @@
 #include <unordered_set>
 #include "pfcore/MotionMatcher.hpp"
 #include "pfcore/ParallelClip.hpp"
+#include "pfcore/SceneFamily.hpp"
 #include "pfcore/MotionRanker.hpp"
 #include "pfcore/DominantPerson.hpp"
 #include "pfgpu/PoseEstimator.hpp"
@@ -301,7 +302,7 @@ std::optional<std::filesystem::path> findLocalModelFile(const QString& filename)
     if (!isSafeModelFilename(filename)) return std::nullopt;
     if (const char* configured = std::getenv("PF_MODEL_PATH"); configured && *configured) {
         const auto path=pfcore::pathFromUtf8(configured);
-        if (QFileInfo(QString::fromLocal8Bit(configured)).fileName() == filename) {
+        if (QFileInfo(QString::fromUtf8(configured)).fileName() == filename) {
             std::error_code error;
             if (std::filesystem::is_regular_file(path, error)) return path;
         }
@@ -309,7 +310,7 @@ std::optional<std::filesystem::path> findLocalModelFile(const QString& filename)
     std::string settingsError;
     const auto settings = pfservices::SettingsStore().load(settingsError);
     if (!settings.modelPath.empty()) {
-        const std::filesystem::path path(settings.modelPath);
+        const auto path=pfcore::pathFromUtf8(settings.modelPath);
         if (QFileInfo(QString::fromStdString(settings.modelPath)).fileName() == filename) {
             std::error_code error;
             if (std::filesystem::is_regular_file(path, error)) return path;
@@ -448,12 +449,12 @@ QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
 }
 
 QString savePreviewAt(pfcore::VideoDecoder& decoder, double timestamp, const QString& name,
-    const std::function<QString(const pfcore::DecodedFrame&, const QString&)>& save = {})
+    const std::function<QString(const pfcore::DecodedFrame&, const QString&)>& save = {},bool seek = true)
 {
     try {
         QElapsedTimer timer;
         timer.start();
-        decoder.seek(std::max(0.0, timestamp));
+        if(seek)decoder.seek(std::max(0.0, timestamp));
         const auto seekMs = timer.restart();
         pfcore::DecodedFrame frame;
         const double target = std::max(0.0, timestamp);
@@ -958,7 +959,7 @@ std::filesystem::path findPoseModel()
     std::string settingsError;
     const pfservices::Settings settings = pfservices::SettingsStore().load(settingsError);
     if (!settings.modelPath.empty()) {
-        const std::filesystem::path configured(settings.modelPath);
+        const auto configured=pfcore::pathFromUtf8(settings.modelPath);
         if (std::filesystem::is_regular_file(configured)) return configured;
         const auto requestedName = configured.filename();
         if (!requestedName.empty()) {
@@ -1953,6 +1954,7 @@ bool AnalysisController::exportResults(const QString& format,
                         emit exportProgressChanged();
                     }, Qt::QueuedConnection);
                     const double duration = request.endSeconds - request.startSeconds;
+                    request.canonicalSceneId=pfcore::canonicalSceneFingerprint(source,0,request.startSeconds,request.endSeconds);
                     request.progress = [&, jobIndex, duration, lastPercent = -1](double seconds) mutable {
                         const int percent = duration > 0.0
                             ? static_cast<int>(std::clamp(seconds / duration, 0.0, 1.0) * 100.0) : 0;
@@ -1964,9 +1966,13 @@ bool AnalysisController::exportResults(const QString& format,
                 jobs.push_back(std::move(request));
                 clipFractions.push_back(0);
             };
-            const auto leftClip = manuallyAdjusted[index] ? pfcore::ParallelClipRange{match.leftStartSeconds, match.leftEndSeconds} : pfcore::parallelClipRange(match.leftStartSeconds, match.leftEndSeconds,
+            const auto leftClip = manuallyAdjusted[index] ? pfcore::ParallelClipRange{match.leftStartSeconds, match.leftEndSeconds} : pfcore::parallelClipRange(
+                match.leftCanonicalStart>=0?match.leftCanonicalStart:match.leftStartSeconds,
+                match.leftCanonicalEnd>=0?match.leftCanonicalEnd:match.leftEndSeconds,
                 match.leftSceneStartSeconds, match.leftSceneEndSeconds,selectedFrameRates[index][0]);
-            const auto rightClip = manuallyAdjusted[index] ? pfcore::ParallelClipRange{match.rightStartSeconds, match.rightEndSeconds} : pfcore::parallelClipRange(match.rightStartSeconds, match.rightEndSeconds,
+            const auto rightClip = manuallyAdjusted[index] ? pfcore::ParallelClipRange{match.rightStartSeconds, match.rightEndSeconds} : pfcore::parallelClipRange(
+                match.rightCanonicalStart>=0?match.rightCanonicalStart:match.rightStartSeconds,
+                match.rightCanonicalEnd>=0?match.rightCanonicalEnd:match.rightEndSeconds,
                 match.rightSceneStartSeconds, match.rightSceneEndSeconds,selectedFrameRates[index][1]);
             if (match.leftEnabled) enqueue(match.leftSourceId, leftClip.start, leftClip.end, match.leftSceneEndSeconds, QStringLiteral("A"));
             if (match.rightEnabled) enqueue(match.rightSourceId, rightClip.start, rightClip.end, match.rightSceneEndSeconds, QStringLiteral("B"));
@@ -1990,10 +1996,11 @@ bool AnalysisController::exportResults(const QString& format,
         }
         const auto batch = pfservices::runExportQueue(jobs, stop);
         int written = 0;
+        std::set<std::filesystem::path> writtenPaths;
         QStringList failures;
         for (std::size_t i = 0; i < batch.completed.size(); ++i) {
             const auto& item = batch.completed[i];
-            if (item.success) ++written;
+            if (item.success) { if(writtenPaths.insert(item.outputPath).second) ++written; }
             else if (!item.cancelled) failures << QString::fromStdWString(jobs[i].outputPath.filename().wstring())
                 + QStringLiteral(": ") + QString::fromStdString(item.error);
         }
@@ -2336,8 +2343,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                         maxUniqueResults, timeWeight, providerChoice,
                                         qualityProfile, analysisMode, expandedSearch, normalizeSize, mirrorPoses, previewToken, forceTargetSource, targetChoice] {
         try {
-        const bool interactiveTargets = !QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"));
+        const bool interactiveTargets = !QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
+            || qEnvironmentVariableIsSet("PF_SMOKE_TARGET_ID");
         std::map<std::string,std::vector<pfcore::CharacterCandidate>> sourceCandidates;
+        std::map<std::string,std::string> characterArtifactKeys;
         int files = 0;
         int scenes = 0;
         int poseDetections = 0;
@@ -2554,7 +2563,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         ? cacheFileFingerprint(*faceDetectorPath) + cacheFileFingerprint(*faceRecognizerPath)
                         : std::string("none")) + "|"
                     + "quality=" + qualityProfile.toStdString() + "|"
-                    + "mode=" + analysisMode.toStdString() + "|scene="
+                    + "mode=" + (interactiveTargets ? std::string("all") : analysisMode.toStdString()) + "|scene="
                     + std::to_string(settings.sceneThreshold) + ":"
                     + std::to_string(settings.sceneMinFrames) + ":"
                     + std::to_string(settings.sceneAdaptiveMultiplier) + "|source="
@@ -2595,13 +2604,16 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
                 const auto generation = sourceGenerations[path.toStdString()];
                 if (!generation.empty()) cacheKey += "|generation=" + generation;
-                if (interactiveTargets) cacheKey += "|all-characters-v1";
+                if (interactiveTargets) cacheKey += "|all-characters-v3";
+                if (interactiveTargets) characterArtifactKeys[path.toStdString()]=cacheKey;
                 sequenceCacheKeys[path.toStdString()]=cacheKey;
                 if (analysisCache) {
                     if (const auto cached = analysisCache->get(cacheKey)) {
                         if (interactiveTargets) {
                             pfservices::CharacterAnalysis artifact;
                             cacheHit = pfservices::deserializeCharacterAnalysis(*cached,artifact);
+                            if (cacheHit && std::any_of(artifact.windows.begin(),artifact.windows.end(),
+                                [&](const auto& w){return w.sourceId!=path.toStdString();})) cacheHit=false;
                             if (cacheHit) {
                                 cachedWindows = std::move(artifact.windows); cachedSceneCount = artifact.sceneCount;
                                 sourceCandidates[path.toStdString()] = std::move(artifact.candidates);
@@ -3402,15 +3414,15 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                         start = next;
                                     }
                                 };
-                                if (analysisMode == QStringLiteral("motion")) {
+                                if (!interactiveTargets && analysisMode == QStringLiteral("motion")) {
                                     appendChunks(2.5, 0.75, 0.75, false);
-                                } else if (analysisMode == QStringLiteral("static")) {
+                                } else if (!interactiveTargets && analysisMode == QStringLiteral("static")) {
                                     appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds, true);
                                 } else { // combined: independent motion and static passes
                                     appendChunks(2.5, 0.75, 0.75, false);
                                     appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds, true);
                                 }
-                                if (analysisMode != QStringLiteral("motion")) {
+                                if (interactiveTargets || analysisMode != QStringLiteral("motion")) {
                                     for (const auto range : pfcore::observedPoseRuns(window)) {
                                         if (range.begin == 0 && range.end + 1 == window.frames.size()) continue;
                                         appendChunks(2.0, 0.75, pfcore::MotionMatcherParams::minimumStaticSpanSeconds,
@@ -3468,10 +3480,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 const auto windowsReadyNs = stageNow();
                 if (analysisCache && !isCancelled() && faceFailure.isEmpty() && reidFailure.isEmpty()) {
                     std::string cacheError;
-                    analysisCache->putForSource(path.toStdString(),cacheKey, interactiveTargets
+                    const auto bytes=interactiveTargets
                         ? pfservices::serializeCharacterAnalysis({sourceCandidates[path.toStdString()],fileWindows,
-                            static_cast<int>(sceneBoundaries.size())+1})
-                        : pfservices::serializeMotionWindows(fileWindows,static_cast<int>(sceneBoundaries.size())+1), cacheError);
+                            static_cast<int>(sceneBoundaries.size())+1},isCancelled)
+                        : pfservices::serializeMotionWindows(fileWindows,static_cast<int>(sceneBoundaries.size())+1,isCancelled);
+                    if (!bytes.empty() && !isCancelled())
+                        analysisCache->putForSource(path.toStdString(),cacheKey,bytes,cacheError);
+                    if (!cacheError.empty()) qWarning() << "ANALYSIS_CACHE_WRITE_FAILED" << QString::fromStdString(cacheError);
                 }
                 if (profilePipeline)
                     std::fprintf(stderr, "PF_DEBUG_TIMING cold_pipeline_ms=%.1f decode_infer_ms=%.1f pose_ms=%.1f face_ms=%.1f reid_ms=%.1f tracker_ms=%.1f scene_ms=%.1f windows_ms=%.1f cache_write_ms=%.1f pose_samples=%zu tracks=%zu prefetch=%d peak_buffered=%zu\n",
@@ -3488,11 +3503,28 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         if (interactiveTargets && error.isEmpty() && !isCancelled()) {
             std::optional<pfcore::CharacterCandidate> batchTarget;
             std::map<std::string,std::set<std::size_t>> selectedTracks;
-            for (const auto& [source,candidates] : sourceCandidates) {
+            std::vector<std::string> targetSourceOrder;
+            for (const auto& [source,candidates]:sourceCandidates) {
+                targetSourceOrder.push_back(source);
+                // Seed additions from an existing explicit choice, even when a
+                // newly added episode sorts before the previously analysed files.
+                if(analysisCache && forceTargetSource.isEmpty()) {
+                    if(const auto saved=analysisCache->get(sequenceCacheKeys.at(source)+"|selected-target-v2")) {
+                        bool ok=false;
+                        const auto id=QByteArray(reinterpret_cast<const char*>(saved->data()),saved->size()).toULongLong(&ok);
+                        if(ok)for(const auto& candidate:candidates)if(candidate.id==id
+                            && (!batchTarget || candidate.prototype.faceEvidence>batchTarget->prototype.faceEvidence))batchTarget=candidate;
+                    }
+                }
+            }
+            const auto forced=std::find(targetSourceOrder.begin(),targetSourceOrder.end(),forceTargetSource.toStdString());
+            if(forced!=targetSourceOrder.end())std::rotate(targetSourceOrder.begin(),forced,std::next(forced));
+            for (const auto& source : targetSourceOrder) {
+                const auto& candidates=sourceCandidates.at(source);
                 if (isCancelled()) break;
                 if (candidates.empty()) continue;
                 std::size_t selected = 0;
-                const auto selectionKey = sequenceCacheKeys.at(source) + "|selected-target-v1";
+                const auto selectionKey = sequenceCacheKeys.at(source) + "|selected-target-v2";
                 if (analysisCache && QString::fromStdString(source) != forceTargetSource) {
                     if (const auto saved=analysisCache->get(selectionKey)) {
                         bool ok=false;
@@ -3508,29 +3540,63 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
                 if (!selected) {
                     QVariantList rows;
+                    QElapsedTimer previewClock;previewClock.start();
+                    struct CharacterPreview {
+                        std::size_t candidate,appearance;double time;QString url;
+                        std::shared_future<QString> encoded;
+                    };
+                    std::vector<CharacterPreview> requests;
+                    std::vector<std::string> keys;
+                    for(std::size_t i=0;i<candidates.size();++i)for(std::size_t j=0;j<candidates[i].appearances.size();++j) {
+                        requests.push_back({i,j,candidates[i].appearances[j].timestampSeconds,{},{}});
+                        keys.push_back(characterArtifactKeys[source]+"|character-preview-v1|"+std::to_string(candidates[i].id)+"|"+std::to_string(j));
+                    }
+                    const auto cached=pfservices::materializeCachedPreviews(analysisCache.get(),keys,previewSessionPath(),isCancelled,4);
+                    std::vector<std::size_t> order(requests.size());std::iota(order.begin(),order.end(),0);
+                    std::stable_sort(order.begin(),order.end(),[&](auto a,auto b){return requests[a].time<requests[b].time;});
                     pfcore::VideoDecoder previewDecoder;
-                    try { previewDecoder.open(source); previewDecoder.setRgbaMaxDimensions(480,270); }
-                    catch (const std::exception& exception) { qWarning() << "TARGET_PREVIEW_OPEN_FAILED" << exception.what(); }
+                    std::unique_ptr<pfservices::PreviewWriter> writer;
+                    double previous=-100;std::size_t cacheHits=0,prepared=0;
+                    for(auto index:order) {
+                        if(isCancelled())break;
+                        auto& request=requests[index];
+                        if(!cached[index].isEmpty()) {request.url=cached[index];++cacheHits;continue;}
+                        try {
+                            if(!previewDecoder.isOpen()) {
+                                pfcore::VideoDecodeOptions options;options.threads=std::clamp<int>(settings.processingThreads,1,8);
+                                options.preferNvidia=providerChoice=="cuda"||providerChoice=="tensorrt";
+                                options.maxWidth=480;options.maxHeight=270;
+                                previewDecoder.open(source,options);previewDecoder.setRgbaMaxDimensions(480,270);
+                            }
+                            const auto& candidate=candidates[request.candidate];
+                            savePreviewAt(previewDecoder,request.time,QStringLiteral("%1_character_%2_%3.png").arg(previewToken)
+                                .arg(QString::fromLatin1(QCryptographicHash::hash(QByteArray::fromStdString(source),QCryptographicHash::Sha256).toHex().left(12))).arg(index),
+                                [&](const pfcore::DecodedFrame& frame,const QString& name) {
+                                    QImage image(frame.rgba.data(),frame.width,frame.height,QImage::Format_RGBA8888);
+                                    image=image.copy();
+                                    const auto& box=candidate.appearances[request.appearance].box;
+                                    if(box.area()>0) {
+                                        QPainter painter(&image);painter.setPen(QPen(Qt::white,2));
+                                        painter.drawRect(QRectF(box.left*frame.width,box.top*frame.height,
+                                            (box.right-box.left)*frame.width,(box.bottom-box.top)*frame.height));
+                                    }
+                                    if(!writer)writer=std::make_unique<pfservices::PreviewWriter>(analysisCache.get(),3,source);
+                                    request.encoded=writer->submit(std::move(image),previewSessionPath()+"/"+name,keys[index]);
+                                    return QString{};
+                                },previous<0 || request.time-previous>1.5 || request.time<=previous);
+                            previous=request.time;
+                        } catch(const std::exception& exception) {qWarning()<<"TARGET_PREVIEW_FAILED"<<exception.what();}
+                        if(++prepared%20==0)QMetaObject::invokeMethod(this,[this,prepared,total=requests.size()] {
+                            setProgress(.85,QStringLiteral("Подготавливаем появления персонажей · %1 / %2").arg(prepared).arg(total),analyzedFrames_,frameCount_);
+                        },Qt::QueuedConnection);
+                    }
+                    if(writer)writer->finish();
+                    for(auto& request:requests)if(request.encoded.valid())request.url=request.encoded.get();
+                    if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))std::fprintf(stderr,"PF_CHARACTER_PREVIEWS requested=%zu cached=%zu elapsed_ms=%lld\n",requests.size(),cacheHits,static_cast<long long>(previewClock.elapsed()));
+                    std::vector<QVariantList> candidatePreviews(candidates.size());
+                    for(const auto& request:requests)candidatePreviews[request.candidate].push_back(QVariantMap{{"url",request.url},{"time",request.time}});
                     for (std::size_t i=0;i<candidates.size() && !isCancelled();++i) {
-                        const auto& c=candidates[i]; QVariantList previews;
-                        for (std::size_t j=0;j<c.appearances.size() && !isCancelled();++j) {
-                            QString url;
-                            if (previewDecoder.isOpen()) url=savePreviewAt(previewDecoder,c.appearances[j].timestampSeconds,
-                                QStringLiteral("%1_character_%2_%3_%4.png").arg(previewToken)
-                                    .arg(QString::fromLatin1(QCryptographicHash::hash(QByteArray::fromStdString(source),QCryptographicHash::Sha256).toHex().left(12)))
-                                    .arg(c.id).arg(j),[&](const pfcore::DecodedFrame& frame,const QString& name) {
-                                        auto marked=frame;
-                                        const auto& box=c.appearances[j].box;
-                                        if (box.area()>0) {
-                                            QImage image(marked.rgba.data(),marked.width,marked.height,QImage::Format_RGBA8888);
-                                            QPainter painter(&image); painter.setPen(QPen(Qt::white,2));
-                                            painter.drawRect(QRectF(box.left*frame.width,box.top*frame.height,
-                                                (box.right-box.left)*frame.width,(box.bottom-box.top)*frame.height));
-                                        }
-                                        return savePreview(marked,name);
-                                    });
-                            previews.push_back(QVariantMap{{"url",url},{"time",c.appearances[j].timestampSeconds}});
-                        }
+                        const auto& c=candidates[i];const auto& previews=candidatePreviews[i];
                         rows.push_back(QVariantMap{{"id",QString::number(c.id)},{"number",static_cast<int>(i+1)},
                             {"presence",c.presenceSeconds},{"observations",static_cast<qulonglong>(c.observationCount)},
                             {"tracks",static_cast<int>(c.trackIds.size())},{"quality",c.evidenceQuality},
@@ -3551,14 +3617,18 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 if (isCancelled()) break;
                 const auto chosen=std::find_if(candidates.begin(),candidates.end(),[&](const auto& c){return c.id==selected;});
                 if (chosen==candidates.end()) { error=QStringLiteral("TARGET_SELECTION_INVALID"); break; }
-                if (!batchTarget || QString::fromStdString(source)==forceTargetSource) batchTarget=*chosen;
+                if (!batchTarget || QString::fromStdString(source)==forceTargetSource
+                    || (!suggestion.automatic && chosen->prototype.faceEvidence>batchTarget->prototype.faceEvidence)) batchTarget=*chosen;
                 selectedTracks[source].insert(chosen->trackIds.begin(),chosen->trackIds.end());
                 auto summary=summaries.value(QString::fromStdString(source)).toMap();
                 summary.insert("targetCharacterId",QString::number(selected));
                 summary.insert("characterCount",static_cast<int>(candidates.size()));
                 summary.insert("targetAutomatic",suggestion.automatic);
                 summaries.insert(QString::fromStdString(source),summary);
-                if (analysisCache) {
+                // Only deliberate choices override future batch suggestions.
+                // An old automatic suggestion must not pin an episode to the
+                // previous target after the user changes the batch anchor.
+                if (analysisCache && !suggestion.automatic) {
                     const auto bytes=QByteArray::number(selected); std::string writeError;
                     analysisCache->putForSource(source,selectionKey,{bytes.begin(),bytes.end()},writeError);
                     if (!writeError.empty()) qWarning() << "TARGET_SELECTION_CACHE_WRITE_FAILED" << QString::fromStdString(writeError);
@@ -3568,9 +3638,22 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         selected,suggestion.automatic,static_cast<int>(suggestion.reason),suggestion.similarity,
                         suggestion.margin,chosen->trackIds.size());
             }
+            // Shot context belongs to the scene, independent of which actor
+            // happened to own its first window before target filtering.
+            using ShotKey=std::pair<std::string,std::size_t>;
+            std::map<ShotKey,std::pair<std::vector<float>,std::vector<double>>> shotSequences;
+            for (auto& window:windows) if (!window.sceneSequence.empty())
+                shotSequences.try_emplace({window.sourceId,window.sceneIndex},
+                    std::move(window.sceneSequence),std::move(window.sceneSequenceTimes));
             std::vector<pfcore::MotionWindow> targetWindows;
             QStringList targetA,targetB;
-            for (std::size_t i=0;i<windows.size();++i) if (selectedTracks[windows[i].sourceId].contains(windows[i].trackId)) {
+            for (std::size_t i=0;i<windows.size();++i) if (selectedTracks[windows[i].sourceId].contains(windows[i].trackId)
+                && (analysisMode==QStringLiteral("combined") || (analysisMode==QStringLiteral("static"))==windows[i].staticFrameSet)) {
+                if (auto found=shotSequences.find({windows[i].sourceId,windows[i].sceneIndex});found!=shotSequences.end()) {
+                    windows[i].sceneSequence=std::move(found->second.first);
+                    windows[i].sceneSequenceTimes=std::move(found->second.second);
+                    shotSequences.erase(found);
+                }
                 targetWindows.push_back(std::move(windows[i]));
                 targetA.push_back(previewA[static_cast<qsizetype>(i)]); targetB.push_back(previewB[static_cast<qsizetype>(i)]);
             }
@@ -3938,6 +4021,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         review.requested,review.cached,review.observed,review.decoded,review.cuts,review.unassociated,review.error.c_str());
                 actionReviewMs=resultTimer.elapsed()-actionReviewStartedMs;
             }
+            std::map<std::string,std::size_t> targetIds;
+            for (auto it=summaries.cbegin();it!=summaries.cend();++it) {
+                const auto id=it.value().toMap().value("targetCharacterId").toString().toULongLong();
+                if(id)targetIds[it.key().toStdString()]=static_cast<std::size_t>(id);
+            }
+            if(!pfcore::MotionRanker::organize(foundMatches,windows,targetIds,isCancelled)) markCancelled();
             const QStringList windowPreviewA = previewA;
             const QStringList windowPreviewB = previewB;
             previewA.clear();
@@ -4074,6 +4163,17 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 if(!headReview.error.empty())record.insert("classificationWarning",QString::fromStdString(headReview.error));
                 record.insert(QStringLiteral("id"), static_cast<int>(i));
                 record.insert(QStringLiteral("similarity"), item.similarity);
+                record.insert("bestMatchScore",item.bestMatchScore);
+                record.insert("redundancyPenalty",item.redundancyPenalty);
+                record.insert("evidenceQuality",item.evidenceQuality);
+                record.insert("poseSimilarity",item.poseSimilarity);
+                record.insert("continuityRank",static_cast<qulonglong>(item.continuityRank));
+                record.insert("matchTier",item.evidenceQuality>=.45 && (item.faceVerified||item.appearanceVerified)
+                    ? QStringLiteral("strong") : QStringLiteral("possible"));
+                record.insert("leftSceneFamily",QString::fromStdString(item.leftSceneFamily));
+                record.insert("rightSceneFamily",QString::fromStdString(item.rightSceneFamily));
+                record.insert("leftFamilySize",static_cast<qulonglong>(item.leftFamilySize));
+                record.insert("rightFamilySize",static_cast<qulonglong>(item.rightFamilySize));
                 record.insert(QStringLiteral("direction"), QString::fromStdString(item.directionLabel));
                 record.insert(QStringLiteral("gesture"), QString::fromStdString(item.gestureLabel));
                 record.insert("classification", item.leftIndex<windows.size() && windows[item.leftIndex].staticFrameSet
