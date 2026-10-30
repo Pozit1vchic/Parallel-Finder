@@ -1,0 +1,114 @@
+# Quality specification: completion audit and remaining work
+
+Goal: finish the **whole** supplied specification, not just the character picker.
+This document is a work queue, not a completion certificate. An active goal stays
+active until the missing and unverified items below have authoritative evidence.
+
+Source: the user attachment `Вставленный текст.txt`, SHA-256
+`cc205bdefaa244e56e56b00961d681468367e20c7248fdb792250c5f9c621da2`.
+Initial audited revision: `877500e`, following `ede833d` and the preceding quality
+commits. User follow-ups additionally require a centered, visible selector,
+unique people, visible attractive marking, and testing the supplied Kyle/Butcher
+videos. The previous turn made progress: it committed functioning selection
+corrections and structured filters and produced passing real-source evidence.
+
+Status meanings: **evidenced** means the named limited behavior has direct
+evidence; **partial** means some required behavior exists but the whole clause
+is not proven; **missing** identifies an inspected implementation gap;
+**unverified** means further inspection/execution is required. A passing unit
+test does not establish general recognition accuracy or release readiness.
+
+## Requirements and evidence
+
+| ID | Original requirement(s) | Current evidence / next verification | Status |
+| --- | --- | --- | --- |
+| R01 | Existing architecture/style; closest components, density, fonts, colors | Existing Pf controls/theme reused; actual Kyle screenshots inspected. Audit every new state, not only the picker. | Partial |
+| R02 | Preserve working behavior and interfaces; no duplicate stack | Existing tracker, clustering, MotionWindows and matcher retained; regression suite green at `877500e`. New changes require checks. | Evidenced, limited to suite |
+| R03 | Logical commits, docs, changelog throughout | Git history and `quality-changes-unreleased.md`. Keep this invariant throughout remaining work. | Evidenced |
+| R04 | Background work cancellable, no UI-thread expensive work | Worker analysis, cache cancellation and provider tests exist. Audit family/continuity inner loops and every new long operation. | Partial |
+| R05 | Windows Unicode throughout | PathEncoding, native extraction and tested Cyrillic/Japanese paths; native-separator reselection fixed. Audit remaining probe/config/log boundaries. | Partial |
+| A01 | Pre-analysis is normal workflow, not low-confidence fallback | GUI waits for explicit target; full-model real-video and synthetic selection tests. Diagnostic smoke is explicitly opt-in. | Evidenced |
+| A02 | Multiple significant identity clusters; brief target retained | `characterCandidates`, minority regression, unresolved appearances retained. Recognition coverage beyond reviewed montage remains unverified. | Partial |
+| A03 | Structured candidate ID/tracks/body/face/presence/observations/evidence/previews/windows | `CharacterCandidate`, PFCH metadata + all-character MotionWindows, serialization tests. IDs are artifact-local. | Evidenced |
+| A04 | Inspect multiple appearances, select one, continue, change later | `CharacterSelector`, `CharacterAppearance`, workflow tests and real screenshots. | Evidenced |
+| A05 | Cached target rebuild/reselection, no needless inference | Real reselection logs decoded=0, pose_samples=0; synthetic mode/reselection tests. | Evidenced |
+| A06 | Batch strong automatic carryover; weak/ambiguous confirmation | Core suggestion and synthetic no-face batch/manual tests exist. Need strong-identity multi-source end-to-end proof. | Partial |
+| A07 | Manual override and target non-dominant, e.g. 8% | Core minority case retains short target; manual cached overrides tested. Need end-to-end minority episode with strong competing identity. | Partial |
+| A08 | Identity diagnostics and unique identities | Selection reason/margin logs, coherent tracks, single-face ownership, relative distinctness, six reviewed Kyle controls. General false merge/split rates not measured. | Partial |
+| B01 | Identity/temporal/source/scene/sequence/cluster descriptors | `SceneDescriptor` has most fields; sequenceId currently not established by real sequence detection. | Partial |
+| B02 | Continuous body yaw/pitch/roll and eight useful directions | Torso roll measured; yaw/pitch unknown; eight labels are only a helper, not a working body-orientation estimator. 3D research alone does not complete this requirement. | Missing |
+| B03 | Independent continuous head yaw/pitch/roll | Measured rotation, validity checks, head/body-independent tests, SO(3) similarity. Need independently reviewed real orientation cases. | Partial |
+| B04 | Standing/sitting/lying; crouching/kneeling when reliable; ambiguous/unknown | Standing/broad seated-or-lying and conservative geometric lying exist. Working change refines validated action evidence to separate sitting/lying. No fabricated kneeling. | Partial |
+| B05 | Motion semantics, direction, velocity/trajectory/temporal evidence | Existing MovementClassification/windows plus image velocity; audit missing useful acceleration/periodicity and camera contamination. | Partial |
+| B06 | Visibility, occlusion, missing-data/identity/pose/temporal quality | Body/head scoped quality and degeneracy tests. Confidence remains evidence strength, not calibrated probability. | Evidenced, limited |
+| B07 | Camera motion/scale/view/context when reliable | Existing scene sequences/context; descriptor camera influence remains unknown. Need integrate actual available camera evidence or document measured insufficiency per observation. | Partial |
+| B08 | Composable descriptors, ambiguity, filter/sort individual dimensions | Structured head/body + posture filters exist. Orientation/motion-dimensional ordering remains incomplete. | Partial |
+| C01 | Explicit broad retrieval -> geometry -> identity -> alignment -> context | Existing indexed matcher has cheap gates and expensive compare paths. Verify real stage counters and a readable architecture map before declaring complete. | Unverified |
+| C02 | Preserve independent identity/pose/motion/alignment/head/action/camera/visibility components | Several fields exist, but complete truthful component exposure and missing-data semantics need audit. | Partial |
+| C03 | Similarity separate from quality; dedicated ranking | Scoped evidence/best score, tests and exports; review consistency after independent head/action enrichment. | Partial |
+| C04 | Strong list + difficult true-match recovery | Strong/Possible UI exists; broader recovery recall for the enumerated hard cases is not labelled/proven. | Partial |
+| C05 | Explain Match without internal noise | Existing localized explanation; must audit all component values against actual measurements. | Partial |
+| C06 | Investigate local rejected/reviewed signals; retain reasons, no neural training | Existing review/hide actions exist; durable structured rejection reasons have not been established. | Unverified |
+| D01 | Separate classification/grouping/dedup/ranking/continuity | `SceneFamily`, `ResultOrganization`, existing classification. | Evidenced |
+| D02 | Actual scene/sequence/time soft locality; no fixed ten-minute bins | Scene boundaries/time-based continuity costs exist; actual sequence clusters not populated. | Partial |
+| D03 | Multi-signal overlapping + adjacent + true copied-event families | Complete-link family tests; strict both-range pixel proof; review trajectory and scope compatibility, not just average pose. | Partial |
+| D04 | Dedicated representative quality, completeness/occlusion/camera | Evidence/identity/temporal/match quality exists; full completeness and measured camera terms unverified. | Partial |
+| D05 | Canonical results before export + stable defensive export identity | Family pair dedup, fingerprints, exact canonical-cut reuse and exporter tests. Need real duplicate-positive end-to-end export fixture. | Partial |
+| D06 | All requested practical sorts, smart classification groups | Existing legacy sorts plus best/continuity/pose/identity/evidence/duration/source. Verify meaningful motion sort and in-class evidence priority. | Partial |
+| D07 | Bounded diversity suppresses top redundancy | Existing bounded family-use penalty and organization tests; real labelled diversity ordering not evaluated. | Partial |
+| D08 | Continuous local pose/head/body transition cost, deterministic practical ordering | Greedy continuity with time/scene/pose/head/roll; body yaw/sequence missing; cancellation tests limited. | Partial |
+| E01 | Profile decode/detection/pose/face/ReID/track/cluster/windows/match/classification/previews/cache | Real stage logs exist; explicit clustering/classification timing coverage needs audit. | Partial |
+| E02 | Persistent source/model/settings/version compatible observations/artifacts | PFCH + window/scene/head/action caches, atomic writes/checksum tests. Audit exact observation-settings vs matcher-settings separation. | Partial |
+| E03 | Change target/matcher/classification/order without full inference | Target/mode/order reuse proven; changing every matcher setting and incremental source addition needs end-to-end proof. | Partial |
+| E04 | 8 cached + 2 new infer only new | Architecture supports per-source keys; explicit mixed cached/new restart test still required. | Unverified |
+| E05 | Adaptive inference and GPU profiling with measured quality/speed | Existing periodic ReID/usable-face sampling, pipeline counters and preview benchmark. Broader adaptive quality/transfer validation remains open. | Partial |
+| E06 | Atomic cancellation cleanup, incomplete artifacts never valid | Character/window/cache write tests exist; retained independently verified data after cancellation. Audit remaining stages. | Partial |
+| F01 | Persistent resumable Range/chunk downloads, bounded/adaptive concurrency | Provider chunks, resume validation and bounded workers tested. Adaptive concurrency beyond a fixed bound must be inspected. | Partial |
+| F02 | Per-part exponential retry, timeouts, fallback/mirrors where supported | Retry tests exist; exact backoff/timeout/fallback coverage not yet audited. | Unverified |
+| F03 | Separate installer cache, version/size/hash state, verify before complete | ProviderStore persistent verified archives/parts, hash-failure tests. | Evidenced |
+| F04 | Offline/restart retry and cancellation preserve valid parts | Local interrupted-transfer/offline/cancel tests. Add/inspect explicit process-restart and no-Range server proof. | Partial |
+| F05 | Transactional staging/probe/activation preserves active provider | Failed-probe/offline reinstall tests and Unicode extraction. Inspect activation crash/interruption boundary. | Partial |
+| F06 | Unicode discovery/probe/child args/config/logs | Native paths and Cyrillic/Japanese install controls; audit all remaining conversions. | Partial |
+| F07 | Human error + stable code + Retry/Details | Existing provider status may still contain low-level errors. Inspect and correct before completion. | Unverified |
+| F08 | Stage/bytes/total/speed/cache/retry UI + explicit saved-data message | Progress fields exist; inspect offline/retrying rendered states and localized wording. | Partial |
+| G01 | Central motion durations/easing; geometry, not default fade | Theme tokens/geometry transitions exist; raw values remain. Need inventory and coherent stage/source morphs. | Partial |
+| G02 | Character selection continuity and source-state morph | Candidate expansion and central container reuse exist; selected thumbnail-to-target continuity unproven. | Partial |
+| G03 | Animated result regroup/reorder | Existing displaced/move transitions and bulk guards; verify actual sort changes retain stable delegates. | Partial |
+| G04 | SceneFamily collapse/expand relationship | Core retains members internally, but UI only gets sizes/IDs; member inspection/reverse expansion missing. | Missing |
+| G05 | Spatial progress-stage and geometry-aware diagnostics/filter expansion | Inspect actual components; avoid replacing labels abruptly and ensure no inaccessible controls. | Unverified |
+| G06 | Reduced motion, no animation delays work | Theme reducedMotion and UI checks exist. Verify every newly introduced transition. | Partial |
+| H01 | All loading/empty/error/disabled/cache/cancel/ambiguous/offline states | Several states exercised; full state inventory and render/runtime checks outstanding. | Partial |
+| H02 | All supported locales, no stray user-facing implementation text | Catalog validation passes six-language additions; audit remaining status/error translation paths. | Partial |
+| I01 | Reproducible labelled real benchmark format covering listed hard cases | Real identity controls and existing movement anchors; generic judgement evaluator exists. Comprehensive retrieval/orientation/family labels missing. | Partial |
+| I02 | Recall@K, Precision@K, MRR, median rank/false positives/identity/family/confusion where appropriate | Evaluator tests exist; real retrieval/family metric reports are missing, not zero. | Missing |
+| I03 | Controlled before/after quality and performance | Frozen Butcher replay and six Kyle controls documented; classifier refinement needs its own baseline/replay evidence. | Partial |
+| J01 | Character tests: all enumerated selection/batch/minority cases | Core and workflow evidence; strong cross-episode and true minority E2E still open (A06/A07). | Partial |
+| J02 | Classification tests: all views, boundary, posture, head/body, missing/unknown | Helper angular tests are not body-orientation estimator tests. Specific posture working change adds evidence gating checks. | Partial |
+| J03 | Dedup/sort/cache/downloader enumerated regression controls | Existing suites cover many clauses. Requirement-to-test name mapping and missing no-Range/slow/restart cases still required. | Partial |
+| J04 | UI transitions never leave controls inaccessible | Existing UI suite plus selector/runtime proof; family/source morph states remain untested. | Partial |
+| K01 | Why selected/matched/rejected/family/representative/cache invalidated/download reused/probe failed | Selection and matcher reason enums/logs exist. Family admission/representative reasons and cache invalidation explanations incomplete. | Partial |
+| L01 | Grounded phases, baseline before changes, no reckless rewrite | Baseline worktree and logs retained; logical commit history. This audit preserves original unfinished scope. | Evidenced |
+| M01 | Branch/status/tags/release conventions, no unrelated deletion | Feature branch clean at start; release README inspected. Tag/release state and complete licenses/package audit still required. | Partial |
+| M02 | Full suite, benchmark, clean Release build, packaging/resources | Last full suite 12/12 at `877500e`; current changes pending. Clean final package verification not performed. | Partial |
+| M03 | Fresh install, previous upgrade, cache migration, provider update | Developer binary and synthetic store tests are not packaged fresh-install/upgrade proof. | Missing |
+| M04 | Version/changelog/notes; publish/tag only when actually ready | Local `0.1.0-rc.23.3-dev`; notes retained; no tag/push/release attempted. Remains unreleased until gates pass. | Partial |
+| N01 | Target + series + result + restart-cache + bad-network + failed-install + Unicode + UI end-to-end flows | See A/D/E/F/G and packaging gaps. Cannot infer all flows from one montage or green unit tests. | Partial |
+| O01 | Final 14-part report with exact commits/version/remote status/limits | Existing reports cover completed phases. A final completion report is premature until this audit closes. | Pending final gate |
+
+## Dependency-ordered remaining queue
+
+1. Refine posture using already validated model observations; add evidence tests
+   and real before/after checks without inventing depth from 2D keypoints.
+2. Retain auditable SceneFamily members/admission reasons/representative evidence,
+   inspect trajectories and scope, and expose coherent member expansion.
+3. Complete series/restart/incremental/manual-minority end-to-end controls.
+4. Build independent real retrieval, duplicate/family and orientation judgements;
+   use them to guide missing body-orientation and matcher work rather than
+   declaring every unknown dimension finished.
+5. Audit provider retry/adaptation/activation/errors against each network gate.
+6. Complete motion/state/cancellation/Unicode diagnostics coverage.
+7. Clean Release/package/fresh-install/upgrade verification, final localization,
+   benchmarks and release readiness; only then evaluate publication and completion.
+
+Each step must update this audit with actual file/log/artifact evidence. None of
+the open items is currently an external blocker: useful local work remains.
