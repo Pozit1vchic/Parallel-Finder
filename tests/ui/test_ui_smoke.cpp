@@ -111,6 +111,7 @@ private slots:
     void exportModesAreSelectable();
     void exportReopenClearsCancelledStatus();
     void movementFilterRespectsSelectionAndVisibleRows();
+    void structuredEvidenceFiltersPreserveUncertaintyAndExportSelection();
     void largeExportBackdropKeepsWorkspaceGeometry();
     void analysisControlsAreUnifiedAndStatusTranslates();
     void directMlDownloadIntegration();
@@ -2551,6 +2552,34 @@ void UiSmokeTests::movementFilterRespectsSelectionAndVisibleRows()
     rail->setProperty("results",QVariantList{QVariantMap{{"id",2},{"classification","raise"}}});
     QTRY_VERIFY(rail->property("classFilter").toString().isEmpty());
 }
+void UiSmokeTests::structuredEvidenceFiltersPreserveUncertaintyAndExportSelection()
+{
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;
+    auto* window=loadWindow(engine);QVERIFY(window);
+    auto* rail=window->findChild<QObject*>("resultsRail");QVERIFY(rail);
+    const QVariantMap standing{{"posture",1},{"postureEvidence",3}},sitting{{"posture",2},{"postureEvidence",3}},
+        weakStanding{{"posture",1},{"postureEvidence",1}},unknown{{"posture",0},{"postureEvidence",0}};
+    rail->setProperty("results",QVariantList{
+        QVariantMap{{"id",0},{"evidenceScope","body"},{"leftDescriptor",standing},{"rightDescriptor",standing}},
+        QVariantMap{{"id",1},{"evidenceScope","head"},{"leftDescriptor",weakStanding},{"rightDescriptor",standing}},
+        QVariantMap{{"id",2},{"evidenceScope","body"},{"leftDescriptor",standing},{"rightDescriptor",sitting}},
+        QVariantMap{{"id",3},{"evidenceScope","body"},{"leftDescriptor",standing},{"rightDescriptor",unknown}},
+        QVariantMap{{"id",4}}});
+    rail->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true},{"3",true},{"4",true}});
+    QCOMPARE(rail->property("selectedCount").toInt(),5);
+    rail->setProperty("scopeFilter","body");QCOMPARE(rail->property("selectedCount").toInt(),3);
+    rail->setProperty("postureFilter","standing");QCOMPARE(rail->property("selectedCount").toInt(),1);
+    QVariant exported;QVERIFY(QMetaObject::invokeMethod(rail,"exportRows",Q_RETURN_ARG(QVariant,exported)));
+    const auto rows=exported.value<QJSValue>().toVariant().toMap();
+    QCOMPARE(rows.size(),1);QVERIFY(rows.contains("0"));
+    rail->setProperty("postureFilter","uncertain");QCOMPARE(rail->property("selectedCount").toInt(),1);
+    rail->setProperty("scopeFilter","");QCOMPARE(rail->property("selectedCount").toInt(),3);
+    QVERIFY(QMetaObject::invokeMethod(rail,"resetFilters"));
+    QCOMPARE(rail->property("selectedCount").toInt(),5);
+    QVERIFY(rail->property("scopeFilter").toString().isEmpty());
+    QVERIFY(rail->property("postureFilter").toString().isEmpty());
+}
+
 void UiSmokeTests::largeExportBackdropKeepsWorkspaceGeometry()
 {
     pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;

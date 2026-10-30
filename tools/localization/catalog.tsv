@@ -582,3 +582,13 @@ character.unresolvedAppearance|Аныкталбаган көрүнүш %1|Аны
 explain.headScope|Баалоо башка тиешелүү; дененин абалы жана көрүнүшү өзүнчө бааланат.|Баға басқа қатысты; дене қалпы мен көрінуі бөлек бағаланады.|Оцінка стосується голови; положення й видимість тіла оцінюються окремо.|Değerlendirme başa aittir; vücut duruşu ve görünürlüğü ayrı ölçülür.
 explain.bodyScope|Баалоо байкалган дене абалына жана кыймылына тиешелүү.|Баға байқалған дене қалпы мен қимылына қатысты.|Оцінка стосується спостережуваної пози й руху тіла.|Değerlendirme gözlenen vücut duruşuna ve hareketine aittir.
 character.modelsUnavailable|Каармандарды таануу даярдалган жок. Каарман моделдери менен толук колдонмо топтомун орнот.|Кейіпкерлерді тану дайындалмады. Кейіпкер модельдері бар қолданбаның толық жинағын орнат.|Не вдалося підготувати розпізнавання персонажів. Установи повний комплект програми з моделями персонажів.|Karakter tanıma hazırlanamadı. Karakter modellerini içeren tam uygulama paketini yükle.
+filter.scopeAll|Баш жана дене|Бас пен дене|Голова й тіло|Baş ve vücut
+filter.scopeHead|Баш гана|Тек бас|Лише голова|Yalnızca baş
+filter.scopeBody|Дене гана|Тек дене|Лише тіло|Yalnızca vücut
+filter.posture.all|Дененин каалаган абалы|Кез келген дене қалпы|Будь-яке положення тіла|Herhangi bir vücut duruşu
+filter.posture.standing|Эки үзүндүдө тең турат|Екі үзіндіде де тұр|Стоїть в обох фрагментах|İki klipte de ayakta
+filter.posture.sitting|Эки үзүндүдө тең отурат|Екі үзіндіде де отыр|Сидить в обох фрагментах|İki klipte de oturuyor
+filter.posture.lying|Эки үзүндүдө тең жатат|Екі үзіндіде де жатыр|Лежить в обох фрагментах|İki klipte de yatıyor
+filter.posture.crouching|Эки үзүндүдө тең чөгөлөйт|Екі үзіндіде де жүресінен отыр|Присідає в обох фрагментах|İki klipte de çömeliyor
+filter.posture.kneeling|Эки үзүндүдө тең тизелейт|Екі үзіндіде де тізерлеп отыр|На колінах в обох фрагментах|İki klipte de dizlerinin üzerinde
+filter.posture.uncertain|Дененин абалы аныкталган жок|Дене қалпы анықталмаған|Положення тіла не визначено|Vücut duruşu belirsiz

@@ -112,6 +112,59 @@ resolve exactly once by timestamp and box; missing anchors are errors, not
 silently dropped cases. The tracked fixture contains geometry and judgements,
 not image pixels or face/body embeddings.
 
+## Follow-up: visible markers, clearer portraits and structured filters
+
+The subsequent user review reported weak/missing highlights and occasional
+confusion between people. The follow-up changes preserve the application theme:
+
+- Rounded accent corners now have restrained dark/light keylines and stronger
+  outside shading. Canvas repaint is explicitly requested when it becomes
+  available, becomes visible or resizes. Invalid/off-screen boxes are rejected;
+  valid partially clipped boxes are clamped to the displayed image. Marking waits
+  for a ready image, so a previous image's geometry is not shown while loading.
+- Candidate previews prefer a measured face over a high-confidence back/torso.
+  Temporal sampling retains the clearest face even when it falls between uniform
+  samples. The thumbnail uses that representative; the gallery stays chronological.
+- Face/head landmark agreement is now required even when a face has no competing
+  assignment. Previously the geometric rejection was applied only when resolving
+  duplicate face ownership. This uses the existing residual limit, without
+  changing global matcher admission thresholds. The all-character key is now v9.
+- Reselection normalizes the requested Windows path before comparing it with
+  stored source names; slash differences previously made the request a no-op.
+- Results independently filter head/body comparisons and body posture. Specific
+  posture requires at least Probable evidence and the same posture on both sides.
+  The uncertain option includes a weak/unknown/ambiguous posture on either side,
+  including legacy results without descriptors. Reset and export honor the new
+  filters. Both controls use existing components and all six offline languages.
+
+Focused validation passed 15 core/cache checks, the structured-filter UI case
+(3 QtTest lifecycle checks, including actual filtered export), and the real Kyle
+UI test (3 lifecycle checks in 3,977 ms, including a cached analysis before
+reselection). The reselection itself decoded/inferred zero frames and served all
+119 representative requests from cache in 215 ms. Screenshot inspection confirms
+distinct visible portraits for Kyle and the woman, with contrasting accent corners.
+
+A fresh normal-build CUDA run completed in 28,684 ms; this is an observed local
+duration, not a controlled speed comparison. The same four result intervals and
+tiers as v8 remain (three Strong, one Possible), and Kyle still occupies one
+37-track group covering 64.117 seconds. Replaying the new observations against
+the six reviewed membership controls again gives 3/3 same-person and 3/3
+different-person decisions. These controls do not establish general recognition
+accuracy, and occasional confusion on unreviewed shots remains a validation risk.
+
+Local evidence: `build/marker-v9-focused.log`,
+`build/structured-filter-test.txt`, `build/marker-v9-real-ui-final.txt`,
+`build/marker-v9-real-ui-final.log`, `build/marker-v9-normal-results.json`,
+`build/marker-v9-identity-metrics.json`. No release/tag or remote publication was
+performed for this follow-up.
+
+The complete final CTest run passed all 12 targets in 116.54 seconds
+(`build/marker-filters-final-suite.log`); localization and whitespace validation
+also passed. `ede833d` contains the highlight/portrait/face-ownership/path fixes;
+the following structured-filter commit contains the composable filters, their
+export regression check, translations and these notes. The local executable
+remains `0.1.0-rc.23.3-dev`.
+
 ## Body-orientation investigation
 
 A standalone `pf_pose3d_probe` examines externally supplied SimCC3D models. It

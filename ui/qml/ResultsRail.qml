@@ -18,6 +18,15 @@ Rectangle {
     signal exportRequested(var rows)
     signal pairClassRequested(int index, string classification)
     property string classFilter: ""
+    property string scopeFilter: ""
+    property string postureFilter: ""
+    readonly property var postureChoices: ["", "standing", "sitting", "lying", "crouching", "kneeling", "uncertain"]
+    function matchesPosture(descriptor) {
+        const posture=descriptor ? Number(descriptor.posture || 0) : 0
+        const evidence=descriptor ? Number(descriptor.postureEvidence || 0) : 0
+        if(postureFilter === "uncertain") return posture === 0 || posture === 6 || evidence < 2
+        return evidence >= 2 && posture === postureChoices.indexOf(postureFilter)
+    }
     readonly property var classKeys: L10n.movementKeysForRows(results)
     onClassKeysChanged: rebuild()
     property var classificationCounts: ({})
@@ -33,7 +42,8 @@ Rectangle {
     property int pendingRowIndex: 0
     property real pendingContentY: 0
     readonly property int activeFilterCount: (classFilter ? 1 : 0) + (sourceQuery.trim() ? 1 : 0)
-        + (matchTierFilter !== "strong" ? 1 : 0) + (sourceFilter ? 1 : 0) + (sortCriterion !== "classification" || sortDescending ? 1 : 0)
+        + (matchTierFilter !== "strong" ? 1 : 0) + (sourceFilter ? 1 : 0) + (scopeFilter ? 1 : 0) + (postureFilter ? 1 : 0)
+        + (sortCriterion !== "classification" || sortDescending ? 1 : 0)
     function classKey(row) {
         return L10n.movementKey(row.classification)
     }
@@ -293,6 +303,20 @@ Rectangle {
                     onActivated: function(index) { root.matchTierFilter=index === 1 ? "possible" : "strong" }
                     Accessible.name: L10n.t("matches.tier")
                 }
+                PfComboBox {
+                    objectName: "resultScopeFilter"; Layout.fillWidth: true
+                    model: [L10n.t("filter.scopeAll"),L10n.t("filter.scopeHead"),L10n.t("filter.scopeBody")]
+                    currentIndex: Math.max(0,["","head","body"].indexOf(root.scopeFilter))
+                    onActivated: function(index) { root.scopeFilter=["","head","body"][index] }
+                    Accessible.name: L10n.t("filter.scopeAll")
+                }
+                PfComboBox {
+                    objectName: "resultPostureFilter"; Layout.fillWidth: true
+                    model: root.postureChoices.map(function(key) { return L10n.t("filter.posture."+(key || "all")) })
+                    currentIndex: Math.max(0,root.postureChoices.indexOf(root.postureFilter))
+                    onActivated: function(index) { root.postureFilter=root.postureChoices[index] }
+                    Accessible.name: L10n.t("filter.posture.all")
+                }
                 Text { Layout.fillWidth: true; text: L10n.t("results.sortBy"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10 }
                 PfComboBox {
                     id: resultSort
@@ -374,6 +398,8 @@ Rectangle {
         sourceQuery = ""
         sourceFilter = ""
         classFilter = ""
+        scopeFilter = ""
+        postureFilter = ""
         matchTierFilter = "strong"
         sortCriterion = "classification"
         sortDescending = false
@@ -485,6 +511,11 @@ Rectangle {
             if (reviewFilter === "favorites" && !item.favorite) continue
             if ((item.leftRemoved || !matchesSource(item.leftSource)) && (item.rightRemoved || !matchesSource(item.rightSource))) continue
             if (classFilter && classKey(item) !== classFilter) continue
+            if (scopeFilter && item.evidenceScope !== scopeFilter) continue
+            if (postureFilter) {
+                const left=matchesPosture(item.leftDescriptor),right=matchesPosture(item.rightDescriptor)
+                if(postureFilter === "uncertain" ? (!left && !right) : (!left || !right)) continue
+            }
             if (!item.manualPair && (item.matchTier || "strong") !== matchTierFilter) continue
             next.push(item)
         }
@@ -611,6 +642,8 @@ Rectangle {
     }
     onSourceFilterChanged: { reviewNotice = ""; if (!suppressFilterRebuild) rebuild() }
     onClassFilterChanged: if (!suppressFilterRebuild) rebuild()
+    onScopeFilterChanged: if (!suppressFilterRebuild) rebuild()
+    onPostureFilterChanged: if (!suppressFilterRebuild) rebuild()
     onClassChoicesChanged: if (classFilter && classChoices.indexOf(classFilter) < 0) classFilter = ""
     onSelectedIndexChanged: revealSelection()
     onResultsChanged: rebuild()
