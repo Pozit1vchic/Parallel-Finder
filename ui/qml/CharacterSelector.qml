@@ -11,7 +11,8 @@ Item {
     property string inspectedId: ""
     property bool showUnresolved: false
     readonly property int unresolvedCount: Analysis.characterCandidates.filter(function(row) { return row.unresolved }).length
-    readonly property var visibleCandidates: Analysis.characterCandidates.filter(function(row) { return root.showUnresolved || !row.unresolved })
+    readonly property int confirmedCount: Analysis.characterCandidates.length - unresolvedCount
+    readonly property var visibleCandidates: Analysis.characterCandidates.filter(function(row) { return root.showUnresolved || root.confirmedCount === 0 || !row.unresolved })
     function sourceName(path) { return String(path).replace(/\\/g,"/").split("/").pop() }
     Connections {
         target: Analysis
@@ -82,7 +83,7 @@ Item {
         }
         PfButton {
             objectName: "unresolvedAppearancesButton"
-            visible: root.unresolvedCount>0; compact: true; quiet: true
+            visible: root.unresolvedCount>0 && root.confirmedCount>0; compact: true; quiet: true
             text: root.showUnresolved ? L10n.t("character.hideUnresolved") : L10n.t("character.showUnresolved").arg(root.unresolvedCount)
             onClicked: root.showUnresolved=!root.showUnresolved
         }

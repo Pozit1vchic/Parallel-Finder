@@ -49,9 +49,9 @@ std::vector<std::uint8_t> serializeCharacterAnalysis(const CharacterAnalysis& an
             {"body",vectorJson(c.prototype.body)},{"face",vectorJson(c.prototype.face)},
             {"bodyEvidence",c.prototype.bodyEvidence},{"faceEvidence",c.prototype.faceEvidence},
             {"observations",QString::number(c.observationCount)},{"presence",c.presenceSeconds},
-            {"quality",c.evidenceQuality},{"appearances",appearances}});
+            {"quality",c.evidenceQuality},{"appearances",appearances},{"distinctIdentity",c.distinctIdentity}});
     }
-    const auto header = QJsonDocument(QJsonObject{{"schema",1},{"candidates",candidates}}).toJson(QJsonDocument::Compact);
+    const auto header = QJsonDocument(QJsonObject{{"schema",2},{"candidates",candidates}}).toJson(QJsonDocument::Compact);
     std::vector<std::uint8_t> result {'P','F','C','H',2};
     const auto size = static_cast<std::uint32_t>(header.size());
     for (int i=0;i<4;++i) result.push_back(static_cast<std::uint8_t>(size >> (8*i)));
@@ -77,13 +77,15 @@ bool deserializeCharacterAnalysis(std::span<const std::uint8_t> bytes, Character
     const auto document=QJsonDocument::fromJson(QByteArray(reinterpret_cast<const char*>(bytes.data()+9),size),&error);
     if (error.error!=QJsonParseError::NoError || !document.isObject()) return false;
     const auto root=document.object();
-    if (root.value("schema").toInt()!=1 || !root.value("candidates").isArray()
+    if (root.value("schema").toInt()!=2 || !root.value("candidates").isArray()
         || root.value("candidates").toArray().size()>100000) return false;
     CharacterAnalysis parsed;
     std::set<std::size_t> ids, tracks;
     for (const auto& value : root.value("candidates").toArray()) {
         if (!value.isObject()) return false;
         const auto object=value.toObject(); pfcore::CharacterCandidate c;
+        if (!object.value("distinctIdentity").isBool()) return false;
+        c.distinctIdentity=object.value("distinctIdentity").toBool();
         if (!idFromJson(object.value("id"),c.id) || !ids.insert(c.id).second
             || !idFromJson(object.value("observations"),c.observationCount)
             || !object.value("tracks").isArray() || !object.value("appearances").isArray()

@@ -37,12 +37,25 @@ private slots:
             QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),90000);
         }
         QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
-        int leadGroups=0;
+        int leadGroups=0;QString leadId;
         for(const auto& value:analysis->targetCandidates()) {
             const auto row=value.toMap();
-            if(row.value("presence").toDouble()>60&&row.value("tracks").toInt()>30&&!row.value("unresolved").toBool())++leadGroups;
+            if(row.value("presence").toDouble()>60&&row.value("tracks").toInt()>30&&!row.value("unresolved").toBool()) {
+                ++leadGroups;leadId=row.value("id").toString();
+            }
         }
-        QCOMPARE(leadGroups,1);QCOMPARE(analysis->analyzedFrames(),0);QCOMPARE(analysis->poseDetectionCount(),0);
+        QCOMPARE(leadGroups,1);
+        // The first preparation may be cold after an artifact version change.
+        // Verify the zero-inference guarantee on actual cached reselection.
+        if(analysis->analyzedFrames()>0 || analysis->poseDetectionCount()>0) {
+            QVERIFY(analysis->selectTargetCharacter(leadId));
+            QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),90000);
+            QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
+            analysis->reselectTargetCharacter(source);
+            QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),90000);
+            QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
+        }
+        QCOMPARE(analysis->analyzedFrames(),0);QCOMPARE(analysis->poseDetectionCount(),0);
         QTest::qWait(800);QVERIFY(window->grabWindow().save(QCoreApplication::applicationDirPath()+"/kyle-character-selection.png"));
         analysis->stopAnalysis();QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),10000);
     }
@@ -85,6 +98,10 @@ private slots:
         // Pose-only fixture observations are explicitly unresolved, not new
         // unique identities. They remain inspectable and selectable.
         QVERIFY(selector->property("unresolvedCount").toInt()>0);
+        QCOMPARE(selector->property("confirmedCount").toInt(),0);
+        auto* list=selector->findChild<QQuickItem*>("targetCharacterList");
+        QVERIFY(list);
+        QTRY_COMPARE(list->property("count").toInt(),analysis->targetCandidates().size());
         selector->setProperty("showUnresolved",true);
         QTest::qWait(300);
         const auto image=window->grabWindow();

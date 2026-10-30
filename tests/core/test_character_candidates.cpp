@@ -29,6 +29,34 @@ TEST(CharacterCandidates, RetainsMinorityTargetAndStableTrackIds)
     EXPECT_DOUBLE_EQ(candidates[1].presenceSeconds,1);
     EXPECT_EQ(candidates[1].observationCount,4);
     EXPECT_GT(candidates[1].appearances.size(),1);
+    EXPECT_TRUE(candidates[0].distinctIdentity);
+    EXPECT_TRUE(candidates[1].distinctIdentity);
+}
+
+TEST(CharacterCandidates, AmbiguousDisconnectedAppearanceIsNotAnotherUniquePerson)
+{
+    const auto candidates=pfcore::characterCandidates({track(1,0,{1,0}),track(2,2,{.25F,.9682458F})});
+    ASSERT_EQ(candidates.size(),2);
+    EXPECT_TRUE(candidates[0].distinctIdentity);
+    EXPECT_FALSE(candidates[1].distinctIdentity);
+    EXPECT_EQ(candidates[1].trackIds,(std::vector<std::size_t>{2}));
+}
+
+TEST(CharacterCandidates, RepeatedSeparatePeopleEstablishDistinctnessWithoutStrongFaceContradiction)
+{
+    auto a=track(1,0,{1,0}),b=track(2,0,{.25F,.9682458F});
+    for(auto& observation:a.observations)observation.box={0,0,100,200};
+    for(auto& observation:b.observations)observation.box={200,0,300,200};
+    const auto candidates=pfcore::characterCandidates({a,b});
+    ASSERT_EQ(candidates.size(),2);
+    EXPECT_TRUE(candidates[0].distinctIdentity);
+    EXPECT_TRUE(candidates[1].distinctIdentity);
+    // Keep a valid four-observation track, but only one shared frame.
+    for (std::size_t i=1;i<b.observations.size();++i)
+        b.observations[i].timestampSeconds=2+i*.25;
+    const auto brief=pfcore::characterCandidates({a,b});
+    ASSERT_EQ(brief.size(),2);
+    EXPECT_FALSE(brief[1].distinctIdentity);
 }
 
 TEST(CharacterCandidates, AMeasuredFaceCannotBeBorrowedByAnOverlappingBystander) {

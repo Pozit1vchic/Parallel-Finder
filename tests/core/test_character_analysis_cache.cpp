@@ -9,6 +9,7 @@ pfservices::CharacterAnalysis artifact()
     c.id=3; c.trackIds={3}; c.observationCount=5;
     c.presenceSeconds=1; c.evidenceQuality=.8;
     c.prototype.face={1,0}; c.prototype.faceEvidence=1;
+    c.distinctIdentity=true;
     c.appearances={{3,.25,.8},{3,.75,.8}};
     a.candidates.push_back(c);
     pfcore::MotionWindow w;
@@ -27,6 +28,7 @@ TEST(CharacterAnalysisCache, RetainsAllCandidatesWindowsAndInspectionEvidence)
     EXPECT_EQ(loaded.sceneCount,2); EXPECT_EQ(loaded.candidates[0].id,3);
     EXPECT_EQ(loaded.candidates[0].appearances.size(),2);
     EXPECT_EQ(loaded.candidates[0].prototype.face,a.candidates[0].prototype.face);
+    EXPECT_TRUE(loaded.candidates[0].distinctIdentity);
     EXPECT_EQ(loaded.windows[0].frames.size(),2);
 }
 

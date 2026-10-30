@@ -2610,7 +2610,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
                 const auto generation = sourceGenerations[path.toStdString()];
                 if (!generation.empty()) cacheKey += "|generation=" + generation;
-                if (interactiveTargets) cacheKey += "|all-characters-v6-identity-coherent-tracks";
+                if (interactiveTargets) cacheKey += "|all-characters-v8-distinct-identities";
                 if (interactiveTargets) characterArtifactKeys[path.toStdString()]=cacheKey;
                 sequenceCacheKeys[path.toStdString()]=cacheKey;
                 if (analysisCache) {
@@ -3611,8 +3611,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     int identityNumber=0,unresolvedNumber=0;
                     for (std::size_t i=0;i<candidates.size() && !isCancelled();++i) {
                         const auto& c=candidates[i];const auto& previews=candidatePreviews[i];
-                        const bool unresolved=c.prototype.faceEvidence<.45
-                            && !(c.trackIds.size()>1&&c.prototype.bodyEvidence>=.45);
+                        const bool unresolved=!c.distinctIdentity;
                         rows.push_back(QVariantMap{{"id",QString::number(c.id)},{"number",unresolved?++unresolvedNumber:++identityNumber},
                             {"unresolved",unresolved},
                             {"presence",c.presenceSeconds},{"observations",static_cast<qulonglong>(c.observationCount)},

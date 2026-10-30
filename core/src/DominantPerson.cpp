@@ -640,6 +640,60 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
         result.push_back(std::move(candidate));
     }
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.id < b.id; });
+    // A disconnected identity component is not evidence of a new person.
+    // Establish distinctness independently; never merge ambiguous components.
+    std::map<std::size_t,std::size_t> owner;
+    for (std::size_t i=0;i<result.size();++i)
+        for (auto id:result[i].trackIds) owner[id]=i;
+    std::map<double,std::map<std::size_t,const PersonDetection*>> frames;
+    for (const auto& track:tracks) {
+        const auto found=owner.find(track.id);
+        if (found==owner.end()) continue;
+        for (const auto& observation:track.observations)
+            if (std::isfinite(observation.timestampSeconds))
+                frames[observation.timestampSeconds].try_emplace(found->second,&observation);
+    }
+    struct Separation { int count=0; double first=0,last=0; };
+    std::map<std::pair<std::size_t,std::size_t>,Separation> separation;
+    for (const auto& [time,people]:frames) {
+        if (control.cancelled && control.cancelled()) return {};
+        for (auto a=people.begin();a!=people.end();++a) for (auto b=std::next(a);b!=people.end();++b) {
+            const auto& x=*a->second; const auto& y=*b->second;
+            if (x.box.area()<=0 || y.box.area()<=0) continue;
+            bool separate=x.keypointConfidence>=.6 && y.keypointConfidence>=.6
+                && (x.box.right<y.box.left || y.box.right<x.box.left);
+            if (!separate && !x.keypoints.empty() && !y.keypoints.empty()) {
+                const auto& nx=x.keypoints.front(); const auto& ny=y.keypoints.front();
+                const double headScale=.4*std::min(x.box.right-x.box.left,y.box.right-y.box.left);
+                separate=nx.confidence>=.7 && ny.confidence>=.7 && headScale>0
+                    && std::hypot(nx.x-ny.x,nx.y-ny.y)>headScale;
+            }
+            if (!separate) continue;
+            auto& evidence=separation[{a->first,b->first}];
+            if (!evidence.count++) evidence.first=time;
+            evidence.last=time;
+        }
+    }
+    std::vector<std::size_t> order(result.size()),confirmed;
+    std::iota(order.begin(),order.end(),0);
+    std::stable_sort(order.begin(),order.end(),[&](auto a,auto b){return result[a].presenceSeconds>result[b].presenceSeconds;});
+    for (auto i:order) {
+        auto& candidate=result[i];
+        if (candidate.prototype.faceEvidence<.45
+            && !(candidate.trackIds.size()>1 && candidate.prototype.bodyEvidence>=.45)) continue;
+        const bool distinct=std::all_of(confirmed.begin(),confirmed.end(),[&](auto other){
+            const auto pair=std::minmax(i,other);
+            const auto found=separation.find({pair.first,pair.second});
+            if (found!=separation.end() && found->second.count>=3
+                && found->second.last-found->second.first>=.25) return true;
+            const auto& face=result[other].prototype;
+            return candidate.prototype.faceEvidence>=.65 && face.faceEvidence>=.65
+                && !candidate.prototype.face.empty() && !face.face.empty()
+                && candidate.prototype.face.size()==face.face.size()
+                && embeddingScore(candidate.prototype.face,face.face)<.20;
+        });
+        if (distinct) {candidate.distinctIdentity=true;confirmed.push_back(i);}
+    }
     return result;
 }
 

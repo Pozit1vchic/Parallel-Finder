@@ -129,6 +129,9 @@ struct CharacterCandidate {
     double presenceSeconds = 0;
     double evidenceQuality = 0;
     std::vector<CharacterAppearance> appearances;
+    // Established as distinct from the other confirmed candidates. Ambiguous
+    // components remain selectable appearances, not additional named people.
+    bool distinctIdentity = false;
 };
 
 // Reuses the same face-veto/co-visibility graph as dominant selection. No
