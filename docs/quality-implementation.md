@@ -7,6 +7,10 @@ For the subsequent Kyle identity-switch correction, distinct-person confirmation
 clean themed highlights, scoped head evidence and reviewed association controls,
 see the [RC.23.3 follow-up](quality-kyle-followup.md).
 
+The full original scope remains active. The requirement-by-requirement
+[completion audit and work queue](quality-requirements.md) distinguishes
+implemented controls from missing or unverified end-to-end requirements.
+
 ## Baseline and dependency plan
 
 - Starting revision: `e590b27` (RC.23.2); clean `main` checkout.

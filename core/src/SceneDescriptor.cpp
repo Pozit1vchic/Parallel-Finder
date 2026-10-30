@@ -110,10 +110,24 @@ SceneDescriptor describeScene(const MotionWindow& window,double start,double end
     }
     if (result.posture==ScenePosture::SeatedOrLying && torsoSamples>=3 && horizontal*5>=torsoSamples*4)
         result.posture=ScenePosture::Lying;
-    // Sitting/crouching/kneeling and signed body yaw are not reliably
-    // distinguishable from every monocular COCO skeleton. Preserve ambiguity;
-    // never borrow the head rotation as the body's orientation.
-    result.postureEvidence=result.posture==ScenePosture::Unknown?EvidenceLevel::Unknown
+    std::optional<ScenePosture> measuredPosture;
+    bool postureConflict=false;
+    for(const auto& observation:window.videoActions) {
+        if(window.sceneEndSeconds>window.sceneStartSeconds
+            && (start<window.sceneStartSeconds-1e-6 || end>window.sceneEndSeconds+1e-6))continue;
+        const auto label=measuredSpecificPosture(observation,window.sourceId,start,end);
+        if(label=="unknown")continue;
+        const auto posture=label=="standing"?ScenePosture::Standing
+            :label=="sitting"?ScenePosture::Sitting:ScenePosture::Lying;
+        if(measuredPosture && *measuredPosture!=posture)postureConflict=true;
+        else measuredPosture=posture;
+    }
+    if(postureConflict)result.posture=ScenePosture::Unknown;
+    else if(measuredPosture)result.posture=*measuredPosture;
+    // Geometry alone cannot reliably distinguish sitting/crouching/kneeling.
+    // Specific sitting/lying refinement above requires independently measured
+    // action evidence. Never borrow head rotation as the body's orientation.
+    result.postureEvidence=postureConflict?EvidenceLevel::Ambiguous:result.posture==ScenePosture::Unknown?EvidenceLevel::Unknown
         : result.posture==ScenePosture::SeatedOrLying?EvidenceLevel::Ambiguous:EvidenceLevel::Probable;
     result.identityConfidence=std::clamp(std::max(window.faceConfidence,window.appearanceConfidence),0.,1.);
     const HeadOrientationSample* head=nullptr;

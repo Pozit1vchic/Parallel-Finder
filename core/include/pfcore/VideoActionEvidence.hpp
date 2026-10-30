@@ -65,4 +65,22 @@ inline std::string measuredPosture(const VideoActionEvidence& evidence,
         && uprightFrozen-reclinedFrozen>=.2)return "standing";
     return "unknown";
 }
+// Refinement of the deliberately broad legacy label. A high sitting/lying
+// score alone is insufficient: both temporal and frozen views must prefer the
+// same class over its nearest alternative. Scores are not calibrated certainty.
+inline std::string measuredSpecificPosture(const VideoActionEvidence& evidence,
+    const std::string& source,double start,double end) {
+    const auto broad=measuredPosture(evidence,source,start,end);
+    if(broad=="standing")return broad;
+    if(broad!="seated_lying")return "unknown";
+    constexpr int lying=7,sitting=10;
+    for(const int selected:{sitting,lying}) {
+        const int alternative=selected==sitting?lying:sitting;
+        if(evidence.scores[selected]>=.65 && evidence.frozenScores[selected]>=.55
+            && evidence.scores[selected]-evidence.scores[alternative]>=.25
+            && evidence.frozenScores[selected]-evidence.frozenScores[alternative]>=.20)
+            return selected==sitting?"sitting":"lying";
+    }
+    return "unknown";
+}
 }

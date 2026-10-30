@@ -38,7 +38,7 @@ test does not establish general recognition accuracy or release readiness.
 | B01 | Identity/temporal/source/scene/sequence/cluster descriptors | `SceneDescriptor` has most fields; sequenceId currently not established by real sequence detection. | Partial |
 | B02 | Continuous body yaw/pitch/roll and eight useful directions | Torso roll measured; yaw/pitch unknown; eight labels are only a helper, not a working body-orientation estimator. 3D research alone does not complete this requirement. | Missing |
 | B03 | Independent continuous head yaw/pitch/roll | Measured rotation, validity checks, head/body-independent tests, SO(3) similarity. Need independently reviewed real orientation cases. | Partial |
-| B04 | Standing/sitting/lying; crouching/kneeling when reliable; ambiguous/unknown | Standing/broad seated-or-lying and conservative geometric lying exist. Working change refines validated action evidence to separate sitting/lying. No fabricated kneeling. | Partial |
+| B04 | Standing/sitting/lying; crouching/kneeling when reliable; ambiguous/unknown | Validated action observations now refine sitting/lying with temporal/frozen class margins. Conflict, wrong source/range and scene-boundary tests pass; two real reviewed controls pass. No real lying control yet; no fabricated kneeling. | Partial |
 | B05 | Motion semantics, direction, velocity/trajectory/temporal evidence | Existing MovementClassification/windows plus image velocity; audit missing useful acceleration/periodicity and camera contamination. | Partial |
 | B06 | Visibility, occlusion, missing-data/identity/pose/temporal quality | Body/head scoped quality and degeneracy tests. Confidence remains evidence strength, not calibrated probability. | Evidenced, limited |
 | B07 | Camera motion/scale/view/context when reliable | Existing scene sequences/context; descriptor camera influence remains unknown. Need integrate actual available camera evidence or document measured insufficiency per observation. | Partial |
@@ -89,7 +89,7 @@ test does not establish general recognition accuracy or release readiness.
 | K01 | Why selected/matched/rejected/family/representative/cache invalidated/download reused/probe failed | Selection and matcher reason enums/logs exist. Family admission/representative reasons and cache invalidation explanations incomplete. | Partial |
 | L01 | Grounded phases, baseline before changes, no reckless rewrite | Baseline worktree and logs retained; logical commit history. This audit preserves original unfinished scope. | Evidenced |
 | M01 | Branch/status/tags/release conventions, no unrelated deletion | Feature branch clean at start; release README inspected. Tag/release state and complete licenses/package audit still required. | Partial |
-| M02 | Full suite, benchmark, clean Release build, packaging/resources | Last full suite 12/12 at `877500e`; current changes pending. Clean final package verification not performed. | Partial |
+| M02 | Full suite, benchmark, clean Release build, packaging/resources | Latest Release build plus 13/13 CTest targets in 113.00 s (`structured-posture-offline-suite.log`), including two real posture controls. Clean final package verification not performed. | Partial |
 | M03 | Fresh install, previous upgrade, cache migration, provider update | Developer binary and synthetic store tests are not packaged fresh-install/upgrade proof. | Missing |
 | M04 | Version/changelog/notes; publish/tag only when actually ready | Local `0.1.0-rc.23.3-dev`; notes retained; no tag/push/release attempted. Remains unreleased until gates pass. | Partial |
 | N01 | Target + series + result + restart-cache + bad-network + failed-install + Unicode + UI end-to-end flows | See A/D/E/F/G and packaging gaps. Cannot infer all flows from one montage or green unit tests. | Partial |
@@ -99,6 +99,8 @@ test does not establish general recognition accuracy or release readiness.
 
 1. Refine posture using already validated model observations; add evidence tests
    and real before/after checks without inventing depth from 2D keypoints.
+   Implemented and locally verified for sitting/standing controls; a real lying
+   case and broader posture/false-positive coverage remain open under B04/I.
 2. Retain auditable SceneFamily members/admission reasons/representative evidence,
    inspect trajectories and scope, and expose coherent member expansion.
 3. Complete series/restart/incremental/manual-minority end-to-end controls.
@@ -112,3 +114,34 @@ test does not establish general recognition accuracy or release readiness.
 
 Each step must update this audit with actual file/log/artifact evidence. None of
 the open items is currently an external blocker: useful local work remains.
+
+## Latest verified progress
+
+- Added `measuredSpecificPosture` without changing the broad legacy decoder or
+  matcher admission. The structured descriptor refines only independently
+  associated, continuous, model-hash/range/source-validated evidence. Both
+  temporal and frozen observations must separate the winning posture from its
+  nearest alternative. Conflicting supported postures produce Ambiguous/Unknown.
+- `tests/fixtures/butcher-posture-observations.json` retains actual cached model
+  scores for two independently inspected ranges in the supplied montage. The
+  sitting range 50.050–51.718 s contains a foreground bystander; the standing
+  range 10.865–12.033 s contains another seated/leaning person. Three source
+  samples per range were inspected, with no image/biometric data committed.
+- `pf_posture_probe ... --verify` replays production `describeScene`. Before:
+  1/2 exact postures and 2/2 compatible broad postures. After: 2/2 exact and
+  2/2 compatible. The prior broad seated-or-lying prediction was under-specific,
+  not counted as a false classification. This is not population accuracy.
+- `structured-posture-focused.log`: 19 action/descriptor/family controls passed
+  before the added scene-boundary guard; the final full suite includes that guard
+  and passes all 13 targets (`structured-posture-offline-suite.log`, 113.00 s).
+- Repeated selection tests exposed hidden remote manifest lookup inside ReID
+  discovery. GUI prerequisite checks now search all supported local names first
+  and fail before source/session preparation when required assets are missing.
+  Legacy diagnostic automatic preparation remains available. The workflow test
+  now passes without depending on the remote model manifest; its final full-suite
+  duration was 1.90 s. The initial failed full runs remain diagnostic evidence,
+  not successful validation (`structured-posture-final-suite.log` and
+  `structured-posture-verified-suite.log`).
+- The goal is still active. B02 body orientation, real retrieval/family quality,
+  full series/incremental behavior, member inspection/motion and release/package
+  gates are not closed by the posture correction.

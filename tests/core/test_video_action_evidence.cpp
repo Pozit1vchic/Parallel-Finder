@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <pfcore/VideoActionEvidence.hpp>
 #include <pfcore/MovementClassifier.hpp>
+#include <pfcore/SceneDescriptor.hpp>
 #include <limits>
 
 namespace {
@@ -52,6 +53,40 @@ TEST(VideoActionEvidence, RequiresTemporalAndFrozenAgreementForPosture) {
     EXPECT_EQ(pfcore::measuredPosture(stale,"selected-source",0,1.5),"unknown");
     auto cropped=seated;cropped.postureVisible=false;
     EXPECT_EQ(pfcore::measuredPosture(cropped,"selected-source",0,1.5),"unknown");
+}
+TEST(VideoActionEvidence, SpecificPostureRequiresAgreementAgainstTheClosestAlternative) {
+    auto seated=measuredClip();seated.scores[10]=.85;seated.frozenScores[10]=.75;
+    EXPECT_EQ(pfcore::measuredSpecificPosture(seated,"selected-source",0,1.5),"sitting");
+    auto lying=measuredClip();lying.scores[7]=.85;lying.frozenScores[7]=.75;
+    EXPECT_EQ(pfcore::measuredSpecificPosture(lying,"selected-source",0,1.5),"lying");
+    auto close=seated;close.scores[7]=.7;close.frozenScores[7]=.65;
+    EXPECT_EQ(pfcore::measuredPosture(close,"selected-source",0,1.5),"seated_lying");
+    EXPECT_EQ(pfcore::measuredSpecificPosture(close,"selected-source",0,1.5),"unknown");
+    auto disagreement=seated;disagreement.frozenScores[10]=.1;disagreement.frozenScores[7]=.8;
+    EXPECT_EQ(pfcore::measuredSpecificPosture(disagreement,"selected-source",0,1.5),"unknown");
+    seated.associated=false;
+    EXPECT_EQ(pfcore::measuredSpecificPosture(seated,"selected-source",0,1.5),"unknown");
+    EXPECT_EQ(pfcore::measuredSpecificPosture(lying,"different-source",0,1.5),"unknown");
+    EXPECT_EQ(pfcore::measuredSpecificPosture(lying,"selected-source",.1,1.5),"unknown");
+}
+TEST(VideoActionEvidence, StructuredPostureRefinesWithoutInventingGeometryAndPreservesConflicts) {
+    pfcore::MotionWindow window;window.sourceId="selected-source";
+    auto seated=measuredClip();seated.scores[10]=.85;seated.frozenScores[10]=.75;
+    window.videoActions={seated};
+    auto descriptor=pfcore::describeScene(window,0,1.5);
+    EXPECT_EQ(descriptor.posture,pfcore::ScenePosture::Sitting);
+    EXPECT_EQ(descriptor.postureEvidence,pfcore::EvidenceLevel::Probable);
+    EXPECT_EQ(descriptor.visibleCoverage,0);EXPECT_FALSE(descriptor.body.yawDegrees);
+    auto lying=measuredClip();lying.scores[7]=.85;lying.frozenScores[7]=.75;
+    window.videoActions={lying};
+    EXPECT_EQ(pfcore::describeScene(window,0,1.5).posture,pfcore::ScenePosture::Lying);
+    window.videoActions.push_back(seated);
+    descriptor=pfcore::describeScene(window,0,1.5);
+    EXPECT_EQ(descriptor.posture,pfcore::ScenePosture::Unknown);
+    EXPECT_EQ(descriptor.postureEvidence,pfcore::EvidenceLevel::Ambiguous);
+    EXPECT_EQ(pfcore::describeScene(window,.1,1.5).posture,pfcore::ScenePosture::Unknown);
+    window.videoActions={seated};window.sceneStartSeconds=0;window.sceneEndSeconds=1;
+    EXPECT_EQ(pfcore::describeScene(window,0,1.5).posture,pfcore::ScenePosture::Unknown);
 }
 TEST(VideoActionEvidence, AddsValidatedWalkingToUnknownGeometryWithoutChangingHeadScope) {
     pfcore::MotionWindow window;window.sourceId="selected-source";
