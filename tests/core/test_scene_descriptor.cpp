@@ -2,6 +2,56 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <numbers>
+#include <limits>
+
+namespace {
+pfcore::BodyOrientationSample bodySample(double time,double yaw) {
+    pfcore::BodyOrientationSample s;s.sourceId="film";s.modelHash=pfcore::kBodyOrientationModelHash;
+    s.time=time;s.yawDegrees=yaw;s.observed=true;s.poseAssociated=true;s.reason="observed";
+    s.associationIou=.8;s.associationMargin=.3;s.mirrorDifference=4;s.cropDifference=5;return s;
+}
+}
+TEST(SceneDescriptor, BodyYawPreservesCircularValuesAndDoesNotInventPitchOrHead) {
+    pfcore::MotionWindow w;w.sourceId="film";
+    w.bodyOrientations={bodySample(0,178),bodySample(.5,-179),bodySample(1,179)};
+    const auto d=pfcore::describeScene(w,0,1.1);
+    ASSERT_TRUE(d.body.yawDegrees);EXPECT_DOUBLE_EQ(*d.body.yawDegrees,-179);
+    EXPECT_FALSE(d.body.pitchDegrees);EXPECT_FALSE(d.head.yawDegrees);
+    EXPECT_EQ(d.bodyYawObservedSamples,3);EXPECT_EQ(d.bodyYawRequestedSamples,3);
+    EXPECT_GT(d.body.confidence,.5);
+    w.sceneStartSeconds=0;w.sceneEndSeconds=1;
+    EXPECT_FALSE(pfcore::describeScene(w,0,1.1).body.yawDegrees);
+}
+TEST(SceneDescriptor, BodyYawRequiresIndependentOwnedTemporalObservations) {
+    const std::vector<pfcore::BodyOrientationSample> good{bodySample(0,10),bodySample(.5,20),bodySample(1,30)};
+    for(int mode=0;mode<7;++mode) {
+        auto samples=good;
+        switch(mode) {
+        case 0:samples[1].sourceId="bystander";break;
+        case 1:samples[1].modelHash="other";break;
+        case 2:samples[1].poseAssociated=false;break;
+        case 3:samples[1].cropDifference=20.01;break;
+        case 4:samples[1].mirrorDifference=25.01;break;
+        case 5:samples[1].yawDegrees=std::numeric_limits<double>::quiet_NaN();break;
+        case 6:samples[1].associationMargin=.149;break;
+        }
+        EXPECT_FALSE(pfcore::summarizeBodyYaw(samples,"film",0,1.1).yawDegrees)<<mode;
+    }
+    auto duplicated=good;duplicated.push_back(good[1]);
+    EXPECT_EQ(pfcore::summarizeBodyYaw(duplicated,"film",0,1.1).total,3);
+    duplicated.back().yawDegrees=90;
+    EXPECT_FALSE(pfcore::summarizeBodyYaw(duplicated,"film",0,1.1).yawDegrees);
+    EXPECT_FALSE(pfcore::summarizeBodyYaw(good,"film",0,1).yawDegrees);
+    EXPECT_FALSE(pfcore::summarizeBodyYaw(good,"film",0,3).yawDegrees);
+}
+TEST(SceneDescriptor, BodyYawRejectsTemporalSpikesButAllowsObservedContinuousTurns) {
+    auto samples=std::vector{bodySample(0,0),bodySample(.5,160),bodySample(1,0)};
+    const auto spike=pfcore::summarizeBodyYaw(samples,"film",0,1.1);
+    EXPECT_FALSE(spike.yawDegrees);EXPECT_TRUE(spike.ambiguous);
+    samples[1].yawDegrees=90;samples[2].yawDegrees=180;
+    const auto turn=pfcore::summarizeBodyYaw(samples,"film",0,1.1);
+    ASSERT_TRUE(turn.yawDegrees);EXPECT_DOUBLE_EQ(*turn.yawDegrees,90);
+}
 
 TEST(SceneDescriptor, LabelsDoNotChangeContinuousAngularDistances) {
     EXPECT_EQ(pfcore::viewDirection(0),pfcore::ViewDirection::Front);

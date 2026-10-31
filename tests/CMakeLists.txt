@@ -13,6 +13,10 @@ target_compile_definitions(pf_target_character_tests PRIVATE PF_TARGET_VIDEO="${
 add_test(NAME pf_target_character_tests COMMAND pf_target_character_tests -o "${CMAKE_CURRENT_BINARY_DIR}/target-character-results.txt,txt")
 set_tests_properties(pf_target_character_tests PROPERTIES TIMEOUT 120 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 add_executable(pf_head_review_tests ui/test_head_review.cpp)
+add_executable(pf_body_review_tests ui/test_body_review.cpp)
+target_link_libraries(pf_body_review_tests PRIVATE pfui pfui_module_import Qt6::Test)
+add_test(NAME pf_body_review_tests COMMAND pf_body_review_tests -o "${CMAKE_CURRENT_BINARY_DIR}/body-review-results.txt,txt")
+set_tests_properties(pf_body_review_tests PROPERTIES TIMEOUT 120)
 target_link_libraries(pf_head_review_tests PRIVATE pfui pfui_module_import Qt6::Test)
 add_test(NAME pf_head_review_tests COMMAND pf_head_review_tests)
 set_tests_properties(pf_head_review_tests PROPERTIES TIMEOUT 120)
@@ -134,6 +138,7 @@ foreach(target IN ITEMS
         pf_discord_tests
         pf_target_character_tests
         pf_head_review_tests
+        pf_body_review_tests
         pf_video_action_review_tests
         pf_mcp_tests
         pf_update_tests

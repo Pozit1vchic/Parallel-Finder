@@ -63,6 +63,7 @@ QtObject {
             "explain.unknown": "Нет надёжных данных",
             "explain.confirmed": "Подтверждена",
             "explain.note": "Сходство и качество наблюдений — разные оценки. Отсутствие данных не означает уверенность.",
+            "bodyReview.stage": "Уточняем направление корпуса",
             "explain.close": "Закрыть",
             "family.title": "Варианты фрагментов",
             "family.show": "Варианты фрагментов · %1",
@@ -578,6 +579,7 @@ QtObject {
             "explain.unknown": "Not measured",
             "explain.confirmed": "Verified",
             "explain.note": "Similarity and evidence quality are separate measurements. Missing information is not a confident observation.",
+            "bodyReview.stage": "Refining body direction",
             "explain.close": "Close",
             "family.title": "Clip variants",
             "family.show": "Clip variants · %1",
@@ -1119,6 +1121,8 @@ QtObject {
 
     function statusBase(value) {
         const text = String(value || "")
+        const bodyPrefix = "Уточняем направление корпуса"
+        if (text.indexOf(bodyPrefix) === 0) return t("bodyReview.stage") + text.slice(bodyPrefix.length)
         if (language === "ru") {
             const errors = {
                 "Could not decode frame": "Не удалось прочитать кадр. Проверь доступность исходного видео.",

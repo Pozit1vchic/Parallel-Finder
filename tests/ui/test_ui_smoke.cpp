@@ -2726,6 +2726,18 @@ Item {
     QCOMPARE(root->property("translated").toString(),QStringLiteral("Preparing footage for matching · 40 / 90"));
     root->setProperty("stage",QString::fromUtf8("Дополнительный поиск: Подготавливаем найденные кандидаты · 2048 / 9000"));
     QCOMPARE(root->property("translated").toString(),QStringLiteral("Additional search: Preparing retrieved candidates · 2048 / 9000"));
+    root->setProperty("stage",QString::fromUtf8("Уточняем направление корпуса · 2 / 3"));
+    const std::vector<std::pair<QString,QString>> bodyStages{
+        {"ru",QString::fromUtf8("Уточняем направление корпуса")},
+        {"en","Refining body direction"},
+        {"ky",QString::fromUtf8("Дененин багытын тактоо")},
+        {"kk",QString::fromUtf8("Дене бағытын нақтылау")},
+        {"uk",QString::fromUtf8("Уточнюємо напрямок корпусу")},
+        {"tr",QString::fromUtf8("Gövde yönü netleştiriliyor")}};
+    for(const auto& [language,label]:bodyStages) {
+        QVERIFY(QMetaObject::invokeMethod(root.get(),"setLanguage",Q_ARG(QVariant,language)));
+        QCOMPARE(root->property("translated").toString(),label+QString::fromUtf8(" · 2 / 3"));
+    }
     QVERIFY(QMetaObject::invokeMethod(root.get(),"setLanguage",Q_ARG(QVariant,"ru")));
 }
 

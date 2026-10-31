@@ -38,6 +38,8 @@ struct SceneDescriptor {
     bool cameraMotionKnown=false;
     // Missing camera information is not proof of a static camera.
     std::optional<double> cameraInfluence;
+    EvidenceLevel bodyYawEvidence=EvidenceLevel::Unknown;
+    std::size_t bodyYawObservedSamples=0,bodyYawRequestedSamples=0;
 };
 SceneDescriptor describeScene(const MotionWindow& window,double start,double end,std::size_t identityId=0);
 ViewDirection viewDirection(double yawDegrees) noexcept;

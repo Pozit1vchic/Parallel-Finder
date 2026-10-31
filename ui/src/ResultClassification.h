@@ -19,6 +19,7 @@ inline pfcore::MotionWindow groupingEvidence(const pfcore::MotionWindow& source)
     result.sceneEndSeconds = source.sceneEndSeconds;
     result.staticFrameSet = source.staticFrameSet;
     result.headOrientations = source.headOrientations;
+    result.bodyOrientations = source.bodyOrientations;
     result.sourceId = source.sourceId;
     result.videoActions = source.videoActions;
     result.trackId=source.trackId;result.sceneIndex=source.sceneIndex;result.hasSceneIndex=source.hasSceneIndex;

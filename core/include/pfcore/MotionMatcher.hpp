@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include "pfcore/HeadOrientationSample.hpp"
+#include "pfcore/BodyOrientationSample.hpp"
 #include "pfcore/FaceConsensus.hpp"
 #include "pfcore/VideoActionEvidence.hpp"
 #include "pfcore/SceneFamilyEvidence.hpp"
@@ -105,6 +106,8 @@ struct MotionWindow {
     // Optional result-only refinement. It is excluded from identity matching
     // and the established motion cache; a separate model-version cache owns it.
     std::vector<HeadOrientationSample> headOrientations;
+    // Separate model-versioned result refinement, excluded from pose caches.
+    std::vector<BodyOrientationSample> bodyOrientations;
     // Kept in its independent classifier cache, not the expensive pose cache.
     std::vector<VideoActionEvidence> videoActions;
 };

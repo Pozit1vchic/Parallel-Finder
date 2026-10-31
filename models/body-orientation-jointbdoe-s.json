@@ -1,5 +1,5 @@
 {
-  "status": "candidate-not-packaged",
+  "status": "optional-local-not-packaged",
   "filename": "body-orientation-jointbdoe-s.onnx",
   "bytes": 49746903,
   "sha256": "3bdfefba3f0bbcd23454ceefaa3088c2e95a7b9d120502899f65249ae98e1c93",
@@ -16,8 +16,8 @@
   "supportedAxes": ["yaw"],
   "unsupportedAxes": ["pitch", "roll"],
   "yawConvention": "0 front; +90 screen-left; -90 screen-right; +/-180 back",
-  "confidence": "Detector confidence is not orientation accuracy. Mutual spatial association and mirror consistency required; temporal/crop support still pending.",
-  "packaging": "Not activated or bundled. Preserve the author's MIT declaration and finish attribution/notice review before packaging.",
+  "confidence": "Detector confidence is not orientation accuracy. Application review requires pose ownership, mutual spatial association, original/flip and crop agreement, and temporal support.",
+  "packaging": "Optional ordinary analysis when the hash-verified local model exists; not bundled for release. Preserve the author's MIT declaration and finish attribution/notice review before packaging.",
   "realControls": 11,
   "supportedControls": 9,
   "unresolvedControls": 2,

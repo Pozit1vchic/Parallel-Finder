@@ -90,6 +90,7 @@ target_sources(pfui PRIVATE
     src/AnalysisController.cpp
     src/ReviewActions.cpp
     src/HeadOrientationReview.cpp
+    src/BodyOrientationReview.cpp
     src/VideoActionReview.cpp
     src/McpController.cpp
     src/McpTools.cpp

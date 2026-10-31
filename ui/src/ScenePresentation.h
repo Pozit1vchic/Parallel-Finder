@@ -31,7 +31,13 @@ inline QVariantMap sceneDescriptorMap(const pfcore::SceneDescriptor& d) {
     if(d.head.yawDegrees)result.insert("headYaw",*d.head.yawDegrees);
     if(d.head.pitchDegrees)result.insert("headPitch",*d.head.pitchDegrees);
     if(d.head.rollDegrees)result.insert("headRoll",*d.head.rollDegrees);
-    if(d.body.yawDegrees)result.insert("bodyYaw",*d.body.yawDegrees);
+    result.insert("bodyYawEvidence",static_cast<int>(d.bodyYawEvidence));
+    result.insert("bodyYawObservedSamples",static_cast<qulonglong>(d.bodyYawObservedSamples));
+    result.insert("bodyYawRequestedSamples",static_cast<qulonglong>(d.bodyYawRequestedSamples));
+    if(d.body.yawDegrees) {
+        result.insert("bodyYaw",*d.body.yawDegrees);result.insert("bodyView",static_cast<int>(pfcore::viewDirection(*d.body.yawDegrees)));
+        result.insert("bodyYawStrength",d.body.confidence);
+    }
     if(d.body.rollDegrees)result.insert("bodyRoll",*d.body.rollDegrees);
     if(d.sceneId)result.insert("scene",static_cast<qulonglong>(*d.sceneId));
     return result;

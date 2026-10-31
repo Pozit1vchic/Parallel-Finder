@@ -150,6 +150,14 @@ SceneDescriptor describeScene(const MotionWindow& window,double start,double end
         result.head.rollDegrees=std::atan2(r[3],r[4])*180./std::numbers::pi;
         result.head.confidence=double(headCount)/std::max<std::size_t>(1,totalHead);
     }
+    if(!(std::isfinite(window.sceneStartSeconds)&&std::isfinite(window.sceneEndSeconds)&&window.sceneStartSeconds>=0
+        &&window.sceneEndSeconds>window.sceneStartSeconds&&(start<window.sceneStartSeconds-1e-6||end>window.sceneEndSeconds+1e-6))) {
+        const auto body=summarizeBodyYaw(window.bodyOrientations,window.sourceId,start,end);
+        result.body.yawDegrees=body.yawDegrees;
+        result.bodyYawObservedSamples=body.observed;result.bodyYawRequestedSamples=body.total;
+        result.bodyYawEvidence=body.ambiguous?EvidenceLevel::Ambiguous:body.yawDegrees?EvidenceLevel::Probable:EvidenceLevel::Unknown;
+        if(body.yawDegrees)result.body.confidence=body.evidenceStrength;
+    }
     result.evidenceQuality=std::clamp(.55*result.poseConfidence+.25*result.visibleCoverage+.20*result.temporalCoverage,0.,1.);
     if(normalized<3)result.evidenceQuality*=.25;
     return result;

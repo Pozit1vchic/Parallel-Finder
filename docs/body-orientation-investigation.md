@@ -1,9 +1,10 @@
 # Body-orientation investigation
 
 Requirement B02 in [the completion audit](quality-requirements.md) remains open.
-The production descriptor currently measures torso roll and independent head
-rotation; it does not yet estimate signed body yaw/pitch. A successful research
-export is not completion of that requirement.
+The analysis pipeline now optionally measures signed body yaw when the pinned
+local model is installed, independently of head rotation and torso roll. Body
+pitch remains unknown. The broader orientation/UI/release requirement is not
+closed by the limited real-source controls below.
 
 ## Candidate and provenance
 
@@ -30,8 +31,9 @@ Pinned research inputs:
   `3bdfefba3f0bbcd23454ceefaa3088c2e95a7b9d120502899f65249ae98e1c93`.
 
 The author sources, original checkpoint, isolated Python environment and generated
-graphs are under ignored `build/` directories. They are not application assets,
-not in the release manifest, and not activated by ordinary analysis. Code headers
+graphs are under ignored `build/` directories. They are not in the release
+manifest; the integration below uses a hash-verified optional developer copy.
+Code headers
 identify GPL-3.0 ancestry. A follow-up inspection found that the author's model
 card explicitly declares MIT at repository revision
 `8ed0d81c7fb24c3b3e1d4fbb79fe2eaf6e15ccb3`; see the pinned
@@ -89,7 +91,8 @@ Local evidence: `build/body-orientation-export-equivalence.json`,
 `build/body-orientation-research-output.json`. These establish export fidelity,
 **not ground-truth angle accuracy**.
 
-Still required before production:
+Initial validation queue (the subsequent sections record progress on items 1–4;
+broader independent controls, UI and release gates in item 5 remain open):
 
 1. Establish angle zero/sign/front/back convention with independent real view
    labels, including wraparound, left/right and body/head disagreement.
@@ -169,11 +172,11 @@ the supported cases and the two unresolved cases, so abstaining on every frame
 cannot pass. `pf_body_orientation_probe` verifies the pinned model hash and
 re-evaluates actual source frames; it refuses an existing output path.
 
-This implements and validates the native estimator, **not the complete application
-feature**. Next: actual temporal/crop controls, cancellable adaptive post-match
-review and separate model-versioned observation persistence; then descriptor,
-ordering/filter/UI integration. Ordinary analysis does not yet call this model.
-Body pitch, more difficult real orientations and final packaging remain open.
+At this native-estimator milestone, ordinary analysis did not yet call the
+model. The subsequent integration below adds post-match temporal/crop review,
+persistence and descriptor/continuity integration. Body pitch, more difficult
+real orientations, user-visible directional controls and final packaging remain
+open.
 
 
 Exact private input reproduction is now checked in as
@@ -187,3 +190,67 @@ and fresh CPU/CUDA runs are retained under `build/body-yaw-exact-reproduction`.
 
 The final Release build and all 13 CTest targets pass in 130.37 s
 (`body-yaw-full-suite.log`), in addition to the separate actual-model runs.
+
+## Post-match application integration
+
+`BodyOrientationReview.cpp` now runs from `AnalysisController` after head/action
+review and before family organization. Only body comparisons request work;
+head-only analysis and pre-cancelled work do not open either model or create a
+cache. For each compared interval it selects three distinct observed pose times,
+deduplicating requests shared across results. It re-runs the existing pose model
+on these few frames because persisted pose frames do not contain detector body
+boxes, and verifies ownership against the original observed skeleton. It never
+uses the largest person as an identity decision.
+
+An accepted sample requires visible torso support, mutual spatial association,
+genuine original/flip agreement and a second genuine original/flip inference on
+an expanded crop. Full-frame and crop yaw must agree within 20 degrees. Three
+valid, sufficiently spread observations are needed for the interval descriptor;
+conflicting duplicates, wrong source/model/pose ownership, incomplete coverage,
+out-of-scene ranges and unsupported angular jumps remain unknown or ambiguous.
+The midpoint sample retains its continuous signed angle across the +/-180 seam.
+The support score describes observation support, not calibrated angle accuracy.
+Head rotation and unsupported body pitch are not inferred from this value.
+
+The result-only observations are copied into grouping evidence and exposed in
+the side descriptors (`bodyYaw`, `bodyView`, support state/counts). Existing
+continuity ordering consumes the now-populated continuous body yaw. The primary
+pose cache format and matcher admission are unchanged. Orientation filtering,
+directional readout and broader trajectory/scope-family review remain open.
+
+The separate 64 MiB `movement-refinement-v1/body-orientation-v1` cache includes
+source generation, model hashes, observed points, pose inference settings and
+provider in each request key. An absent or empty source namespace disables
+persistent reuse. Only completed observations are stored; cancellation retains
+earlier complete samples while unfinished slots stay unknown. Source mutation
+during a measurement discards this review. The model is hash-verified before
+reuse; the developer copy is optional and is not a release-package declaration.
+
+`pf_body_review_tests` runs the real first Butcher shot with native decoder,
+YOLO26x pose and native body orientation. Coarse frontal expectation comes from
+the existing reviewed `butcher-0` control; target selection uses the reviewed
+right-half body location independently of predicted yaw. At actual timestamps
+0.021000, 0.438083 and 0.813458 seconds, CUDA observes 14.627, 20.577 and 27.106
+degrees. CPU also supports all three; its latter angles are 20.581 and 27.111.
+These are three nearby frontal observations, not a general accuracy benchmark.
+
+Both runs prove three unique cold requests, three warm cache hits with zero
+decode/pose/body calls, descriptor/presentation/grouping propagation, no
+persistent reuse with an empty namespace, and cancel-after-one/resume with one
+cached plus two newly measured samples. CUDA takes 11.243 s and CPU 20.970 s for
+the entire test including fixture preparation and repeated invalidation runs;
+these times are not per-analysis latency or a controlled GPU speed benchmark.
+Evidence: `build/body-review-real-cuda-results.txt` and
+`build/body-review-real-cpu-results.txt`, five checks pass in each. The nine
+`SceneDescriptor` controls also pass (`body-review-descriptor-tests.log`).
+
+Final Release rebuild and all **14/14 CTest targets pass in 119.33 s**
+(`build/body-review-full-suite-verified.log`), including 56 UI checks (seven
+explicit opt-in skips) and six-language stage-counter assertions. The first
+fresh-build run passed 13/14: isolated startup failed with Windows missing-DLL
+status `-1073741515` before runtime deployment. The existing
+`tools/release/deploy-runtime.ps1` staged the dependencies; the focused
+startup/UI replay and subsequent full run pass. No startup test was weakened.
+This is a developer runtime verification, not clean installer/upgrade proof.
+The final cache-key profile/batch/keypoint fields also have a fresh five-check
+CUDA real-source run (`body-review-real-cuda-verified-results.txt`, 11.249 s).

@@ -7,6 +7,7 @@
 #include "AnalysisController.h"
 #include "EstimatorCache.hpp"
 #include "HeadOrientationReview.h"
+#include "BodyOrientationReview.h"
 #include "VideoActionReview.h"
 #include "PreviewRequestOrder.h"
 #include <QTimer>
@@ -4072,6 +4073,36 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         review.requested,review.cached,review.observed,review.decoded,review.cuts,review.unassociated,review.error.c_str());
                 actionReviewMs=resultTimer.elapsed()-actionReviewStartedMs;
             }
+            BodyOrientationReviewStats bodyReview;
+            qint64 bodyReviewMs=0;
+            const auto bodyModel=findLocalModelFile(QStringLiteral("body-orientation-jointbdoe-s.onnx"));
+            if(bodyModel && pose && !isCancelled()) {
+                const auto started=resultTimer.elapsed();
+                std::map<std::string,std::string> namespaces;
+                for(const auto& [source,generation]:sourceGenerations)
+                    namespaces.emplace(source,cacheFileFingerprint(source)+"|generation="+generation);
+                const auto resolved=pfgpu::resolveProvider(requestedProvider.value_or(pfgpu::Provider::Auto));
+                const auto provider=resolved==pfgpu::Provider::TensorRt?pfgpu::Provider::Cuda:resolved;
+                pfcore::VideoDecodeOptions options;
+                options.threads=static_cast<int>(std::min<std::size_t>(settings.processingThreads,8));
+                options.preferNvidia=provider==pfgpu::Provider::Cuda;
+                options.minimumNvidiaPixels=1920ULL*1080ULL+1;
+                const auto cache=movementCacheRoot.empty()?std::filesystem::path{}:movementCacheRoot/"body-orientation-v1";
+                QElapsedTimer progressTimer;progressTimer.start();
+                bodyReview=reviewMatchedBodyOrientations(windows,foundMatches,*pose,*bodyModel,cache,namespaces,provider,options,isCancelled,
+                    [&](std::size_t done,std::size_t total) {
+                        if(done!=total&&progressTimer.elapsed()<150)return;
+                        progressTimer.restart();
+                        QMetaObject::invokeMethod(this,[this,cancel,done,total,processedFrames,totalFramesEstimate] {
+                            if(analysisCancel_==cancel&&!cancel->load())setProgress(.99,
+                                QStringLiteral("Уточняем направление корпуса · %1 / %2").arg(done).arg(total),processedFrames,totalFramesEstimate);
+                        },Qt::QueuedConnection);
+                    });
+                bodyReviewMs=resultTimer.elapsed()-started;
+                if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")||!bodyReview.error.empty())
+                    std::fprintf(stderr,"PF_BODY_REVIEW requested=%zu cached=%zu observed=%zu decoded=%zu pose_inferences=%zu body_inferences=%zu error=%s\n",
+                        bodyReview.requested,bodyReview.cached,bodyReview.observed,bodyReview.decoded,bodyReview.poseInferences,bodyReview.bodyInferences,bodyReview.error.c_str());
+            }
             std::map<std::string,std::size_t> targetIds;
             for (auto it=summaries.cbegin();it!=summaries.cend();++it) {
                 const auto id=it.value().toMap().value("targetCharacterId").toString().toULongLong();
@@ -4218,6 +4249,11 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 auto& item = foundMatches[i];
                 QVariantMap record;
                 if(!headReview.error.empty())record.insert("classificationWarning",QString::fromStdString(headReview.error));
+                if(!bodyReview.error.empty()) {
+                    auto warning=record.value("classificationWarning").toString();
+                    if(!warning.isEmpty())warning+="; ";
+                    record.insert("classificationWarning",warning+QString::fromStdString(bodyReview.error));
+                }
                 record.insert(QStringLiteral("id"), static_cast<int>(i));
                 record.insert(QStringLiteral("similarity"), item.similarity);
                 record.insert("bestMatchScore",item.bestMatchScore);
@@ -4304,8 +4340,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             foundMatches.resize(static_cast<std::size_t>(resultRecords.size()));
             matches = static_cast<int>(foundMatches.size());
             if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
-                std::fprintf(stderr,"PF_DEBUG_TIMING postprocess_breakdown_ms head_review=%lld action_review=%lld preview_cache=%lld preview_decode_encode=%lld record_build=%lld\n",
+                std::fprintf(stderr,"PF_DEBUG_TIMING postprocess_breakdown_ms head_review=%lld action_review=%lld body_review=%lld preview_cache=%lld preview_decode_encode=%lld record_build=%lld\n",
                     static_cast<long long>(headReviewMs),static_cast<long long>(actionReviewMs),
+                    static_cast<long long>(bodyReviewMs),
                     static_cast<long long>(previewCacheMs),static_cast<long long>(previewRenderMs),
                     static_cast<long long>(recordBuildMs));
                 std::fprintf(stderr, "PF_DEBUG_TIMING postrank_total_ms=%lld rendered_previews=%zu cached_previews=%zu\n",

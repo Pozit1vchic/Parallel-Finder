@@ -13,6 +13,7 @@ add_library(pfcore STATIC
     src/MovementClassifier.cpp
     src/MovementGrouping.cpp
     src/HeadOrientation.cpp
+    src/BodyOrientation.cpp
     src/MotionRanker.cpp
     src/SceneDescriptor.cpp
     src/SceneFamily.cpp
@@ -26,6 +27,8 @@ target_compile_features(pfcore PUBLIC cxx_std_23)
 
 # Guard: pfcore must not include Qt headers (spec section 2: "ядро без Qt").
 set(PF_CORE_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/BodyOrientationSample.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/BodyOrientation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/FaceAssociation.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/FaceAssociation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/SceneDescriptor.hpp
