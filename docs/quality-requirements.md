@@ -69,7 +69,7 @@ test does not establish general recognition accuracy or release readiness.
 | F04 | Offline/restart retry and cancellation preserve valid parts | Local interrupted-transfer/offline/cancel tests. Add/inspect explicit process-restart and no-Range server proof. | Partial |
 | F05 | Transactional staging/probe/activation preserves active provider | Interrupted rename state is now discoverable on startup through the preserved previous bundle, without mutation; fresh-process Unicode controls and installer restore-before-failed-probe/offline retry pass. Real GPU process-kill and activation-marker boundaries still need package-level proof. | Partial |
 | F06 | Unicode discovery/probe/child args/config/logs | Native paths and Cyrillic/Japanese install controls; audit all remaining conversions. | Partial |
-| F07 | Human error + stable code + Retry/Details | Existing provider status may still contain low-level errors. Inspect and correct before completion. | Unverified |
+| F07 | Human error + stable code + Retry/Details | Raw installed-provider reasons and unknown raw status fallback are removed from the main message; installed failures retain expandable details, and error/cancel states show a localized Retry label. Six-language validation and focused settings/provider checks pass. Actual offline/error-state rendering still needs verification. | Partial |
 | F08 | Stage/bytes/total/speed/cache/retry UI + explicit saved-data message | Progress fields exist; inspect offline/retrying rendered states and localized wording. | Partial |
 | G01 | Central motion durations/easing; geometry, not default fade | Theme tokens/geometry transitions exist; raw values remain. Need inventory and coherent stage/source morphs. | Partial |
 | G02 | Character selection continuity and source-state morph | Candidate expansion and central container reuse exist; selected thumbnail-to-target continuity unproven. | Partial |
@@ -96,6 +96,12 @@ test does not establish general recognition accuracy or release readiness.
 | O01 | Final 14-part report with exact commits/version/remote status/limits | Existing reports cover completed phases. A final completion report is premature until this audit closes. | Pending final gate |
 
 ## Dependency-ordered remaining queue
+
+Current user sequencing: finish quick fixes and the remaining non-core work
+first; defer classifier, sorting, matcher and performance changes. The user has
+8% of the weekly allowance left and needs a future v0.2.0 release. Prefer focused
+verification over repeated expensive full runs. This defers those workstreams;
+it does not mark them complete or authorize publishing an unfinished release.
 
 1. Refine posture using already validated model observations; add evidence tests
    and real before/after checks without inventing depth from 2D keypoints.

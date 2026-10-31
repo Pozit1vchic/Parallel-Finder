@@ -423,7 +423,7 @@ Popup {
         const installation = AppInfo.providerInstallation(key)
         if (installation.pendingValidation) return L10n.t("settings.providerRestart")
         if (installation.available) return L10n.t("settings.providerValidatedRestart")
-        if (installation.installed) return L10n.t("settings.providerInvalid") + ": " + installation.reason
+        if (installation.installed) return L10n.t("settings.providerInvalid")
         const reason = String(AppInfo.backendReason(key) || "").toLowerCase()
         if (key === "cuda" && (reason.indexOf("cuda") >= 0 || reason.indexOf("onnxruntime") >= 0)) return L10n.t("settings.providerCudaMissing")
         if (key === "tensorrt" && (reason.indexOf("tensorrt") >= 0 || reason.indexOf("onnxruntime") >= 0)) return L10n.t("settings.providerTensorRtMissing")
@@ -446,7 +446,14 @@ Popup {
         if (lower.indexOf("404") >= 0 || lower.indexOf("providers.json") >= 0) return L10n.t("settings.providerManifestMissing")
         if (lower.indexOf("internet") >= 0 || lower.indexOf("network") >= 0 || lower.indexOf("transfer") >= 0) return L10n.t("settings.providerNetworkError")
         if (lower.indexOf("downloaded") >= 0 || lower.indexOf("готов") >= 0) return L10n.t("settings.providerDownloadDone")
-        return status
+        return L10n.t("settings.providerUnavailable")
+    }
+    readonly property string providerDetailsText: {
+        const revision=AppInfo.providersRevision
+        if(AppInfo.providerDownloadState === "error") return AppInfo.providerDownloadStatus
+        const installation=AppInfo.providerInstallation(Analysis.providerChoice)
+        return installation.installed && !installation.available && !installation.pendingValidation
+            ? String(installation.reason || "") : ""
     }
 
     contentItem: Item {
@@ -627,7 +634,9 @@ Popup {
                                 Layout.minimumWidth: 0
                                 compact: true
                                 text: root.selectedProviderInstalled ? L10n.t("settings.providerInstalled")
-                                    : AppInfo.providerDownloading ? L10n.t("settings.providerDownloading") : L10n.t("settings.providerDownload")
+                                    : AppInfo.providerDownloading ? L10n.t("settings.providerDownloading")
+                                    : AppInfo.providerDownloadState === "error" || AppInfo.providerDownloadState === "cancelled"
+                                      ? L10n.t("provider.retry") : L10n.t("settings.providerDownload")
                                 enabled: !root.selectedProviderInstalled && !Analysis.busy && !Analysis.exportBusy
                                     && !AppInfo.backendInitializing && !AppInfo.providerDownloading && !AppInfo.providersScanning
                                 onClicked: AppInfo.downloadProvider(Analysis.providerChoice)
@@ -654,10 +663,10 @@ Popup {
                         PfButton { Layout.fillWidth: true; compact: true; text: L10n.t("settings.providerRescan"); enabled: !AppInfo.backendInitializing && !AppInfo.providersScanning && !AppInfo.providerDownloading; onClicked: AppInfo.rescanProviders() }
                         CollapsibleSection {
                             Layout.fillWidth: true
-                            visible: AppInfo.providerDownloadState === "error"
+                            visible: root.providerDetailsText.length > 0
                             title: L10n.t("provider.details")
                             onToggled: function(next) { expanded=next }
-                            Text { width: parent.width; text: AppInfo.providerDownloadStatus; color: Theme.textSecondary; font.family: Theme.monoFont; font.pixelSize: 10; wrapMode: Text.WrapAnywhere }
+                            Text { width: parent.width; text: root.providerDetailsText; color: Theme.textSecondary; font.family: Theme.monoFont; font.pixelSize: 10; wrapMode: Text.WrapAnywhere }
                         }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.cache"); color: Theme.secondaryText; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
                         RowLayout { Layout.fillWidth: true; spacing: 8

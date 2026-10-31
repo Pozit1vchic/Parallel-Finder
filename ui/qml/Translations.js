@@ -1000,8 +1000,8 @@ var dictionaries = {
     "%1 s": "%1 с",
     "provider.installError": "Провайдерди орнотуу аяктаган жок.",
     "Provider installation could not be completed.": "Провайдерди орнотуу аяктаган жок.",
-    "provider.saved": "Жүктөлгөн маалымат сакталды. Кайра аракет кылса болот.",
-    "Downloaded data was saved. You can retry.": "Жүктөлгөн маалымат сакталды. Кайра аракет кылса болот.",
+    "provider.saved": "Текшерилген жүктөлгөн файлдар кайра аракет кылуу үчүн сакталат.",
+    "Verified downloaded files are kept for another attempt.": "Текшерилген жүктөлгөн файлдар кайра аракет кылуу үчүн сакталат.",
     "provider.verifying": "Орнотуудан мурун провайдер текшерилүүдө…",
     "Testing the staged provider…": "Орнотуудан мурун провайдер текшерилүүдө…",
     "provider.details": "Техникалык маалымат",
@@ -1137,7 +1137,9 @@ var dictionaries = {
     "filter.orientation.all": "Каалаган ракурс",
     "Any view": "Каалаган ракурс",
     "filter.orientation.pair": "Эки үзүндүдө тең · камерага карата",
-    "Both clips · relative to the camera": "Эки үзүндүдө тең · камерага карата"
+    "Both clips · relative to the camera": "Эки үзүндүдө тең · камерага карата",
+    "provider.retry": "Кайра аракет кылуу",
+    "Retry": "Кайра аракет кылуу"
   },
   "kk": {
     "bodyReview.stage": "Дене бағытын нақтылау",
@@ -2138,8 +2140,8 @@ var dictionaries = {
     "%1 s": "%1 с",
     "provider.installError": "Провайдерді орнату аяқталмады.",
     "Provider installation could not be completed.": "Провайдерді орнату аяқталмады.",
-    "provider.saved": "Жүктелген деректер сақталды. Қайталап көруге болады.",
-    "Downloaded data was saved. You can retry.": "Жүктелген деректер сақталды. Қайталап көруге болады.",
+    "provider.saved": "Тексерілген жүктелген файлдар қайта әрекет ету үшін сақталады.",
+    "Verified downloaded files are kept for another attempt.": "Тексерілген жүктелген файлдар қайта әрекет ету үшін сақталады.",
     "provider.verifying": "Орнату алдында провайдер тексерілуде…",
     "Testing the staged provider…": "Орнату алдында провайдер тексерілуде…",
     "provider.details": "Техникалық мәліметтер",
@@ -2275,7 +2277,9 @@ var dictionaries = {
     "filter.orientation.all": "Кез келген ракурс",
     "Any view": "Кез келген ракурс",
     "filter.orientation.pair": "Екі үзіндіде де · камераға қатысты",
-    "Both clips · relative to the camera": "Екі үзіндіде де · камераға қатысты"
+    "Both clips · relative to the camera": "Екі үзіндіде де · камераға қатысты",
+    "provider.retry": "Қайталап көру",
+    "Retry": "Қайталап көру"
   },
   "uk": {
     "bodyReview.stage": "Уточнюємо напрямок корпусу",
@@ -3276,8 +3280,8 @@ var dictionaries = {
     "%1 s": "%1 с",
     "provider.installError": "Не вдалося завершити встановлення провайдера.",
     "Provider installation could not be completed.": "Не вдалося завершити встановлення провайдера.",
-    "provider.saved": "Завантажені дані збережено. Можна повторити спробу.",
-    "Downloaded data was saved. You can retry.": "Завантажені дані збережено. Можна повторити спробу.",
+    "provider.saved": "Перевірені завантажені файли зберігаються для повторної спроби.",
+    "Verified downloaded files are kept for another attempt.": "Перевірені завантажені файли зберігаються для повторної спроби.",
     "provider.verifying": "Перевіряємо провайдер перед встановленням…",
     "Testing the staged provider…": "Перевіряємо провайдер перед встановленням…",
     "provider.details": "Технічні подробиці",
@@ -3413,7 +3417,9 @@ var dictionaries = {
     "filter.orientation.all": "Будь-який ракурс",
     "Any view": "Будь-який ракурс",
     "filter.orientation.pair": "В обох фрагментах · відносно камери",
-    "Both clips · relative to the camera": "В обох фрагментах · відносно камери"
+    "Both clips · relative to the camera": "В обох фрагментах · відносно камери",
+    "provider.retry": "Повторити спробу",
+    "Retry": "Повторити спробу"
   },
   "tr": {
     "bodyReview.stage": "Gövde yönü netleştiriliyor",
@@ -4414,8 +4420,8 @@ var dictionaries = {
     "%1 s": "%1 sn",
     "provider.installError": "Sağlayıcı kurulumu tamamlanamadı.",
     "Provider installation could not be completed.": "Sağlayıcı kurulumu tamamlanamadı.",
-    "provider.saved": "İndirilen veriler kaydedildi. Yeniden deneyebilirsin.",
-    "Downloaded data was saved. You can retry.": "İndirilen veriler kaydedildi. Yeniden deneyebilirsin.",
+    "provider.saved": "Doğrulanmış indirilen dosyalar yeniden denemek için saklanır.",
+    "Verified downloaded files are kept for another attempt.": "Doğrulanmış indirilen dosyalar yeniden denemek için saklanır.",
     "provider.verifying": "Kurulum öncesi sağlayıcı sınanıyor…",
     "Testing the staged provider…": "Kurulum öncesi sağlayıcı sınanıyor…",
     "provider.details": "Teknik ayrıntılar",
@@ -4551,6 +4557,8 @@ var dictionaries = {
     "filter.orientation.all": "Herhangi bir açı",
     "Any view": "Herhangi bir açı",
     "filter.orientation.pair": "Her iki klipte · kameraya göre",
-    "Both clips · relative to the camera": "Her iki klipte · kameraya göre"
+    "Both clips · relative to the camera": "Her iki klipte · kameraya göre",
+    "provider.retry": "Yeniden dene",
+    "Retry": "Yeniden dene"
   }
 }

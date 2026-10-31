@@ -95,7 +95,8 @@ QtObject {
             "family.previewFailed": "Не удалось открыть фрагмент. Проверь доступность исходного файла.",
 
             "provider.installError": "Не удалось завершить установку провайдера.",
-            "provider.saved": "Загруженные данные сохранены. Можно повторить попытку.",
+            "provider.saved": "Проверенные загруженные файлы сохраняются для повторной попытки.",
+            "provider.retry": "Повторить попытку",
             "provider.verifying": "Проверяем провайдер перед установкой…",
             "provider.details": "Технические подробности",
 
@@ -629,7 +630,8 @@ QtObject {
             "family.previewFailed": "Could not open the clip. Check that the source file is available.",
 
             "provider.installError": "Provider installation could not be completed.",
-            "provider.saved": "Downloaded data was saved. You can retry.",
+            "provider.saved": "Verified downloaded files are kept for another attempt.",
+            "provider.retry": "Retry",
             "provider.verifying": "Testing the staged provider…",
             "provider.details": "Technical details",
 
