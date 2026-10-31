@@ -605,3 +605,17 @@ family.watch|Көрүү|Көру|Переглянути|Görüntüle
 family.quality|Үзүндүнүн сапаты|Үзінді сапасы|Якість фрагмента|Klip kalitesi
 family.count|Варианттар: %1|Нұсқалар: %1|Варіантів: %1|Çeşitler: %1
 family.previewFailed|Үзүндү ачылган жок. Баштапкы файл жеткиликтүү экенин текшер.|Үзінді ашылмады. Бастапқы файлдың қолжетімділігін тексер.|Не вдалося відкрити фрагмент. Перевір доступність вихідного файла.|Klip açılamadı. Kaynak dosyanın kullanılabilir olduğunu kontrol et.
+
+orientation.title|Дененин бурулушу|Дене бұрылысы|Поворот корпусу|Gövde yönü
+orientation.view1|Алдынан|Алдынан|Анфас|Önden
+orientation.view2|Солго жарым бурулуш|Солға жартылай бұрылған|Напівоберт ліворуч|Sola ön çapraz
+orientation.view3|Сол каптал|Сол жақ қырынан|Профіль ліворуч|Sol profil
+orientation.view4|Аркасы менен, солго|Арқасымен, солға|Спиною, ліворуч|Sola arka çapraz
+orientation.view5|Аркасынан|Арқасынан|Зі спини|Arkadan
+orientation.view6|Аркасы менен, оңго|Арқасымен, оңға|Спиною, праворуч|Sağa arka çapraz
+orientation.view7|Оң каптал|Оң жақ қырынан|Профіль праворуч|Sağ profil
+orientation.view8|Оңго жарым бурулуш|Оңға жартылай бұрылған|Напівоберт праворуч|Sağa ön çapraz
+orientation.unknown|Аныкталган жок|Анықталмаған|Не визначено|Belirlenemedi
+orientation.ambiguous|Бир маанилүү эмес|Бірмәнді емес|Неоднозначно|Belirsiz
+orientation.support|Ырасталган кадрлар: %1 / %2|Расталған кадрлар: %1 / %2|Підтверджено кадрів: %1 / %2|Destekleyen kareler: %1 / %2
+orientation.frameReference|Камерага карата бурулуш. Сол жана оң — кадр боюнча.|Камераға қатысты бұрылыс. Сол мен оң — кадр бойынша.|Поворот відносно камери. Ліворуч і праворуч — за кадром.|Kameraya göre yön. Sol ve sağ, görüntüye göredir.

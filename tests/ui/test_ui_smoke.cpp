@@ -113,6 +113,7 @@ private slots:
     void movementFilterRespectsSelectionAndVisibleRows();
     void structuredEvidenceFiltersPreserveUncertaintyAndExportSelection();
     void sceneFamilyInspectionKeepsResultsAndCleansUpPlayback();
+    void bodyDirectionReadoutPreservesAnglesUnknownsAndPopupGeometry();
     void largeExportBackdropKeepsWorkspaceGeometry();
     void analysisControlsAreUnifiedAndStatusTranslates();
     void directMlDownloadIntegration();
@@ -2621,6 +2622,67 @@ void UiSmokeTests::sceneFamilyInspectionKeepsResultsAndCleansUpPlayback()
     QCOMPARE(retained.toMap(),original);
     auto adjusted=original;adjusted.insert("manualAdjusted",true);center->setProperty("selectedRecord",adjusted);
     QCOMPARE(center->property("familyVariantCount").toInt(),0);
+}
+
+void UiSmokeTests::bodyDirectionReadoutPreservesAnglesUnknownsAndPopupGeometry()
+{
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;
+    auto* window=loadWindow(engine);QVERIFY(window);
+    auto* center=window->findChild<QObject*>("motionCenter");QVERIFY(center);
+    auto* popup=window->findChild<QObject*>("matchExplanation");QVERIFY(popup);
+    auto* l10n=engine.singletonInstance<QObject*>(qmlTypeId("PfUi",1,0,"L10n"));QVERIFY(l10n);
+    auto* theme=engine.singletonInstance<QObject*>(qmlTypeId("PfUi",1,0,"Theme"));QVERIFY(theme);
+    const auto language=l10n->property("language"),reduced=theme->property("reducedMotion");
+    const auto restore=qScopeGuard([&]{l10n->setProperty("language",language);theme->setProperty("reducedMotion",reduced);});
+    l10n->setProperty("language","ru");theme->setProperty("reducedMotion",true);
+    QVariantMap left{{"bodyYaw",90.},{"bodyView",3},{"bodyYawEvidence",2},{"bodyYawObservedSamples",3},{"bodyYawRequestedSamples",3},{"headYaw",-80.}};
+    QVariantMap right=left;right["bodyYaw"]=-179.9;right["bodyView"]=5;
+    QVariantMap record{{"id",0},{"matchType","static"},{"leftDescriptor",left},{"rightDescriptor",right}};
+    const auto publish=[&]{record["leftDescriptor"]=left;record["rightDescriptor"]=right;center->setProperty("selectedRecord",record);};
+    publish();QVERIFY(QMetaObject::invokeMethod(popup,"open"));QTRY_VERIFY(popup->property("opened").toBool());
+    auto* readout=popup->findChild<QObject*>("bodyOrientationReadout");QVERIFY(readout);
+    const auto visual=[&](const QString& name) {
+        std::function<QQuickItem*(QQuickItem*)> visit=[&](QQuickItem* item)->QQuickItem* {
+            if(item->objectName()==name)return item;
+            for(auto* child:item->childItems())if(auto* found=visit(child))return found;
+            return nullptr;
+        };
+        return visit(qobject_cast<QQuickItem*>(readout));
+    };
+    auto* direction=visual("bodyDirectionLeft");QVERIFY(direction);
+    auto* angle=visual("bodyAngleLeft");QVERIFY(angle);
+    auto* rightAngle=visual("bodyAngleRight");QVERIFY(rightAngle);
+    auto* support=visual("bodySupportLeft");QVERIFY(support);
+    QCOMPARE(direction->property("text").toString(),QString::fromUtf8("Профиль влево"));
+    QCOMPARE(angle->property("text").toString(),QString::fromUtf8("+90,0°"));
+    QCOMPARE(rightAngle->property("text").toString(),QString::fromUtf8("-179,9°"));
+    QCOMPARE(support->property("text").toString(),QString::fromUtf8("Подтверждено кадров: 3 / 3"));
+    const std::vector<std::pair<double,QString>> views{{0,QString::fromUtf8("Анфас")},{45,QString::fromUtf8("Вполоборота влево")},
+        {90,QString::fromUtf8("Профиль влево")},{135,QString::fromUtf8("Спиной, влево")},{180,QString::fromUtf8("Со спины")},
+        {-135,QString::fromUtf8("Спиной, вправо")},{-90,QString::fromUtf8("Профиль вправо")},{-45,QString::fromUtf8("Вполоборота вправо")}};
+    for(std::size_t i=0;i<views.size();++i) {
+        left["bodyYaw"]=views[i].first;left["bodyView"]=int(i+1);publish();
+        QCOMPARE(direction->property("text").toString(),views[i].second);
+    }
+    left.remove("bodyYaw");publish();QCOMPARE(direction->property("text").toString(),QString::fromUtf8("Не определено"));
+    QVERIFY(angle->property("text").toString().isEmpty());
+    left["bodyYaw"]=0.;left["bodyView"]=1;left["bodyYawEvidence"]=1;publish();
+    QCOMPARE(direction->property("text").toString(),QString::fromUtf8("Неоднозначно"));QVERIFY(angle->property("text").toString().isEmpty());
+    left["bodyYawEvidence"]=2;left["bodyYawObservedSamples"]=2;publish();
+    QCOMPARE(direction->property("text").toString(),QString::fromUtf8("Не определено"));
+    left["bodyYawObservedSamples"]=3;left["bodyYaw"]=181.;publish();
+    QCOMPARE(direction->property("text").toString(),QString::fromUtf8("Не определено"));
+    left["bodyYaw"]=0.;publish();
+    const std::vector<std::pair<QString,QString>> labels{{"ru",QString::fromUtf8("Анфас")},{"en","Front"},
+        {"ky",QString::fromUtf8("Алдынан")},{"kk",QString::fromUtf8("Алдынан")},{"uk",QString::fromUtf8("Анфас")},{"tr",QString::fromUtf8("Önden")}};
+    for(const auto& [lang,label]:labels) {l10n->setProperty("language",lang);QCOMPARE(direction->property("text").toString(),label);}
+    l10n->setProperty("language","ru");left["bodyYaw"]=90.;left["bodyView"]=3;publish();
+    QTest::qWait(100);QVERIFY(window->grabWindow().save(QCoreApplication::applicationDirPath()+"/body-direction-readout.png"));
+    window->setHeight(450);
+    QTRY_VERIFY(popup->property("height").toDouble()<=window->height()-32+.5);
+    auto* close=popup->findChild<QQuickItem*>("closeMatchExplanation");QVERIFY(close);
+    QTRY_VERIFY(close->mapToScene(QPointF(0,close->height())).y()<=window->height());
+    QVERIFY(QMetaObject::invokeMethod(popup,"close"));QTRY_VERIFY(!popup->property("opened").toBool());
 }
 
 void UiSmokeTests::largeExportBackdropKeepsWorkspaceGeometry()

@@ -389,6 +389,7 @@ ColumnLayout {
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: Math.min(440,parent ? parent.width-40 : 440)
+        height: Math.min(explanationContent.implicitHeight + topPadding + bottomPadding, parent ? parent.height-32 : 600)
         padding: 20; modal: true; focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairlineStrong }
@@ -397,29 +398,47 @@ ColumnLayout {
             NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionChangeDuration }
         } }
         contentItem: ColumnLayout {
+            id: explanationContent
             spacing: 12
-            Text { Layout.fillWidth: true; text: L10n.t("explain.title"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 18; font.weight: Font.DemiBold }
-            Text { Layout.fillWidth: true; text: L10n.t(root.selectedRecord && root.selectedRecord.headOnlyComparison ? "explain.headScope" : "explain.bodyScope"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
-            Repeater {
-                model: ["identity","pose","motion","temporal","visibility","camera"]
-                delegate: RowLayout {
-                    required property string modelData
-                    Layout.fillWidth: true
-                    Text { Layout.fillWidth: true; text: L10n.t("explain."+modelData); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
-                    Text {
-                        color: Theme.textPrimary; font.family: Theme.monoFont; font.pixelSize: 12
-                        text: {
-                            const row=root.selectedRecord || {}
-                            if (modelData === "identity") return row.faceVerified || row.identityVerified ? L10n.t("explain.confirmed") : L10n.t("explain.unknown")
-                            const value=modelData === "pose" ? row.poseSimilarity : modelData === "motion" ? (row.matchType === "motion" ? row.similarity : undefined)
-                                : modelData === "temporal" ? row.temporalCoverage : modelData === "visibility" ? row.visibilityCoverage : undefined
-                            return value !== undefined && value >= 0 ? Math.round(Number(value)*100)+"%" : L10n.t("explain.unknown")
+            ScrollView {
+                id: explanationScroll
+                Layout.fillWidth: true; Layout.fillHeight: true
+                implicitHeight: explanationDetails.implicitHeight
+                contentWidth: availableWidth; contentHeight: explanationDetails.implicitHeight
+                clip: true
+                ColumnLayout {
+                    id: explanationDetails
+                    width: explanationScroll.availableWidth
+                    spacing: 12
+                    Text { Layout.fillWidth: true; text: L10n.t("explain.title"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 18; font.weight: Font.DemiBold }
+                    Text { Layout.fillWidth: true; text: L10n.t(root.selectedRecord && root.selectedRecord.headOnlyComparison ? "explain.headScope" : "explain.bodyScope"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Repeater {
+                        model: ["identity","pose","motion","temporal","visibility","camera"]
+                        delegate: RowLayout {
+                            required property string modelData
+                            Layout.fillWidth: true
+                            Text { Layout.fillWidth: true; text: L10n.t("explain."+modelData); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                            Text {
+                                color: Theme.textPrimary; font.family: Theme.monoFont; font.pixelSize: 12
+                                text: {
+                                    const row=root.selectedRecord || {}
+                                    if (modelData === "identity") return row.faceVerified || row.identityVerified ? L10n.t("explain.confirmed") : L10n.t("explain.unknown")
+                                    const value=modelData === "pose" ? row.poseSimilarity : modelData === "motion" ? (row.matchType === "motion" ? row.similarity : undefined)
+                                        : modelData === "temporal" ? row.temporalCoverage : modelData === "visibility" ? row.visibilityCoverage : undefined
+                                    return value !== undefined && value >= 0 ? Math.round(Number(value)*100)+"%" : L10n.t("explain.unknown")
+                                }
+                            }
                         }
                     }
+                    BodyOrientationReadout {
+                        Layout.fillWidth: true
+                        leftDescriptor: root.selectedRecord ? root.selectedRecord.leftDescriptor || {} : ({})
+                        rightDescriptor: root.selectedRecord ? root.selectedRecord.rightDescriptor || {} : ({})
+                    }
+                    Text { Layout.fillWidth: true; text: L10n.t("explain.note"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
                 }
             }
-            Text { Layout.fillWidth: true; text: L10n.t("explain.note"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
-            PfButton { Layout.alignment: Qt.AlignRight; compact: true; text: L10n.t("explain.close"); onClicked: matchExplanation.close() }
+            PfButton { objectName: "closeMatchExplanation"; Layout.alignment: Qt.AlignRight; compact: true; text: L10n.t("explain.close"); onClicked: matchExplanation.close() }
         }
     }
     Popup {

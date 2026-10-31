@@ -254,3 +254,32 @@ startup/UI replay and subsequent full run pass. No startup test was weakened.
 This is a developer runtime verification, not clean installer/upgrade proof.
 The final cache-key profile/batch/keypoint fields also have a fresh five-check
 CUDA real-source run (`body-review-real-cuda-verified-results.txt`, 11.249 s).
+
+## Direction readout in Explain Match
+
+`BodyOrientationReadout.qml` adds paired A/B columns to the existing centered
+explanation: `A (view / signed angle / supported frames) | B (same fields)`.
+The layout follows the actual comparison surfaces. It reuses the existing
+near-black canvas (`#0C0D10`), panel, primary text (`#F5F1EC`), secondary text
+(`#A1A1AA`), hairline (`#3F3F46`) and user-selected accent, Segoe UI Variable
+for language and the existing numeric font for angles. No extra cards, motion
+or palette are introduced. The popup scrolls on a short window while its close
+button stays outside the scroll area. Existing reduced-motion settings apply.
+
+Eight localized view names accompany the continuous angle; labels do not feed
+back into similarity or quantize stored angles. Zero is a valid angle, signed
+values near +/-180 retain their sign, and head yaw does not supply a missing
+body yaw. The component requires supported body evidence and at least three
+observations, showing Unknown or Ambiguous with no angle otherwise. Counts are
+supporting frames, never a probability or an orientation-accuracy percentage.
+The reference text explicitly defines image-left/image-right relative to the
+camera. All new copy is present in six languages.
+
+Focused UI checks cover all eight directions, zero, the angular seam, independent
+head/body values, missing/out-of-range/insufficient/ambiguous evidence, six
+languages, short-window close-button access and reduced motion. The actual
+resource-built popup screenshot was inspected:
+`build/ucrt64-release/tests/body-direction-readout.png` (synthetic measured-value
+fixture, not a recognition result). Full UI regression: **57 passed, seven
+explicit opt-in skips**, plus application smoke passes
+(`build/body-direction-ui-suite.log`, 42.72 s).

@@ -30,6 +30,7 @@ set(PFUI_QML_FILES
     qml/StatsStrip.qml
     qml/SourcesRail.qml
     qml/MotionCenter.qml
+    qml/BodyOrientationReadout.qml
     qml/SceneFamilyInspector.qml
     qml/CharacterSelector.qml
         qml/CharacterAppearance.qml
