@@ -32,8 +32,13 @@ Pinned research inputs:
 The author sources, original checkpoint, isolated Python environment and generated
 graphs are under ignored `build/` directories. They are not application assets,
 not in the release manifest, and not activated by ordinary analysis. Code headers
-identify GPL-3.0 ancestry; checkpoint redistribution terms have not been established
-by this investigation. That is an open packaging review, not an inferred grant.
+identify GPL-3.0 ancestry. A follow-up inspection found that the author's model
+card explicitly declares MIT at repository revision
+`8ed0d81c7fb24c3b3e1d4fbb79fe2eaf6e15ccb3`; see the pinned
+[model card](https://huggingface.co/HoyerChou/JointBDOE/blob/8ed0d81c7fb24c3b3e1d4fbb79fe2eaf6e15ccb3/README.md).
+The declaration is preserved in candidate metadata. The source code's license
+and dataset annotation terms are distinct records; packaging attribution/notice
+review remains open. No model has been silently added to release assets.
 
 ## Reproducible export
 
@@ -101,3 +106,84 @@ Still required before production:
 The timestamped source survey at `build/body-orientation-source-survey.jpg` helps
 select further real controls. It contains user-provided video pixels and remains
 local, outside source control.
+
+
+## Native body yaw implementation and real controls
+
+`pfgpu::BodyOrientationEstimator` now executes the pinned fixed-shape ONNX model
+through the application's existing session cache and CPU/CUDA provider layer.
+It uses an independently implemented bilinear RGB byte resize, integer letterbox
+padding and normalization, validates input/output contracts, applies person-score
+NMS, and maps detections back to source pixels. Mirrored detections are mapped
+back spatially and angularly. It returns yaw only: pitch and roll are not invented
+from a model which supplies neither.
+
+The signed convention is `yaw = remainder(180 - 360 * raw, 360)`:
+zero faces the camera, +90 faces screen-left, -90 screen-right and +/-180 away.
+The author's visualization uses `(-sin(raw), -cos(raw))`; real frontal, side and
+back views corroborate the conversion. Continuous values are retained, not
+quantized to label buckets or substituted from the head estimator.
+
+`associateBodyOrientations` requires mutual unique subject/detection association
+in both views: IoU at least .5 and a margin of .15 over competing detections and
+subjects. Horizontal-flip yaw disagreement above 25 degrees remains unknown.
+A circular midpoint handles the +/-180 seam. Detection confidence is retained
+as person-detection evidence, not advertised as angle accuracy. Spatial and mirror
+support do not by themselves prove temporal continuity or identity.
+
+`tests/fixtures/body-yaw-observations.json` retains actual native CPU detections
+for 11 visually reviewed source controls, source/frame hashes, target rectangles
+and broad acceptable yaw intervals. No image pixels or face embeddings are
+committed. The view intervals were chosen before inspecting model output; four
+approximate rectangles were corrected from full-resolution source pixels after
+an initial association pass, with this disclosed in the fixture. These are coarse
+visual judgements, not measured 3D ground-truth angles.
+
+CPU and CUDA runs both support **9 of 11** controls, all nine within their reviewed
+coarse intervals, with **two unresolved** cases. The unresolved Kyle views remain
+misses of visible body views, not renamed correct negatives: the side view has
+insufficient overlap and the back view's original detection misses the requested
+person. The latter prevents borrowing the shirtless bystander's frontal angle.
+The balcony control observes the standing torso around +66 degrees while its
+head looks toward the camera; a seated foreground person remains a separate
+candidate. The foreground back-view control remains near +/-180 across a flip.
+
+Local reports in `build/body-orientation-controls/`:
+
+- `native-cpu-four-threads.json` and `native-cuda.json`: supported/coarse-correct
+  9, unresolved 2, coarse-wrong among supported 0 on both providers. Maximum
+  supported CPU/CUDA yaw difference is 0.456 degrees on these controls.
+- Median warm **two-view inference + resize/association** is 346.9 ms on CPU
+  (four threads), 24.7 ms on CUDA; first control excluded. File loading, source
+  video decode and the rest of analysis are outside this timer. This is not an
+  application throughput claim.
+- `native-reference-parity.json`: 45 matched detections compared to an OpenCV
+  preprocessing reference. Largest yaw delta is 0.889 degrees, normalized box
+  coordinate delta .00460 and detection-score delta .00601. Fixed-point byte
+  resizing is not claimed bit-identical to OpenCV. Pixel tests allow one byte.
+
+`body-yaw-replay-tests.log` passes four controls: preprocessing/mirroring,
+decode/NMS/contracts, one-to-one association/unknowns/circular midpoint, and
+production association replay of the frozen real detections. Replay asserts both
+the supported cases and the two unresolved cases, so abstaining on every frame
+cannot pass. `pf_body_orientation_probe` verifies the pinned model hash and
+re-evaluates actual source frames; it refuses an existing output path.
+
+This implements and validates the native estimator, **not the complete application
+feature**. Next: actual temporal/crop controls, cancellable adaptive post-match
+review and separate model-versioned observation persistence; then descriptor,
+ordering/filter/UI integration. Ordinary analysis does not yet call this model.
+Body pitch, more difficult real orientations and final packaging remain open.
+
+
+Exact private input reproduction is now checked in as
+`tools/benchmark/prepare_body_orientation_controls.py`. It verifies both original
+video hashes, seeks recorded zero-based frame indices, checks actual frame
+position and decoded/resized RGBA hashes, and refuses an existing output folder.
+The fixture also records original requested and actual timestamps, dimensions and
+OpenCV version. `pf_body_orientation_probe` checks RGBA hashes when provided, so
+changing PNG compression cannot masquerade as changed model input. Reproduction
+and fresh CPU/CUDA runs are retained under `build/body-yaw-exact-reproduction`.
+
+The final Release build and all 13 CTest targets pass in 130.37 s
+(`body-yaw-full-suite.log`), in addition to the separate actual-model runs.

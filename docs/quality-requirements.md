@@ -36,7 +36,7 @@ test does not establish general recognition accuracy or release readiness.
 | A07 | Manual override and target non-dominant, e.g. 8% | Real-media 37.5-second control selects the 3-second target (8%) over competing identities, with full models and cached restart. Real manual reselection changes the minority source from ID 78 / 3 s to competing ID 2 / 33.083 s and preserves ID 2 after a fresh-process restart. Broader real manual series remains to exercise. | Partial |
 | A08 | Identity diagnostics and unique identities | Selection reason/margin logs, coherent tracks, single-face ownership, relative distinctness, six reviewed Kyle controls. General false merge/split rates not measured. | Partial |
 | B01 | Identity/temporal/source/scene/sequence/cluster descriptors | `SceneDescriptor` has most fields; sequenceId currently not established by real sequence detection. | Partial |
-| B02 | Continuous body yaw/pitch/roll and eight useful directions | Torso roll measured; yaw/pitch unknown; eight labels are only a helper. Direct JointBDOE body-orientation research now has a pinned, reproduced ONNX export and three-frame numerical fidelity checks; real convention/association/accuracy and production integration are still open. See `body-orientation-investigation.md`. | Missing in production |
+| B02 | Continuous body yaw/pitch/roll and eight useful directions | Torso roll measured; yaw/pitch unknown; eight labels are only a helper. Native JointBDOE yaw estimator and mutual/mirror association are implemented; CPU/CUDA actual inference supports 9/11 coarse real views with two explicit unknowns and no supported coarse errors. Post-match temporal/crop review, caching and descriptor/UI integration remain missing; body pitch is unknown. See `body-orientation-investigation.md`. | Missing in production |
 | B03 | Independent continuous head yaw/pitch/roll | Measured rotation, validity checks, head/body-independent tests, SO(3) similarity. Need independently reviewed real orientation cases. | Partial |
 | B04 | Standing/sitting/lying; crouching/kneeling when reliable; ambiguous/unknown | Validated action observations now refine sitting/lying with temporal/frozen class margins. Conflict, wrong source/range and scene-boundary tests pass; two real reviewed controls pass. No real lying control yet; no fabricated kneeling. | Partial |
 | B05 | Motion semantics, direction, velocity/trajectory/temporal evidence | Existing MovementClassification/windows plus image velocity; audit missing useful acceleration/periodicity and camera contamination. | Partial |
@@ -79,7 +79,7 @@ test does not establish general recognition accuracy or release readiness.
 | G06 | Reduced motion, no animation delays work | Theme reducedMotion and UI checks exist. Verify every newly introduced transition. | Partial |
 | H01 | All loading/empty/error/disabled/cache/cancel/ambiguous/offline states | Several states exercised; full state inventory and render/runtime checks outstanding. | Partial |
 | H02 | All supported locales, no stray user-facing implementation text | Catalog validation passes six-language additions; audit remaining status/error translation paths. | Partial |
-| I01 | Reproducible labelled real benchmark format covering listed hard cases | Real identity controls and existing movement anchors; generic judgement evaluator exists. Comprehensive retrieval/orientation/family labels missing. | Partial |
+| I01 | Reproducible labelled real benchmark format covering listed hard cases | Real identity controls and existing movement anchors; generic judgement evaluator exists. Eleven coarse body-view controls and frozen actual detections now exist (nine supported, two unresolved); comprehensive retrieval/orientation/family labels remain missing. | Partial |
 | I02 | Recall@K, Precision@K, MRR, median rank/false positives/identity/family/confusion where appropriate | Evaluator tests exist; real retrieval/family metric reports are missing, not zero. | Missing |
 | I03 | Controlled before/after quality and performance | Frozen Butcher replay and six Kyle controls documented; classifier refinement needs its own baseline/replay evidence. | Partial |
 | J01 | Character tests: all enumerated selection/batch/minority cases | Core and workflow evidence; controlled strong-face and 8% minority E2E now pass (A06/A07); real manual minority override/restart also pass; difficult series and intermittent offline mode-cache misses remain open. | Partial |
@@ -89,7 +89,7 @@ test does not establish general recognition accuracy or release readiness.
 | K01 | Why selected/matched/rejected/family/representative/cache invalidated/download reused/probe failed | Selection and matcher reason enums/logs exist. Family admission measurements and representative component scores now retained/shared/exported. Cache invalidation explanations and remaining provider diagnostics still require audit. | Partial |
 | L01 | Grounded phases, baseline before changes, no reckless rewrite | Baseline worktree and logs retained; logical commit history. This audit preserves original unfinished scope. | Evidenced |
 | M01 | Branch/status/tags/release conventions, no unrelated deletion | Feature branch clean at start; release README inspected. Tag/release state and complete licenses/package audit still required. | Partial |
-| M02 | Full suite, benchmark, clean Release build, packaging/resources | Latest Release build and all 13 CTest targets pass in 128.28 s (provider-adaptive-full-suite.log), including 56 UI checks; 22 focused family/export checks also pass. Clean final package verification not performed. | Partial |
+| M02 | Full suite, benchmark, clean Release build, packaging/resources | Latest Release build and all 13 CTest targets pass in 130.37 s (body-yaw-full-suite.log), including 56 UI checks; 22 focused family/export checks also pass. Clean final package verification not performed. | Partial |
 | M03 | Fresh install, previous upgrade, cache migration, provider update | Developer binary and synthetic store tests are not packaged fresh-install/upgrade proof. | Missing |
 | M04 | Version/changelog/notes; publish/tag only when actually ready | Local `0.1.0-rc.23.3-dev`; notes retained; no tag/push/release attempted. Remains unreleased until gates pass. | Partial |
 | N01 | Target + series + result + restart-cache + bad-network + failed-install + Unicode + UI end-to-end flows | See A/D/E/F/G and packaging gaps. Cannot infer all flows from one montage or green unit tests. | Partial |
@@ -169,3 +169,9 @@ the open items is currently an external blocker: useful local work remains.
   scheduling, measured retry-driven concurrency adaptation, failure/cancellation
   cleanup controls and a controlled before/after benchmark. Real network/server
   and interrupted activation workflows remain separate verification gates.
+
+- Native body yaw inference now runs on both CPU and CUDA through existing ORT
+  sessions. Four offline checks include frozen real observations for 11 source
+  views (9 supported, 2 unknown), and exact source-frame reproduction verifies
+  original video/frame pixel hashes. This does not yet activate body yaw in the
+  ordinary analysis pipeline or invent unsupported body pitch/roll.

@@ -12,6 +12,7 @@ add_library(pfgpu STATIC
     src/ReIdEstimator.cpp
     src/FaceEstimator.cpp
     src/HeadPoseEstimator.cpp
+    src/BodyOrientationEstimator.cpp
     src/VideoActionEstimator.cpp
 )
 add_library(pf::gpu ALIAS pfgpu)

@@ -90,6 +90,7 @@ add_executable(pf_tests
     gpu/test_face_input.cpp
     gpu/test_video_action_input.cpp
     gpu/test_head_pose_estimator.cpp
+    gpu/test_body_orientation_estimator.cpp
     gpu/test_pose_input.cpp
     gpu/test_rgba_sampling.cpp
 )

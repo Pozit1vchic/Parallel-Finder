@@ -1,0 +1,806 @@
+{
+  "schema": 1,
+  "modelSha256": "3bdfefba3f0bbcd23454ceefaa3088c2e95a7b9d120502899f65249ae98e1c93",
+  "modelRepositoryRevision": "8ed0d81c7fb24c3b3e1d4fbb79fe2eaf6e15ccb3",
+  "annotationMethod": "Source-frame visual review before inspecting predictor output. Coarse view intervals, not measured 3D ground truth. Four approximate boxes were corrected by inspecting full source pixels after the first association pass; yaw intervals were not fitted to predictions.",
+  "yawConvention": "0 front, +90 screen-left, -90 screen-right, +/-180 back",
+  "scope": "Frozen actual CPU model detections and coarse visual intervals. 9 supported of 11, 2 unresolved; not population accuracy.",
+  "controls": [
+    {
+      "id": "butcher-0",
+      "source": "butcher_parallel_notsorted.mov",
+      "timeSeconds": 0,
+      "expectedBodyBox": [
+        0.48,
+        0.03,
+        0.86,
+        1
+      ],
+      "acceptableYawDegrees": [
+        -45,
+        45
+      ],
+      "note": "front torso, face approximately front",
+      "detections": [
+        [
+          {
+            "box": [
+              0.57444167137146,
+              0.08691696559681612,
+              0.9075374603271484,
+              0.9886478676515467
+            ],
+            "detectionScore": 0.9415823221206665,
+            "yawDegrees": 14.24551248550415
+          },
+          {
+            "box": [
+              0,
+              0.009052508017596076,
+              0.19877810776233673,
+              0.9854024648666382
+            ],
+            "detectionScore": 0.9066793918609619,
+            "yawDegrees": -0.42305946350097656
+          }
+        ],
+        [
+          {
+            "box": [
+              0.5741859823465347,
+              0.08595810217015884,
+              0.9074151366949081,
+              0.9891040886149687
+            ],
+            "detectionScore": 0.9397080540657043,
+            "yawDegrees": 14.718031883239746
+          },
+          {
+            "box": [
+              0.00021538138389587402,
+              0.0023869907154756434,
+              0.1959560215473175,
+              0.9860808709088493
+            ],
+            "detectionScore": 0.9158860445022583,
+            "yawDegrees": -48.89246463775635
+          }
+        ]
+      ],
+      "imageSha256": "797b782d2e6dbb5ee5c568f9f0fb6d9828572641b21d1547e39ecb190b3a9aa1",
+      "expectedSupported": true,
+      "frameIndex": 0,
+      "actualTimeSeconds": 0.0,
+      "image": "butcher-0.png",
+      "width": 1280,
+      "height": 544,
+      "rgbaSha256": "cd82b20079b5c8908ef85a45aae12dd188e80561fe409361b2b91d49c22cdb2a"
+    },
+    {
+      "id": "butcher-2.9",
+      "source": "butcher_parallel_notsorted.mov",
+      "timeSeconds": 2.9,
+      "expectedBodyBox": [
+        0.58,
+        0.18,
+        0.75,
+        1
+      ],
+      "acceptableYawDegrees": [
+        -40,
+        40
+      ],
+      "note": "full body facing camera by car",
+      "detections": [
+        [
+          {
+            "box": [
+              0.6054850146174431,
+              0.2911892708610086,
+              0.7334242537617683,
+              0.9858678719576668
+            ],
+            "detectionScore": 0.9402150511741638,
+            "yawDegrees": 12.805488109588623
+          },
+          {
+            "box": [
+              0.35827453806996346,
+              0.2917064112775466,
+              0.47862623259425163,
+              0.7915711227585288
+            ],
+            "detectionScore": 0.864459753036499,
+            "yawDegrees": -107.08549976348877
+          }
+        ],
+        [
+          {
+            "box": [
+              0.6039871722459793,
+              0.29140616164487954,
+              0.7333643883466721,
+              0.9850838254479801
+            ],
+            "detectionScore": 0.937419056892395,
+            "yawDegrees": 12.592949867248535
+          },
+          {
+            "box": [
+              0.3643057271838188,
+              0.29235803029116464,
+              0.4794718101620674,
+              0.7957992308280047
+            ],
+            "detectionScore": 0.8268682956695557,
+            "yawDegrees": -97.30925559997559
+          }
+        ]
+      ],
+      "imageSha256": "1a1cea82725ce346e572dd5b443f2db3fee7e684313c635d8ba785eea6a114ca",
+      "expectedSupported": true,
+      "frameIndex": 69,
+      "actualTimeSeconds": 2.919562000365922,
+      "image": "butcher-2.9.png",
+      "width": 1280,
+      "height": 544,
+      "rgbaSha256": "9d0b9bd516130d495a69ef2a092b7010b868c3be682a07f5b075cec9df9cb7fa"
+    },
+    {
+      "id": "butcher-11",
+      "source": "butcher_parallel_notsorted.mov",
+      "timeSeconds": 11,
+      "expectedBodyBox": [
+        0.435,
+        0.12,
+        0.53,
+        0.95
+      ],
+      "acceptableYawDegrees": [
+        40,
+        120
+      ],
+      "note": "standing body faces screen-left, another person seated in foreground",
+      "detections": [
+        [
+          {
+            "box": [
+              0.5392892062664032,
+              0.42414067422642426,
+              0.9437498152256012,
+              0.9864339583060321
+            ],
+            "detectionScore": 0.9227365851402283,
+            "yawDegrees": 66.32726311683655
+          },
+          {
+            "box": [
+              0.4395066648721695,
+              0.12667925918803496,
+              0.5237962454557419,
+              0.946149089757134
+            ],
+            "detectionScore": 0.9118990302085876,
+            "yawDegrees": 63.171783685684204
+          }
+        ],
+        [
+          {
+            "box": [
+              0.5394660085439682,
+              0.41792790679370656,
+              0.942657545208931,
+              0.980780773303088
+            ],
+            "detectionScore": 0.9192841649055481,
+            "yawDegrees": 67.28344917297363
+          },
+          {
+            "box": [
+              0.4387171119451523,
+              0.1267852502710679,
+              0.5233599096536636,
+              0.9475768313688391
+            ],
+            "detectionScore": 0.9050779938697815,
+            "yawDegrees": 69.57658767700195
+          }
+        ]
+      ],
+      "imageSha256": "3c64f7684171c3c70be5b9a4fa80d51b29f92775700a15665aae5651a95c4eb2",
+      "expectedSupported": true,
+      "frameIndex": 260,
+      "actualTimeSeconds": 11.010954999775736,
+      "image": "butcher-11.png",
+      "width": 1280,
+      "height": 544,
+      "rgbaSha256": "df48e63f7fb3130ffbbd3340a43554d4ed234875d64e848fa10788c1e34fe3ce"
+    },
+    {
+      "id": "butcher-75",
+      "source": "butcher_parallel_notsorted.mov",
+      "timeSeconds": 75,
+      "expectedBodyBox": [
+        0.58,
+        0.04,
+        0.8,
+        1
+      ],
+      "acceptableYawDegrees": [
+        -45,
+        45
+      ],
+      "note": "full body facing camera, long coat",
+      "detections": [
+        [
+          {
+            "box": [
+              0.5977810025215149,
+              0.07631529779995189,
+              0.7812843918800354,
+              0.987042223705965
+            ],
+            "detectionScore": 0.9275583028793335,
+            "yawDegrees": 18.51018190383911
+          }
+        ],
+        [
+          {
+            "box": [
+              0.5962469801306725,
+              0.07448227966532987,
+              0.7807736769318581,
+              0.984293117242701
+            ],
+            "detectionScore": 0.9272980690002441,
+            "yawDegrees": 23.1571626663208
+          }
+        ]
+      ],
+      "imageSha256": "722ba7965b1a51444124297b124595caba83be081d265b1c76e64c645c26175f",
+      "expectedSupported": true,
+      "frameIndex": 1773,
+      "actualTimeSeconds": 74.9913559999393,
+      "image": "butcher-75.png",
+      "width": 1280,
+      "height": 544,
+      "rgbaSha256": "f83f10895ed425cdfce5a9228c4613580311c3fcb68c51b088e74017f81faa4e"
+    },
+    {
+      "id": "butcher-105",
+      "source": "butcher_parallel_notsorted.mov",
+      "timeSeconds": 105,
+      "expectedBodyBox": [
+        0.1,
+        0.02,
+        0.57,
+        1
+      ],
+      "acceptableYawDegrees": [
+        -45,
+        45
+      ],
+      "note": "front torso and shoulders",
+      "detections": [
+        [
+          {
+            "box": [
+              0.07201562821865082,
+              0.020264702684739056,
+              0.47607316076755524,
+              0.987892466432908
+            ],
+            "detectionScore": 0.9310933947563171,
+            "yawDegrees": -16.5988826751709
+          }
+        ],
+        [
+          {
+            "box": [
+              0.0702502578496933,
+              0.02006222220028148,
+              0.4745246320962906,
+              0.9892763810999253
+            ],
+            "detectionScore": 0.9361353516578674,
+            "yawDegrees": -11.209080219268799
+          }
+        ]
+      ],
+      "imageSha256": "35d7d1b9155dc2b616fd6b4f39580939a612066f770e877ad53c6c13ff0923fe",
+      "expectedSupported": true,
+      "frameIndex": 2483,
+      "actualTimeSeconds": 105.02116300025041,
+      "image": "butcher-105.png",
+      "width": 1280,
+      "height": 544,
+      "rgbaSha256": "8dde19f7f796f3b8ce642862ced05acdc00f42521c0d35be90886debb3f93b04"
+    },
+    {
+      "id": "butcher-510",
+      "source": "butcher_parallel_notsorted.mov",
+      "timeSeconds": 510,
+      "expectedBodyBox": [
+        0.28,
+        0.02,
+        0.73,
+        1
+      ],
+      "acceptableYawDegrees": [
+        -125,
+        -40
+      ],
+      "note": "side view facing screen-right",
+      "detections": [
+        [
+          {
+            "box": [
+              0.2777158170938492,
+              0.021715690107906565,
+              0.6701245158910751,
+              0.9817435110316557
+            ],
+            "detectionScore": 0.8790004253387451,
+            "yawDegrees": -46.66494369506836
+          }
+        ],
+        [
+          {
+            "box": [
+              0.2753271162509918,
+              0.02912444226882037,
+              0.6755289733409882,
+              0.9835570700028363
+            ],
+            "detectionScore": 0.9006341695785522,
+            "yawDegrees": -48.50011110305786
+          }
+        ]
+      ],
+      "imageSha256": "70ca7fe5a3a54609d8d97ae9e56e9b95bdb745b722042948af55c40a88c3c5dd",
+      "expectedSupported": true,
+      "frameIndex": 12060,
+      "actualTimeSeconds": 509.98574800027006,
+      "image": "butcher-510.png",
+      "width": 1280,
+      "height": 544,
+      "rgbaSha256": "898cec1eb89917be0f81fa85778a3ce40eebeb3c70cbc039cb5a5c0835ca3a6e"
+    },
+    {
+      "id": "butcher-555-back",
+      "source": "butcher_parallel_notsorted.mov",
+      "timeSeconds": 555,
+      "expectedBodyBox": [
+        0,
+        0,
+        0.43,
+        1
+      ],
+      "acceptableYawDegrees": [
+        110,
+        250
+      ],
+      "note": "foreground person seen from back, different person behind",
+      "detections": [
+        [
+          {
+            "box": [
+              0.0012889504432678223,
+              0.0206295181723202,
+              0.4253152012825012,
+              0.9837527836070341
+            ],
+            "detectionScore": 0.9282271862030029,
+            "yawDegrees": 170.56435346603394
+          },
+          {
+            "box": [
+              0.6181048043072224,
+              0.5462546909556669,
+              0.727422010153532,
+              0.988012061399572
+            ],
+            "detectionScore": 0.919636070728302,
+            "yawDegrees": 7.16658353805542
+          },
+          {
+            "box": [
+              0.47701097279787064,
+              0.18135112874648152,
+              0.6237317249178886,
+              0.9805442305172191
+            ],
+            "detectionScore": 0.908463180065155,
+            "yawDegrees": 47.49906778335571
+          },
+          {
+            "box": [
+              0.7992925345897675,
+              0.8441922419211444,
+              0.8820299208164215,
+              0.9879636589218589
+            ],
+            "detectionScore": 0.7920553684234619,
+            "yawDegrees": 29.90654468536377
+          }
+        ],
+        [
+          {
+            "box": [
+              0,
+              0.01694651211009306,
+              0.42447908222675323,
+              0.9879030900843003
+            ],
+            "detectionScore": 0.9276189804077148,
+            "yawDegrees": -172.45784282684326
+          },
+          {
+            "box": [
+              0.6176197417080402,
+              0.5466673304052914,
+              0.7270025126636028,
+              0.987046851831324
+            ],
+            "detectionScore": 0.9193850755691528,
+            "yawDegrees": 8.451318740844727
+          },
+          {
+            "box": [
+              0.478109635412693,
+              0.17783193027271943,
+              0.6228718981146812,
+              0.9835030050838695
+            ],
+            "detectionScore": 0.9018611311912537,
+            "yawDegrees": 46.24978065490723
+          },
+          {
+            "box": [
+              0.7980618737637997,
+              0.8434256297700545,
+              0.8807569481432438,
+              0.9880666259457084
+            ],
+            "detectionScore": 0.7524401545524597,
+            "yawDegrees": 34.61073160171509
+          }
+        ]
+      ],
+      "imageSha256": "b0845b0e9b390b6171924397fd5c1985e7c19fb136084822c5ad353b2720b39a",
+      "expectedSupported": true,
+      "frameIndex": 13124,
+      "actualTimeSeconds": 555.0095569995401,
+      "image": "butcher-555.png",
+      "width": 1280,
+      "height": 544,
+      "rgbaSha256": "aecd5ac0f846029679e977ca3a23f4d7e6db46fa9b5193015636c1b8ce1a6f3c"
+    },
+    {
+      "id": "butcher-555-front",
+      "source": "butcher_parallel_notsorted.mov",
+      "timeSeconds": 555,
+      "expectedBodyBox": [
+        0.46,
+        0.17,
+        0.63,
+        1
+      ],
+      "acceptableYawDegrees": [
+        -50,
+        50
+      ],
+      "note": "background target faces camera, foreground back-view bystander",
+      "detections": [
+        [
+          {
+            "box": [
+              0.0012889504432678223,
+              0.0206295181723202,
+              0.4253152012825012,
+              0.9837527836070341
+            ],
+            "detectionScore": 0.9282271862030029,
+            "yawDegrees": 170.56435346603394
+          },
+          {
+            "box": [
+              0.6181048043072224,
+              0.5462546909556669,
+              0.727422010153532,
+              0.988012061399572
+            ],
+            "detectionScore": 0.919636070728302,
+            "yawDegrees": 7.16658353805542
+          },
+          {
+            "box": [
+              0.47701097279787064,
+              0.18135112874648152,
+              0.6237317249178886,
+              0.9805442305172191
+            ],
+            "detectionScore": 0.908463180065155,
+            "yawDegrees": 47.49906778335571
+          },
+          {
+            "box": [
+              0.7992925345897675,
+              0.8441922419211444,
+              0.8820299208164215,
+              0.9879636589218589
+            ],
+            "detectionScore": 0.7920553684234619,
+            "yawDegrees": 29.90654468536377
+          }
+        ],
+        [
+          {
+            "box": [
+              0,
+              0.01694651211009306,
+              0.42447908222675323,
+              0.9879030900843003
+            ],
+            "detectionScore": 0.9276189804077148,
+            "yawDegrees": -172.45784282684326
+          },
+          {
+            "box": [
+              0.6176197417080402,
+              0.5466673304052914,
+              0.7270025126636028,
+              0.987046851831324
+            ],
+            "detectionScore": 0.9193850755691528,
+            "yawDegrees": 8.451318740844727
+          },
+          {
+            "box": [
+              0.478109635412693,
+              0.17783193027271943,
+              0.6228718981146812,
+              0.9835030050838695
+            ],
+            "detectionScore": 0.9018611311912537,
+            "yawDegrees": 46.24978065490723
+          },
+          {
+            "box": [
+              0.7980618737637997,
+              0.8434256297700545,
+              0.8807569481432438,
+              0.9880666259457084
+            ],
+            "detectionScore": 0.7524401545524597,
+            "yawDegrees": 34.61073160171509
+          }
+        ]
+      ],
+      "imageSha256": "b0845b0e9b390b6171924397fd5c1985e7c19fb136084822c5ad353b2720b39a",
+      "expectedSupported": true,
+      "frameIndex": 13124,
+      "actualTimeSeconds": 555.0095569995401,
+      "image": "butcher-555.png",
+      "width": 1280,
+      "height": 544,
+      "rgbaSha256": "aecd5ac0f846029679e977ca3a23f4d7e6db46fa9b5193015636c1b8ce1a6f3c"
+    },
+    {
+      "id": "kyle-1",
+      "source": "KyleCrane_Parallel_NikolayOM.mp4",
+      "timeSeconds": 1,
+      "expectedBodyBox": [
+        0.3,
+        0.02,
+        0.93,
+        1
+      ],
+      "acceptableYawDegrees": [
+        -10,
+        80
+      ],
+      "note": "grey-shirt torso faces front/screen-left quarter",
+      "detections": [
+        [
+          {
+            "box": [
+              0.3465363085269928,
+              0.05830934312608507,
+              0.8929305970668793,
+              0.9845006730821397
+            ],
+            "detectionScore": 0.9164829850196838,
+            "yawDegrees": 38.03241491317749
+          }
+        ],
+        [
+          {
+            "box": [
+              0.3337249755859375,
+              0.055036968655056424,
+              0.892245888710022,
+              0.9820842742919922
+            ],
+            "detectionScore": 0.9078380465507507,
+            "yawDegrees": 34.70033884048462
+          }
+        ]
+      ],
+      "imageSha256": "3b982bccbdf40d369057e67a98b5c66e9f9b487d00f57507d2942da37e69380e",
+      "expectedSupported": true,
+      "frameIndex": 60,
+      "actualTimeSeconds": 1.0,
+      "image": "kyle-1.png",
+      "width": 1280,
+      "height": 720,
+      "rgbaSha256": "33c2f8066c74c534726dd3272127754ae53836c577ef4776c21131989fbf1892"
+    },
+    {
+      "id": "kyle-52",
+      "source": "KyleCrane_Parallel_NikolayOM.mp4",
+      "timeSeconds": 52,
+      "expectedBodyBox": [
+        0,
+        0.02,
+        0.54,
+        1
+      ],
+      "acceptableYawDegrees": [
+        -125,
+        -40
+      ],
+      "note": "left person side view facing screen-right, seated man at right",
+      "detections": [
+        [
+          {
+            "box": [
+              0.5946651995182037,
+              0.43303924136691624,
+              0.867781013250351,
+              0.9905116822984483
+            ],
+            "detectionScore": 0.9313117265701294,
+            "yawDegrees": 11.809369325637817
+          },
+          {
+            "box": [
+              0.15678057074546814,
+              0.08984306123521593,
+              0.4440883696079254,
+              0.9880981975131564
+            ],
+            "detectionScore": 0.9009974598884583,
+            "yawDegrees": -85.43951511383057
+          },
+          {
+            "box": [
+              0.8872694224119186,
+              0.28412311606936985,
+              0.9658302813768387,
+              0.5979119274351332
+            ],
+            "detectionScore": 0.8333616852760315,
+            "yawDegrees": 17.48099684715271
+          }
+        ],
+        [
+          {
+            "box": [
+              0.5958637297153473,
+              0.43397114011976456,
+              0.8653095066547394,
+              0.9924482239617242
+            ],
+            "detectionScore": 0.9185281991958618,
+            "yawDegrees": 14.168221950531006
+          },
+          {
+            "box": [
+              0.1559145301580429,
+              0.09273635016547309,
+              0.4513784795999527,
+              0.9838462405734592
+            ],
+            "detectionScore": 0.835538387298584,
+            "yawDegrees": -81.59985780715942
+          },
+          {
+            "box": [
+              0.885681863874197,
+              0.289443572362264,
+              0.9639011360704899,
+              0.5957202646467421
+            ],
+            "detectionScore": 0.8060231804847717,
+            "yawDegrees": 11.66572093963623
+          }
+        ]
+      ],
+      "imageSha256": "4eeaf722dc897797e704f8da988add34fe7832dcb1945c042015a8e2e9514b3f",
+      "expectedSupported": false,
+      "frameIndex": 3109,
+      "actualTimeSeconds": 52.016666666666666,
+      "image": "kyle-52.png",
+      "width": 1280,
+      "height": 720,
+      "rgbaSha256": "9cfe78a7bb5021ddb1fef7a1cd490efbc87f7727f81acc1e62305ceac1947206"
+    },
+    {
+      "id": "kyle-58-back",
+      "source": "KyleCrane_Parallel_NikolayOM.mp4",
+      "timeSeconds": 58,
+      "expectedBodyBox": [
+        0,
+        0,
+        0.57,
+        1
+      ],
+      "acceptableYawDegrees": [
+        100,
+        260
+      ],
+      "note": "foreground jacket seen from back, shirtless different person at right",
+      "detections": [
+        [
+          {
+            "box": [
+              0.4156365394592285,
+              0.014862272474500868,
+              0.9579105377197266,
+              0.9800701141357422
+            ],
+            "detectionScore": 0.632736086845398,
+            "yawDegrees": 12.84575343132019
+          }
+        ],
+        [
+          {
+            "box": [
+              0.4090794026851654,
+              0.013626893361409506,
+              0.9631704390048981,
+              0.9837987158033583
+            ],
+            "detectionScore": 0.7845659255981445,
+            "yawDegrees": 14.415650367736816
+          },
+          {
+            "box": [
+              0.0018895864486694336,
+              0.007788393232557509,
+              0.6472502946853638,
+              0.980149957868788
+            ],
+            "detectionScore": 0.5927906036376953,
+            "yawDegrees": 28.208556175231934
+          }
+        ]
+      ],
+      "imageSha256": "41fec403523d8e3654cc66c5299c1aa451c5cd1c7725a66217e6eec00878e244",
+      "expectedSupported": false,
+      "frameIndex": 3467,
+      "actualTimeSeconds": 57.99166666666667,
+      "image": "kyle-58.png",
+      "width": 1280,
+      "height": 720,
+      "rgbaSha256": "d9921391d33bff8df1efb1f4e6108d23ca91feec77f3db35f1baaa2056445efa"
+    }
+  ],
+  "sources": [
+    {
+      "source": "KyleCrane_Parallel_NikolayOM.mp4",
+      "sha256": "b53b508003c48d537cbd0b77cb42320c4b8043e784cea73fc1b0a78e05d717ef"
+    },
+    {
+      "source": "butcher_parallel_notsorted.mov",
+      "sha256": "6c7ed560ed6e337e2a0d183f52c29d2bb6db6e95cf13f598ad105526e6dc5830"
+    }
+  ],
+  "framePreparation": {
+    "width": 1280,
+    "resize": "OpenCV INTER_LINEAR, height=round(originalHeight*1280/originalWidth)",
+    "opencvVersion": "5.0.0",
+    "frameAddressing": "zero-based frame index; actual timestamp recorded after original millisecond seek"
+  }
+}

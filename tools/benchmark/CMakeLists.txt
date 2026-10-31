@@ -19,6 +19,9 @@ add_executable(pf_matcher_probe matcher_probe.cpp)
 add_executable(pf_character_probe character_probe.cpp)
 add_executable(pf_posture_probe posture_probe.cpp)
 add_executable(pf_provider_schedule_probe provider_schedule_probe.cpp)
+add_executable(pf_body_orientation_probe body_orientation_probe.cpp)
+set_target_properties(pf_body_orientation_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_link_libraries(pf_body_orientation_probe PRIVATE pf::gpu Qt6::Core Qt6::Gui)
 set_target_properties(pf_provider_schedule_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_include_directories(pf_provider_schedule_probe PRIVATE "${PROJECT_SOURCE_DIR}/services/src" "${PROJECT_SOURCE_DIR}/services/include")
 target_link_libraries(pf_provider_schedule_probe PRIVATE Qt6::Core)
@@ -79,6 +82,7 @@ foreach(target IN ITEMS
         pf_character_probe
         pf_posture_probe
         pf_provider_schedule_probe
+        pf_body_orientation_probe
         pf_face_probe
         pf_dominant_probe
         pf_scene_memory_probe
