@@ -32,8 +32,8 @@ test does not establish general recognition accuracy or release readiness.
 | A03 | Structured candidate ID/tracks/body/face/presence/observations/evidence/previews/windows | `CharacterCandidate`, PFCH metadata + all-character MotionWindows, serialization tests. IDs are artifact-local. | Evidenced |
 | A04 | Inspect multiple appearances, select one, continue, change later | `CharacterSelector`, `CharacterAppearance`, workflow tests and real screenshots. | Evidenced |
 | A05 | Cached target rebuild/reselection, no needless inference | Real reselection logs decoded=0, pose_samples=0; synthetic mode/reselection tests. | Evidenced |
-| A06 | Batch strong automatic carryover; weak/ambiguous confirmation | Core suggestion and synthetic no-face batch/manual tests exist. Need strong-identity multi-source end-to-end proof. | Partial |
-| A07 | Manual override and target non-dominant, e.g. 8% | Core minority case retains short target; manual cached overrides tested. Need end-to-end minority episode with strong competing identity. | Partial |
+| A06 | Batch strong automatic carryover; weak/ambiguous confirmation | Strong-face real-media control now carries one explicit choice across eight files and two additions in fresh processes; newly earlier-sorting source also works. Synthetic weak-evidence confirmation exists; difficult real series remains to review. | Partial |
+| A07 | Manual override and target non-dominant, e.g. 8% | Real-media 37.5-second control selects the 3-second target (8%) over competing identities, with full models and cached restart. Synthetic manual cached overrides pass; real manual minority override/restart remains to exercise. | Partial |
 | A08 | Identity diagnostics and unique identities | Selection reason/margin logs, coherent tracks, single-face ownership, relative distinctness, six reviewed Kyle controls. General false merge/split rates not measured. | Partial |
 | B01 | Identity/temporal/source/scene/sequence/cluster descriptors | `SceneDescriptor` has most fields; sequenceId currently not established by real sequence detection. | Partial |
 | B02 | Continuous body yaw/pitch/roll and eight useful directions | Torso roll measured; yaw/pitch unknown; eight labels are only a helper. Direct JointBDOE body-orientation research now has a pinned, reproduced ONNX export and three-frame numerical fidelity checks; real convention/association/accuracy and production integration are still open. See `body-orientation-investigation.md`. | Missing in production |
@@ -59,8 +59,8 @@ test does not establish general recognition accuracy or release readiness.
 | D08 | Continuous local pose/head/body transition cost, deterministic practical ordering | Greedy continuity with time/scene/pose/head/roll; body yaw/sequence missing; cancellation tests limited. | Partial |
 | E01 | Profile decode/detection/pose/face/ReID/track/cluster/windows/match/classification/previews/cache | Real stage logs exist; explicit clustering/classification timing coverage needs audit. | Partial |
 | E02 | Persistent source/model/settings/version compatible observations/artifacts | PFCH + window/scene/head/action caches, atomic writes/checksum tests. Audit exact observation-settings vs matcher-settings separation. | Partial |
-| E03 | Change target/matcher/classification/order without full inference | Target/mode/order reuse proven; changing every matcher setting and incremental source addition needs end-to-end proof. | Partial |
-| E04 | 8 cached + 2 new infer only new | Architecture supports per-source keys; explicit mixed cached/new restart test still required. | Unverified |
+| E03 | Change target/matcher/classification/order without full inference | Target/mode/order reuse proven; 8+2 source addition and restart are now proven; changing every matcher setting still needs end-to-end proof. | Partial |
+| E04 | 8 cached + 2 new infer only new | Three fresh-process real-media controls: seed 8 misses/144 pose frames; add 2 -> 8 hits/243 new pose frames; repeat 10 -> 10 hits/zero inference. Per-source assertions and raw UTF-8 logs retained in series-eight-percent-verified. | Evidenced, controlled fixture |
 | E05 | Adaptive inference and GPU profiling with measured quality/speed | Existing periodic ReID/usable-face sampling, pipeline counters and preview benchmark. Broader adaptive quality/transfer validation remains open. | Partial |
 | E06 | Atomic cancellation cleanup, incomplete artifacts never valid | Character/window/cache write tests exist; retained independently verified data after cancellation. Audit remaining stages. | Partial |
 | F01 | Persistent resumable Range/chunk downloads, bounded/adaptive concurrency | Provider chunks, resume validation and bounded workers tested. Adaptive concurrency beyond a fixed bound must be inspected. | Partial |
@@ -82,7 +82,7 @@ test does not establish general recognition accuracy or release readiness.
 | I01 | Reproducible labelled real benchmark format covering listed hard cases | Real identity controls and existing movement anchors; generic judgement evaluator exists. Comprehensive retrieval/orientation/family labels missing. | Partial |
 | I02 | Recall@K, Precision@K, MRR, median rank/false positives/identity/family/confusion where appropriate | Evaluator tests exist; real retrieval/family metric reports are missing, not zero. | Missing |
 | I03 | Controlled before/after quality and performance | Frozen Butcher replay and six Kyle controls documented; classifier refinement needs its own baseline/replay evidence. | Partial |
-| J01 | Character tests: all enumerated selection/batch/minority cases | Core and workflow evidence; strong cross-episode and true minority E2E still open (A06/A07). | Partial |
+| J01 | Character tests: all enumerated selection/batch/minority cases | Core and workflow evidence; controlled strong-face and 8% minority E2E now pass (A06/A07); difficult series and real manual minority override remain open. | Partial |
 | J02 | Classification tests: all views, boundary, posture, head/body, missing/unknown | Helper angular tests are not body-orientation estimator tests. Specific posture working change adds evidence gating checks. | Partial |
 | J03 | Dedup/sort/cache/downloader enumerated regression controls | Existing suites cover many clauses. Requirement-to-test name mapping and missing no-Range/slow/restart cases still required. | Partial |
 | J04 | UI transitions never leave controls inaccessible | Existing UI suite plus selector/runtime proof; family/source morph states remain untested. | Partial |
@@ -151,3 +151,8 @@ the open items is currently an external blocker: useful local work remains.
   Frozen 2,037-window replay retains all 125 pairs/canonical IDs; organization
   median changes from 3.785 to 3.856 ms. This closes specific metadata/UI gaps,
   not real duplicate recognition quality or the remaining audit.
+
+- [series-restart-evidence.md](series-restart-evidence.md) records three fresh
+  processes with full real-media inference, strong automatic carryover, 8% target
+  presence and 8 cached + 2 new per-source assertions. These repeated excerpts
+  establish cache/selection behavior, not broad identity or retrieval accuracy.

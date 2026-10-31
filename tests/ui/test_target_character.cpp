@@ -10,12 +10,78 @@
 #include <QTemporaryDir>
 #include <QFile>
 #include <QDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QSaveFile>
 #include <QtTest/QTest>
 #include "../helpers/onnx_two_people.hpp"
 
 class TargetCharacterTests : public QObject {
     Q_OBJECT
 private slots:
+    void realSeriesIncrementalRestart() {
+        const auto manifestPath=qEnvironmentVariable("PF_TEST_REAL_SERIES_MANIFEST");
+        if(manifestPath.isEmpty())QSKIP("Opt-in real-source series/restart regression");
+        QFile file(manifestPath);QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto manifest=QJsonDocument::fromJson(file.readAll()).object();
+        const auto phase=qEnvironmentVariable("PF_TEST_REAL_SERIES_PHASE","seed");
+        QVERIFY(phase=="seed"||phase=="incremental"||phase=="warm");
+        QStringList sources;
+        for(const auto value:manifest.value("initialSources").toArray())sources.push_back(value.toString());
+        QCOMPARE(sources.size(),8);
+        const auto initialSources=sources;
+        if(phase!="seed")for(const auto value:manifest.value("addedSources").toArray())sources.push_back(value.toString());
+        QCOMPARE(sources.size(),phase=="seed"?8:10);
+        for(const auto& source:sources)QVERIFY(QFileInfo::exists(source));
+        const auto model=qEnvironmentVariable("PF_MODEL_PATH");QVERIFY(QFileInfo::exists(model));
+        pfservices::Settings settings;settings.modelPath=model.toStdString();settings.provider="cuda";
+        settings.modelChoice=QFileInfo(model).fileName().toStdString();settings.qualityProfile="fast";
+        settings.cachePath=manifest.value("cacheRoot").toString().toStdString();settings.processingThreads=2;
+        QVERIFY(!settings.cachePath.empty());
+        std::string error;QVERIFY2(pfservices::SettingsStore().save(settings,error),error.c_str());
+        pfui::AppInfo::registerQmlTypes();auto* info=pfui::AppInfo::instance();info->initializeBackendsAsync();
+        QTRY_VERIFY_WITH_TIMEOUT(!info->backendInitializing(),30000);
+        auto* analysis=pfui::AnalysisController::instance();analysis->setProviderChoice("cuda");analysis->setAnalysisMode("combined");
+        analysis->analyzeFiles(sources);
+        QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),180000);
+        if(phase=="seed") {
+            QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
+            QCOMPARE(analysis->targetSelectionSource(),manifest.value("anchor").toString());
+            QVERIFY(analysis->selectTargetCharacter(manifest.value("anchorCandidateId").toString()));
+            QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),180000);
+        }
+        if(analysis->awaitingTarget()) {
+            qWarning()<<"SERIES_UNEXPECTED_CONFIRMATION"<<analysis->targetSelectionSource()
+                      <<QJsonDocument::fromVariant(analysis->targetCandidates()).toJson(QJsonDocument::Compact);
+            analysis->stopAnalysis();QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),10000);
+            QFAIL("Strong-face fixture required an unexpected per-source confirmation");
+        }
+        QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
+        QJsonObject report{{"phase",phase},{"analyzedFrames",analysis->analyzedFrames()},
+            {"poseDetections",analysis->poseDetectionCount()}};
+        QJsonArray summaries;
+        for(const auto& source:sources) {
+            const auto summary=analysis->summaryForSource(source);
+            QVERIFY2(!summary.value("targetCharacterId").toString().isEmpty(),qPrintable(source));
+            QCOMPARE(summary.value("targetAutomatic").toBool(),source!=manifest.value("anchor").toString());
+            QVERIFY(summary.contains("observationCacheHit"));
+            QCOMPARE(summary.value("observationCacheHit").toBool(),phase=="warm"||(phase=="incremental"&&initialSources.contains(source)));
+            if(source==manifest.value("minorityTargetRange").toObject().value("source").toString()) {
+                const auto presence=summary.value("targetPresenceSeconds").toDouble();
+                QVERIFY(presence>1 && presence<=3.1);
+                QVERIFY(presence/summary.value("durationSeconds").toDouble()<=.085);
+            }
+            auto row=QJsonObject::fromVariantMap(summary);row.insert("source",source);summaries.push_back(row);
+        }
+        report.insert("sources",summaries);
+        if(phase=="warm") {QCOMPARE(analysis->analyzedFrames(),0);QCOMPARE(analysis->poseDetectionCount(),0);}
+        else QVERIFY(analysis->analyzedFrames()>0);
+        const auto output=qEnvironmentVariable("PF_TEST_REAL_SERIES_REPORT");QVERIFY(!output.isEmpty());
+        QSaveFile reportFile(output);QVERIFY(reportFile.open(QIODevice::WriteOnly));
+        const auto bytes=QJsonDocument(report).toJson();QCOMPARE(reportFile.write(bytes),bytes.size());QVERIFY(reportFile.commit());
+        pfservices::SettingsStore::flushPendingWrites();
+    }
     void realVideoSelectionScreenshot() {
         const auto source=qEnvironmentVariable("PF_TEST_REAL_CHARACTER_VIDEO");
         if(source.isEmpty())QSKIP("Opt-in real-source character/visual regression");

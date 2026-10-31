@@ -2635,7 +2635,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 frames += static_cast<qlonglong>(std::max(0.0, info.durationSeconds * info.frameRate));
                 summaries.insert(path, QVariantMap{{"fileCount", 1},
                     {"frameCount", static_cast<qlonglong>(std::max(0.0, info.durationSeconds * info.frameRate))},
-                    {"durationSeconds", info.durationSeconds}, {"frameRate", info.frameRate}, {"sceneCount", 0}, {"matchCount", 0}});
+                    {"durationSeconds", info.durationSeconds}, {"frameRate", info.frameRate}, {"sceneCount", 0}, {"matchCount", 0},
+                    {"observationCacheHit",false}});
                 if (cacheHit && cachedSceneCount >= 0) {
                     // Upgrade only spatial view evidence from old pose caches.
                     // The expensive detector/identity observations stay intact.
@@ -2653,6 +2654,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     scenes += cachedSceneCount;
                     auto summary = summaries.value(path).toMap();
                     summary.insert("sceneCount", cachedSceneCount);
+                    summary.insert("observationCacheHit",true);
                     summaries.insert(path, summary);
                     processedFrames+=static_cast<qlonglong>(std::max(0.0,info.durationSeconds*info.frameRate));
                     QMetaObject::invokeMethod(this,[this,cancel,scenes,path,summary,processedFrames,totalFramesEstimate] {
@@ -2668,7 +2670,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     }
                     if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
                         std::fprintf(stderr, "PF_DEBUG_TIMING complete_cache_hit=%d window_cache_hit=1 decoded=%llu view_samples=%zu pose_samples=0 source=%s\n",
-                            viewFrames == 0 ? 1 : 0, static_cast<unsigned long long>(decoder.diagnostics().decodedFrames), viewFrames, qPrintable(path));
+                            viewFrames == 0 ? 1 : 0, static_cast<unsigned long long>(decoder.diagnostics().decodedFrames), viewFrames, path.toUtf8().constData());
                     continue;
                 }
                 std::vector<std::vector<std::uint8_t>> sceneBuffers;
@@ -3654,6 +3656,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 selectedTracks[source].insert(chosen->trackIds.begin(),chosen->trackIds.end());
                 auto summary=summaries.value(QString::fromStdString(source)).toMap();
                 summary.insert("targetCharacterId",QString::number(selected));
+                summary.insert("targetPresenceSeconds",chosen->presenceSeconds);
                 summary.insert("characterCount",static_cast<int>(candidates.size()));
                 summary.insert("targetAutomatic",suggestion.automatic);
                 summaries.insert(QString::fromStdString(source),summary);
@@ -3666,9 +3669,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     if (!writeError.empty()) qWarning() << "TARGET_SELECTION_CACHE_WRITE_FAILED" << QString::fromStdString(writeError);
                 }
                 if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
-                    std::fprintf(stderr,"PF_TARGET_SELECTED id=%zu automatic=%d reason=%d similarity=%.3f margin=%.3f tracks=%zu\n",
+                    std::fprintf(stderr,"PF_TARGET_SELECTED id=%zu automatic=%d reason=%d similarity=%.3f margin=%.3f tracks=%zu presence=%.3f source=%s\n",
                         selected,suggestion.automatic,static_cast<int>(suggestion.reason),suggestion.similarity,
-                        suggestion.margin,chosen->trackIds.size());
+                        suggestion.margin,chosen->trackIds.size(),chosen->presenceSeconds,source.c_str());
             }
             // Shot context belongs to the scene, independent of which actor
             // happened to own its first window before target filtering.
