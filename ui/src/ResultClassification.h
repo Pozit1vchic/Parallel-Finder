@@ -59,6 +59,21 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
     row.insert("classificationPartial",match.headOnlyComparison || movement.headOnlyEvidence);
     if (row.value("classificationManual").toBool()) return;
     QString classification;
+    QString movementClass = QString::fromStdString(match.gestureLabel + "/" + match.directionLabel);
+    auto groupingActions=actions;
+    if(movement.gesture==pfcore::GestureClass::HeadTurn || actions.contains("head_turn")) {
+        const auto left=classifier.classifyHeadTurnForGrouping(evidence[0],match.leftStartSeconds,match.leftEndSeconds);
+        const auto right=classifier.classifyHeadTurnForGrouping(evidence[1],match.rightStartSeconds,match.rightEndSeconds);
+        // Different phases keep the broad class; never invent agreement
+        // from the stronger side or change the admitted match itself.
+        if(left==right) {
+            if(movement.gesture==pfcore::GestureClass::HeadTurn)
+                movementClass=QString::fromStdString(left+"/"+match.directionLabel);
+            for(auto& action:groupingActions)if(action=="head_turn")action=QString::fromStdString(left);
+        }
+    }
+    if(groupingActions.size()>1)movementClass=groupingActions.join('+')+"/"+QString::fromStdString(match.directionLabel);
+
     const auto posture = [&](int side) {
         if(match.headOnlyComparison)return pfcore::ScenePosture::Unknown;
         return pfcore::describeScene(evidence[side],
@@ -85,6 +100,11 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
                 ? QStringLiteral("seated_lying") : QStringLiteral("posture_mismatch");
         }
         if(!classification.isEmpty()) {
+            const bool dynamic=!(evidence[0].staticFrameSet && evidence[1].staticFrameSet);
+            if(dynamic && movement.conflictingActions && classification!="posture_mismatch")
+                classification=movement.headOnlyEvidence ? QStringLiteral("head_action_mismatch") : QStringLiteral("action_mismatch");
+            else if(dynamic && (classification=="sitting" || classification=="lying") && !groupingActions.isEmpty())
+                classification+='+'+groupingActions.join('+')+"/"+QString::fromStdString(match.directionLabel);
             row.insert("classificationConflict",movement.conflictingActions || classification=="posture_mismatch");
             row.insert("classification",classification);
             return;
@@ -118,20 +138,7 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
                 : QStringLiteral("action_mismatch"));
             return;
         }
-        classification = QString::fromStdString(match.gestureLabel + "/" + match.directionLabel);
-        auto groupingActions=actions;
-        if(movement.gesture==pfcore::GestureClass::HeadTurn || actions.contains("head_turn")) {
-            const auto left=classifier.classifyHeadTurnForGrouping(evidence[0],match.leftStartSeconds,match.leftEndSeconds);
-            const auto right=classifier.classifyHeadTurnForGrouping(evidence[1],match.rightStartSeconds,match.rightEndSeconds);
-            // Different phases keep the broad class; never invent agreement
-            // from the stronger side or change the admitted match itself.
-            if(left==right) {
-                if(movement.gesture==pfcore::GestureClass::HeadTurn)
-                    classification=QString::fromStdString(left+"/"+match.directionLabel);
-                for(auto& action:groupingActions)if(action=="head_turn")action=QString::fromStdString(left);
-            }
-        }
-        if(groupingActions.size()>1)classification=groupingActions.join('+')+"/"+QString::fromStdString(match.directionLabel);
+        classification=movementClass;
     }
     row.insert("classification", classification);
 }

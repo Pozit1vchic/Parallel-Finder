@@ -444,6 +444,13 @@ Rectangle {
             if (ga !== gb) return ga && gb ? ga.localeCompare(gb) : ga ? -1 : 1
             delta = classKeys.indexOf(classKey(a)) - classKeys.indexOf(classKey(b))
             if (!delta) {
+                // Evidence tiers precede continuity within a semantic group.
+                // A high numerical score cannot promote a known conflict.
+                function evidenceTier(row) {
+                    return row.classificationConflict ? 2 : row.matchTier === "strong" ? 0 : row.matchTier === "possible" ? 1 : 2
+                }
+                const evidenceDelta=evidenceTier(a)-evidenceTier(b)
+                if (evidenceDelta) return evidenceDelta
                 // Preserve pair continuity; imported rows without ranks use quality.
                 const rankedA=Number.isFinite(a.continuityRank), rankedB=Number.isFinite(b.continuityRank)
                 if (rankedA !== rankedB) return rankedA ? -1 : 1

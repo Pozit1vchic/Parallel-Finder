@@ -54,3 +54,39 @@ captured source summaries report `observationCacheHit:false`. A separate buffere
 diagnostic rerun passes (`build/classification-target-cache-diagnostic.txt`),
 which does not establish a causal fix. This failure is retained as evidence;
 neither its assertion nor a timeout was weakened to make the suite green.
+The subsequent settings snapshot investigation and its green full-suite run are
+recorded in [settings-persistence-evidence.md](settings-persistence-evidence.md).
+
+## Independent posture and action facets
+
+An additional regression found that a confirmed sitting posture returned before
+movement grouping: sitting while raising an arm and sitting while lowering an
+arm both became simply `sitting`. The new contract check fails on the earlier
+implementation (`build/posture-actions-before.txt`). Specific sitting/lying
+posture now combines with actions actually supported on both sides, for example
+`sitting+raise/static`. Existing head-turn phase and compound-action rules are
+shared with the other movement classifications. A confirmed action disagreement
+becomes `action_mismatch` (or its head-scoped equivalent) even when posture
+agrees. A posture mismatch remains explicit. Static comparisons and uncertain
+posture do not acquire guessed action facets.
+
+Inside a class, existing Strong/Possible evidence tiers precede continuity rank;
+known classification conflicts cannot be promoted by a high numerical match
+score. The two existing filtered views remain separate. A regression verifies
+that a supported row precedes a conflicting row in the Strong view, while the
+Possible row remains available in its own view. This is not continuous evidence
+quality calibration or a proof of the best quality/continuity tradeoff.
+
+The focused UI run passes five test functions plus initialization and cleanup
+(`build/posture-actions-contracts.txt`). It checks the two seated actions,
+opposite actions in both pair directions, compound class canonicalization,
+filter membership and export class mapping, alongside existing trim/range,
+manual-override and real frozen Butcher posture controls. The action examples
+are controlled pose trajectories with validated synthetic action observations;
+they do not establish real-video action recognition accuracy. No primary
+observation cache version changes and no additional neural inference is needed.
+
+The final Release full suite passes 14/14 targets in 115.79 seconds
+(`build/posture-actions-full-suite.log`), including all 57 default UI checks and
+the real frozen posture controls. The seven explicitly opt-in UI workflows
+remain skipped in this default run. Six-language catalog validation also passes.

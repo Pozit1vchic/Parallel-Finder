@@ -1670,6 +1670,20 @@ void UiSmokeTests::movementClassesAndExportOrder()
     QCOMPARE(mixedOrdered[0].toMap().value("id").toInt(),1);
     QCOMPARE(mixedOrdered[3].toMap().value("id").toInt(),4);
     QCOMPARE(mixedOrdered[4].toMap().value("id").toInt(),3);
+    auto evidenceRows=continuityRows;
+    auto weak=evidenceRows[0].toMap();weak.insert("matchTier","possible");weak.insert("continuityRank",0);evidenceRows[0]=weak;
+    auto strong=evidenceRows[1].toMap();strong.insert("matchTier","strong");strong.insert("continuityRank",2);evidenceRows[1]=strong;
+    auto disputed=evidenceRows[2].toMap();disputed.insert("matchTier","strong");disputed.insert("classificationConflict",true);disputed.insert("continuityRank",1);evidenceRows[2]=disputed;
+    rail->setProperty("results",evidenceRows);QTest::qWait(100);
+    const auto evidenceOrdered=values(rail->property("visibleResults")).toList();
+    QCOMPARE(evidenceOrdered[0].toMap().value("id").toInt(),1);
+    // Strong/Possible are separate existing views; the weak row stays there.
+    QCOMPARE(evidenceOrdered.size(),3);
+    QCOMPARE(evidenceOrdered[1].toMap().value("id").toInt(),2);
+    rail->setProperty("matchTierFilter","possible");QTest::qWait(100);
+    const auto possibleRows=values(rail->property("visibleResults")).toList();
+    QCOMPARE(possibleRows.size(),1);QCOMPARE(possibleRows[0].toMap().value("id").toInt(),0);
+    rail->setProperty("matchTierFilter","strong");
     popup->setProperty("results",continuityRows);
     popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true}});
     popup->setProperty("selectionOrder",QVariantList{1,2,0,2,999});
@@ -1695,6 +1709,21 @@ void UiSmokeTests::movementClassesAndExportOrder()
     rail->setProperty("classFilter","head_action_mismatch");QTest::qWait(100);
     QCOMPARE(values(rail->property("visibleResults")).toList().size(),1);
     QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"head_turn","seated_lying","head_action_mismatch","action_mismatch","unknown"}));
+    const QVariantList seatedActions{
+        QVariantMap{{"id",0},{"classification","sitting+raise/static"}},
+        QVariantMap{{"id",1},{"classification","raise+sitting/mixed"}},
+        QVariantMap{{"id",2},{"classification","sitting+lower/static"}},
+        QVariantMap{{"id",3},{"classification","sitting"}}};
+    rail->setProperty("classFilter",QString());rail->setProperty("results",seatedActions);
+    popup->setProperty("results",seatedActions);
+    popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true},{"3",true}});
+    QTest::qWait(100);
+    QVERIFY(values(rail->property("classChoices")).toStringList().contains("sitting+raise"));
+    rail->setProperty("classFilter","sitting+raise");QTest::qWait(100);
+    QCOMPARE(values(rail->property("visibleResults")).toList().size(),2);
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"sitting","sitting+lower","sitting+raise"}));
+    QCOMPARE(pfui::exportClassKey("raise+sitting/static",{"sitting+raise","sitting+lower"}),QString("sitting+raise"));
+
 }
 void UiSmokeTests::staticPoseDisagreementKeepsBothPoses()
 {
@@ -1767,6 +1796,18 @@ void UiSmokeTests::staticPoseDisagreementKeepsBothPoses()
     pfui::classifyResultRange(mismatchRow,mismatch,{croppedSeated,croppedLying});
     QCOMPARE(mismatchRow.value("classification").toString(),QString("head_turn"));
     QCOMPARE(classifyPair(croppedSeated,croppedStanding,false),QString("posture_mismatch"));
+
+    auto sittingRaise=semanticPosture(seated,10),sittingLower=sittingRaise;
+    sittingRaise.staticFrameSet=sittingLower.staticFrameSet=false;
+    for(auto& frame:sittingRaise.frames)frame.keypoints[9].y-=3*frame.timestampSeconds;
+    for(auto& frame:sittingLower.frames)frame.keypoints[9].y-=3*(1-frame.timestampSeconds);
+    const pfcore::MovementClassifier motion;
+    QCOMPARE(motion.classifyForGrouping(sittingRaise,0,1).gesture,pfcore::GestureClass::Raise);
+    QCOMPARE(motion.classifyForGrouping(sittingLower,0,1).gesture,pfcore::GestureClass::Lower);
+    QCOMPARE(classifyPair(sittingRaise,sittingRaise,false).section('/',0,0),QString("sitting+raise"));
+    QCOMPARE(classifyPair(sittingLower,sittingLower,false).section('/',0,0),QString("sitting+lower"));
+    QCOMPARE(classifyPair(sittingRaise,sittingLower,false),QString("action_mismatch"));
+    QCOMPARE(classifyPair(sittingLower,sittingRaise,false),QString("action_mismatch"));
 
     // Replay the actual reviewed Butcher observations through the UI classifier,
     // rather than checking only the lower-level descriptor conversion.
