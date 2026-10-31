@@ -156,4 +156,28 @@ std::vector<std::size_t> continuityOrder(std::span<const SceneOccurrence> occurr
     }
     return result;
 }
+std::vector<std::size_t> pairedContinuityOrder(std::span<const std::array<SceneOccurrence,2>> occurrences,
+    const std::function<bool()>& cancelled) {
+    std::vector<std::size_t> remaining(occurrences.size()),result;
+    std::iota(remaining.begin(),remaining.end(),0);
+    std::sort(remaining.begin(),remaining.end(),[&](auto a,auto b) {
+        return std::tuple{key(occurrences[a][0]),key(occurrences[a][1]),a}
+            <std::tuple{key(occurrences[b][0]),key(occurrences[b][1]),b};
+    });
+    result.reserve(remaining.size());
+    while(!remaining.empty()) {
+        if(cancelled&&cancelled())return {};
+        auto best=remaining.begin();double bestCost=std::numeric_limits<double>::infinity();
+        std::size_t checked=0;
+        if(!result.empty())for(auto it=remaining.begin();it!=remaining.end();++it) {
+            if((checked++%64)==0&&cancelled&&cancelled())return {};
+            const auto& previous=occurrences[result.back()];const auto& next=occurrences[*it];
+            const double cost=transitionCost(previous[0],next[0])+transitionCost(previous[1],next[1]);
+            if(cost<bestCost) {bestCost=cost;best=it;}
+        }
+        result.push_back(*best);remaining.erase(best);
+    }
+    return result;
+}
+
 }

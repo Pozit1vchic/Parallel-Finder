@@ -161,3 +161,16 @@ TEST(SceneFamily, ProductionOrganizationDeduplicatesPairsAndPreservesDeterminist
     EXPECT_FALSE(pfcore::MotionRanker::organize(cancelled,windows,{},[]{return true;}));
     EXPECT_EQ(cancelled.size(),2);EXPECT_TRUE(cancelled[0].leftSceneFamily.empty());
 }
+
+TEST(SceneFamily, PairedContinuityIncludesRightLaneAndPreservesCancellation) {
+    using Pair=std::array<pfcore::SceneOccurrence,2>;
+    const std::vector<Pair> pairs{
+        Pair{occurrence(0,1),occurrence(0,1)},
+        Pair{occurrence(1,2),occurrence(100,101)},
+        Pair{occurrence(2,3),occurrence(1,2)}};
+    EXPECT_EQ(pfcore::pairedContinuityOrder(pairs),(std::vector<std::size_t>{0,2,1}));
+    EXPECT_TRUE(pfcore::pairedContinuityOrder(pairs,[]{return true;}).empty());
+    auto swapped=pairs;
+    for(auto& pair:swapped)std::swap(pair[0],pair[1]);
+    EXPECT_EQ(pfcore::pairedContinuityOrder(swapped),(std::vector<std::size_t>{0,2,1}));
+}

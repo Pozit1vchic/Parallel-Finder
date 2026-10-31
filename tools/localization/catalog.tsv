@@ -619,3 +619,6 @@ orientation.unknown|Аныкталган жок|Анықталмаған|Не в
 orientation.ambiguous|Бир маанилүү эмес|Бірмәнді емес|Неоднозначно|Belirsiz
 orientation.support|Ырасталган кадрлар: %1 / %2|Расталған кадрлар: %1 / %2|Підтверджено кадрів: %1 / %2|Destekleyen kareler: %1 / %2
 orientation.frameReference|Камерага карата бурулуш. Сол жана оң — кадр боюнча.|Камераға қатысты бұрылыс. Сол мен оң — кадр бойынша.|Поворот відносно камери. Ліворуч і праворуч — за кадром.|Kameraya göre yön. Sol ve sağ, görüntüye göredir.
+
+class.sitting|Отурат|Отыр|Сидить|Oturuyor
+class.lying|Жатат|Жатыр|Лежить|Yatıyor

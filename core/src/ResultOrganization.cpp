@@ -119,7 +119,7 @@ bool MotionRanker::organize(std::vector<MotionMatch>& matches,const std::vector<
             <std::tie(working[b].leftSourceId,working[b].leftStartSeconds,working[b].rightSourceId,working[b].rightStartSeconds);
     });
     std::set<std::pair<std::string,std::string>> pairs;
-    std::vector<MotionMatch> unique;std::vector<SceneOccurrence> continuity;
+    std::vector<MotionMatch> unique;std::vector<std::array<SceneOccurrence,2>> continuity;
     for(auto i:order) {
         const auto& m=working[i];
         const auto pair=std::minmax(m.leftSceneFamily,m.rightSceneFamily);
@@ -127,12 +127,12 @@ bool MotionRanker::organize(std::vector<MotionMatch>& matches,const std::vector<
         // Without a valid canonical identity, retain the result rather than
         // collapsing unknown evidence under an empty fingerprint.
         if(!pair.first.empty()&&!pair.second.empty()&&!pairs.emplace(pair.first,pair.second).second)continue;
-        unique.push_back(m);continuity.push_back(occurrences[i*2]);
+        unique.push_back(m);continuity.push_back({occurrences[i*2],occurrences[i*2+1]});
     }
     // Bounded greedy diversity: retain all independent matches, but prefer a
     // different occurrence over another small variation of the same family.
     std::set<std::string> usedFamilies;
-    std::vector<MotionMatch> diverse;std::vector<SceneOccurrence> diverseContinuity;
+    std::vector<MotionMatch> diverse;std::vector<std::array<SceneOccurrence,2>> diverseContinuity;
     while(!unique.empty()) {
         if(cancelled&&cancelled())return false;
         std::size_t best=0;double score=-1;
@@ -148,7 +148,7 @@ bool MotionRanker::organize(std::vector<MotionMatch>& matches,const std::vector<
         unique.erase(unique.begin()+best);continuity.erase(continuity.begin()+best);
     }
     unique=std::move(diverse);continuity=std::move(diverseContinuity);
-    const auto sequence=continuityOrder(continuity,cancelled);
+    const auto sequence=pairedContinuityOrder(continuity,cancelled);
     if(cancelled&&cancelled())return false;
     for(std::size_t rank=0;rank<sequence.size();++rank)unique[sequence[rank]].continuityRank=rank;
     matches=std::move(unique);return true;

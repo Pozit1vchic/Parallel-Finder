@@ -59,21 +59,33 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
     row.insert("classificationPartial",match.headOnlyComparison || movement.headOnlyEvidence);
     if (row.value("classificationManual").toBool()) return;
     QString classification;
-    const auto leftPosture=match.headOnlyComparison ? std::string("unknown")
-        : classifier.classifyPostureForGrouping(evidence[0],match.leftStartSeconds,match.leftEndSeconds);
-    const auto rightPosture=match.headOnlyComparison ? std::string("unknown")
-        : classifier.classifyPostureForGrouping(evidence[1],match.rightStartSeconds,match.rightEndSeconds);
-    if(leftPosture!="unknown" || rightPosture!="unknown") {
-        if(leftPosture=="seated_lying" && rightPosture=="seated_lying")
-            classification=QStringLiteral("seated_lying");
-        else if(leftPosture=="standing" && rightPosture=="standing") {
-            // Keep the more specific movement/pose grouping for two confirmed
-            // standing clips.
-        } else if(leftPosture!="unknown" && rightPosture!="unknown")
-            classification=QStringLiteral("posture_mismatch");
-        else
+    const auto posture = [&](int side) {
+        if(match.headOnlyComparison)return pfcore::ScenePosture::Unknown;
+        return pfcore::describeScene(evidence[side],
+            side==0?match.leftStartSeconds:match.rightStartSeconds,
+            side==0?match.leftEndSeconds:match.rightEndSeconds).posture;
+    };
+    using Posture=pfcore::ScenePosture;
+    const auto leftPosture=posture(0),rightPosture=posture(1);
+    if(leftPosture!=Posture::Unknown || rightPosture!=Posture::Unknown) {
+        if(leftPosture==Posture::Unknown || rightPosture==Posture::Unknown)
             classification=QStringLiteral("posture_uncertain");
+        else if(leftPosture==rightPosture) {
+            switch(leftPosture) {
+            case Posture::Sitting: classification=QStringLiteral("sitting");break;
+            case Posture::Lying: classification=QStringLiteral("lying");break;
+            case Posture::SeatedOrLying: classification=QStringLiteral("seated_lying");break;
+            default:break; // Standing keeps its more specific movement/pose.
+            }
+        } else {
+            const auto compatibleBroad=[](Posture a,Posture b) {
+                return a==Posture::SeatedOrLying && (b==Posture::Sitting || b==Posture::Lying);
+            };
+            classification=compatibleBroad(leftPosture,rightPosture)||compatibleBroad(rightPosture,leftPosture)
+                ? QStringLiteral("seated_lying") : QStringLiteral("posture_mismatch");
+        }
         if(!classification.isEmpty()) {
+            row.insert("classificationConflict",movement.conflictingActions || classification=="posture_mismatch");
             row.insert("classification",classification);
             return;
         }
@@ -90,6 +102,7 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
             // Static evidence can be confidently different on each side. Keep
             // that disagreement visible and sorted together, with both poses
             // shown as detail instead of silently calling it a neutral pose.
+            row.insert("classificationConflict",true);
             const auto poses = std::minmax(left, right);
             classification = QStringLiteral("pose_mismatch/%1+%2")
                 .arg(QString::fromStdString(poses.first), QString::fromStdString(poses.second));

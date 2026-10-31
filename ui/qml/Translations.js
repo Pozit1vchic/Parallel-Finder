@@ -1127,7 +1127,11 @@ var dictionaries = {
     "orientation.support": "Ырасталган кадрлар: %1 / %2",
     "Supported frames: %1 / %2": "Ырасталган кадрлар: %1 / %2",
     "orientation.frameReference": "Камерага карата бурулуш. Сол жана оң — кадр боюнча.",
-    "Direction relative to the camera. Left and right refer to the image.": "Камерага карата бурулуш. Сол жана оң — кадр боюнча."
+    "Direction relative to the camera. Left and right refer to the image.": "Камерага карата бурулуш. Сол жана оң — кадр боюнча.",
+    "class.sitting": "Отурат",
+    "Sitting": "Отурат",
+    "class.lying": "Жатат",
+    "Lying": "Жатат"
   },
   "kk": {
     "bodyReview.stage": "Дене бағытын нақтылау",
@@ -2255,7 +2259,11 @@ var dictionaries = {
     "orientation.support": "Расталған кадрлар: %1 / %2",
     "Supported frames: %1 / %2": "Расталған кадрлар: %1 / %2",
     "orientation.frameReference": "Камераға қатысты бұрылыс. Сол мен оң — кадр бойынша.",
-    "Direction relative to the camera. Left and right refer to the image.": "Камераға қатысты бұрылыс. Сол мен оң — кадр бойынша."
+    "Direction relative to the camera. Left and right refer to the image.": "Камераға қатысты бұрылыс. Сол мен оң — кадр бойынша.",
+    "class.sitting": "Отыр",
+    "Sitting": "Отыр",
+    "class.lying": "Жатыр",
+    "Lying": "Жатыр"
   },
   "uk": {
     "bodyReview.stage": "Уточнюємо напрямок корпусу",
@@ -3383,7 +3391,11 @@ var dictionaries = {
     "orientation.support": "Підтверджено кадрів: %1 / %2",
     "Supported frames: %1 / %2": "Підтверджено кадрів: %1 / %2",
     "orientation.frameReference": "Поворот відносно камери. Ліворуч і праворуч — за кадром.",
-    "Direction relative to the camera. Left and right refer to the image.": "Поворот відносно камери. Ліворуч і праворуч — за кадром."
+    "Direction relative to the camera. Left and right refer to the image.": "Поворот відносно камери. Ліворуч і праворуч — за кадром.",
+    "class.sitting": "Сидить",
+    "Sitting": "Сидить",
+    "class.lying": "Лежить",
+    "Lying": "Лежить"
   },
   "tr": {
     "bodyReview.stage": "Gövde yönü netleştiriliyor",
@@ -4511,6 +4523,10 @@ var dictionaries = {
     "orientation.support": "Destekleyen kareler: %1 / %2",
     "Supported frames: %1 / %2": "Destekleyen kareler: %1 / %2",
     "orientation.frameReference": "Kameraya göre yön. Sol ve sağ, görüntüye göredir.",
-    "Direction relative to the camera. Left and right refer to the image.": "Kameraya göre yön. Sol ve sağ, görüntüye göredir."
+    "Direction relative to the camera. Left and right refer to the image.": "Kameraya göre yön. Sol ve sağ, görüntüye göredir.",
+    "class.sitting": "Oturuyor",
+    "Sitting": "Oturuyor",
+    "class.lying": "Yatıyor",
+    "Lying": "Yatıyor"
   }
 }

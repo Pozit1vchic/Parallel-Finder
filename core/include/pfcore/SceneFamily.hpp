@@ -33,4 +33,8 @@ SceneFamilySet buildSceneFamilies(std::span<const SceneOccurrence> occurrences,
 // costs, not fixed-minute bins or a replacement for continuous pose geometry.
 std::vector<std::size_t> continuityOrder(std::span<const SceneOccurrence> occurrences,
     const std::function<bool()>& cancelled = {});
+// Compare both lanes without swapping the displayed A/B ownership.
+std::vector<std::size_t> pairedContinuityOrder(std::span<const std::array<SceneOccurrence,2>> occurrences,
+    const std::function<bool()>& cancelled = {});
+
 }

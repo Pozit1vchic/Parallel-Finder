@@ -68,9 +68,15 @@ Popup {
         })
     }
     function selectedIndexes() {
-        return root.results
-            .filter(function(row) { return root.selectedRows[row.id] === true && !row.hidden })
-            .map(function(row) { return Number(row.id) })
+        const selected = root.results.filter(function(row) { return root.selectedRows[row.id] === true && !row.hidden })
+        const ids = selected.map(function(row) { return Number(row.id) })
+        const ordered = []
+        for (const value of root.selectionOrder) {
+            const id = Number(value)
+            if (ids.indexOf(id) >= 0 && ordered.indexOf(id) < 0) ordered.push(id)
+        }
+        for (const id of ids) if (ordered.indexOf(id) < 0) ordered.push(id)
+        return ordered
     }
     function localFolderPath(value) {
         if (value && value.toLocalFile) {
@@ -105,7 +111,7 @@ Popup {
         // Lossless is an exact MOV export; ordinary/custom quality re-encodes.
         Analysis.exportResults(
             root.selectedFormat,
-            0,
+            1,
             root.selectedCutMode,
             root.outputFolder,
             root.fileBaseName,

@@ -54,7 +54,7 @@ test does not establish general recognition accuracy or release readiness.
 | D03 | Multi-signal overlapping + adjacent + true copied-event families | Complete-link and strict both-range pixel proof; retained measured admission reasons and unique members. Full trajectory and mixed-scope compatibility remain to review; see scene-family-evidence.md. | Partial |
 | D04 | Dedicated representative quality, completeness/occlusion/camera | Scoped evidence/identity/temporal/match terms retained per member after head/action review; representative changes reuse measured admission proof. Full completeness and measured camera terms remain unverified. | Partial |
 | D05 | Canonical results before export + stable defensive export identity | Family pair dedup, fingerprints, shared JSON evidence and canonical own-shot bounds verified. Real cutter/decoder test proves four requests -> three physical outputs with Unicode sources. Real duplicate-positive neural quality fixture remains open. | Partial |
-| D06 | All requested practical sorts, smart classification groups | Existing legacy sorts plus best/continuity/pose/identity/evidence/duration/source. Verify meaningful motion sort and in-class evidence priority. | Partial |
+| D06 | All requested practical sorts, smart classification groups | Specific measured sitting/lying classes, conflicts after supported classes, paired continuity inside default groups and visible-order export are implemented. See automatic-classification-order.md. Broader labelled action/sort quality and in-class evidence priority remain to verify. | Partial |
 | D07 | Bounded diversity suppresses top redundancy | Existing bounded family-use penalty and organization tests; real labelled diversity ordering not evaluated. | Partial |
 | D08 | Continuous local pose/head/body transition cost, deterministic practical ordering | Greedy continuity with time/scene/pose/head/roll and now optionally measured continuous body yaw. Actual sequence evidence and broader ordering/cancellation controls remain open. | Partial |
 | E01 | Profile decode/detection/pose/face/ReID/track/cluster/windows/match/classification/previews/cache | Real stage logs exist; explicit clustering/classification timing coverage needs audit. | Partial |
@@ -164,6 +164,13 @@ the open items is currently an external blocker: useful local work remains.
   A separate intermittent offline mode-change cache miss remains under audit;
   repeated green runs are not described as a causal fix. PF_DEBUG_CACHE now
   retains entry/key/validation/settings/source decisions for investigation.
+
+- Automatic classification/order validation passes 13/14 CTest targets in
+  116.15 seconds, including all 57 default UI checks and the actual Butcher
+  posture-observation replay. The existing intermittent observation-cache miss
+  recurs on second-character reselection (8 processed frames, expected zero);
+  an isolated diagnostic rerun passes without establishing a fix. The earlier
+  green M02 run remains historical evidence, not the status of this latest run.
 
 - [provider-download-evidence.md](provider-download-evidence.md) records rolling
   scheduling, measured retry-driven concurrency adaptation, failure/cancellation

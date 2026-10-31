@@ -443,7 +443,14 @@ Rectangle {
             const ga = String(a.manualGroup || ""), gb = String(b.manualGroup || "")
             if (ga !== gb) return ga && gb ? ga.localeCompare(gb) : ga ? -1 : 1
             delta = classKeys.indexOf(classKey(a)) - classKeys.indexOf(classKey(b))
-            if (!delta) return strongB-strongA || Number(a.id)-Number(b.id)
+            if (!delta) {
+                // Preserve pair continuity; imported rows without ranks use quality.
+                const rankedA=Number.isFinite(a.continuityRank), rankedB=Number.isFinite(b.continuityRank)
+                if (rankedA !== rankedB) return rankedA ? -1 : 1
+                if (rankedA && rankedB)
+                    return a.continuityRank-b.continuityRank || strongB-strongA || Number(a.id)-Number(b.id)
+                return strongB-strongA || Number(a.id)-Number(b.id)
+            }
         } else if (sortCriterion === "scene")
             delta = sceneSimilarity(a) - sceneSimilarity(b)
         else if (sortCriterion === "time")

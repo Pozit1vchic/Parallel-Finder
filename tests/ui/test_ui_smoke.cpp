@@ -1650,6 +1650,33 @@ void UiSmokeTests::movementClassesAndExportOrder()
     rail->setProperty("classFilter","pose_mismatch");QTest::qWait(100);
     QCOMPARE(values(rail->property("visibleResults")).toList().size(),2);
     QCOMPARE(values(popup->property("classOrder")).toStringList(),QStringList{"pose_mismatch"});
+    const QVariantList continuityRows{
+        QVariantMap{{"id",0},{"classification","sitting"},{"bestMatchScore",.99},{"continuityRank",2}},
+        QVariantMap{{"id",1},{"classification","sitting"},{"bestMatchScore",.7},{"continuityRank",0}},
+        QVariantMap{{"id",2},{"classification","sitting"},{"bestMatchScore",.8},{"continuityRank",1}},
+        QVariantMap{{"id",3},{"classification","posture_mismatch"},{"bestMatchScore",1.0},{"continuityRank",3}}};
+    rail->setProperty("classFilter",QString());rail->setProperty("results",continuityRows);
+    QTest::qWait(100);
+    const auto coherent=values(rail->property("visibleResults")).toList();
+    QCOMPARE(coherent.size(),4);
+    QCOMPARE(coherent[0].toMap().value("id").toInt(),1);
+    QCOMPARE(coherent[1].toMap().value("id").toInt(),2);
+    QCOMPARE(coherent[2].toMap().value("id").toInt(),0);
+    QCOMPARE(coherent[3].toMap().value("id").toInt(),3);
+    auto mixedRanks=continuityRows;
+    mixedRanks.append(QVariantMap{{"id",4},{"classification","sitting"},{"bestMatchScore",1.0}});
+    rail->setProperty("results",mixedRanks);QTest::qWait(100);
+    const auto mixedOrdered=values(rail->property("visibleResults")).toList();
+    QCOMPARE(mixedOrdered[0].toMap().value("id").toInt(),1);
+    QCOMPARE(mixedOrdered[3].toMap().value("id").toInt(),4);
+    QCOMPARE(mixedOrdered[4].toMap().value("id").toInt(),3);
+    popup->setProperty("results",continuityRows);
+    popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true}});
+    popup->setProperty("selectionOrder",QVariantList{1,2,0,2,999});
+    QVariant exportedIds;
+    QVERIFY(QMetaObject::invokeMethod(popup,"selectedIndexes",Q_RETURN_ARG(QVariant,exportedIds)));
+    QCOMPARE(values(exportedIds).toList(),(QVariantList{1,2,0}));
+    popup->setProperty("selectionOrder",QVariantList{});
     const QVariantList conflictingActions{
         QVariantMap{{"id",0},{"classification","unknown/unknown"}},
         QVariantMap{{"id",1},{"classification","action_mismatch"}},
@@ -1667,7 +1694,7 @@ void UiSmokeTests::movementClassesAndExportOrder()
     QCOMPARE(values(rail->property("visibleResults")).toList().size(),1);
     rail->setProperty("classFilter","head_action_mismatch");QTest::qWait(100);
     QCOMPARE(values(rail->property("visibleResults")).toList().size(),1);
-    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"seated_lying","head_turn","head_action_mismatch","action_mismatch","unknown"}));
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"head_turn","seated_lying","head_action_mismatch","action_mismatch","unknown"}));
 }
 void UiSmokeTests::staticPoseDisagreementKeepsBothPoses()
 {
@@ -1728,8 +1755,54 @@ void UiSmokeTests::staticPoseDisagreementKeepsBothPoses()
     const auto croppedSeated=semanticPosture(cropped,10);
     const auto croppedLying=semanticPosture(cropped,7);
     const auto croppedStanding=semanticPosture(cropped,11);
-    QCOMPARE(classifyPair(croppedSeated,croppedLying,false),QString("seated_lying"));
+    QCOMPARE(classifyPair(croppedSeated,croppedLying,false),QString("posture_mismatch"));
+    QCOMPARE(classifyPair(croppedSeated,croppedSeated,false),QString("sitting"));
+    QCOMPARE(classifyPair(croppedLying,croppedLying,false),QString("lying"));
+    QCOMPARE(classifyPair(croppedSeated,seated,false),QString("seated_lying"));
+    pfcore::MotionMatch mismatch; mismatch.leftEndSeconds=mismatch.rightEndSeconds=1;
+    QVariantMap mismatchRow;
+    pfui::classifyResultRange(mismatchRow,mismatch,{croppedSeated,croppedLying});
+    QVERIFY(mismatchRow.value("classificationConflict").toBool());
+    mismatchRow.insert("classificationManual",true);mismatchRow.insert("classification","head_turn");
+    pfui::classifyResultRange(mismatchRow,mismatch,{croppedSeated,croppedLying});
+    QCOMPARE(mismatchRow.value("classification").toString(),QString("head_turn"));
     QCOMPARE(classifyPair(croppedSeated,croppedStanding,false),QString("posture_mismatch"));
+
+    // Replay the actual reviewed Butcher observations through the UI classifier,
+    // rather than checking only the lower-level descriptor conversion.
+    QFile frozenPostures(QFINDTESTDATA("../fixtures/butcher-posture-observations.json"));
+    QVERIFY(frozenPostures.open(QIODevice::ReadOnly));
+    const auto cases=QJsonDocument::fromJson(frozenPostures.readAll()).object()["cases"].toArray();
+    QCOMPARE(cases.size(),2);
+    std::vector<pfcore::MotionWindow> realWindows;
+    for(const auto& value:cases) {
+        const auto o=value.toObject()["evidence"].toObject();
+        pfcore::VideoActionEvidence action;
+        action.sourceId=o["source"].toString().toStdString();action.modelHash=o["model"].toString().toStdString();
+        action.start=o["start"].toDouble();action.end=o["end"].toDouble();
+        action.observed=o["observed"].toBool();action.continuous=o["continuous"].toBool();
+        action.associated=o["associated"].toBool();action.torsoVisible=o["torsoVisible"].toBool();
+        action.postureVisible=o["postureVisible"].toBool();
+        for(const auto time:o["times"].toArray())action.frameTimes.push_back(time.toDouble());
+        const auto scores=o["scores"].toArray(), frozen=o["frozen"].toArray();
+        QCOMPARE(scores.size(),80);QCOMPARE(frozen.size(),80);
+        for(int i=0;i<80;++i) {action.scores[i]=scores[i].toDouble();action.frozenScores[i]=frozen[i].toDouble();}
+        pfcore::MotionWindow real;real.sourceId=action.sourceId;real.videoActions.push_back(action);
+        realWindows.push_back(std::move(real));
+    }
+    pfcore::MotionMatch realMatch;
+    realMatch.leftStartSeconds=realWindows[0].videoActions[0].start;
+    realMatch.leftEndSeconds=realWindows[0].videoActions[0].end;
+    realMatch.rightStartSeconds=realWindows[1].videoActions[0].start;
+    realMatch.rightEndSeconds=realWindows[1].videoActions[0].end;
+    QVariantMap realRow;
+    pfui::classifyResultRange(realRow,realMatch,{realWindows[0],realWindows[1]});
+    QCOMPARE(realRow.value("classification").toString(),QString("posture_mismatch"));
+    QVERIFY(realRow.value("classificationConflict").toBool());
+    realMatch.rightStartSeconds=realMatch.leftStartSeconds;realMatch.rightEndSeconds=realMatch.leftEndSeconds;
+    pfui::classifyResultRange(realRow,realMatch,{realWindows[0],realWindows[0]});
+    QCOMPARE(realRow.value("classification").toString(),QString("sitting"));
+    QVERIFY(!realRow.value("classificationConflict").toBool());
 
     const auto headTurned=poseWindow([](pfcore::PoseFrame& frame){frame.keypoints[0].x=.7;});
     QCOMPARE(classifyPair(straightLegs,headTurned,true),QString("pose_mismatch/head_front+head_turned"));

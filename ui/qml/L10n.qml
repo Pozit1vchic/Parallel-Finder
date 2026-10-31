@@ -5,7 +5,7 @@ import "Translations.js" as Catalog
 
 QtObject {
     property string language: "en"
-    readonly property var movementTypes: ["seated_lying", "posture_mismatch", "posture_uncertain", "head_turn_away", "head_turn_back", "head_turn", "turn", "head_front", "head_turned", "head_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "body_pose", "pose_mismatch", "head_action_mismatch", "head_nod", "head_tilt", "raise", "lower", "raise_lower", "wave", "push", "pull", "reach_return", "step", "static", "mixed", "action_mismatch", "unknown"]
+    readonly property var movementTypes: ["sitting", "lying", "head_turn_away", "head_turn_back", "head_turn", "turn", "head_front", "head_turned", "head_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "body_pose", "head_nod", "head_tilt", "raise", "lower", "raise_lower", "wave", "push", "pull", "reach_return", "step", "static", "mixed", "seated_lying", "posture_uncertain", "posture_mismatch", "pose_mismatch", "head_action_mismatch", "action_mismatch", "unknown"]
     function movementKey(value) {
         const key=String(value || "unknown").split("/")[0]
         if (movementTypes.indexOf(key)>=0) return key
@@ -139,6 +139,8 @@ QtObject {
             "class.pose_mismatch": "Разные статичные позы",
             "class.action_mismatch": "Разные действия",
             "class.head_action_mismatch": "Разные движения головы",
+            "class.sitting": "Сидит",
+            "class.lying": "Лежит",
             "class.seated_lying": "Сидит / лежит",
             "class.posture_mismatch": "Разные положения тела",
             "class.posture_uncertain": "Положение тела не определено",
@@ -668,6 +670,8 @@ QtObject {
             "class.pose_mismatch": "Different static poses",
             "class.action_mismatch": "Different actions",
             "class.head_action_mismatch": "Different head movements",
+            "class.sitting": "Sitting",
+            "class.lying": "Lying",
             "class.seated_lying": "Sitting / lying",
             "class.posture_mismatch": "Different body postures",
             "class.posture_uncertain": "Body posture uncertain",
