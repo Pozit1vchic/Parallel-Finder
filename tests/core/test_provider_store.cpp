@@ -120,6 +120,78 @@ TEST(ProviderDownload, TransientFailureRetriesTheSamePersistentPartial)
     EXPECT_EQ(attempts,2);
 }
 
+TEST(ProviderDownload, FreeSlotStartsNextPartBeforeUnrelatedSlowPartFinishes)
+{
+    pfservices::ProviderAsset asset;asset.sizeBytes=6;
+    for(int i=0;i<6;++i)asset.parts.push_back({std::to_string(i),std::string(64,'a'),1,"https://example.invalid/part"});
+    QSemaphore laterStarted;std::atomic_bool overlapped=false;std::atomic_int completed=0;
+    std::string error;
+    ASSERT_TRUE(pfservices::detail::downloadProviderParts(asset,{}, {},error,
+        [&](const auto& chunk,const auto&,auto,std::string& failure) {
+            const auto index=std::stoi(chunk.filename);
+            if(index==0&&!laterStarted.tryAcquire(1,2000)) {failure="next chunk was blocked behind slow chunk";return false;}
+            if(index==4) {overlapped=true;laterStarted.release();}
+            ++completed;return true;
+        }))<<error;
+    EXPECT_TRUE(overlapped);EXPECT_EQ(completed,6);
+}
+
+TEST(ProviderDownload, RetryReducesNewWorkAndCleanCompletionsRecoverWithinCallerBound)
+{
+    pfservices::ProviderAsset asset;asset.sizeBytes=24;
+    for(int i=0;i<24;++i)asset.parts.push_back({std::to_string(i),std::string(64,'a'),1,"https://example.invalid/part"});
+    std::vector<std::atomic_int> attempts(24);std::vector<std::size_t> limits;
+    auto* parent=QThread::currentThread();std::string error;
+    ASSERT_TRUE(pfservices::detail::downloadProviderParts(asset,{}, {},error,
+        [&](const auto& chunk,const auto&,auto,std::string& failure) {
+            const auto index=std::stoi(chunk.filename);
+            if(++attempts[index]==1&&index==0) {failure="model download: HTTP 429";return false;}
+            QThread::msleep(5);return true;
+        },{},4,[&](std::size_t limit) {EXPECT_EQ(QThread::currentThread(),parent);limits.push_back(limit);}))<<error;
+    ASSERT_GE(limits.size(),3);EXPECT_EQ(limits.front(),4);
+    const auto reduced=std::find(limits.begin(),limits.end(),2);ASSERT_NE(reduced,limits.end());
+    EXPECT_NE(std::find(reduced,limits.end(),4),limits.end());
+    EXPECT_TRUE(std::all_of(limits.begin(),limits.end(),[](auto value){return value>=1&&value<=4;}));
+    for(int i=0;i<24;++i)EXPECT_EQ(attempts[i],i==0?2:1);
+}
+
+TEST(ProviderDownload, ProgressExceptionJoinsEveryActiveWorker)
+{
+    pfservices::ProviderAsset asset;asset.sizeBytes=4;
+    for(int i=0;i<4;++i)asset.parts.push_back({std::to_string(i),std::string(64,'a'),1,"https://example.invalid/part"});
+    std::atomic_int active=0;std::string error;
+    EXPECT_THROW(pfservices::detail::downloadProviderParts(asset,{},[](auto,auto){throw std::runtime_error("progress failed");},error,
+        [&](const auto&,const auto&,auto,std::string& failure) {
+            ++active;while(!QThread::currentThread()->isInterruptionRequested())QThread::msleep(1);
+            --active;failure="download cancelled";return false;
+        }),std::runtime_error);
+    EXPECT_EQ(active,0);
+}
+
+TEST(ProviderDownload, CallerConnectionLimitAndWorkerFailureAreRespected)
+{
+    pfservices::ProviderAsset asset;asset.sizeBytes=6;
+    for(int i=0;i<6;++i)asset.parts.push_back({std::to_string(i),std::string(64,'a'),1,"https://example.invalid/part"});
+    for(const std::size_t cap:{0,1,2,4,99}) {
+        std::atomic_int active=0,peak=0;std::string error;
+        ASSERT_TRUE(pfservices::detail::downloadProviderParts(asset,{}, {},error,
+            [&](const auto&,const auto&,auto,std::string&) {
+                const int running=++active;int previous=peak.load();
+                while(previous<running&&!peak.compare_exchange_weak(previous,running)){}
+                QThread::msleep(2);--active;return true;
+            },{},cap))<<error;
+        EXPECT_LE(peak,std::clamp<int>(static_cast<int>(cap),1,4));EXPECT_EQ(active,0);
+    }
+    std::atomic_int active=0;std::string error;
+    EXPECT_FALSE(pfservices::detail::downloadProviderParts(asset,{}, {},error,
+        [&](const auto& chunk,const auto&,auto,std::string& failure) {
+            if(chunk.filename=="0") {failure="model download: HTTP 404";return false;}
+            ++active;while(!QThread::currentThread()->isInterruptionRequested())QThread::msleep(1);
+            --active;failure="download cancelled";return false;
+        }));
+    EXPECT_EQ(error,"model download: HTTP 404");EXPECT_EQ(active,0);
+}
+
 TEST(ProviderDownload, CancellationJoinsWorkersAndPreservesPartialData)
 {
     QTemporaryDir directory;ASSERT_TRUE(directory.isValid());

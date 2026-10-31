@@ -63,8 +63,8 @@ test does not establish general recognition accuracy or release readiness.
 | E04 | 8 cached + 2 new infer only new | Three fresh-process real-media controls: seed 8 misses/144 pose frames; add 2 -> 8 hits/243 new pose frames; repeat 10 -> 10 hits/zero inference. Per-source assertions and raw UTF-8 logs retained in series-eight-percent-verified. | Evidenced, controlled fixture |
 | E05 | Adaptive inference and GPU profiling with measured quality/speed | Existing periodic ReID/usable-face sampling, pipeline counters and preview benchmark. Broader adaptive quality/transfer validation remains open. | Partial |
 | E06 | Atomic cancellation cleanup, incomplete artifacts never valid | Character/window/cache write tests exist; retained independently verified data after cancellation. Audit remaining stages. | Partial |
-| F01 | Persistent resumable Range/chunk downloads, bounded/adaptive concurrency | Provider chunks, resume validation and bounded workers tested. Adaptive concurrency beyond a fixed bound must be inspected. | Partial |
-| F02 | Per-part exponential retry, timeouts, fallback/mirrors where supported | Retry tests exist; exact backoff/timeout/fallback coverage not yet audited. | Unverified |
+| F01 | Persistent resumable Range/chunk downloads, bounded/adaptive concurrency | Persistent chunks and rolling queue now reuse free slots; retry pressure halves new-work concurrency, clean completions recover within a 1–4 caller bound. Semaphore, retry, limits, cancellation/failure/exception tests and controlled scheduling benchmark pass (provider-download-evidence.md). Full network adaptation remains to exercise. | Partial |
+| F02 | Per-part exponential retry, timeouts, fallback/mirrors where supported | Inspected three attempts with nominal 500/1000 ms backoff, 60 s inactivity and 2 h total guards; manifest fallback exists, package metadata currently has one URL. Per-part retry/cancel controls pass; actual slow/no-Range/mirror workflows remain unproven. | Partial |
 | F03 | Separate installer cache, version/size/hash state, verify before complete | ProviderStore persistent verified archives/parts, hash-failure tests. | Evidenced |
 | F04 | Offline/restart retry and cancellation preserve valid parts | Local interrupted-transfer/offline/cancel tests. Add/inspect explicit process-restart and no-Range server proof. | Partial |
 | F05 | Transactional staging/probe/activation preserves active provider | Failed-probe/offline reinstall tests and Unicode extraction. Inspect activation crash/interruption boundary. | Partial |
@@ -89,7 +89,7 @@ test does not establish general recognition accuracy or release readiness.
 | K01 | Why selected/matched/rejected/family/representative/cache invalidated/download reused/probe failed | Selection and matcher reason enums/logs exist. Family admission measurements and representative component scores now retained/shared/exported. Cache invalidation explanations and remaining provider diagnostics still require audit. | Partial |
 | L01 | Grounded phases, baseline before changes, no reckless rewrite | Baseline worktree and logs retained; logical commit history. This audit preserves original unfinished scope. | Evidenced |
 | M01 | Branch/status/tags/release conventions, no unrelated deletion | Feature branch clean at start; release README inspected. Tag/release state and complete licenses/package audit still required. | Partial |
-| M02 | Full suite, benchmark, clean Release build, packaging/resources | Latest Release build and all 13 CTest targets pass in 117.71 s (series-manual-final-suite.log), including 56 UI checks; 22 focused family/export checks also pass. Clean final package verification not performed. | Partial |
+| M02 | Full suite, benchmark, clean Release build, packaging/resources | Latest Release build and all 13 CTest targets pass in 128.28 s (provider-adaptive-full-suite.log), including 56 UI checks; 22 focused family/export checks also pass. Clean final package verification not performed. | Partial |
 | M03 | Fresh install, previous upgrade, cache migration, provider update | Developer binary and synthetic store tests are not packaged fresh-install/upgrade proof. | Missing |
 | M04 | Version/changelog/notes; publish/tag only when actually ready | Local `0.1.0-rc.23.3-dev`; notes retained; no tag/push/release attempted. Remains unreleased until gates pass. | Partial |
 | N01 | Target + series + result + restart-cache + bad-network + failed-install + Unicode + UI end-to-end flows | See A/D/E/F/G and packaging gaps. Cannot infer all flows from one montage or green unit tests. | Partial |
@@ -164,3 +164,8 @@ the open items is currently an external blocker: useful local work remains.
   A separate intermittent offline mode-change cache miss remains under audit;
   repeated green runs are not described as a causal fix. PF_DEBUG_CACHE now
   retains entry/key/validation/settings/source decisions for investigation.
+
+- [provider-download-evidence.md](provider-download-evidence.md) records rolling
+  scheduling, measured retry-driven concurrency adaptation, failure/cancellation
+  cleanup controls and a controlled before/after benchmark. Real network/server
+  and interrupted activation workflows remain separate verification gates.

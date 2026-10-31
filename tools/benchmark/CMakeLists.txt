@@ -18,6 +18,10 @@ target_link_libraries(pf_decode_probe PRIVATE pf::core)
 add_executable(pf_matcher_probe matcher_probe.cpp)
 add_executable(pf_character_probe character_probe.cpp)
 add_executable(pf_posture_probe posture_probe.cpp)
+add_executable(pf_provider_schedule_probe provider_schedule_probe.cpp)
+set_target_properties(pf_provider_schedule_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_include_directories(pf_provider_schedule_probe PRIVATE "${PROJECT_SOURCE_DIR}/services/src" "${PROJECT_SOURCE_DIR}/services/include")
+target_link_libraries(pf_provider_schedule_probe PRIVATE Qt6::Core)
 set_target_properties(pf_posture_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(pf_posture_probe PRIVATE pf::core Qt6::Core)
 add_test(NAME pf_real_posture_controls COMMAND pf_posture_probe
@@ -74,6 +78,7 @@ foreach(target IN ITEMS
         pf_matcher_probe
         pf_character_probe
         pf_posture_probe
+        pf_provider_schedule_probe
         pf_face_probe
         pf_dominant_probe
         pf_scene_memory_probe
