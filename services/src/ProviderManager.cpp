@@ -8,6 +8,7 @@
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QThread>
+#include <cstdio>
 #if defined(_WIN32)
 #include <windows.h>
 #endif
@@ -31,8 +32,22 @@ QString ProviderManager::locateRuntime(const QStringList& roots, const QString& 
 {
     if (provider != "cuda" && provider != "dml" && provider != "tensorrt") return {};
     for (const auto& root : roots) {
-        const auto runtime = runtimeIn(QDir(root).filePath(provider));
+        const auto current=QDir(root).filePath(provider);
+        const auto runtime = runtimeIn(current);
         if (!runtime.isEmpty()) return runtime;
+        // A process can stop between moving the old installation aside and
+        // publishing the validated staging directory. Discovery is read-only:
+        // use the preserved bundle until the installer restores its name.
+        // An existing current directory must not be masked by a stale backup.
+        const QFileInfo currentInfo(current);
+        if(!currentInfo.exists()&&!currentInfo.isSymLink()) {
+            const auto previous=runtimeIn(QDir(root).filePath(provider+".previous"));
+            if(!previous.isEmpty()) {
+                if(qEnvironmentVariableIsSet("PF_DEBUG_STARTUP")||qEnvironmentVariableIsSet("PF_DEBUG_DOWNLOAD"))
+                    std::fprintf(stderr,"PF_PROVIDER_DISCOVERY provider=%s source=previous interrupted_activation=1\n",provider.toUtf8().constData());
+                return previous;
+            }
+        }
     }
     return {};
 }

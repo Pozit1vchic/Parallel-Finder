@@ -1292,6 +1292,63 @@ TEST(ProviderManager, DiscoveryAndStartupShareUserFirstSelection)
     EXPECT_TRUE(pfservices::ProviderManager::locateRuntime({userRoot.path()}, "../cuda").isEmpty());
 }
 
+TEST(ProviderManager, InterruptedActivationDiscoversPreviousWithoutMutatingOrMaskingCurrent)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=directory.filePath(QString::fromUtf8("Пакеты 日本語"));
+    const auto previous=root+"/cuda.previous/wrapper/onnxruntime.dll";
+    ASSERT_TRUE(QDir().mkpath(QFileInfo(previous).absolutePath()));
+    {QFile file(previous);ASSERT_TRUE(file.open(QIODevice::WriteOnly));ASSERT_EQ(file.write("previous-runtime"),16);}
+    EXPECT_EQ(pfservices::ProviderManager::locateRuntime({root},"cuda"),previous);
+    EXPECT_FALSE(QFileInfo::exists(root+"/cuda"));
+    const auto states=pfservices::ProviderManager::scan({root},"nonexistent-probe-executable");
+    const auto state=std::find_if(states.begin(),states.end(),[](const auto& value){return value.name=="cuda";});
+    ASSERT_NE(state,states.end());EXPECT_TRUE(state->installed);EXPECT_FALSE(state->available);
+    EXPECT_EQ(state->runtimePath,previous);
+    {QFile file(previous);ASSERT_TRUE(file.open(QIODevice::ReadOnly));EXPECT_EQ(file.readAll(),"previous-runtime");}
+    // The fallback retains root priority over a bundled application copy.
+    const auto appRoot=directory.filePath("application");ASSERT_TRUE(QDir().mkpath(appRoot+"/cuda"));
+    ASSERT_TRUE(QFile::copy(previous,appRoot+"/cuda/onnxruntime.dll"));
+    EXPECT_EQ(pfservices::ProviderManager::locateRuntime({root,appRoot},"cuda"),previous);
+    ASSERT_TRUE(QDir().mkpath(root+"/cuda"));
+    EXPECT_TRUE(pfservices::ProviderManager::locateRuntime({root},"cuda").isEmpty());
+    ASSERT_TRUE(QFile::copy(previous,root+"/cuda/onnxruntime.dll"));
+    EXPECT_EQ(pfservices::ProviderManager::locateRuntime({root},"cuda"),root+"/cuda/onnxruntime.dll");
+    EXPECT_TRUE(pfservices::ProviderManager::locateRuntime({root},"../cuda.previous").isEmpty());
+}
+
+TEST(ProviderManager, InterruptedActivationFreshProcessDiscovery)
+{
+    if(qEnvironmentVariableIntValue("PF_TEST_PROVIDER_RECOVERY_CHILD")==1) {
+        const auto root=qEnvironmentVariable("PF_TEST_PROVIDER_RECOVERY_ROOT");ASSERT_FALSE(root.isEmpty());
+        const auto runtime=pfservices::ProviderManager::locateRuntime({root},"cuda");
+        const auto bytes=QJsonDocument(QJsonObject{{"runtime",runtime},{"currentExists",QFileInfo::exists(root+"/cuda")}}).toJson(QJsonDocument::Compact);
+        std::printf("PF_RECOVERY_JSON=%s\n",bytes.constData());return;
+    }
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=directory.filePath(QString::fromUtf8("Перезапуск 日本語"));
+    const auto previous=root+"/cuda.previous/onnxruntime.dll";
+    ASSERT_TRUE(QDir().mkpath(QFileInfo(previous).absolutePath()));
+    {QFile file(previous);ASSERT_TRUE(file.open(QIODevice::WriteOnly));ASSERT_EQ(file.write("old"),3);}
+    int argc=1;char name[]="pf_tests";char* argv[]={name,nullptr};
+    std::unique_ptr<QCoreApplication> application;
+    if(!QCoreApplication::instance())application=std::make_unique<QCoreApplication>(argc,argv);
+    auto environment=QProcessEnvironment::systemEnvironment();
+    environment.insert("PF_TEST_PROVIDER_RECOVERY_CHILD","1");environment.insert("PF_TEST_PROVIDER_RECOVERY_ROOT",root);
+    QProcess child;child.setProcessEnvironment(environment);
+#if defined(Q_OS_WIN)
+    child.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args){args->flags|=0x08000000;}); // CREATE_NO_WINDOW
+#endif
+    child.start(QCoreApplication::applicationFilePath(),{"--gtest_filter=ProviderManager.InterruptedActivationFreshProcessDiscovery"});
+    ASSERT_TRUE(child.waitForStarted(5000));ASSERT_TRUE(child.waitForFinished(10000));
+    ASSERT_EQ(child.exitStatus(),QProcess::NormalExit);ASSERT_EQ(child.exitCode(),0)<<child.readAllStandardError().constData();
+    const auto output=child.readAllStandardOutput();const QByteArray marker("PF_RECOVERY_JSON=");
+    const auto offset=output.indexOf(marker);ASSERT_GE(offset,0)<<output.constData();
+    const auto state=QJsonDocument::fromJson(output.mid(offset+marker.size()).split('\n').front()).object();
+    EXPECT_EQ(state.value("runtime").toString(),previous);EXPECT_FALSE(state.value("currentExists").toBool());
+    EXPECT_TRUE(QFileInfo::exists(previous));EXPECT_FALSE(QFileInfo::exists(root+"/cuda"));
+}
+
 TEST(FfmpegCapabilities, MissingHardwareFallsBackToInstalledSoftwareOnly)
 {
     const auto caps = pfservices::FfmpegCapabilities::parse(

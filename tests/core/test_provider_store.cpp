@@ -45,6 +45,11 @@ TEST(ProviderStore, CachedVerifiedInstallerSurvivesFailedProbeAndSupportsOffline
     const auto cache=pfservices::ProviderStore::installerCacheDirectory(asset,destination);
     std::filesystem::create_directories(cache);
     put(QString::fromStdWString((cache/asset.archive).wstring()),payload);
+    // Crash boundary: the previous runtime has moved aside, staging has not
+    // yet become the current directory. Retry must restore before probing.
+    const auto previous=root/"cuda.previous";
+    std::filesystem::rename(destination,previous);
+    ASSERT_FALSE(std::filesystem::exists(destination));
     std::string error;int probes=0;
     EXPECT_FALSE(pfservices::ProviderStore::downloadAndInstall(asset,destination,{},error,
         [&](const auto& staging,std::string& reason) {
@@ -53,6 +58,7 @@ TEST(ProviderStore, CachedVerifiedInstallerSurvivesFailedProbeAndSupportsOffline
         }));
     EXPECT_EQ(probes,1);EXPECT_EQ(error,"TEST_PROBE_REJECTED");
     EXPECT_EQ(get(QString::fromStdWString((destination/"onnxruntime.dll").wstring())),"previous-runtime");
+    EXPECT_FALSE(std::filesystem::exists(previous));
     EXPECT_EQ(get(QString::fromStdWString((cache/asset.archive).wstring())),payload);
     error.clear();
     ASSERT_TRUE(pfservices::ProviderStore::downloadAndInstall(asset,destination,{},error,

@@ -75,7 +75,39 @@ The final Release build and all 13 CTest targets pass in 128.28 s
 ## Remaining verification
 
 Actual process-restart partial HTTP transfer, a real server ignoring Range,
-slow/stalled response integration, activation interruption recovery and the full
+slow/stalled response integration, real GPU activation/marker interruptions and the full
 UI error/retry/localization states still need explicit controls. The existing
 helper/header checks do not prove these complete workflows. Full public runtime
 downloads and final package/fresh-install/upgrade gates remain opt-in/open.
+
+## Interrupted activation discovery
+
+The installer preserves the former bundle as `<provider>.previous` while the
+validated staging directory becomes current. Inspection found that startup and
+discovery only searched the current directory: a process stopping between these
+two renames could make the preserved bundle appear uninstalled until an installer
+retry restored its name.
+
+`ProviderManager::locateRuntime`, shared by startup and scans, now considers that
+preserved bundle only when the current provider path is absent. Discovery remains
+read-only and keeps user-root priority. An existing current directory, including
+one without a runtime, is not hidden by a stale backup; the new/current runtime
+wins when present. Strict provider-name and symlink guards remain in effect.
+`PF_DEBUG_STARTUP` / `PF_DEBUG_DOWNLOAD` record this fallback decision.
+
+`provider-recovery-fresh-tests.log`: seven checks passed, three real-GPU/public
+package controls were explicitly skipped. Tests retain Cyrillic/Japanese paths,
+check no mutation, current/root priority and invalid names, and launch a fresh
+test process to discover the interrupted state. Fixture DLL bytes are sentinels;
+finding them proves installed-file discovery, not GPU availability. A scan still
+requires an isolated probe before claiming availability.
+
+The verified-installer offline test now starts with the old bundle already moved
+aside. A retry restores it before a deliberately rejected staging probe, preserves
+the old bytes and cached package, and then successfully installs on a later local
+retry. `provider-recovery-ui-guard.txt` passes all three UI-test lifecycle checks
+for avoiding repeated downloads of installed providers. Both actual application
+smoke and startup-isolation tests pass (`provider-recovery-startup-tests.log`).
+
+This closes the inspected discovery gap. Killing a real GPU installation at every
+publication/marker boundary and packaged upgrade readiness remain broader gates.
