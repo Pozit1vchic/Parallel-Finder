@@ -30,6 +30,8 @@ set(PF_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/FaceAssociation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/SceneDescriptor.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/SceneFamily.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/SceneFamilyEvidence.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/OrganizedClip.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/SceneDescriptor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/SceneFamily.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ResultOrganization.cpp

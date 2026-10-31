@@ -17,45 +17,58 @@ std::string canonicalSceneFingerprint(const std::string& source,std::size_t iden
 }
 double representativeQuality(const SceneOccurrence& o) {
     const auto& d=o.descriptor;
-    return std::clamp(.55*(o.headOnly?d.headEvidenceQuality:d.evidenceQuality)+.20*d.identityConfidence
-        +.15*(o.headOnly?d.headTemporalCoverage:d.temporalCoverage)
-        +.10*std::clamp(o.matchSimilarity,0.,1.)-.15*d.cameraInfluence.value_or(0.),0.,1.);
+    const auto unit=[](double v){return std::isfinite(v)?std::clamp(v,0.,1.):0.;};
+    return std::clamp(.55*unit(o.headOnly?d.headEvidenceQuality:d.evidenceQuality)+.20*unit(d.identityConfidence)
+        +.15*unit(o.headOnly?d.headTemporalCoverage:d.temporalCoverage)
+        +.10*unit(o.matchSimilarity)-.15*unit(d.cameraInfluence.value_or(0.)),0.,1.);
 }
 namespace {
-auto key(const SceneOccurrence& o) {return std::tuple{o.descriptor.sourceId,o.descriptor.identityId,o.start,o.end,o.windowIndex};}
-bool compatible(const SceneOccurrence& a,const SceneOccurrence& b,
+auto key(const SceneOccurrence& o) {return std::tuple{o.descriptor.sourceId,o.descriptor.identityId,o.start,o.end,o.windowIndex,o.headOnly};}
+}
+SceneFamilyComparison compareSceneFamilyOccurrences(const SceneOccurrence& a,const SceneOccurrence& b,
     const std::function<bool(const SceneOccurrence&,const SceneOccurrence&)>& copiedFootage) {
+    SceneFamilyComparison result;
+    const auto reject=[&](SceneFamilyReason reason){result.reason=reason;return result;};
+    if(!std::isfinite(a.start)||!std::isfinite(a.end)||!std::isfinite(b.start)||!std::isfinite(b.end)
+        ||a.start<0||b.start<0||a.end<=a.start||b.end<=b.start)return result;
     if (a.descriptor.sourceId!=b.descriptor.sourceId || a.descriptor.identityId!=b.descriptor.identityId
-        || !a.descriptor.identityId || a.end<=a.start || b.end<=b.start) return false;
-    // Distant repeated edits require pixel-sequence proof. Keep pose-only
-    // equivalence local to a shot; recurring actions remain independent.
-    if(copiedFootage && copiedFootage(a,b))return true;
-    if (a.descriptor.sceneId && b.descriptor.sceneId && a.descriptor.sceneId!=b.descriptor.sceneId) return false;
-    if (a.descriptor.sequenceId && b.descriptor.sequenceId && a.descriptor.sequenceId!=b.descriptor.sequenceId) return false;
-    const auto& ca=a.descriptor.sceneContext;const auto& cb=b.descriptor.sceneContext;
-    if(!ca.empty()&&!cb.empty()) {
-        if(ca.size()!=cb.size())return false;
-        double dot=0,na=0,nb=0;
-        for(std::size_t i=0;i<ca.size();++i) {
-            if(!std::isfinite(ca[i])||!std::isfinite(cb[i]))return false;
-            dot+=double(ca[i])*cb[i];na+=double(ca[i])*ca[i];nb+=double(cb[i])*cb[i];
-        }
-        if(na<=1e-12||nb<=1e-12||dot/std::sqrt(na*nb)<.9)return false;
-    }
+        || !a.descriptor.identityId || a.descriptor.sourceId.empty())return reject(SceneFamilyReason::DifferentIdentity);
     const double intersection=std::max(0.,std::min(a.end,b.end)-std::max(a.start,b.start));
     const double overlap=intersection/std::min(a.end-a.start,b.end-b.start);
+    result.temporalOverlap=overlap;
+    // Distant repeated edits require pixel-sequence proof. Keep pose-only
+    // equivalence local to a shot; recurring actions remain independent.
+    if(copiedFootage && copiedFootage(a,b)) {result.accepted=true;result.reason=SceneFamilyReason::CopiedFootage;return result;}
+    if (a.descriptor.sceneId && b.descriptor.sceneId && a.descriptor.sceneId!=b.descriptor.sceneId)return reject(SceneFamilyReason::DifferentScene);
+    if (a.descriptor.sequenceId && b.descriptor.sequenceId && a.descriptor.sequenceId!=b.descriptor.sequenceId)return reject(SceneFamilyReason::DifferentSequence);
+    const auto& ca=a.descriptor.sceneContext;const auto& cb=b.descriptor.sceneContext;
+    if(!ca.empty()&&!cb.empty()) {
+        if(ca.size()!=cb.size())return reject(SceneFamilyReason::DifferentContext);
+        double dot=0,na=0,nb=0;
+        for(std::size_t i=0;i<ca.size();++i) {
+            if(!std::isfinite(ca[i])||!std::isfinite(cb[i]))return reject(SceneFamilyReason::DifferentContext);
+            dot+=double(ca[i])*cb[i];na+=double(ca[i])*ca[i];nb+=double(cb[i])*cb[i];
+        }
+        if(na<=1e-12||nb<=1e-12)return reject(SceneFamilyReason::DifferentContext);
+        result.contextSimilarity=dot/std::sqrt(na*nb);
+        if(result.contextSimilarity<.9)return reject(SceneFamilyReason::DifferentContext);
+    }
     const double gap=std::max(a.start,b.start)-std::min(a.end,b.end);
-    if (overlap+1e-9<.60 && !(gap>=0 && gap<=.12)) return false;
+    if (overlap+1e-9<.60 && !(gap>=0 && gap<=.12))return reject(SceneFamilyReason::DistantOccurrence);
     const auto distance=a.headOnly&&b.headOnly?sceneHeadDistance(a.descriptor,b.descriptor):scenePoseDistance(a.descriptor,b.descriptor);
-    if (!distance || *distance>(overlap>=.60?.16:.08)) return false;
+    if (!distance||!std::isfinite(*distance))return reject(SceneFamilyReason::MissingPose);
+    result.poseDistance=*distance;
+    if (*distance>(overlap>=.60?.16:.08))return reject(SceneFamilyReason::DifferentPose);
     const auto& x=a.descriptor.motion;const auto& y=b.descriptor.motion;
-    if (x.gesture!=GestureClass::Unknown && y.gesture!=GestureClass::Unknown && x.gesture!=y.gesture) return false;
-    if (x.direction!=MovementDirection::Unknown && y.direction!=MovementDirection::Unknown && x.direction!=y.direction) return false;
+    if (x.gesture!=GestureClass::Unknown && y.gesture!=GestureClass::Unknown && x.gesture!=y.gesture)return reject(SceneFamilyReason::DifferentAction);
+    if (x.direction!=MovementDirection::Unknown && y.direction!=MovementDirection::Unknown && x.direction!=y.direction)return reject(SceneFamilyReason::DifferentDirection);
     if (a.descriptor.posture!=ScenePosture::Unknown && b.descriptor.posture!=ScenePosture::Unknown
-        && a.descriptor.posture!=b.descriptor.posture) return false;
+        && a.descriptor.posture!=b.descriptor.posture)return reject(SceneFamilyReason::DifferentPosture);
     // Missing pose or unknown identity never proves two scenes are duplicates.
-    return true;
+    result.accepted=true;result.reason=overlap+1e-9>=.60?SceneFamilyReason::OverlappingEvent:SceneFamilyReason::AdjacentEvent;
+    return result;
 }
+namespace {
 double transitionCost(const SceneOccurrence& a,const SceneOccurrence& b) {
     const auto& x=a.descriptor;const auto& y=b.descriptor;
     if(x.sourceId!=y.sourceId)return 1e9;
@@ -87,25 +100,40 @@ SceneFamilySet buildSceneFamilies(std::span<const SceneOccurrence> occurrences,c
         const auto& occurrence=occurrences[i];
         auto& families=partitions[{occurrence.descriptor.sourceId,occurrence.descriptor.identityId}];
         std::optional<std::size_t> admitted;
+        std::vector<SceneFamilyComparison> admissionProof;
         for (auto family:families) {
             const auto& members=result.families[family].members;
-            if(std::all_of(members.begin(),members.end(),[&](auto j){return compatible(occurrence,occurrences[j],copiedFootage);})) {
-                admitted=family;break;
+            std::vector<SceneFamilyComparison> proof;proof.reserve(members.size());
+            for(auto j:members) {
+                if(cancelled&&cancelled())return {{},{},true};
+                const auto comparison=compareSceneFamilyOccurrences(occurrence,occurrences[j],copiedFootage);
+                if(cancelled&&cancelled())return {{},{},true};
+                if(!comparison.accepted)break;
+                proof.push_back(comparison);
             }
+            if(proof.size()==members.size()) {admitted=family;admissionProof=std::move(proof);break;}
         }
         if(!admitted) {
             admitted=result.families.size();families.push_back(*admitted);
             SceneFamily family;family.representative=i;family.representativeQuality=representativeQuality(occurrence);
             result.families.push_back(std::move(family));
         }
-        auto& family=result.families[*admitted];family.members.push_back(i);result.membership[i]=*admitted;
+        auto& family=result.families[*admitted];result.membership[i]=*admitted;
         const double quality=representativeQuality(occurrence);
-        if (quality>family.representativeQuality || (quality==family.representativeQuality
-            && key(occurrence)<key(occurrences[family.representative]))) {
+        const bool replace=quality>family.representativeQuality || (quality==family.representativeQuality
+            && key(occurrence)<key(occurrences[family.representative]));
+        if(family.members.empty()||replace) {
+            family.representativeComparisons=std::move(admissionProof);
+            family.representativeComparisons.push_back({true,SceneFamilyReason::Representative,1,-1,-1});
             family.representative=i;family.representativeQuality=quality;
+        } else {
+            const auto position=std::find(family.members.begin(),family.members.end(),family.representative)-family.members.begin();
+            family.representativeComparisons.push_back(admissionProof[position]);
         }
+        family.members.push_back(i);
     }
     for(auto& family:result.families) {
+        if(cancelled&&cancelled())return {{},{},true};
         const auto& o=occurrences[family.representative];
         family.canonicalId=canonicalSceneFingerprint(o.descriptor.sourceId,o.descriptor.identityId,o.start,o.end);
     }
@@ -118,7 +146,9 @@ std::vector<std::size_t> continuityOrder(std::span<const SceneOccurrence> occurr
     while(!remaining.empty()) {
         if(cancelled&&cancelled())return {};
         auto best=remaining.begin();double bestCost=std::numeric_limits<double>::infinity();
+        std::size_t checked=0;
         if(!result.empty())for(auto it=remaining.begin();it!=remaining.end();++it) {
+            if((checked++%64)==0&&cancelled&&cancelled())return {};
             const double cost=transitionCost(occurrences[result.back()],occurrences[*it]);
             if(cost<bestCost) {bestCost=cost;best=it;}
         }

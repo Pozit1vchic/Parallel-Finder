@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <numeric>
 #include <sstream>
+#include <map>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -170,6 +171,33 @@ std::string frameDuration(double fps)
     return std::to_string(fpsScale / divisor) + "/" + std::to_string(fpsNumerator / divisor) + "s";
 }
 
+void jsonFamily(std::ostream& output,const pfcore::SceneFamilyEvidence& family) {
+    output<<std::setprecision(17);
+    const auto number=[&](double value){if(std::isfinite(value)&&value>=0)output<<value;else output<<"null";};
+    output<<"{\"rangeConvention\":\"matcher_evidence\",\"source\":\""<<jsonEscape(family.sourceId)<<"\",\"identityId\":\""<<family.identityId
+        <<"\",\"start\":";number(family.start);output<<",\"end\":";number(family.end);
+    output<<",\"sceneStart\":";number(family.sceneStart);output<<",\"sceneEnd\":";number(family.sceneEnd);
+    output<<",\"quality\":";number(family.representativeQuality);
+    output<<",\"rawOccurrences\":"<<family.rawOccurrences<<",\"members\":[";
+    for(std::size_t i=0;i<family.members.size();++i) {
+        const auto& member=family.members[i];
+        if(i)output<<',';
+        output<<"{\"windowIndex\":"<<member.windowIndex<<",\"start\":";number(member.start);
+        output<<",\"end\":";number(member.end);
+        output<<",\"sceneStart\":";number(member.sceneStart);output<<",\"sceneEnd\":";number(member.sceneEnd);
+        output<<",\"quality\":";number(member.representativeQuality);
+        output<<",\"evidenceQuality\":";number(member.evidenceQuality);
+        output<<",\"identityConfidence\":";number(member.identityConfidence);
+        output<<",\"temporalCoverage\":";number(member.temporalCoverage);
+        output<<",\"matchSimilarity\":";number(member.matchSimilarity);
+        output<<",\"headOnly\":"<<(member.headOnly?"true":"false")
+            <<",\"representative\":"<<(member.representative?"true":"false")
+            <<",\"reason\":\""<<pfcore::sceneFamilyReasonCode(member.relation.reason)<<"\",\"overlap\":";
+        number(member.relation.temporalOverlap);output<<",\"poseDistance\":";number(member.relation.poseDistance);
+        output<<",\"contextSimilarity\":";number(member.relation.contextSimilarity);output<<'}';
+    }
+    output<<"]}";
+}
 std::string jsonResults(const std::vector<pfcore::MotionMatch>& matches)
 {
     std::ostringstream output;
@@ -203,7 +231,22 @@ std::string jsonResults(const std::vector<pfcore::MotionMatch>& matches)
                << "\", \"start\": " << item.rightStartSeconds << ", \"end\": " << item.rightEndSeconds << "}\n"
                << "    }" << (i + 1 == matches.size() ? "\n" : ",\n");
     }
-    output << "  ]\n}\n";
+    output << "  ],\n  \"sceneFamilySchema\": 1,\n  \"sceneFamilies\": {";
+    std::map<std::string,std::shared_ptr<const pfcore::SceneFamilyEvidence>> families;
+    for(const auto& match:matches)for(bool left:{true,false}) {
+        const auto& family=left?match.leftFamilyEvidence:match.rightFamilyEvidence;
+        const auto& id=left?match.leftSceneFamily:match.rightSceneFamily;
+        const auto& source=left?match.leftSourceId:match.rightSourceId;
+        if((left?match.leftEnabled:match.rightEnabled)&&family&&!id.empty()
+            &&family->canonicalId==id&&family->sourceId==source)families.try_emplace(id,family);
+    }
+    bool first=true;
+    for(const auto& [id,family]:families) {
+        if(!first)output<<',';
+        first=false;
+        output<<"\n    \""<<jsonEscape(id)<<"\": ";jsonFamily(output,*family);
+    }
+    output << "\n  }\n}\n";
     return output.str();
 }
 

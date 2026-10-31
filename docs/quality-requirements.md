@@ -51,9 +51,9 @@ test does not establish general recognition accuracy or release readiness.
 | C06 | Investigate local rejected/reviewed signals; retain reasons, no neural training | Existing review/hide actions exist; durable structured rejection reasons have not been established. | Unverified |
 | D01 | Separate classification/grouping/dedup/ranking/continuity | `SceneFamily`, `ResultOrganization`, existing classification. | Evidenced |
 | D02 | Actual scene/sequence/time soft locality; no fixed ten-minute bins | Scene boundaries/time-based continuity costs exist; actual sequence clusters not populated. | Partial |
-| D03 | Multi-signal overlapping + adjacent + true copied-event families | Complete-link family tests; strict both-range pixel proof; review trajectory and scope compatibility, not just average pose. | Partial |
-| D04 | Dedicated representative quality, completeness/occlusion/camera | Evidence/identity/temporal/match quality exists; full completeness and measured camera terms unverified. | Partial |
-| D05 | Canonical results before export + stable defensive export identity | Family pair dedup, fingerprints, exact canonical-cut reuse and exporter tests. Need real duplicate-positive end-to-end export fixture. | Partial |
+| D03 | Multi-signal overlapping + adjacent + true copied-event families | Complete-link and strict both-range pixel proof; retained measured admission reasons and unique members. Full trajectory and mixed-scope compatibility remain to review; see scene-family-evidence.md. | Partial |
+| D04 | Dedicated representative quality, completeness/occlusion/camera | Scoped evidence/identity/temporal/match terms retained per member after head/action review; representative changes reuse measured admission proof. Full completeness and measured camera terms remain unverified. | Partial |
+| D05 | Canonical results before export + stable defensive export identity | Family pair dedup, fingerprints, shared JSON evidence and canonical own-shot bounds verified. Real cutter/decoder test proves four requests -> three physical outputs with Unicode sources. Real duplicate-positive neural quality fixture remains open. | Partial |
 | D06 | All requested practical sorts, smart classification groups | Existing legacy sorts plus best/continuity/pose/identity/evidence/duration/source. Verify meaningful motion sort and in-class evidence priority. | Partial |
 | D07 | Bounded diversity suppresses top redundancy | Existing bounded family-use penalty and organization tests; real labelled diversity ordering not evaluated. | Partial |
 | D08 | Continuous local pose/head/body transition cost, deterministic practical ordering | Greedy continuity with time/scene/pose/head/roll; body yaw/sequence missing; cancellation tests limited. | Partial |
@@ -74,7 +74,7 @@ test does not establish general recognition accuracy or release readiness.
 | G01 | Central motion durations/easing; geometry, not default fade | Theme tokens/geometry transitions exist; raw values remain. Need inventory and coherent stage/source morphs. | Partial |
 | G02 | Character selection continuity and source-state morph | Candidate expansion and central container reuse exist; selected thumbnail-to-target continuity unproven. | Partial |
 | G03 | Animated result regroup/reorder | Existing displaced/move transitions and bulk guards; verify actual sort changes retain stable delegates. | Partial |
-| G04 | SceneFamily collapse/expand relationship | Core retains members internally, but UI only gets sizes/IDs; member inspection/reverse expansion missing. | Missing |
+| G04 | SceneFamily collapse/expand relationship | Centered inspector exposes unique members, reasons and bounded playback; side switch/close cleanup, geometry, small window and reduced motion tested. Fixture screenshot inspected; real-source multi-member UI quality remains to exercise. | Partial |
 | G05 | Spatial progress-stage and geometry-aware diagnostics/filter expansion | Inspect actual components; avoid replacing labels abruptly and ensure no inaccessible controls. | Unverified |
 | G06 | Reduced motion, no animation delays work | Theme reducedMotion and UI checks exist. Verify every newly introduced transition. | Partial |
 | H01 | All loading/empty/error/disabled/cache/cancel/ambiguous/offline states | Several states exercised; full state inventory and render/runtime checks outstanding. | Partial |
@@ -86,10 +86,10 @@ test does not establish general recognition accuracy or release readiness.
 | J02 | Classification tests: all views, boundary, posture, head/body, missing/unknown | Helper angular tests are not body-orientation estimator tests. Specific posture working change adds evidence gating checks. | Partial |
 | J03 | Dedup/sort/cache/downloader enumerated regression controls | Existing suites cover many clauses. Requirement-to-test name mapping and missing no-Range/slow/restart cases still required. | Partial |
 | J04 | UI transitions never leave controls inaccessible | Existing UI suite plus selector/runtime proof; family/source morph states remain untested. | Partial |
-| K01 | Why selected/matched/rejected/family/representative/cache invalidated/download reused/probe failed | Selection and matcher reason enums/logs exist. Family admission/representative reasons and cache invalidation explanations incomplete. | Partial |
+| K01 | Why selected/matched/rejected/family/representative/cache invalidated/download reused/probe failed | Selection and matcher reason enums/logs exist. Family admission measurements and representative component scores now retained/shared/exported. Cache invalidation explanations and remaining provider diagnostics still require audit. | Partial |
 | L01 | Grounded phases, baseline before changes, no reckless rewrite | Baseline worktree and logs retained; logical commit history. This audit preserves original unfinished scope. | Evidenced |
 | M01 | Branch/status/tags/release conventions, no unrelated deletion | Feature branch clean at start; release README inspected. Tag/release state and complete licenses/package audit still required. | Partial |
-| M02 | Full suite, benchmark, clean Release build, packaging/resources | Latest Release build plus 13/13 CTest targets in 113.00 s (`structured-posture-offline-suite.log`), including two real posture controls. Clean final package verification not performed. | Partial |
+| M02 | Full suite, benchmark, clean Release build, packaging/resources | Release build and 13/13 CTest targets pass in 123.81 s (family-evidence-verified-suite.log); 22 focused family/export checks also pass. Clean final package verification not performed. | Partial |
 | M03 | Fresh install, previous upgrade, cache migration, provider update | Developer binary and synthetic store tests are not packaged fresh-install/upgrade proof. | Missing |
 | M04 | Version/changelog/notes; publish/tag only when actually ready | Local `0.1.0-rc.23.3-dev`; notes retained; no tag/push/release attempted. Remains unreleased until gates pass. | Partial |
 | N01 | Target + series + result + restart-cache + bad-network + failed-install + Unicode + UI end-to-end flows | See A/D/E/F/G and packaging gaps. Cannot infer all flows from one montage or green unit tests. | Partial |
@@ -145,3 +145,9 @@ the open items is currently an external blocker: useful local work remains.
 - The goal is still active. B02 body orientation, real retrieval/family quality,
   full series/incremental behavior, member inspection/motion and release/package
   gates are not closed by the posture correction.
+
+- Family evidence, canonical boundaries, physical export reuse, inspector playback and
+  controlled before/after replay are recorded in [scene-family-evidence.md](scene-family-evidence.md).
+  Frozen 2,037-window replay retains all 125 pairs/canonical IDs; organization
+  median changes from 3.785 to 3.856 ms. This closes specific metadata/UI gaps,
+  not real duplicate recognition quality or the remaining audit.

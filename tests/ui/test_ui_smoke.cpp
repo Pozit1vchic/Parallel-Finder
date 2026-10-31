@@ -112,6 +112,7 @@ private slots:
     void exportReopenClearsCancelledStatus();
     void movementFilterRespectsSelectionAndVisibleRows();
     void structuredEvidenceFiltersPreserveUncertaintyAndExportSelection();
+    void sceneFamilyInspectionKeepsResultsAndCleansUpPlayback();
     void largeExportBackdropKeepsWorkspaceGeometry();
     void analysisControlsAreUnifiedAndStatusTranslates();
     void directMlDownloadIntegration();
@@ -2578,6 +2579,48 @@ void UiSmokeTests::structuredEvidenceFiltersPreserveUncertaintyAndExportSelectio
     QCOMPARE(rail->property("selectedCount").toInt(),5);
     QVERIFY(rail->property("scopeFilter").toString().isEmpty());
     QVERIFY(rail->property("postureFilter").toString().isEmpty());
+}
+
+void UiSmokeTests::sceneFamilyInspectionKeepsResultsAndCleansUpPlayback()
+{
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;
+    auto* window=loadWindow(engine);QVERIFY(window);
+    auto* center=window->findChild<QObject*>("motionCenter");QVERIFY(center);
+    auto* inspector=window->findChild<QObject*>("sceneFamilyInspector");QVERIFY(inspector);
+    const auto source=QFINDTESTDATA("../fixtures/tiny.mp4");QVERIFY(!source.isEmpty());
+    const QVariantMap canonical{{"start",0.},{"end",.4},{"sceneEnd",1.3},{"quality",.8},{"representative",true},{"reason","representative"}},
+        alternative{{"start",.2},{"end",.6},{"sceneEnd",1.3},{"quality",.6},{"representative",false},{"reason","overlapping_event"}};
+    const QVariantMap left{{"id","left-family"},{"source",source},{"frameRate",6.},{"members",QVariantList{canonical,alternative}}},
+        right{{"id","right-family"},{"source",source},{"frameRate",6.},{"members",QVariantList{canonical}}};
+    const QVariantMap original{{"id",0},{"leftFamily",left},{"rightFamily",right}};
+    center->setProperty("selectedRecord",original);
+    QCOMPARE(center->property("familyVariantCount").toInt(),3);
+    QVERIFY(QMetaObject::invokeMethod(inspector,"open"));QTRY_VERIFY(inspector->property("opened").toBool());
+    auto* members=inspector->findChild<QObject*>("familyMemberList");QVERIFY(members);
+    QTRY_COMPARE(members->property("count").toInt(),2);
+    QTest::qWait(250);QVERIFY(window->grabWindow().save(QCoreApplication::applicationDirPath()+"/scene-family-inspector.png"));
+    QVERIFY(QMetaObject::invokeMethod(inspector,"inspect",Q_ARG(QVariant,QVariant(alternative))));
+    auto* preview=inspector->findChild<QObject*>("familyMemberPreview");QVERIFY(preview);
+    QTRY_VERIFY_WITH_TIMEOUT(preview->property("playbackReady").toBool(),10000);
+    QCOMPARE(preview->property("sourcePath").toString(),source);
+    QCOMPARE(preview->property("timestamp").toDouble(),.2);
+    QVERIFY(QMetaObject::invokeMethod(preview,"previewRequested"));
+    QTRY_VERIFY_WITH_TIMEOUT(preview->property("playing").toBool(),5000);
+    window->setHeight(450);
+    QTRY_VERIFY(inspector->property("height").toDouble()<=window->height()-32+.5);
+    auto* close=inspector->findChild<QQuickItem*>("closeSceneFamilyInspector");QVERIFY(close);
+    QTRY_VERIFY(close->mapToScene(QPointF(0,close->height())).y()<=window->height());
+    inspector->setProperty("activeSide","right");
+    QTRY_COMPARE(members->property("count").toInt(),1);
+    QVERIFY(!preview->property("videoMode").toBool());
+    auto* theme=engine.singletonInstance<QObject*>(qmlTypeId("PfUi",1,0,"Theme"));QVERIFY(theme);
+    theme->setProperty("reducedMotion",true);
+    QVERIFY(QMetaObject::invokeMethod(inspector,"close"));QTRY_VERIFY(!inspector->property("opened").toBool());
+    auto retained=center->property("selectedRecord");
+    if(retained.metaType()==QMetaType::fromType<QJSValue>())retained=retained.value<QJSValue>().toVariant();
+    QCOMPARE(retained.toMap(),original);
+    auto adjusted=original;adjusted.insert("manualAdjusted",true);center->setProperty("selectedRecord",adjusted);
+    QCOMPARE(center->property("familyVariantCount").toInt(),0);
 }
 
 void UiSmokeTests::largeExportBackdropKeepsWorkspaceGeometry()

@@ -68,6 +68,7 @@
 #include "pfcore/MotionMatcher.hpp"
 #include "pfcore/ParallelClip.hpp"
 #include "pfcore/SceneFamily.hpp"
+#include "pfcore/OrganizedClip.hpp"
 #include "pfcore/MotionRanker.hpp"
 #include "pfcore/DominantPerson.hpp"
 #include "pfgpu/PoseEstimator.hpp"
@@ -1966,16 +1967,10 @@ bool AnalysisController::exportResults(const QString& format,
                 jobs.push_back(std::move(request));
                 clipFractions.push_back(0);
             };
-            const auto leftClip = manuallyAdjusted[index] ? pfcore::ParallelClipRange{match.leftStartSeconds, match.leftEndSeconds} : pfcore::parallelClipRange(
-                match.leftCanonicalStart>=0?match.leftCanonicalStart:match.leftStartSeconds,
-                match.leftCanonicalEnd>=0?match.leftCanonicalEnd:match.leftEndSeconds,
-                match.leftSceneStartSeconds, match.leftSceneEndSeconds,selectedFrameRates[index][0]);
-            const auto rightClip = manuallyAdjusted[index] ? pfcore::ParallelClipRange{match.rightStartSeconds, match.rightEndSeconds} : pfcore::parallelClipRange(
-                match.rightCanonicalStart>=0?match.rightCanonicalStart:match.rightStartSeconds,
-                match.rightCanonicalEnd>=0?match.rightCanonicalEnd:match.rightEndSeconds,
-                match.rightSceneStartSeconds, match.rightSceneEndSeconds,selectedFrameRates[index][1]);
-            if (match.leftEnabled) enqueue(match.leftSourceId, leftClip.start, leftClip.end, match.leftSceneEndSeconds, QStringLiteral("A"));
-            if (match.rightEnabled) enqueue(match.rightSourceId, rightClip.start, rightClip.end, match.rightSceneEndSeconds, QStringLiteral("B"));
+            const auto leftClip=pfcore::organizedClip(match,true,selectedFrameRates[index][0],manuallyAdjusted[index]);
+            const auto rightClip=pfcore::organizedClip(match,false,selectedFrameRates[index][1],manuallyAdjusted[index]);
+            if (match.leftEnabled) enqueue(match.leftSourceId,leftClip.range.start,leftClip.range.end,leftClip.sceneEnd,QStringLiteral("A"));
+            if (match.rightEnabled) enqueue(match.rightSourceId,rightClip.range.start,rightClip.range.end,rightClip.sceneEnd,QStringLiteral("B"));
         }
         if (mergeChronological) {
             const auto output = std::filesystem::path(QDir(folder).filePath(
@@ -2039,12 +2034,10 @@ bool AnalysisController::exportResults(const QString& format,
     std::string error;
     for (std::size_t index=0;index<selected.size();++index) {
         auto& match=selected[index];
-        const auto left = pfcore::parallelClipRange(match.leftStartSeconds, match.leftEndSeconds,
-            match.leftSceneStartSeconds, match.leftSceneEndSeconds,selectedFrameRates[index][0]);
-        const auto right = pfcore::parallelClipRange(match.rightStartSeconds, match.rightEndSeconds,
-            match.rightSceneStartSeconds, match.rightSceneEndSeconds,selectedFrameRates[index][1]);
-        match.leftStartSeconds = left.start; match.leftEndSeconds = left.end;
-        match.rightStartSeconds = right.start; match.rightEndSeconds = right.end;
+        const auto left=pfcore::organizedClip(match,true,selectedFrameRates[index][0],manuallyAdjusted[index]);
+        const auto right=pfcore::organizedClip(match,false,selectedFrameRates[index][1],manuallyAdjusted[index]);
+        match.leftStartSeconds=left.range.start;match.leftEndSeconds=left.range.end;
+        match.rightStartSeconds=right.range.start;match.rightEndSeconds=right.range.end;
     }
     const bool ok = pfexporters::writeResults(selected, options, error);
     emit exportFinished(ok, ok ? QStringLiteral("Экспорт завершён") : QString::fromStdString(error));
@@ -4195,6 +4188,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 return found == requestIndex.end() ? QString{} : requests[found->second].url;
             });
             const auto recordBuildStartedMs=resultTimer.elapsed();
+            std::map<std::string,QVariantMap> familyPresentation;
+            for(const auto& match:foundMatches)for(const auto& family:{match.leftFamilyEvidence,match.rightFamilyEvidence})
+                if(family&&!familyPresentation.contains(family->canonicalId)) {
+                    const auto fps=summaries.value(QString::fromStdString(family->sourceId)).toMap().value("frameRate",sourceFps).toDouble();
+                    familyPresentation.emplace(family->canonicalId,sceneFamilyMap(*family,fps));
+                }
             for (std::size_t i = 0; i < foundMatches.size(); ++i) {
                 if (isCancelled()) { markCancelled(); break; }
                 auto& item = foundMatches[i];
@@ -4213,6 +4212,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert("rightSceneFamily",QString::fromStdString(item.rightSceneFamily));
                 record.insert("leftFamilySize",static_cast<qulonglong>(item.leftFamilySize));
                 record.insert("rightFamilySize",static_cast<qulonglong>(item.rightFamilySize));
+                if(item.leftFamilyEvidence)record.insert("leftFamily",familyPresentation.at(item.leftFamilyEvidence->canonicalId));
+                if(item.rightFamilyEvidence)record.insert("rightFamily",familyPresentation.at(item.rightFamilyEvidence->canonicalId));
                 record.insert(QStringLiteral("direction"), QString::fromStdString(item.directionLabel));
                 record.insert(QStringLiteral("gesture"), QString::fromStdString(item.gestureLabel));
                 record.insert("classification", item.leftIndex<windows.size() && windows[item.leftIndex].staticFrameSet

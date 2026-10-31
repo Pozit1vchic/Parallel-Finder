@@ -9,6 +9,7 @@
 #include "pfcore/HeadOrientationSample.hpp"
 #include "pfcore/FaceConsensus.hpp"
 #include "pfcore/VideoActionEvidence.hpp"
+#include "pfcore/SceneFamilyEvidence.hpp"
 
 namespace pfcore {
 
@@ -313,6 +314,7 @@ struct MotionMatch {
     // Review-only side visibility. Search results always begin with both sides.
     bool leftEnabled = true;
     bool rightEnabled = true;
+    std::shared_ptr<const SceneFamilyEvidence> leftFamilyEvidence,rightFamilyEvidence;
 };
 
 class MotionMatcher {

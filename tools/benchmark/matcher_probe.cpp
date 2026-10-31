@@ -244,7 +244,17 @@ int main(int argc, char** argv)
         pfcore::MotionRanker::rank(matches,windows);
 #ifdef PF_ORGANIZATION_PROBE
         const auto organizationStart=std::chrono::steady_clock::now();
-        if(configuration.value("organizeResults").toBool())pfcore::MotionRanker::organize(matches,windows);
+        QJsonArray organizationPassTimes;
+        if(configuration.value("organizeResults").toBool()) {
+            const auto raw=matches;
+            const int organizationPasses=std::clamp(configuration.value("organizationPasses").toInt(1),1,100);
+            for(int pass=0;pass<organizationPasses;++pass) {
+                matches=raw;
+                const auto started=std::chrono::steady_clock::now();
+                pfcore::MotionRanker::organize(matches,windows);
+                organizationPassTimes.append(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count());
+            }
+        }
         const auto organizationMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-organizationStart).count();
 #endif
         QJsonArray results, inputs;
@@ -257,6 +267,7 @@ int main(int argc, char** argv)
             {"matcherOnly",true},{"windowCount",static_cast<qint64>(windows.size())}};
 #ifdef PF_ORGANIZATION_PROBE
         report["organizationMs"]=organizationMs;
+        report["organizationPassTimesMs"]=organizationPassTimes;
         report["organizedResults"]=configuration.value("organizeResults").toBool();
 #endif
         std::cout << QJsonDocument(report).toJson(QJsonDocument::Compact).constData() << "\n";

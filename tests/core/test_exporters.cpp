@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <pfexporters/ExportOptions.hpp>
+#include <pfcore/SceneFamily.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -66,6 +67,30 @@ TEST(Exporters, KeepsExplicitColorOrderInEveryTextFormat)
             EXPECT_LT(legacy.find("a-chosen-second.mp4"),legacy.find("z-chosen-first.mp4"));
         }
     }
+}
+TEST(Exporters, RetainsUniqueFamilyEvidenceOnceWithUnknownMeasurementsExplicit)
+{
+    auto item=sample();auto family=std::make_shared<pfcore::SceneFamilyEvidence>();
+    family->sourceId=item.leftSourceId;family->identityId=7;
+    family->start=1.1234567891;family->end=2.234567891;family->rawOccurrences=3;
+    family->canonicalId=pfcore::canonicalSceneFingerprint(family->sourceId,7,family->start,family->end);
+    pfcore::SceneFamilyMemberEvidence canonical;canonical.start=family->start;canonical.end=family->end;canonical.representative=true;
+    canonical.relation={true,pfcore::SceneFamilyReason::Representative,1,-1,-1};
+    auto alternative=canonical;alternative.start=1.1;alternative.representative=false;
+    alternative.relation={true,pfcore::SceneFamilyReason::OverlappingEvent,.9,.03,-1};
+    family->members={canonical,alternative};item.leftFamilyEvidence=family;item.leftSceneFamily=family->canonicalId;
+    auto other=item;other.rightStartSeconds=20;other.rightEndSeconds=21;
+    pfexporters::ExportOptions options;options.format=pfexporters::ExportFormat::Json;
+    const auto document=QJsonDocument::fromJson(QByteArray::fromStdString(pfexporters::formatResults({item,other},options)));
+    ASSERT_FALSE(document.isNull());const auto families=document.object()["sceneFamilies"].toObject();
+    ASSERT_EQ(families.size(),1);const auto retained=families[QString::fromStdString(family->canonicalId)].toObject();
+    EXPECT_EQ(pfcore::canonicalSceneFingerprint(family->sourceId,7,retained["start"].toDouble(),retained["end"].toDouble()),family->canonicalId);
+    const auto members=retained["members"].toArray();
+    ASSERT_EQ(members.size(),2);EXPECT_TRUE(members[0].toObject()["poseDistance"].isNull());
+    EXPECT_EQ(members[1].toObject()["reason"].toString(),"overlapping_event");
+    item.leftEnabled=false;
+    const auto single=QJsonDocument::fromJson(QByteArray::fromStdString(pfexporters::formatResults({item},options)));
+    EXPECT_TRUE(single.object()["sceneFamilies"].toObject().isEmpty());
 }
 
 TEST(Exporters, FormatsStructuredResults)

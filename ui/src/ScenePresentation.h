@@ -1,9 +1,28 @@
 #pragma once
 #include <pfcore/SceneDescriptor.hpp>
 #include <QVariantMap>
+#include <QVariantList>
 #include <cmath>
 
 namespace pfui {
+inline QVariantMap sceneFamilyMap(const pfcore::SceneFamilyEvidence& family,double frameRate=24) {
+    QVariantList members;
+    for(const auto& member:family.members) {
+        QVariantMap value{{"start",member.start},{"end",member.end},{"sceneStart",member.sceneStart},{"sceneEnd",member.sceneEnd},{"headOnly",member.headOnly},
+            {"representative",member.representative},{"quality",member.representativeQuality},
+            {"evidenceQuality",member.evidenceQuality},{"identityConfidence",member.identityConfidence},
+            {"temporalCoverage",member.temporalCoverage},{"matchSimilarity",member.matchSimilarity},
+            {"reason",QString::fromLatin1(pfcore::sceneFamilyReasonCode(member.relation.reason))}};
+        if(member.relation.temporalOverlap>=0)value.insert("overlap",member.relation.temporalOverlap);
+        if(member.relation.poseDistance>=0)value.insert("poseDistance",member.relation.poseDistance);
+        if(member.relation.contextSimilarity>=0)value.insert("contextSimilarity",member.relation.contextSimilarity);
+        members.push_back(value);
+    }
+    return {{"id",QString::fromStdString(family.canonicalId)},{"source",QString::fromStdString(family.sourceId)},
+        {"identityId",QString::number(family.identityId)},{"rawOccurrences",static_cast<qulonglong>(family.rawOccurrences)},
+        {"start",family.start},{"end",family.end},{"sceneStart",family.sceneStart},{"sceneEnd",family.sceneEnd},
+        {"quality",family.representativeQuality},{"frameRate",frameRate},{"members",members}};
+}
 inline QVariantMap sceneDescriptorMap(const pfcore::SceneDescriptor& d) {
     QVariantMap result{{"source",QString::fromStdString(d.sourceId)},{"start",d.start},{"end",d.end},
         {"posture",static_cast<int>(d.posture)},{"postureEvidence",static_cast<int>(d.postureEvidence)},

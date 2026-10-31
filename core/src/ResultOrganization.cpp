@@ -5,6 +5,7 @@
 #include <map>
 #include <numeric>
 #include <cmath>
+#include <tuple>
 
 namespace pfcore {
 bool MotionRanker::organize(std::vector<MotionMatch>& matches,const std::vector<MotionWindow>& windows,
@@ -53,13 +54,61 @@ bool MotionRanker::organize(std::vector<MotionMatch>& matches,const std::vector<
     };
     const auto families=buildSceneFamilies(occurrences,cancelled,copied);
     if(families.cancelled)return false;
+    std::vector<std::shared_ptr<const SceneFamilyEvidence>> retainedFamilies;
+    retainedFamilies.reserve(families.families.size());
+    for(const auto& family:families.families) {
+        if(cancelled&&cancelled())return false;
+        auto retained=std::make_shared<SceneFamilyEvidence>();
+        const auto& canonical=occurrences[family.representative];
+        retained->canonicalId=family.canonicalId;retained->sourceId=canonical.descriptor.sourceId;
+        retained->identityId=canonical.descriptor.identityId;retained->rawOccurrences=family.members.size();
+        retained->start=canonical.start;retained->end=canonical.end;
+        retained->representativeQuality=family.representativeQuality;
+        if(canonical.windowIndex<windows.size()) {
+            const auto& window=windows[canonical.windowIndex];
+            if(std::isfinite(window.sceneStartSeconds)&&std::isfinite(window.sceneEndSeconds)
+                &&window.sceneStartSeconds>=0&&window.sceneEndSeconds>window.sceneStartSeconds) {
+                retained->sceneStart=window.sceneStartSeconds;retained->sceneEnd=window.sceneEndSeconds;
+            }
+        }
+        std::map<std::tuple<double,double,bool>,SceneFamilyMemberEvidence> members;
+        for(std::size_t index=0;index<family.members.size();++index) {
+            if(cancelled&&cancelled())return false;
+            const auto occurrenceIndex=family.members[index];const auto& o=occurrences[occurrenceIndex];
+            SceneFamilyMemberEvidence member;
+            member.windowIndex=o.windowIndex;member.start=o.start;member.end=o.end;member.headOnly=o.headOnly;
+            if(o.windowIndex<windows.size()) {
+                const auto& window=windows[o.windowIndex];
+                if(std::isfinite(window.sceneStartSeconds)&&std::isfinite(window.sceneEndSeconds)
+                    &&window.sceneStartSeconds>=0&&window.sceneEndSeconds>window.sceneStartSeconds) {
+                    member.sceneStart=window.sceneStartSeconds;member.sceneEnd=window.sceneEndSeconds;
+                }
+            }
+            member.representative=occurrenceIndex==family.representative;
+            member.representativeQuality=representativeQuality(o);
+            member.evidenceQuality=o.headOnly?o.descriptor.headEvidenceQuality:o.descriptor.evidenceQuality;
+            member.identityConfidence=o.descriptor.identityConfidence;
+            member.temporalCoverage=o.headOnly?o.descriptor.headTemporalCoverage:o.descriptor.temporalCoverage;
+            member.matchSimilarity=o.matchSimilarity;member.relation=family.representativeComparisons[index];
+            const auto key=std::tuple{o.start,o.end,o.headOnly};
+            const auto found=members.find(key);
+            if(found==members.end() || member.representative
+                || (!found->second.representative && member.representativeQuality>found->second.representativeQuality))
+                members[key]=std::move(member);
+        }
+        for(auto& [key,member]:members)retained->members.push_back(std::move(member));
+        retainedFamilies.push_back(retained->canonicalId.empty()?nullptr:std::move(retained));
+    }
     for(std::size_t i=0;i<working.size();++i) {
         auto& match=working[i];
         const auto& a=families.families[families.membership[i*2]];
         const auto& b=families.families[families.membership[i*2+1]];
         const auto& ca=occurrences[a.representative];const auto& cb=occurrences[b.representative];
         match.leftSceneFamily=a.canonicalId;match.rightSceneFamily=b.canonicalId;
-        match.leftFamilySize=a.members.size();match.rightFamilySize=b.members.size();
+        match.leftFamilyEvidence=retainedFamilies[families.membership[i*2]];
+        match.rightFamilyEvidence=retainedFamilies[families.membership[i*2+1]];
+        match.leftFamilySize=match.leftFamilyEvidence?match.leftFamilyEvidence->members.size():a.members.size();
+        match.rightFamilySize=match.rightFamilyEvidence?match.rightFamilyEvidence->members.size():b.members.size();
         match.leftCanonicalStart=ca.start;match.leftCanonicalEnd=ca.end;
         match.rightCanonicalStart=cb.start;match.rightCanonicalEnd=cb.end;
     }
@@ -88,6 +137,7 @@ bool MotionRanker::organize(std::vector<MotionMatch>& matches,const std::vector<
         if(cancelled&&cancelled())return false;
         std::size_t best=0;double score=-1;
         for(std::size_t i=0;i<unique.size();++i) {
+            if(i%64==0&&cancelled&&cancelled())return false;
             const double penalty=.04*((!unique[i].leftSceneFamily.empty()&&usedFamilies.contains(unique[i].leftSceneFamily))
                 +(!unique[i].rightSceneFamily.empty()&&usedFamilies.contains(unique[i].rightSceneFamily)));
             if(unique[i].bestMatchScore-penalty>score) {score=unique[i].bestMatchScore-penalty;best=i;}

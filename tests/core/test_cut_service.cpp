@@ -3,6 +3,7 @@
 #include <condition_variable>
 #include <atomic>
 #include <chrono>
+#include <set>
 #include <gtest/gtest.h>
 
 #include <pfservices/CutService.hpp>
@@ -15,6 +16,8 @@
 #include <pfcore/VideoDecoder.hpp>
 #include <pfcore/SceneDetector.hpp>
 #include <pfcore/ParallelClip.hpp>
+#include <pfcore/OrganizedClip.hpp>
+#include <pfcore/MotionRanker.hpp>
 #include <pfcore/DominantPerson.hpp>
 #include <QDir>
 #include <QJsonDocument>
@@ -1862,6 +1865,55 @@ TEST(ExportQueue, CanonicalSceneGuardReturnsExistingOutputWithoutDuplicateFile)
     EXPECT_EQ(executions,1);EXPECT_TRUE(batch.completed[1].reused);
     EXPECT_EQ(batch.completed[0].outputPath,batch.completed[1].outputPath);
     EXPECT_FALSE(QFileInfo::exists(QString::fromStdWString(jobs[1].outputPath.wstring())));
+}
+
+TEST(ExportQueue, OrganizedFamiliesProduceThreePhysicalClipsForFourSideRequests)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto source=QString::fromUtf8(PF_TEST_FIXTURE_DIR)+"/tiny.mp4";
+    const QStringList sources{source,directory.filePath(QString::fromUtf8("дубль-А.mp4")),directory.filePath(QString::fromUtf8("вариант-別.mp4"))};
+    ASSERT_TRUE(QFile::copy(source,sources[1]));ASSERT_TRUE(QFile::copy(source,sources[2]));
+    pfcore::VideoDecoder original;original.open(source.toStdString());
+    const auto info=original.info();std::vector<double> times;pfcore::DecodedFrame frame;
+    while(original.readNext(frame,false))times.push_back(frame.timestampSeconds);
+    ASSERT_GE(times.size(),6);
+    const std::vector<pfcore::Keypoint> pose={{0,-.5,1},{-.1,-.5,1},{.1,-.5,1},{-.2,-.4,1},{.2,-.4,1},
+        {-.5,0,1},{.5,0,1},{-.6,.5,1},{.6,.5,1},{-.6,1,1},{.6,1,1},
+        {-.3,1,1},{.3,1,1},{-.3,1.8,1},{.3,1.8,1},{-.3,2.6,1},{.3,2.6,1}};
+    std::vector<pfcore::MotionWindow> windows(3);
+    for(std::size_t i=0;i<windows.size();++i) {
+        auto& window=windows[i];window.sourceId=sources[i].toStdString();window.trackId=7;
+        window.hasSceneIndex=true;window.staticFrameSet=true;
+        window.sceneStartSeconds=0;window.sceneEndSeconds=info.durationSeconds;
+        for(auto time:times)window.frames.push_back({time,pose});
+    }
+    pfcore::MotionMatch first;first.leftIndex=0;first.rightIndex=1;first.leftSourceId=windows[0].sourceId;first.rightSourceId=windows[1].sourceId;
+    first.leftStartSeconds=first.rightStartSeconds=times[1];first.leftEndSeconds=first.rightEndSeconds=times[4];first.similarity=.95;
+    auto second=first;second.rightIndex=2;second.rightSourceId=windows[2].sourceId;
+    second.leftStartSeconds=second.rightStartSeconds=times[2];second.leftEndSeconds=second.rightEndSeconds=times[5];
+    std::vector matches{first,second};ASSERT_TRUE(pfcore::MotionRanker::organize(matches,windows));ASSERT_EQ(matches.size(),2);
+    ASSERT_EQ(matches[0].leftFamilyEvidence,matches[1].leftFamilyEvidence);
+    std::vector<pfservices::CutRequest> jobs;
+    for(const auto& match:matches)for(bool left:{true,false}) {
+        const auto clip=pfcore::organizedClip(match,left,info.frameRate);
+        pfservices::CutRequest job;job.inputPath=std::filesystem::path(QString::fromStdString(left?match.leftSourceId:match.rightSourceId).toStdWString());
+        job.outputPath=directory.filePath(QString::fromUtf8("результат_%1.mov").arg(jobs.size())).toStdWString();
+        job.canonicalSceneId=left?match.leftSceneFamily:match.rightSceneFamily;
+        job.startSeconds=clip.range.start;job.endSeconds=clip.range.end;job.mode=pfservices::CutMode::ExactLossless;
+        jobs.push_back(std::move(job));
+    }
+    const auto batch=pfservices::runExportQueue(jobs);ASSERT_FALSE(batch.cancelled);ASSERT_EQ(batch.completed.size(),4);
+    std::set<std::filesystem::path> outputs;
+    for(std::size_t i=0;i<batch.completed.size();++i) {
+        const auto& result=batch.completed[i];ASSERT_TRUE(result.success)<<result.error;
+        outputs.insert(result.outputPath);pfcore::VideoDecoder decoded;
+        decoded.open(QString::fromStdWString(result.outputPath.wstring()).toStdString());
+        std::size_t count=0;while(decoded.readNext(frame,false))++count;
+        const auto expected=std::count_if(times.begin(),times.end(),[&](double t){return t+1e-6>=jobs[i].startSeconds&&t<jobs[i].endSeconds-1e-6;});
+        EXPECT_EQ(count,static_cast<std::size_t>(expected));
+    }
+    EXPECT_EQ(outputs.size(),3);EXPECT_EQ(batch.completed[0].outputPath,batch.completed[2].outputPath);
+    EXPECT_TRUE(batch.completed[2].reused);
 }
 
 TEST(ExportQueue, ReadyFollowersReuseFreedSlotsBeforeSlowFirstAndKeepInputOrder)

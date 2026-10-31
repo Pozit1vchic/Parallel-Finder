@@ -15,6 +15,17 @@ ColumnLayout {
     property var sourceFiles: []
     property string selectedSource: ""
     property var selectedRecord: null
+    readonly property int familyVariantCount: {
+        if(!selectedRecord || selectedRecord.manualAdjusted)return 0
+        let count=0,hasVariants=false
+        for(const side of ["left","right"]) {
+            const family=selectedRecord[side+"Family"]
+            if(selectedRecord[side+"Removed"] || !family || !family.members)continue
+            count+=family.members.length
+            hasVariants=hasVariants || family.members.length>1
+        }
+        return hasVariants ? count : 0
+    }
     signal adjustRequested()
     signal composeRequested()
     signal removeSideRequested(string side)
@@ -371,6 +382,7 @@ ColumnLayout {
         }
     }
 
+    SceneFamilyInspector { id: familyInspector; record: root.selectedRecord; onOpened: root.stopPair() }
     Popup {
         id: matchExplanation
         objectName: "matchExplanation"
@@ -445,6 +457,12 @@ ColumnLayout {
         }
         contentItem: ColumnLayout {
             spacing: 6
+            PfButton {
+                objectName: "inspectSceneFamilyAction"; Layout.fillWidth: true; compact: true; quiet: true
+                visible: root.familyVariantCount>0
+                text: L10n.t("family.show").arg(root.familyVariantCount)
+                onClicked: { pairActions.close(); familyInspector.open() }
+            }
             PfButton {
                 objectName: "explainMatchAction"; Layout.fillWidth: true; compact: true; quiet: true
                 text: L10n.t("explain.title"); enabled: !!root.selectedRecord && !root.selectedRecord.manualPair

@@ -216,6 +216,13 @@ bool AnalysisController::replaceResultSide(int targetId, const QString& targetSi
     match.durationSeconds = std::min(match.leftEndSeconds-match.leftStartSeconds, match.rightEndSeconds-match.rightStartSeconds);
     clearPairVerification(row,match);
     match.appearanceVerified = match.faceVerified = match.headOnlyComparison = false;
+    // A manually composed pair has no automatic family/canonical proof.
+    match.leftFamilyEvidence.reset();match.rightFamilyEvidence.reset();
+    match.leftSceneFamily.clear();match.rightSceneFamily.clear();
+    match.leftCanonicalStart=match.leftCanonicalEnd=match.rightCanonicalStart=match.rightCanonicalEnd=-1;
+    match.leftFamilySize=match.rightFamilySize=1;
+    for(const auto& side:{QString("left"),QString("right")})
+        for(const auto& suffix:{"Family","SceneFamily","FamilySize"})row.remove(side+suffix);
     row.insert("manualPair", true); row.insert("manualAdjusted", true); row.insert("reviewed", false);
     for (const auto key : {"similarity", "rankScore", "appearanceSimilarity", "sceneSimilarity"}) row.insert(key, 0.0);
     for (const auto key : {"identityVerified", "faceVerified", "headOnlyComparison"}) row.insert(key, false);

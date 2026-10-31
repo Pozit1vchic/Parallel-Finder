@@ -15,6 +15,7 @@ struct SceneFamily {
     std::vector<std::size_t> members;
     std::size_t representative=0;
     double representativeQuality=0;
+    std::vector<SceneFamilyComparison> representativeComparisons;
 };
 struct SceneFamilySet {
     std::vector<SceneFamily> families;
@@ -23,6 +24,8 @@ struct SceneFamilySet {
 };
 std::string canonicalSceneFingerprint(const std::string& source,std::size_t identityId,double start,double end);
 double representativeQuality(const SceneOccurrence& occurrence);
+SceneFamilyComparison compareSceneFamilyOccurrences(const SceneOccurrence& a,const SceneOccurrence& b,
+    const std::function<bool(const SceneOccurrence&,const SceneOccurrence&)>& copiedFootage = {});
 SceneFamilySet buildSceneFamilies(std::span<const SceneOccurrence> occurrences,
     const std::function<bool()>& cancelled = {},
     const std::function<bool(const SceneOccurrence&,const SceneOccurrence&)>& copiedFootage = {});
