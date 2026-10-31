@@ -112,6 +112,7 @@ private slots:
     void exportReopenClearsCancelledStatus();
     void movementFilterRespectsSelectionAndVisibleRows();
     void structuredEvidenceFiltersPreserveUncertaintyAndExportSelection();
+    void orientationFiltersKeepIndependentEvidenceAndRemovedSides();
     void sceneFamilyInspectionKeepsResultsAndCleansUpPlayback();
     void bodyDirectionReadoutPreservesAnglesUnknownsAndPopupGeometry();
     void largeExportBackdropKeepsWorkspaceGeometry();
@@ -2694,6 +2695,133 @@ void UiSmokeTests::structuredEvidenceFiltersPreserveUncertaintyAndExportSelectio
     QCOMPARE(rail->property("selectedCount").toInt(),5);
     QVERIFY(rail->property("scopeFilter").toString().isEmpty());
     QVERIFY(rail->property("postureFilter").toString().isEmpty());
+    rail->setProperty("results",QVariantList{
+        QVariantMap{{"id",0},{"leftRemoved",true},{"leftDescriptor",unknown},{"rightDescriptor",standing}},
+        QVariantMap{{"id",1},{"rightRemoved",true},{"leftDescriptor",standing},{"rightDescriptor",unknown}},
+        QVariantMap{{"id",2},{"leftDescriptor",unknown},{"rightDescriptor",unknown}}});
+    rail->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true}});
+    rail->setProperty("postureFilter","standing");QCOMPARE(rail->property("selectedCount").toInt(),2);
+    rail->setProperty("postureFilter","uncertain");QCOMPARE(rail->property("selectedCount").toInt(),1);
+}
+
+void UiSmokeTests::orientationFiltersKeepIndependentEvidenceAndRemovedSides()
+{
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;
+    auto* window=loadWindow(engine);QVERIFY(window);
+    auto* rail=window->findChild<QObject*>("resultsRail");QVERIFY(rail);
+    auto* l10n=engine.singletonInstance<QObject*>(qmlTypeId("PfUi",1,0,"L10n"));QVERIFY(l10n);
+    const auto originalLanguage=l10n->property("language");
+    const auto restore=qScopeGuard([&]{l10n->setProperty("language",originalLanguage);});
+    const auto descriptor=[](double bodyYaw,double headYaw) {
+        const double radians=headYaw*std::acos(-1.)/180.;
+        const double c=std::cos(radians),s=std::sin(radians);
+        const std::array<double,9> rotation{c,0,s,0,1,0,-s,0,c};
+        pfcore::MotionWindow window;window.headOrientations={{0,rotation,true},{.5,rotation,true},{1,rotation,true}};
+        auto result=pfui::sceneDescriptorMap(pfcore::describeScene(window,0,1.1));
+        result.insert("bodyYaw",bodyYaw);result.insert("bodyView",int(pfcore::viewDirection(bodyYaw)));
+        result.insert("bodyYawEvidence",2);result.insert("bodyYawObservedSamples",3);result.insert("bodyYawRequestedSamples",3);
+        return result;
+    };
+    const auto front=descriptor(0,90),profile=descriptor(90,0),back=descriptor(180,0),neutral=descriptor(0,0);
+    auto ambiguous=neutral;ambiguous["bodyYawEvidence"]=1;
+    auto sparse=neutral;sparse["bodyYawObservedSamples"]=2;
+    auto stale=neutral;stale["bodyView"]=3;
+    auto unmeasuredHead=neutral;unmeasuredHead.remove("headYawStrength");
+    const auto pair=[](int id,const QVariantMap& left,const QVariantMap& right) {
+        return QVariantMap{{"id",id},{"leftDescriptor",left},{"rightDescriptor",right}};
+    };
+    auto singleLeft=pair(4,back,front);singleLeft.insert("leftRemoved",true);
+    auto singleRight=pair(8,neutral,back);singleRight.insert("rightRemoved",true);
+    const QVariantList records{pair(0,front,front),pair(1,profile,profile),pair(2,neutral,back),pair(3,{},neutral),
+        singleLeft,pair(5,ambiguous,neutral),pair(6,sparse,neutral),pair(7,stale,neutral),singleRight,pair(9,unmeasuredHead,neutral)};
+    rail->setProperty("results",records);
+    QVariantMap selected;for(int i=0;i<records.size();++i)selected.insert(QString::number(i),true);
+    rail->setProperty("selectedRows",selected);
+    QCOMPARE(rail->property("selectedCount").toInt(),10);
+    rail->setProperty("bodyViewFilter","1");QCOMPARE(rail->property("selectedCount").toInt(),4);
+    rail->setProperty("headViewFilter","3");QCOMPARE(rail->property("selectedCount").toInt(),2);
+    QCOMPARE(rail->property("activeFilterCount").toInt(),2);
+    QVariant exported;QVERIFY(QMetaObject::invokeMethod(rail,"exportRows",Q_RETURN_ARG(QVariant,exported)));
+    const auto exportedRows=exported.value<QJSValue>().toVariant().toMap();
+    QCOMPARE(exportedRows.size(),2);QVERIFY(exportedRows.contains("0"));QVERIFY(exportedRows.contains("4"));
+    rail->setProperty("headViewFilter","1");QCOMPARE(rail->property("selectedCount").toInt(),1);
+    rail->setProperty("headViewFilter","");rail->setProperty("bodyViewFilter","uncertain");
+    QCOMPARE(rail->property("selectedCount").toInt(),4);
+    rail->setProperty("bodyViewFilter","");rail->setProperty("headViewFilter","uncertain");
+    QCOMPARE(rail->property("selectedCount").toInt(),2);
+    QVERIFY(QMetaObject::invokeMethod(rail,"resetFilters"));QCOMPARE(rail->property("selectedCount").toInt(),10);
+    QVERIFY(rail->property("bodyViewFilter").toString().isEmpty());QVERIFY(rail->property("headViewFilter").toString().isEmpty());
+    QCOMPARE(rail->property("activeFilterCount").toInt(),0);
+    const std::vector<std::pair<double,int>> angles{{0,1},{45,2},{90,3},{135,4},{180,5},{-135,6},{-90,7},{-45,8},
+        {22.499,1},{22.5,2},{-22.5,1},{-22.501,8},{-179.999,5}};
+    const std::array<double,8> centers{0,45,90,135,180,-135,-90,-45};
+    for(const auto& [angle,view]:angles) {
+        // Exercise exact raw sector boundaries through the shared UI helper.
+        // Use a sector center for the matrix-derived head Euler round trip.
+        const auto observed=descriptor(angle,centers[view-1]);
+        QCOMPARE(observed.value("bodyView").toInt(),view);QCOMPARE(observed.value("headView").toInt(),view);
+        rail->setProperty("results",QVariantList{pair(0,observed,observed)});
+        rail->setProperty("bodyViewFilter",QString::number(view));rail->setProperty("headViewFilter",QString::number(view));
+        QCOMPARE(rail->property("selectedCount").toInt(),1);
+        rail->setProperty("headViewFilter",QString::number(view%8+1));QCOMPARE(rail->property("selectedCount").toInt(),0);
+    }
+    rail->setProperty("headViewFilter",QString());
+    const std::vector<std::pair<QString,QVariant>> invalidBody{
+        {"bodyYaw",QVariant()},{"bodyYaw",QString("0")},{"bodyYaw",181.},
+        {"bodyYawObservedSamples",3.5},{"bodyYawRequestedSamples",2},
+        {"bodyYawEvidence",1},{"bodyView",3}};
+    for(const auto& [key,value]:invalidBody) {
+        auto invalid=neutral;invalid[key]=value;
+        rail->setProperty("results",QVariantList{pair(0,invalid,neutral)});
+        rail->setProperty("bodyViewFilter","1");QCOMPARE(rail->property("selectedCount").toInt(),0);
+        rail->setProperty("bodyViewFilter","uncertain");QCOMPARE(rail->property("selectedCount").toInt(),1);
+    }
+    pfcore::MotionWindow vertical;
+    const std::array<double,9> upward{1,0,0,0,0,-1,0,1,0};
+    vertical.headOrientations={{0,upward,true},{.5,upward,true},{1,upward,true}};
+    const auto verticalHead=pfui::sceneDescriptorMap(pfcore::describeScene(vertical,0,1.1));
+    QVERIFY(!verticalHead.contains("headYaw"));QVERIFY(verticalHead.contains("headPitch"));
+    rail->setProperty("bodyViewFilter",QString());
+    rail->setProperty("results",QVariantList{pair(0,verticalHead,neutral)});
+    rail->setProperty("headViewFilter","1");QCOMPARE(rail->property("selectedCount").toInt(),0);
+    rail->setProperty("headViewFilter","uncertain");QCOMPARE(rail->property("selectedCount").toInt(),1);
+    QVERIFY(QMetaObject::invokeMethod(rail,"resetFilters"));
+    auto* bodyCombo=rail->findChild<QQuickItem*>("resultBodyViewFilter");QVERIFY(bodyCombo);
+    auto* headCombo=rail->findChild<QQuickItem*>("resultHeadViewFilter");QVERIFY(headCombo);
+    auto* sortCombo=rail->findChild<QQuickItem*>("resultSortCombo");QVERIFY(sortCombo);
+    rail->setProperty("bodyViewFilter","3");rail->setProperty("headViewFilter","7");
+    for(const auto& language:QStringList{"ru","en","ky","kk","uk","tr"}) {
+        l10n->setProperty("language",language);
+        QTRY_COMPARE(bodyCombo->property("currentIndex").toInt(),4);
+        QTRY_COMPARE(headCombo->property("currentIndex").toInt(),8);
+        QTRY_COMPARE(sortCombo->property("currentIndex").toInt(),6);
+        QString selectedLabel;
+        QVERIFY(QMetaObject::invokeMethod(bodyCombo,"textAt",Q_RETURN_ARG(QString,selectedLabel),Q_ARG(int,4)));
+        QCOMPARE(bodyCombo->property("displayText").toString(),selectedLabel);
+        QCOMPARE(bodyCombo->property("count").toInt(),10);
+        for(int index=0;index<10;++index) {
+            QString label;
+            QVERIFY(QMetaObject::invokeMethod(bodyCombo,"textAt",Q_RETURN_ARG(QString,label),Q_ARG(int,index)));
+            QVERIFY(!label.isEmpty());QVERIFY(!label.startsWith("filter."));QVERIFY(!label.startsWith("orientation."));
+        }
+        QVERIFY(!headCombo->property("displayText").toString().isEmpty());
+    }
+    l10n->setProperty("language","ru");
+    QVERIFY(QMetaObject::invokeMethod(rail,"resetFilters"));window->setHeight(450);
+    auto* menu=rail->findChild<QObject*>("resultFiltersMenu");QVERIFY(menu);
+    auto* button=rail->findChild<QObject*>("openResultFiltersButton");QVERIFY(button);
+    QVERIFY(QMetaObject::invokeMethod(button,"clicked"));QTRY_VERIFY(menu->property("opened").toBool());
+    QVERIFY(menu->property("height").toDouble()<=window->height()-24+.5);
+    auto* scroll=menu->findChild<QQuickItem*>("resultFiltersScroll");QVERIFY(scroll);
+    auto* flick=scroll->property("contentItem").value<QQuickItem*>();QVERIFY(flick);
+    flick->setProperty("contentY",flick->property("contentY").toDouble()+bodyCombo->mapToItem(flick,QPointF{}).y()-36);
+    QTest::qWait(100);
+    const auto point=headCombo->mapToScene(QPointF(10,10));
+    QVERIFY(point.y()>=0 && point.y()+headCombo->height()<=window->height());
+    QVERIFY(QMetaObject::invokeMethod(headCombo,"activated",Q_ARG(int,4)));
+    QCOMPARE(rail->property("headViewFilter").toString(),QString("3"));
+    QVERIFY(window->grabWindow().save(QCoreApplication::applicationDirPath()+"/orientation-result-filters.png"));
+    QVERIFY(QMetaObject::invokeMethod(menu,"close"));QTRY_VERIFY(!menu->property("visible").toBool());
 }
 
 void UiSmokeTests::sceneFamilyInspectionKeepsResultsAndCleansUpPlayback()

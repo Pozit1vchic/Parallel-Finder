@@ -145,9 +145,14 @@ SceneDescriptor describeScene(const MotionWindow& window,double start,double end
     if (head && headCount>=2) {
         const auto& r=head->rotation;
         result.head.rotation=r;
-        result.head.yawDegrees=std::atan2(r[2],r[8])*180./std::numbers::pi;
+        // At a vertical gaze the horizontal projections vanish. atan2(0,0)
+        // would invent a frontal yaw/neutral roll; keep the measured SO(3)
+        // rotation and pitch while leaving those Euler components unknown.
+        if(std::hypot(r[2],r[8])>1e-6)
+            result.head.yawDegrees=std::atan2(r[2],r[8])*180./std::numbers::pi;
         result.head.pitchDegrees=std::asin(std::clamp(-r[5],-1.,1.))*180./std::numbers::pi;
-        result.head.rollDegrees=std::atan2(r[3],r[4])*180./std::numbers::pi;
+        if(std::hypot(r[3],r[4])>1e-6)
+            result.head.rollDegrees=std::atan2(r[3],r[4])*180./std::numbers::pi;
         result.head.confidence=double(headCount)/std::max<std::size_t>(1,totalHead);
     }
     if(!(std::isfinite(window.sceneStartSeconds)&&std::isfinite(window.sceneEndSeconds)&&window.sceneStartSeconds>=0

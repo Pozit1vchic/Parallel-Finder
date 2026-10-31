@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import PfUi
+import "OrientationEvidence.js" as Orientation
 
 ColumnLayout {
     id: root
@@ -10,11 +11,7 @@ ColumnLayout {
     spacing: 8
 
     function supported(d) {
-        return d && (d.bodyYawEvidence === 2 || d.bodyYawEvidence === 3)
-            && typeof d.bodyYaw === "number" && isFinite(d.bodyYaw) && Math.abs(d.bodyYaw) <= 180
-            && typeof d.bodyView === "number" && d.bodyView >= 1 && d.bodyView <= 8 && Math.floor(d.bodyView) === d.bodyView
-            && typeof d.bodyYawObservedSamples === "number" && d.bodyYawObservedSamples >= 3
-            && typeof d.bodyYawRequestedSamples === "number" && d.bodyYawRequestedSamples >= d.bodyYawObservedSamples
+        return Orientation.bodySupported(d)
     }
     function direction(d) {
         if (supported(d)) return L10n.t("orientation.view" + d.bodyView)

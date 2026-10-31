@@ -3,6 +3,7 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import PfUi
 import PfUiBridge
+import "OrientationEvidence.js" as Orientation
 
 Rectangle {
     id: root
@@ -20,6 +21,12 @@ Rectangle {
     property string classFilter: ""
     property string scopeFilter: ""
     property string postureFilter: ""
+    property string bodyViewFilter: ""
+    property string headViewFilter: ""
+    readonly property var orientationChoices: ["", "uncertain", "1", "2", "3", "4", "5", "6", "7", "8"]
+    function orientationLabel(choice) {
+        return L10n.t(!choice ? "filter.orientation.all" : choice === "uncertain" ? "orientation.unknown" : "orientation.view" + choice)
+    }
     readonly property var postureChoices: ["", "standing", "sitting", "lying", "crouching", "kneeling", "uncertain"]
     function matchesPosture(descriptor) {
         const posture=descriptor ? Number(descriptor.posture || 0) : 0
@@ -44,6 +51,7 @@ Rectangle {
     readonly property int activeFilterCount: (classFilter ? 1 : 0) + (sourceQuery.trim() ? 1 : 0)
         + (matchTierFilter !== "strong" ? 1 : 0) + (sourceFilter ? 1 : 0) + (scopeFilter ? 1 : 0) + (postureFilter ? 1 : 0)
         + (sortCriterion !== "classification" || sortDescending ? 1 : 0)
+        + (bodyViewFilter ? 1 : 0) + (headViewFilter ? 1 : 0)
     function classKey(row) {
         return L10n.movementKey(row.classification)
     }
@@ -250,6 +258,7 @@ Rectangle {
             }
         }
         contentItem: ScrollView {
+            objectName: "resultFiltersScroll"
             clip: true
             contentWidth: availableWidth
             contentHeight: filterMenuColumn.implicitHeight
@@ -274,7 +283,7 @@ Rectangle {
                     objectName: "resultClassFilterCombo"; Layout.fillWidth: true
                     Accessible.name: L10n.t("ui.349")
                     model: root.classChoices.map(function(key) { return key ? L10n.classificationLabel(key) + " · " + Number(root.classificationCounts[key] || 0) : (L10n.t("results.allClasses")) })
-                    currentIndex: root.classChoices.indexOf(root.classFilter)
+                    selectionIndex: root.classChoices.indexOf(root.classFilter)
                     onActivated: function(index) { root.classFilter = root.classChoices[index] }
                 }
                 TextField {
@@ -289,7 +298,7 @@ Rectangle {
                 PfComboBox {
                     objectName: "resultSourceFilter"; Layout.fillWidth: true
                     model: root.sourceChoices.map(function(path) { return path ? root.sourceName(path) : Review.t("allSources") })
-                    currentIndex: Math.max(0, root.sourceChoices.indexOf(root.sourceFilter))
+                    selectionIndex: Math.max(0, root.sourceChoices.indexOf(root.sourceFilter))
                     Accessible.name: Review.t("allSources")
                     onActivated: function(index) { root.sourceFilter = root.sourceChoices[index] || "" }
                     ToolTip.visible: hovered && !!root.sourceFilter; ToolTip.text: root.sourceFilter
@@ -299,24 +308,41 @@ Rectangle {
                     objectName: "matchTierFilter"; Layout.fillWidth: true
                     model: [L10n.t("matches.strong")+" · "+root.results.filter(function(row) { return !row.hidden && (row.matchTier || "strong") === "strong" }).length,
                         L10n.t("matches.possible")+" · "+root.results.filter(function(row) { return !row.hidden && row.matchTier === "possible" }).length]
-                    currentIndex: root.matchTierFilter === "possible" ? 1 : 0
+                    selectionIndex: root.matchTierFilter === "possible" ? 1 : 0
                     onActivated: function(index) { root.matchTierFilter=index === 1 ? "possible" : "strong" }
                     Accessible.name: L10n.t("matches.tier")
                 }
                 PfComboBox {
                     objectName: "resultScopeFilter"; Layout.fillWidth: true
                     model: [L10n.t("filter.scopeAll"),L10n.t("filter.scopeHead"),L10n.t("filter.scopeBody")]
-                    currentIndex: Math.max(0,["","head","body"].indexOf(root.scopeFilter))
+                    selectionIndex: Math.max(0,["","head","body"].indexOf(root.scopeFilter))
                     onActivated: function(index) { root.scopeFilter=["","head","body"][index] }
                     Accessible.name: L10n.t("filter.scopeAll")
                 }
                 PfComboBox {
                     objectName: "resultPostureFilter"; Layout.fillWidth: true
                     model: root.postureChoices.map(function(key) { return L10n.t("filter.posture."+(key || "all")) })
-                    currentIndex: Math.max(0,root.postureChoices.indexOf(root.postureFilter))
+                    selectionIndex: Math.max(0,root.postureChoices.indexOf(root.postureFilter))
                     onActivated: function(index) { root.postureFilter=root.postureChoices[index] }
                     Accessible.name: L10n.t("filter.posture.all")
                 }
+                Text { Layout.fillWidth: true; text: L10n.t("orientation.title"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10 }
+                PfComboBox {
+                    objectName: "resultBodyViewFilter"; Layout.fillWidth: true
+                    model: root.orientationChoices.map(root.orientationLabel)
+                    selectionIndex: Math.max(0,root.orientationChoices.indexOf(root.bodyViewFilter))
+                    onActivated: function(index) { root.bodyViewFilter=root.orientationChoices[index] }
+                    Accessible.name: L10n.t("orientation.title")
+                }
+                Text { Layout.fillWidth: true; text: L10n.t("filter.headView.title"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10 }
+                PfComboBox {
+                    objectName: "resultHeadViewFilter"; Layout.fillWidth: true
+                    model: root.orientationChoices.map(root.orientationLabel)
+                    selectionIndex: Math.max(0,root.orientationChoices.indexOf(root.headViewFilter))
+                    onActivated: function(index) { root.headViewFilter=root.orientationChoices[index] }
+                    Accessible.name: L10n.t("filter.headView.title")
+                }
+                Text { Layout.fillWidth: true; text: L10n.t("filter.orientation.pair"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }
                 Text { Layout.fillWidth: true; text: L10n.t("results.sortBy"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10 }
                 PfComboBox {
                     id: resultSort
@@ -335,7 +361,7 @@ Rectangle {
                             L10n.t("results.timeEarly"), L10n.t("results.timeLate"), L10n.t("ui.350"),
                             L10n.t("sort.best"),L10n.t("sort.continuity"),L10n.t("sort.pose"),L10n.t("sort.identity"),
                             L10n.t("sort.evidence"),L10n.t("sort.longest"),L10n.t("sort.shortest"),L10n.t("sort.source")]
-                    currentIndex: ["best","continuity","pose","identity","evidence","longest","shortest","source"].indexOf(root.sortCriterion)>=0
+                    selectionIndex: ["best","continuity","pose","identity","evidence","longest","shortest","source"].indexOf(root.sortCriterion)>=0
                         ? 7+["best","continuity","pose","identity","evidence","longest","shortest","source"].indexOf(root.sortCriterion)
                         : root.sortCriterion === "classification" ? 6 : root.sortCriterion === "time" ? (root.sortDescending ? 5 : 4)
                         : root.sortCriterion === "scene" ? (root.sortDescending ? 2 : 3) : (root.sortDescending ? 0 : 1)
@@ -400,6 +426,8 @@ Rectangle {
         classFilter = ""
         scopeFilter = ""
         postureFilter = ""
+        bodyViewFilter = ""
+        headViewFilter = ""
         matchTierFilter = "strong"
         sortCriterion = "classification"
         sortDescending = false
@@ -527,9 +555,10 @@ Rectangle {
             if (classFilter && classKey(item) !== classFilter) continue
             if (scopeFilter && item.evidenceScope !== scopeFilter) continue
             if (postureFilter) {
-                const left=matchesPosture(item.leftDescriptor),right=matchesPosture(item.rightDescriptor)
-                if(postureFilter === "uncertain" ? (!left && !right) : (!left || !right)) continue
+                const postures=Orientation.remainingDescriptors(item).map(root.matchesPosture)
+                if(postureFilter === "uncertain" ? !postures.some(Boolean) : !postures.every(Boolean)) continue
             }
+            if (!Orientation.matches(item,"body",bodyViewFilter) || !Orientation.matches(item,"head",headViewFilter)) continue
             if (!item.manualPair && (item.matchTier || "strong") !== matchTierFilter) continue
             next.push(item)
         }
@@ -658,6 +687,8 @@ Rectangle {
     onClassFilterChanged: if (!suppressFilterRebuild) rebuild()
     onScopeFilterChanged: if (!suppressFilterRebuild) rebuild()
     onPostureFilterChanged: if (!suppressFilterRebuild) rebuild()
+    onBodyViewFilterChanged: if (!suppressFilterRebuild) rebuild()
+    onHeadViewFilterChanged: if (!suppressFilterRebuild) rebuild()
     onClassChoicesChanged: if (classFilter && classChoices.indexOf(classFilter) < 0) classFilter = ""
     onSelectedIndexChanged: revealSelection()
     onResultsChanged: rebuild()

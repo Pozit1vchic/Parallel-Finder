@@ -130,3 +130,17 @@ TEST(SceneDescriptor, CoincidentHighConfidenceJointsAreNotUsablePoseEvidence) {
     const auto d=pfcore::describeScene(window,0,1);
     EXPECT_LT(d.evidenceQuality,.2);EXPECT_LT(d.headEvidenceQuality,.2);EXPECT_FALSE(d.body.rollDegrees);
 }
+
+TEST(SceneDescriptor, VerticalHeadDirectionDoesNotInventFrontalYawOrRoll) {
+    for(const double sign:{-1.,1.}) {
+        pfcore::MotionWindow window;
+        const std::array<double,9> vertical{1,0,0,0,0,-sign,0,sign,0};
+        window.headOrientations={{0,vertical,true},{.5,vertical,true},{1,vertical,true}};
+        const auto d=pfcore::describeScene(window,0,1.1);
+        ASSERT_TRUE(d.head.rotation);ASSERT_TRUE(d.head.pitchDegrees);
+        EXPECT_NEAR(*d.head.pitchDegrees,sign*90.,1e-9);
+        EXPECT_FALSE(d.head.yawDegrees);EXPECT_FALSE(d.head.rollDegrees);
+        EXPECT_TRUE(pfcore::sceneHeadDistance(d,d).has_value());
+        EXPECT_NEAR(*pfcore::sceneHeadDistance(d,d),0.,1e-9);
+    }
+}

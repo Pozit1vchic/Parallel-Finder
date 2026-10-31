@@ -6,6 +6,15 @@ import PfUi
 ComboBox {
     id: control
 
+    // Optional controlled selection. Refreshing a translated model can reset
+    // ComboBox.currentIndex internally even if the caller's choice is unchanged.
+    property int selectionIndex: -1
+    function restoreSelection() {
+        if (selectionIndex >= 0) currentIndex = selectionIndex
+    }
+    onSelectionIndexChanged: restoreSelection()
+    onModelChanged: if (selectionIndex >= 0) Qt.callLater(restoreSelection)
+
     implicitHeight: 34
     height: 34
     hoverEnabled: true

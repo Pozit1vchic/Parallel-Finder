@@ -1131,7 +1131,13 @@ var dictionaries = {
     "class.sitting": "Отурат",
     "Sitting": "Отурат",
     "class.lying": "Жатат",
-    "Lying": "Жатат"
+    "Lying": "Жатат",
+    "filter.headView.title": "Баштын бурулушу",
+    "Head direction": "Баштын бурулушу",
+    "filter.orientation.all": "Каалаган ракурс",
+    "Any view": "Каалаган ракурс",
+    "filter.orientation.pair": "Эки үзүндүдө тең · камерага карата",
+    "Both clips · relative to the camera": "Эки үзүндүдө тең · камерага карата"
   },
   "kk": {
     "bodyReview.stage": "Дене бағытын нақтылау",
@@ -2263,7 +2269,13 @@ var dictionaries = {
     "class.sitting": "Отыр",
     "Sitting": "Отыр",
     "class.lying": "Жатыр",
-    "Lying": "Жатыр"
+    "Lying": "Жатыр",
+    "filter.headView.title": "Бастың бұрылуы",
+    "Head direction": "Бастың бұрылуы",
+    "filter.orientation.all": "Кез келген ракурс",
+    "Any view": "Кез келген ракурс",
+    "filter.orientation.pair": "Екі үзіндіде де · камераға қатысты",
+    "Both clips · relative to the camera": "Екі үзіндіде де · камераға қатысты"
   },
   "uk": {
     "bodyReview.stage": "Уточнюємо напрямок корпусу",
@@ -3395,7 +3407,13 @@ var dictionaries = {
     "class.sitting": "Сидить",
     "Sitting": "Сидить",
     "class.lying": "Лежить",
-    "Lying": "Лежить"
+    "Lying": "Лежить",
+    "filter.headView.title": "Поворот голови",
+    "Head direction": "Поворот голови",
+    "filter.orientation.all": "Будь-який ракурс",
+    "Any view": "Будь-який ракурс",
+    "filter.orientation.pair": "В обох фрагментах · відносно камери",
+    "Both clips · relative to the camera": "В обох фрагментах · відносно камери"
   },
   "tr": {
     "bodyReview.stage": "Gövde yönü netleştiriliyor",
@@ -4527,6 +4545,12 @@ var dictionaries = {
     "class.sitting": "Oturuyor",
     "Sitting": "Oturuyor",
     "class.lying": "Yatıyor",
-    "Lying": "Yatıyor"
+    "Lying": "Yatıyor",
+    "filter.headView.title": "Baş yönü",
+    "Head direction": "Baş yönü",
+    "filter.orientation.all": "Herhangi bir açı",
+    "Any view": "Herhangi bir açı",
+    "filter.orientation.pair": "Her iki klipte · kameraya göre",
+    "Both clips · relative to the camera": "Her iki klipte · kameraya göre"
   }
 }

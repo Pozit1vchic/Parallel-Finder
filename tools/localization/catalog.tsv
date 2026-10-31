@@ -622,3 +622,7 @@ orientation.frameReference|Камерага карата бурулуш. Сол 
 
 class.sitting|Отурат|Отыр|Сидить|Oturuyor
 class.lying|Жатат|Жатыр|Лежить|Yatıyor
+
+filter.headView.title|Баштын бурулушу|Бастың бұрылуы|Поворот голови|Baş yönü
+filter.orientation.all|Каалаган ракурс|Кез келген ракурс|Будь-який ракурс|Herhangi bir açı
+filter.orientation.pair|Эки үзүндүдө тең · камерага карата|Екі үзіндіде де · камераға қатысты|В обох фрагментах · відносно камери|Her iki klipte · kameraya göre
