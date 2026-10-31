@@ -89,7 +89,7 @@ test does not establish general recognition accuracy or release readiness.
 | K01 | Why selected/matched/rejected/family/representative/cache invalidated/download reused/probe failed | Selection and matcher reason enums/logs exist. Family admission measurements and representative component scores now retained/shared/exported. Cache invalidation explanations and remaining provider diagnostics still require audit. | Partial |
 | L01 | Grounded phases, baseline before changes, no reckless rewrite | Baseline worktree and logs retained; logical commit history. This audit preserves original unfinished scope. | Evidenced |
 | M01 | Branch/status/tags/release conventions, no unrelated deletion | Feature branch clean at start; release README inspected. Tag/release state and complete licenses/package audit still required. | Partial |
-| M02 | Full suite, benchmark, clean Release build, packaging/resources | Release build and all 14 CTest targets pass in 115.39 s (body-direction-nvdec-final-suite.log), including 57 UI checks. Actual-model CPU/CUDA and hardware NVDEC body controls pass; six difficult back-view misses remain documented. Export cancellation now has separate real-progress and live-child barriers, each repeated three times. Clean final installer/upgrade verification remains open. | Partial |
+| M02 | Full suite, benchmark, clean Release build, packaging/resources | Latest Release build and all 14 CTest targets pass in 115.97 s (settings-persistence-full-suite.log), including 57 UI checks and delayed-writer selection/reuse control. Actual-model CPU/CUDA and hardware NVDEC body controls pass; six difficult back-view misses remain documented. Export cancellation has separate real-progress and live-child barriers, each repeated three times. Clean final installer/upgrade verification remains open. | Partial |
 | M03 | Fresh install, previous upgrade, cache migration, provider update | Developer binary and synthetic store tests are not packaged fresh-install/upgrade proof. | Missing |
 | M04 | Version/changelog/notes; publish/tag only when actually ready | Local `0.1.0-rc.23.3-dev`; notes retained; no tag/push/release attempted. Remains unreleased until gates pass. | Partial |
 | N01 | Target + series + result + restart-cache + bad-network + failed-install + Unicode + UI end-to-end flows | See A/D/E/F/G and packaging gaps. Cannot infer all flows from one montage or green unit tests. | Partial |
@@ -171,6 +171,16 @@ the open items is currently an external blocker: useful local work remains.
   recurs on second-character reselection (8 processed frames, expected zero);
   an isolated diagnostic rerun passes without establishing a fix. The earlier
   green M02 run remains historical evidence, not the status of this latest run.
+
+- Subsequent settings-persistence investigation records 16 successful fresh
+  processes followed by an empty-root cache failure on repetition 17. A separate
+  deterministic delayed-write control fails before and passes after capturing
+  current UI-owned run settings. Thirty fresh-process workflow repetitions pass
+  after that snapshot change, and the final suite passes 14/14 in 115.97 s.
+  Failed settings reads also no longer authorize overwriting the file with
+  defaults. See settings-persistence-evidence.md; the exact filesystem event in
+  the intermittent default-root observation remains unproven, so broader cache
+  and restart gates are not marked complete from repetition counts alone.
 
 - [provider-download-evidence.md](provider-download-evidence.md) records rolling
   scheduling, measured retry-driven concurrency adaptation, failure/cancellation

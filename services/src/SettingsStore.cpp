@@ -64,9 +64,12 @@ private:
             try {
                 SettingsStore store(job.path);
                 auto settings = store.load(error);
-                error.clear();
-                job.change(settings);
-                store.save(settings, error);
+                // A failed read is not an empty first-run profile. Applying a
+                // partial update to defaults would erase unrelated preferences.
+                if(error.empty()) {
+                    job.change(settings);
+                    store.save(settings,error);
+                }
             } catch (const std::exception& exception) { error = exception.what(); }
             catch (...) { error = "settings update failed with an unknown exception"; }
             // A consumer callback must not terminate the writer or strand flush().

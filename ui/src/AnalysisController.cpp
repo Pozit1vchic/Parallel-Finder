@@ -2324,6 +2324,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     const QString providerChoice = providerChoice_;
     const QString qualityProfile = qualityProfile_;
     const QString analysisMode = analysisMode_;
+    // Persistence runs asynchronously. Capture controls on their owning thread;
+    // a worker must not recover an older cache/segmentation policy from disk.
+    pfservices::Settings runControls;
+    runControls.cachePath=cachePath_.toStdString();
+    runControls.cacheLimitBytes=static_cast<std::size_t>(std::max(.25,cacheLimitGb_)*1024.*1024.*1024.);
+    runControls.processingThreads=static_cast<std::size_t>(std::clamp(processingThreads_,0,256));
+    runControls.sceneThreshold=sceneThreshold_;
     const bool expandedSearch = expandedSearch_;
     const bool normalizeSize = normalizeSize_;
     const bool mirrorPoses = mirrorPoses_;
@@ -2338,7 +2345,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     QThread* thread = QThread::create([this, cancel, paths = normalized, similarityThreshold, candidateThreshold, repeatGap,
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
                                         maxUniqueResults, timeWeight, providerChoice,
-                                        qualityProfile, analysisMode, expandedSearch, normalizeSize, mirrorPoses, previewToken, forceTargetSource, targetChoice] {
+                                        qualityProfile, analysisMode, runControls, expandedSearch, normalizeSize, mirrorPoses, previewToken, forceTargetSource, targetChoice] {
         try {
         const bool interactiveTargets = !QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
             || qEnvironmentVariableIsSet("PF_SMOKE_TARGET_ID");
@@ -2368,8 +2375,13 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         const auto markCancelled = [&error, &isCancelled] {
             if (error.isEmpty() && isCancelled()) error = QStringLiteral("Остановлено пользователем");
         };
-        const pfservices::Settings settings = pfservices::SettingsStore().load(settingsError);
-        (void)settingsError;
+        auto settings = pfservices::SettingsStore().load(settingsError);
+        if(!settingsError.empty())throw std::runtime_error("Cannot read analysis settings: "+settingsError);
+        const auto persistedCachePath=settings.cachePath;
+        settings.cachePath=runControls.cachePath;
+        settings.cacheLimitBytes=runControls.cacheLimitBytes;
+        settings.processingThreads=runControls.processingThreads;
+        settings.sceneThreshold=runControls.sceneThreshold;
         auto model = findPoseModel();
         if (model.empty()) {
             QMetaObject::invokeMethod(this, [this, cancel] {
@@ -2636,7 +2648,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 if(qEnvironmentVariableIsSet("PF_DEBUG_CACHE")) {
                     const auto digest=QCryptographicHash::hash(QByteArray::fromStdString(cacheKey),QCryptographicHash::Sha256).toHex();
                     cacheDecision={{"key",QString::fromLatin1(digest)},{"entryFound",cacheEntryFound},{"validated",cacheHit},
-                        {"configuredRoot",QString::fromStdString(settings.cachePath)},{"sceneThreshold",settings.sceneThreshold},
+                        {"configuredRoot",QString::fromStdString(settings.cachePath)},
+                        {"persistedRoot",QString::fromStdString(persistedCachePath)},{"sceneThreshold",settings.sceneThreshold},
                         {"sceneMinFrames",static_cast<qulonglong>(settings.sceneMinFrames)},
                         {"sceneAdaptiveMultiplier",settings.sceneAdaptiveMultiplier}};
                     if(qEnvironmentVariable("PF_DEBUG_CACHE")!="buffer")std::fprintf(stderr,"PF_CACHE_OBSERVATIONS key=%s entry=%d valid=%d cache_root=%s scene=%.6f:%zu:%.6f source=%s\n",

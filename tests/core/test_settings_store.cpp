@@ -162,3 +162,17 @@ TEST(SettingsStore, WriterSurvivesThrowingChangeAndCompletion) {
     EXPECT_EQ(store.load(error).language, "ru");
     EXPECT_TRUE(error.empty());
 }
+
+TEST(SettingsStore, FailedReadCannotReplaceExistingSettingsWithDefaults) {
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto path=directory.filePath("settings.json");
+    const QByteArray original="{ interrupted settings json";
+    {QFile file(path);ASSERT_TRUE(file.open(QIODevice::WriteOnly));ASSERT_EQ(file.write(original),original.size());}
+    pfservices::SettingsStore store(path.toStdString());
+    std::atomic_bool changed=false,reported=false;
+    store.updateAsync("analysis",[&](auto& settings) {changed=true;settings.cachePath="replacement";},
+        [&](std::string error) {reported=!error.empty();});
+    pfservices::SettingsStore::flushPendingWrites();
+    EXPECT_FALSE(changed);EXPECT_TRUE(reported);
+    QFile file(path);ASSERT_TRUE(file.open(QIODevice::ReadOnly));EXPECT_EQ(file.readAll(),original);
+}

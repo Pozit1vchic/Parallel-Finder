@@ -14,6 +14,10 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QSaveFile>
+#include <QScopeGuard>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
 #include <QtTest/QTest>
 #include "../helpers/onnx_two_people.hpp"
 
@@ -262,6 +266,44 @@ private slots:
         QCOMPARE(analysis->analyzedFrames(),0);
         QCOMPARE(analysis->summaryForSource(episode).value("targetCharacterId").toString(),first);
         pfservices::SettingsStore::flushPendingWrites();
+        struct DelayedWrite {
+            std::mutex mutex;std::condition_variable ready;bool released=false;
+            std::atomic_bool entered=false;
+        };
+        auto delayed=std::make_shared<DelayedWrite>();
+        pfservices::SettingsStore().updateAsync("test-delay",[delayed](auto&) {
+            std::unique_lock lock(delayed->mutex);delayed->entered=true;
+            delayed->ready.wait(lock,[&]{return delayed->released;});
+        });
+        const auto release=[delayed] {
+            {std::lock_guard lock(delayed->mutex);delayed->released=true;}
+            delayed->ready.notify_all();
+        };
+        const auto releaseGuard=qScopeGuard(release);
+        QTRY_VERIFY_WITH_TIMEOUT(delayed->entered.load(),5000);
+        const auto previousDebug=qgetenv("PF_DEBUG_CACHE");
+        const auto debugGuard=qScopeGuard([previousDebug] {
+            if(previousDebug.isNull())qunsetenv("PF_DEBUG_CACHE");else qputenv("PF_DEBUG_CACHE",previousDebug);
+        });
+        qputenv("PF_DEBUG_CACHE","buffer");
+        const auto persistedCache=analysis->cachePath();
+        const auto newCache=directory.filePath("pending-settings-cache");
+        const auto newThreshold=analysis->sceneThreshold()+1;
+        analysis->setCachePath(newCache);analysis->setSceneThreshold(newThreshold);
+        analysis->analyzeFiles({source});
+        QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
+        if(analysis->awaitingTarget())QVERIFY(analysis->selectTargetCharacter(first));
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
+        QVERIFY(analysis->analysisCompleted());
+        const auto decision=analysis->summaryForSource(source).value("observationCacheDecision").toMap();
+        QCOMPARE(decision.value("persistedRoot").toString(),persistedCache);
+        QCOMPARE(decision.value("configuredRoot").toString(),newCache);
+        QCOMPARE(decision.value("sceneThreshold").toDouble(),newThreshold);
+        QVERIFY(analysis->analyzedFrames()>0);
+        release();pfservices::SettingsStore::flushPendingWrites();
+        analysis->analyzeFiles({source});
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
+        QVERIFY(analysis->analysisCompleted());QCOMPARE(analysis->analyzedFrames(),0);
     }
 };
 
