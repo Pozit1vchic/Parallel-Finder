@@ -452,3 +452,29 @@ TEST(SessionCacheCudaGraph, RealFloat32ModelsPreserveOutputsAcrossClientsAndCach
     }
 }
 } // namespace
+
+#if defined(_WIN32)
+#include <QProcess>
+#include <QProcessEnvironment>
+#include <windows.h>
+TEST(OrtRuntimeUnicode, MissingOverrideChild) {
+    if(!qEnvironmentVariableIsSet("PF_TEST_UNICODE_RUNTIME_CHILD"))GTEST_SKIP()<<"Fresh-child helper";
+    const auto status=pfgpu::ortRuntimeStatus();
+    EXPECT_FALSE(status.loaded);
+    EXPECT_NE(status.error.find("PF_ORT_DLL"),std::string::npos);
+    EXPECT_NE(status.error.find(QString::fromUtf8("日本語").toStdString()),std::string::npos);
+}
+TEST(OrtRuntimeUnicode, MissingOverrideUsesWideEnvironmentAndReportsUtf8WithoutThrowing) {
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    auto environment=QProcessEnvironment::systemEnvironment();
+    environment.insert("PF_TEST_UNICODE_RUNTIME_CHILD","1");
+    environment.insert("PF_ORT_DLL",directory.filePath(QString::fromUtf8("Русский 日本語/onnxruntime.dll")));
+    wchar_t executable[32768]{};
+    const auto length=GetModuleFileNameW(nullptr,executable,32768);ASSERT_GT(length,0u);ASSERT_LT(length,32768u);
+    QProcess process;process.setProcessEnvironment(environment);
+    process.start(QString::fromWCharArray(executable,length),{"--gtest_filter=OrtRuntimeUnicode.MissingOverrideChild"});
+    ASSERT_TRUE(process.waitForStarted(5000));ASSERT_TRUE(process.waitForFinished(15000));
+    EXPECT_EQ(process.exitStatus(),QProcess::NormalExit);
+    EXPECT_EQ(process.exitCode(),0)<<process.readAllStandardOutput().toStdString()<<process.readAllStandardError().toStdString();
+}
+#endif

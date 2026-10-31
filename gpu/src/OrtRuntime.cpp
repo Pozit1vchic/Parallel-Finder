@@ -65,7 +65,6 @@ std::pair<const OrtApi*, std::uint32_t> selectApiVersion(const OrtApiBase& apiBa
 // (application directory first, then PATH), which is what the portable release
 // relies on.
 constexpr const char* kRuntimePathEnvVar = "PF_ORT_DLL";
-constexpr const char* kProviderRootEnvVar = "PF_PROVIDER_ROOT";
 
 struct RuntimeState {
     std::once_flag once;
@@ -136,18 +135,29 @@ std::optional<std::filesystem::path> findRuntimeIn(const std::filesystem::path& 
     return std::nullopt;
 }
 
+std::optional<std::filesystem::path> environmentPath(const wchar_t* name)
+{
+    // Windows' narrow getenv uses the active code page, not UTF-8. Construct
+    // native paths directly from the wide environment before probing DLLs.
+    const DWORD size=::GetEnvironmentVariableW(name,nullptr,0);
+    if(!size)return std::nullopt;
+    std::wstring value(size,L'\0');
+    const DWORD written=::GetEnvironmentVariableW(name,value.data(),size);
+    if(!written || written>=size)return std::nullopt;
+    value.resize(written);
+    return std::filesystem::path(value);
+}
+
 void loadRuntime(RuntimeState& s)
 {
     std::vector<std::filesystem::path> candidates;
     bool explicitPath = false;
-    if (const char* override_path = std::getenv(kRuntimePathEnvVar);
-        override_path && *override_path) {
-        candidates.push_back(std::filesystem::u8path(override_path));
+    if (const auto overridePath = environmentPath(L"PF_ORT_DLL")) {
+        candidates.push_back(*overridePath);
         explicitPath = true;
     } else {
-        if (const char* root = std::getenv(kProviderRootEnvVar); root && *root) {
-            const auto overrideRoot = std::filesystem::u8path(root);
-            if (const auto overrideRuntime = findRuntimeIn(overrideRoot))
+        if (const auto root = environmentPath(L"PF_PROVIDER_ROOT")) {
+            if (const auto overrideRuntime = findRuntimeIn(*root))
                 candidates.push_back(*overrideRuntime);
         }
         wchar_t modulePath[MAX_PATH] {};
