@@ -1455,7 +1455,7 @@ TEST(ExportQueue, ReusesIdenticalCutsButKeepsSeparateNumberedFiles)
     EXPECT_EQ(first.readAll(), second.readAll());
 }
 
-TEST(CutService, CancellationStopsAnActiveEncoderAndCleansTemporaryOutput)
+TEST(CutService, CancellationAfterEncodedProgressCleansUnpublishedOutput)
 {
     const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
     if (ffmpeg.isEmpty()) GTEST_SKIP() << "FFmpeg unavailable";
@@ -1478,26 +1478,54 @@ TEST(CutService, CancellationStopsAnActiveEncoderAndCleansTemporaryOutput)
     request.endSeconds = 60;
     std::stop_source stop;
     request.stopToken = stop.get_token();
-    std::atomic_bool encoderStarted{false};
-    std::jthread cancel([&] {
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        while (std::chrono::steady_clock::now() < deadline) {
-            const auto temporaries = QDir(directory.path()).entryInfoList({"cancelled.part-*.mp4"}, QDir::Files);
-            if (std::any_of(temporaries.begin(), temporaries.end(), [](const auto& file) { return file.size() > 0; })) {
-                encoderStarted.store(true);
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    bool temporaryExisted=false;
+    double encodedAtCancellation=-1;
+    request.timeoutMs=30000; // A stalled/missing encoder must fail, not hang.
+    request.progress=[&](double seconds) {
+        // Synchronize on actual encoded media, not a five-second race with
+        // startup or file-size metadata/AVIO buffering. End-only progress is
+        // insufficient: the test must interrupt an unfinished real encode.
+        if(encodedAtCancellation<0&&seconds>0&&seconds<request.endSeconds) {
+            encodedAtCancellation=seconds;
+            temporaryExisted=!QDir(directory.path()).entryList({"cancelled.part-*.mp4"},QDir::Files).isEmpty();
+            stop.request_stop();
         }
-        stop.request_stop();
-    });
+    };
     const auto result = cutter.cut(request);
-    cancel.join();
-    EXPECT_TRUE(encoderStarted.load());
+    EXPECT_GT(encodedAtCancellation,0)<<result.error;
+    EXPECT_LT(encodedAtCancellation,request.endSeconds);
+    EXPECT_TRUE(temporaryExisted);
     EXPECT_FALSE(result.success);
     EXPECT_TRUE(result.cancelled);
     EXPECT_FALSE(std::filesystem::exists(request.outputPath));
     EXPECT_TRUE(QDir(directory.path()).entryList({"cancelled.part-*.mp4"}, QDir::Files).isEmpty());
+}
+
+TEST(CutService, CancellationStopsAnActiveEncoderAndCleansTemporaryOutput)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    pfservices::CutRequest request;
+    request.inputPath=std::filesystem::path(PF_TEST_FIXTURE_DIR)/"tiny.mp4";
+    request.outputPath=directory.filePath("cancelled.mp4").toStdWString();
+    request.endSeconds=1;request.timeoutMs=3000;
+    std::stop_source stop;request.stopToken=stop.get_token();
+    bool encoderReported=false,temporaryExisted=false;
+    request.progress=[&](double seconds) {
+        // The controlled child emits zero and then stays alive for 30 seconds.
+        // Receiving this record and returning quickly proves a live process
+        // was cancelled, independently of real-encoder speed or OS file sizes.
+        EXPECT_DOUBLE_EQ(seconds,0);
+        encoderReported=true;
+        temporaryExisted=!QDir(directory.path()).entryList({"cancelled.part-*.mp4"},QDir::Files).isEmpty();
+        stop.request_stop();
+    };
+    const auto started=std::chrono::steady_clock::now();
+    const auto result=pfservices::CutService(PF_TEST_FFMPEG_STUB).cut(request);
+    EXPECT_TRUE(encoderReported)<<result.error;EXPECT_TRUE(temporaryExisted);
+    EXPECT_TRUE(result.cancelled)<<result.error;EXPECT_FALSE(result.success);
+    EXPECT_LT(std::chrono::steady_clock::now()-started,std::chrono::seconds(3));
+    EXPECT_FALSE(std::filesystem::exists(request.outputPath));
+    EXPECT_TRUE(QDir(directory.path()).entryList({"cancelled.part-*.mp4"},QDir::Files).isEmpty());
 }
 
 TEST(CutService, ExportsVideoWithSubtitlesToMp4)
