@@ -22,6 +22,16 @@ TEST(SceneDescriptor, BodyYawPreservesCircularValuesAndDoesNotInventPitchOrHead)
     w.sceneStartSeconds=0;w.sceneEndSeconds=1;
     EXPECT_FALSE(pfcore::describeScene(w,0,1.1).body.yawDegrees);
 }
+TEST(SceneDescriptor, SupportedBodyYawAndIndependentHeadRotationDoNotOverwriteEachOther) {
+    pfcore::MotionWindow w;w.sourceId="film";
+    w.bodyOrientations={bodySample(0,70),bodySample(.5,70),bodySample(1,70)};
+    const std::array<double,9> frontal{1,0,0,0,1,0,0,0,1};
+    w.headOrientations={{0,frontal,true},{.5,frontal,true},{1,frontal,true}};
+    const auto descriptor=pfcore::describeScene(w,0,1.1);
+    ASSERT_TRUE(descriptor.body.yawDegrees);ASSERT_TRUE(descriptor.head.yawDegrees);
+    EXPECT_DOUBLE_EQ(*descriptor.body.yawDegrees,70);EXPECT_NEAR(*descriptor.head.yawDegrees,0,1e-9);
+    EXPECT_FALSE(descriptor.body.pitchDegrees);
+}
 TEST(SceneDescriptor, BodyYawRequiresIndependentOwnedTemporalObservations) {
     const std::vector<pfcore::BodyOrientationSample> good{bodySample(0,10),bodySample(.5,20),bodySample(1,30)};
     for(int mode=0;mode<7;++mode) {

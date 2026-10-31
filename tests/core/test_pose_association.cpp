@@ -1,4 +1,5 @@
 #include <pfcore/PoseAssociation.hpp>
+#include <pfcore/DetectorOutputReplay.hpp>
 #include <gtest/gtest.h>
 #include <QFile>
 #include <QJsonDocument>
@@ -19,6 +20,34 @@ TEST(PoseAssociation, CorrespondenceDoesNotDependOnDetectionOrder) {
     const auto match=pfcore::associateObservedPose(expected,candidates,1280,720);
     ASSERT_TRUE(match);EXPECT_EQ(match->candidate,1U);EXPECT_EQ(match->commonJoints,17U);
     EXPECT_DOUBLE_EQ(match->normalizedMedianError,0);
+}
+TEST(DetectorOutputReplay, RecoversTheSameSparseObservationWithoutCallingItArticulatedPose) {
+    auto expected=pose();for(auto& p:expected.keypoints)p.confidence=.01;
+    expected.keypoints[5].confidence=.9;expected.keypoints[6].confidence=.9;
+    auto other=expected;for(auto& p:other.keypoints)p.x+=50;
+    const std::vector candidates{other,expected};
+    EXPECT_FALSE(pfcore::associateObservedPose(expected,candidates,1280,720));
+    const auto replay=pfcore::associateDetectorOutputReplay(expected,candidates,1280,720);
+    ASSERT_TRUE(replay);EXPECT_EQ(replay->candidate,1U);EXPECT_DOUBLE_EQ(replay->maximumPointError,0);
+}
+TEST(DetectorOutputReplay, RequiresEveryRawTripleAndUniqueSameTimestampOutput) {
+    const auto expected=pose();
+    for(int mode=0;mode<7;++mode) {
+        auto changed=expected;
+        switch(mode) {
+        case 0:changed.keypoints[16].x+=1;break;
+        case 1:changed.keypoints[16].confidence-=.01;break;
+        case 2:changed.timestampSeconds+=.01;break;
+        case 3:changed.keypoints[0].x=std::numeric_limits<double>::quiet_NaN();break;
+        case 4:changed.keypoints[0].confidence=1.1;break;
+        case 5:changed.keypoints[0].x=3000;break;
+        case 6:changed.keypoints.pop_back();break;
+        }
+        EXPECT_FALSE(pfcore::associateDetectorOutputReplay(expected,std::span(&changed,1),1280,720))<<mode;
+    }
+    EXPECT_FALSE(pfcore::associateDetectorOutputReplay(expected,std::vector{expected,expected},1280,720));
+    auto degenerate=expected;for(auto& p:degenerate.keypoints)p={100,100,.9};
+    EXPECT_FALSE(pfcore::associateDetectorOutputReplay(degenerate,std::span(&degenerate,1),1280,720));
 }
 TEST(PoseAssociation, RejectsAmbiguityMissingJointsAndDifferentTimestamps) {
     const auto expected=pose();auto other=expected;

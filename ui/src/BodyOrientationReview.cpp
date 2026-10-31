@@ -2,6 +2,7 @@
 #include "BodyOrientationCache.h"
 #include <pfcore/PathEncoding.hpp>
 #include <pfcore/PoseAssociation.hpp>
+#include <pfcore/DetectorOutputReplay.hpp>
 #include <pfgpu/BodyOrientationEstimator.hpp>
 #include <pfservices/PfCache.hpp>
 #include <QCryptographicHash>
@@ -22,17 +23,21 @@ std::string hashFile(const std::filesystem::path& path) {
     return hash.result().toHex().toStdString();
 }
 std::string requestKey(const std::string& source,const pfcore::PoseFrame& frame,const std::string& nameSpace,
-    const std::string& poseHash,const pfgpu::PoseEstimatorParams& params,pfgpu::Provider provider) {
+    const std::string& poseHash,const pfgpu::PoseEstimatorParams& params,pfgpu::Provider provider,const pfcore::VideoDecodeOptions& decode) {
     QJsonArray points;for(const auto& p:frame.keypoints)points.push_back(QJsonArray{p.x,p.y,p.confidence});
     const auto bytes=QJsonDocument(QJsonObject{{"source",QString::fromStdString(source)},{"namespace",QString::fromStdString(nameSpace)},
         {"poseModel",QString::fromStdString(poseHash)},{"points",points},{"time",frame.timestampSeconds},
         {"poseProvider",static_cast<int>(params.provider)},{"bodyProvider",static_cast<int>(provider)},
         {"poseProfile",QString::fromStdString(params.profile)},{"poseBatch",static_cast<double>(params.batchSize)},
         {"poseKeypoints",static_cast<double>(params.keypointCount)},
+        {"decodeNvidia",decode.preferNvidia},{"decodeMinimumNvidiaPixels",static_cast<double>(decode.minimumNvidiaPixels)},
+        {"decodeAutomaticConversion",decode.autoNvidiaConversion},{"decodeConversionThreads",decode.conversionThreads},
+        {"decodeDevice",decode.nvidiaDevice},{"decodeResizeNvidia",decode.resizeOnNvidia},
+        {"workingResolution",QJsonArray{1280,720}},
         {"inputWidth",params.inputWidth},{"inputHeight",params.inputHeight},{"threshold",params.confidenceThreshold},
         {"nms",params.nmsIouThreshold},{"outputMode",static_cast<int>(params.outputMode)},
         {"bodyModel",QString::fromLatin1(pfcore::kBodyOrientationModelHash)}}).toJson(QJsonDocument::Compact);
-    return "body-orientation-v1|bilinear-byte1024|pose-repair|mutual-iou50-margin15|mirror25-crop20|"
+    return "body-orientation-v2|bilinear-byte1024|all17-replay1e4-score1e3-margin2e3|torso-anchor80|mutual-iou50-margin15|mirror25-crop20|"
         +QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex().toStdString();
 }
 bool torsoVisible(const pfcore::PoseFrame& frame,int width,int height) {
@@ -42,6 +47,16 @@ bool torsoVisible(const pfcore::PoseFrame& frame,int width,int height) {
             &&p.confidence>=.5&&p.confidence<=1&&p.x>=0&&p.y>=0&&p.x<width&&p.y<height;
     };
     return visible(5)&&visible(6)&&(visible(11)||visible(12)||((visible(7)||visible(9))&&(visible(8)||visible(10))));
+}
+bool upperBodyAnchorVisible(const pfcore::PoseFrame& frame,const pfgpu::BodyOrientationRegion& box) {
+    // Only used with an all-17-output replay, not a loose skeletal association.
+    // A partial upper body can have no visible face, elbows or hips. The two
+    // independent detectors and four real orientation views still have to agree.
+    for(const std::size_t index:{5U,6U,11U,12U}) {
+        const auto& p=frame.keypoints[index];
+        if(p.confidence>=.8&&p.x>=box.left&&p.x<box.right&&p.y>=box.top&&p.y<box.bottom)return true;
+    }
+    return false;
 }
 }
 BodyOrientationReviewStats reviewMatchedBodyOrientations(std::vector<pfcore::MotionWindow>& windows,
@@ -73,7 +88,7 @@ BodyOrientationReviewStats reviewMatchedBodyOrientations(std::vector<pfcore::Mot
             if(candidates.size()<3||candidates.back()->timestampSeconds-candidates.front()->timestampSeconds<.3)return;
             for(const auto position:std::set<std::size_t>{0,(candidates.size()-1)/2,candidates.size()-1}) {
                 const auto& frame=*candidates[position];const auto found=sourceNamespaces.find(window.sourceId);
-                const auto key=requestKey(window.sourceId,frame,found==sourceNamespaces.end()?"uncached":found->second,poseHash,pose.params(),provider);
+                const auto key=requestKey(window.sourceId,frame,found==sourceNamespaces.end()?"uncached":found->second,poseHash,pose.params(),provider,options);
                 const auto [entry,inserted]=lookup.try_emplace(key,requests.size());
                 if(inserted)requests.push_back({window.sourceId,key,frame,{}});
                 auto& destinations=requests[entry->second].destinations;
@@ -125,10 +140,16 @@ BodyOrientationReviewStats reviewMatchedBodyOrientations(std::vector<pfcore::Mot
                         regions.push_back({std::clamp<double>(person.left,0,pixels.width),std::clamp<double>(person.top,0,pixels.height),
                             std::clamp<double>(person.right,0,pixels.width),std::clamp<double>(person.bottom,0,pixels.height)});
                     }
-                    if(const auto association=pfcore::associateObservedPose(request.frame,fresh,pixels.width,pixels.height)) {
-                        const auto index=association->candidate;const auto& region=regions[index];sample.poseAssociated=true;
+                    const auto raw=pfcore::associateDetectorOutputReplay(request.frame,fresh,pixels.width,pixels.height);
+                    const auto articulated=pfcore::associateObservedPose(request.frame,fresh,pixels.width,pixels.height);
+                    std::optional<std::size_t> subject;
+                    if(raw) {subject=raw->candidate;++stats.rawReplays;}
+                    else if(articulated)subject=articulated->candidate;
+                    if(subject) {
+                        const auto index=*subject;const auto& region=regions[index];sample.poseAssociated=true;
                         sample.reason="torso_not_observed";
-                        if(people[index].confidence>=.4&&torsoVisible(fresh[index],pixels.width,pixels.height)
+                        if(people[index].confidence>=.4&&(torsoVisible(fresh[index],pixels.width,pixels.height)
+                            ||(raw&&upperBodyAnchorVisible(fresh[index],region)))
                             &&region.right-region.left>=16&&region.bottom-region.top>=32&&!stopped()) {
                             const pfgpu::PoseImage image{pixels.width,pixels.height,pixels.rgba.data()};
                             const auto original=body.infer(image);++stats.bodyInferences;if(stopped())break;
@@ -151,7 +172,7 @@ BodyOrientationReviewStats reviewMatchedBodyOrientations(std::vector<pfcore::Mot
                                 const auto a=body.infer(cropImage);++stats.bodyInferences;if(stopped())break;
                                 const auto b=body.infer(cropImage,true);++stats.bodyInferences;if(stopped())break;
                                 const auto cropped=pfgpu::associateBodyOrientations(croppedRegions,a,b)[index];
-                                sample.reason="crop_unconfirmed";
+                                sample.reason="crop_"+std::string(pfgpu::bodyYawStatusCode(cropped.status));
                                 if(cropped.yawDegrees) {
                                     sample.cropDifference=std::abs(std::remainder(sample.yawDegrees-*cropped.yawDegrees,360.));
                                     sample.associationIou=std::min(sample.associationIou,cropped.associationIou);
@@ -165,6 +186,9 @@ BodyOrientationReviewStats reviewMatchedBodyOrientations(std::vector<pfcore::Mot
                 }
                 const QFileInfo after(QString::fromStdString(request.source));
                 if(size!=after.size()||stamp!=after.lastModified())throw std::runtime_error("BODY_ORIENTATION_SOURCE_CHANGED");
+                // Unconfirmed candidate angles have no public meaning. Keep
+                // cold and cached unknown observations identical (JSON uses null).
+                if(!sample.observed)sample.yawDegrees=0;
                 if(cache&&reusable&&cacheable&&!stopped())writes[request.source].emplace_back(request.key,body_detail::serialize(sample));
             }
             stats.observed+=sample.observed;

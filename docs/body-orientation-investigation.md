@@ -215,8 +215,9 @@ Head rotation and unsupported body pitch are not inferred from this value.
 The result-only observations are copied into grouping evidence and exposed in
 the side descriptors (`bodyYaw`, `bodyView`, support state/counts). Existing
 continuity ordering consumes the now-populated continuous body yaw. The primary
-pose cache format and matcher admission are unchanged. Orientation filtering,
-directional readout and broader trajectory/scope-family review remain open.
+pose cache format and matcher admission are unchanged. Orientation filtering
+and broader trajectory/scope-family review remain open; the subsequent readout
+section adds the user-visible direction explanation.
 
 The separate 64 MiB `movement-refinement-v1/body-orientation-v1` cache includes
 source generation, model hashes, observed points, pose inference settings and
@@ -283,3 +284,102 @@ resource-built popup screenshot was inspected:
 fixture, not a recognition result). Full UI regression: **57 passed, seven
 explicit opt-in skips**, plus application smoke passes
 (`build/body-direction-ui-suite.log`, 42.72 s).
+
+## Sparse upper-body observations and difficult temporal controls
+
+`tests/fixtures/body-yaw-temporal-controls.json` contains four reviewed source
+intervals, each with three requested times, target rectangle, source hash and
+coarse yaw interval chosen before running temporal inference. A private contact
+sheet was inspected (`build/body-temporal-survey.jpg`). The foreground-back and
+shirtless-neighbour intervals end before their visible next-shot cuts. The left
+profile subject in the Kyle montage is a woman; the fixture explicitly does not
+call her Kyle or claim an identity-recognition result.
+
+The first run exposed an architectural mismatch: a six-visible-joint articulated
+pose check was also being used to recover a detector's body rectangle. This
+rejects actual upper-body observations when elbows, hips and facial landmarks
+are occluded. `associateObservedPose` retains that requirement for articulated
+pose/action evidence. The new `DetectorOutputReplay.hpp` separately locates the
+already selected observation at the **same source/model/settings/timestamp** by
+comparing all 17 raw coordinate/confidence triples, including low-confidence
+values as a numerical output fingerprint. It requires maximum point error
+<=1e-4 image diagonals, confidence error <=1e-3, a unique runner-up margin of
+2e-3 diagonals and nondegenerate coordinate spread. This is detector replay,
+never a claim of actor identity across frames or reliable invisible anatomy.
+
+Only this stronger same-frame replay enables an upper-body observation with one
+>=.8 shoulder/hip anchor inside the actual detected body box. The person score
+>=.4, actual original/flip and crop/flip body inferences, mutual IoU >=.5,
+association margin >=.15, mirror difference <=25 degrees, crop difference <=20
+degrees, and interval temporal checks remain required. Full articulated pose
+quality is not promoted by the alternative body-orientation path. A new v2
+request-key namespace prevents reusing earlier unknown/accepted measurements;
+the expensive primary pose/identity cache format remains unchanged.
+
+Controlled actual-model comparison on the same 12 reviewed frames:
+
+| Measure | Previous review, CUDA | Detector replay, CUDA | Detector replay, CPU |
+| --- | ---: | ---: | ---: |
+| Coarse-correct supported samples | 4 | 6 | 6 |
+| Supported samples outside reviewed interval | 0 | 0 | 0 |
+| Visible but unresolved samples | 8 | 6 | 6 |
+| Supported interval descriptors | 1 / 4 | 2 / 4 | 2 / 4 |
+
+The profile interval now supports all three samples around -81 degrees; the
+balcony interval remains around +68 degrees despite its camera-facing head.
+The six back-view samples remain **misses**, not correct negatives: full/cropped
+mirror disagreement or missing crop detection prevents a supported result.
+The shirtless neighbour's frontal angle is not borrowed. These are correlated
+frames from four intervals in two montages, not population accuracy or measured
+3D ground truth. Minimum-support regression floors preserve the two measured
+positive controls; they are explicitly separate from the visual labels and do
+not relabel the other visible bodies as absent.
+
+Reports: `build/body-temporal-difficult-cuda.json` (before),
+`body-temporal-difficult-cuda-v2.json` and `body-temporal-difficult-cpu-v2.json`
+(after), with `body-temporal-comparison.json` retaining report, fixture and model
+hashes. Native YOLO26x pose SHA-256 is
+`a536ab7f2220b109543455801ea2bd4142c90044cf1aad46a48e044a92564419`;
+body model hash remains the pinned one above. Six opt-in Qt checks pass on CPU
+in 95.866 s and CUDA in 35.336 s, including both difficult controls and the
+previous frontal cold/warm/cancel/resume check. These whole-test times include
+different amounts of setup and are not a controlled provider speed benchmark.
+Maximum CPU/CUDA yaw difference among the six supported difficult samples is
+0.01591 degrees. Both accept all 12 original detector-output replays; warm runs
+retain identical known/unknown samples with zero decoding or either inference.
+Unconfirmed candidate yaw is normalized internally and serialized as null, so
+cached unknowns cannot acquire a fabricated frontal label or retain a different
+candidate angle. Crop failure reasons now distinguish missing detection from
+mirror/association conflict in the diagnostic samples.
+
+Fifteen core checks pass across scene descriptors, articulated correspondence
+and raw-output replay (`build/body-output-replay-core-tests.log`), including
+independent simultaneously observed head/body values, sparse replay, unique
+ownership, modified raw triples, wrong time, invalid numbers and duplicates.
+Broader real orientation recovery, dimension filters/sorts, supported pitch and
+release packaging remain separate open requirements.
+
+Ordinary analysis also retains the primary decoder's NVDEC/CPU override and
+validated automatic four-worker conversion policy for detector replay. The v2
+request fingerprint records decode backend/device/resize/conversion options and
+working dimensions. A separate real run requests NVDEC and asserts the actual
+backend, rather than silently accepting CPU fallback. All four controls use
+NVDEC and four conversion workers; all 12 same-frame detector replays succeed,
+with the same six supported/coarse-correct samples, six misses, zero supported
+coarse errors and warm zero-inference reuse. Evidence:
+`build/body-temporal-difficult-nvdec.json` / `.txt`, six checks pass in 34.898 s.
+This validates the hardware decode path too, not a provider speed benchmark.
+
+The readout additionally suppresses retained evidence for a removed A/B side;
+removing A leaves B's independent angle intact. This is covered in the actual
+popup UI check. The subsequent full UI/selector/application-smoke replay passes
+(`body-direction-side-state-ui-suite.log`, 42.93 s), including 57 UI checks and
+seven explicit opt-in skips.
+
+Final current-tree Release verification: all **14/14 CTest targets pass in
+115.39 s** (`build/body-direction-nvdec-final-suite.log`), including 57 UI checks
+and the separate live-process/real-media export cancellation controls. The
+export test's earlier five-second file-size watcher failure and its phase-based
+replacement are documented in `export-cancellation-evidence.md`; no CutService
+production behavior changed. Full installer/upgrade and remaining quality
+requirements are not closed by this run.

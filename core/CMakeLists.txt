@@ -27,6 +27,7 @@ target_compile_features(pfcore PUBLIC cxx_std_23)
 
 # Guard: pfcore must not include Qt headers (spec section 2: "ядро без Qt").
 set(PF_CORE_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/DetectorOutputReplay.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/BodyOrientationSample.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/BodyOrientation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/FaceAssociation.hpp

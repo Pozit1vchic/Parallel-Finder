@@ -432,8 +432,8 @@ ColumnLayout {
                     }
                     BodyOrientationReadout {
                         Layout.fillWidth: true
-                        leftDescriptor: root.selectedRecord ? root.selectedRecord.leftDescriptor || {} : ({})
-                        rightDescriptor: root.selectedRecord ? root.selectedRecord.rightDescriptor || {} : ({})
+                        leftDescriptor: root.selectedRecord && !root.selectedRecord.leftRemoved ? root.selectedRecord.leftDescriptor || {} : ({})
+                        rightDescriptor: root.selectedRecord && !root.selectedRecord.rightRemoved ? root.selectedRecord.rightDescriptor || {} : ({})
                     }
                     Text { Layout.fillWidth: true; text: L10n.t("explain.note"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
                 }

@@ -4088,6 +4088,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 options.preferNvidia=provider==pfgpu::Provider::Cuda;
                 options.minimumNvidiaPixels=1920ULL*1080ULL+1;
                 const auto cache=movementCacheRoot.empty()?std::filesystem::path{}:movementCacheRoot/"body-orientation-v1";
+                options.autoNvidiaConversion=true;
+                const auto decodeOverride=qEnvironmentVariable("PF_VIDEO_DECODE").toLower();
+                if(decodeOverride==QStringLiteral("cpu"))options.preferNvidia=false;
+                else if(decodeOverride==QStringLiteral("nvdec")) {options.preferNvidia=true;options.minimumNvidiaPixels=0;}
                 QElapsedTimer progressTimer;progressTimer.start();
                 bodyReview=reviewMatchedBodyOrientations(windows,foundMatches,*pose,*bodyModel,cache,namespaces,provider,options,isCancelled,
                     [&](std::size_t done,std::size_t total) {
@@ -4100,8 +4104,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     });
                 bodyReviewMs=resultTimer.elapsed()-started;
                 if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")||!bodyReview.error.empty())
-                    std::fprintf(stderr,"PF_BODY_REVIEW requested=%zu cached=%zu observed=%zu decoded=%zu pose_inferences=%zu body_inferences=%zu error=%s\n",
-                        bodyReview.requested,bodyReview.cached,bodyReview.observed,bodyReview.decoded,bodyReview.poseInferences,bodyReview.bodyInferences,bodyReview.error.c_str());
+                    std::fprintf(stderr,"PF_BODY_REVIEW requested=%zu cached=%zu observed=%zu decoded=%zu pose_inferences=%zu body_inferences=%zu raw_replays=%zu error=%s\n",
+                        bodyReview.requested,bodyReview.cached,bodyReview.observed,bodyReview.decoded,bodyReview.poseInferences,bodyReview.bodyInferences,bodyReview.rawReplays,bodyReview.error.c_str());
             }
             std::map<std::string,std::size_t> targetIds;
             for (auto it=summaries.cbegin();it!=summaries.cend();++it) {

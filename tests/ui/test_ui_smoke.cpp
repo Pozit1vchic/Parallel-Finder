@@ -2657,6 +2657,10 @@ void UiSmokeTests::bodyDirectionReadoutPreservesAnglesUnknownsAndPopupGeometry()
     QCOMPARE(angle->property("text").toString(),QString::fromUtf8("+90,0°"));
     QCOMPARE(rightAngle->property("text").toString(),QString::fromUtf8("-179,9°"));
     QCOMPARE(support->property("text").toString(),QString::fromUtf8("Подтверждено кадров: 3 / 3"));
+    record["leftRemoved"]=true;publish();
+    QCOMPARE(direction->property("text").toString(),QString::fromUtf8("Не определено"));QVERIFY(angle->property("text").toString().isEmpty());
+    QCOMPARE(rightAngle->property("text").toString(),QString::fromUtf8("-179,9°"));
+    record.remove("leftRemoved");publish();
     const std::vector<std::pair<double,QString>> views{{0,QString::fromUtf8("Анфас")},{45,QString::fromUtf8("Вполоборота влево")},
         {90,QString::fromUtf8("Профиль влево")},{135,QString::fromUtf8("Спиной, влево")},{180,QString::fromUtf8("Со спины")},
         {-135,QString::fromUtf8("Спиной, вправо")},{-90,QString::fromUtf8("Профиль вправо")},{-45,QString::fromUtf8("Вполоборота вправо")}};

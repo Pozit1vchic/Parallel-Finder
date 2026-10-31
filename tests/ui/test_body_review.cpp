@@ -6,11 +6,101 @@
 #include <ScenePresentation.h>
 #include <ResultClassification.h>
 #include <QTemporaryDir>
+#include <QFile>
+#include <QJsonArray>
+#include <QCryptographicHash>
 #include <algorithm>
 
 class BodyReviewTests:public QObject {
     Q_OBJECT
 private slots:
+    void realDifficultViewsKeepSubjectOwnership() {
+        const auto model=qEnvironmentVariable("PF_BODY_REVIEW_MODEL"),poseModel=qEnvironmentVariable("PF_BODY_REVIEW_POSE_MODEL");
+        if(model.isEmpty()||poseModel.isEmpty()||qEnvironmentVariable("PF_BODY_REVIEW_VIDEO").isEmpty()
+            ||qEnvironmentVariable("PF_BODY_REVIEW_KYLE").isEmpty())QSKIP("Opt-in independent temporal orientation controls");
+        QFile labels(QFINDTESTDATA("../fixtures/body-yaw-temporal-controls.json"));QVERIFY(labels.open(QIODevice::ReadOnly));
+        const auto cases=QJsonDocument::fromJson(labels.readAll()).object()["cases"].toArray();QCOMPARE(cases.size(),4);
+        pfgpu::PoseEstimatorParams params;params.provider=qEnvironmentVariable("PF_BODY_REVIEW_PROVIDER")=="cuda"?pfgpu::Provider::Cuda:pfgpu::Provider::Cpu;
+        params.intraOpThreads=4;pfgpu::PoseEstimator pose(poseModel.toStdString(),params);
+        std::map<QString,QString> sourceHashes;QJsonArray results;int totalWrong=0;
+        QTemporaryDir cache;QVERIFY(cache.isValid());
+        for(const auto value:cases) {
+            const auto item=value.toObject();const auto id=item["id"].toString();
+            const auto source=qEnvironmentVariable(item["sourceEnv"].toString().toUtf8().constData());
+            if(!sourceHashes.contains(source)) {
+                QFile file(source);QVERIFY(file.open(QIODevice::ReadOnly));QCryptographicHash hash(QCryptographicHash::Sha256);QVERIFY(hash.addData(&file));
+                sourceHashes[source]=hash.result().toHex();
+            }
+            QCOMPARE(sourceHashes.at(source),item["sourceSha256"].toString());
+            const auto times=item["times"].toArray(),box=item["targetBox"].toArray(),interval=item["yawInterval"].toArray();
+            const bool nvidia=qEnvironmentVariable("PF_BODY_REVIEW_DECODE")=="nvdec";
+            pfcore::VideoDecodeOptions options;options.threads=nvidia?8:4;options.maxWidth=1280;options.maxHeight=720;
+            options.preferNvidia=nvidia;options.autoNvidiaConversion=nvidia;
+            pfcore::VideoDecoder decoder;decoder.open(source.toStdString(),options);decoder.setRgbaMaxDimensions(1280,720);
+            pfcore::MotionWindow w;w.sourceId=source.toStdString();w.sceneStartSeconds=times.first().toDouble();w.sceneEndSeconds=item["end"].toDouble();
+            for(const auto requested:times) {
+                pfcore::DecodedFrame frame;decoder.seek(requested.toDouble());
+                do {QVERIFY(decoder.readNext(frame,false));}while(frame.timestampSeconds+1e-6<requested.toDouble());
+                QVERIFY(decoder.convertCurrentFrameToRgba(frame));
+                const auto people=pose.infer({frame.width,frame.height,frame.rgba.data()});
+                std::vector<std::pair<double,std::size_t>> candidates;
+                for(std::size_t index=0;index<people.size();++index) {
+                    const auto& p=people[index];const double l=box[0].toDouble()*frame.width,t=box[1].toDouble()*frame.height,
+                        r=box[2].toDouble()*frame.width,b=box[3].toDouble()*frame.height;
+                    const double intersection=std::max(0.,std::min<double>(p.right,r)-std::max<double>(p.left,l))
+                        *std::max(0.,std::min<double>(p.bottom,b)-std::max<double>(p.top,t));
+                    const double area=(p.right-p.left)*(p.bottom-p.top)+(r-l)*(b-t)-intersection;
+                    if(area>0)candidates.emplace_back(intersection/area,index);
+                }
+                std::sort(candidates.rbegin(),candidates.rend());
+                QVERIFY2(!candidates.empty()&&candidates[0].first>=.35,qPrintable(id+": target pose missing"));
+                QVERIFY2(candidates.size()==1||candidates[0].first-candidates[1].first>=.15,qPrintable(id+": target rectangle ambiguous"));
+                const auto& p=people[candidates[0].second];pfcore::PoseFrame observed;observed.timestampSeconds=frame.timestampSeconds;
+                for(std::size_t joint=0;joint+2<p.keypoints.size();joint+=3)observed.keypoints.push_back({p.keypoints[joint],p.keypoints[joint+1],p.keypoints[joint+2]});
+                qInfo("BODY_POSE case=%s time=%.6f shoulders=%.3f,%.3f elbows=%.3f,%.3f hips=%.3f,%.3f",qPrintable(id),frame.timestampSeconds,
+                    p.keypoints[5*3+2],p.keypoints[6*3+2],p.keypoints[7*3+2],p.keypoints[8*3+2],p.keypoints[11*3+2],p.keypoints[12*3+2]);
+                w.frames.push_back(observed);
+            }
+            if(nvidia)QCOMPARE(QString::fromStdString(decoder.diagnostics().backend),QStringLiteral("nvdec"));
+            std::vector<pfcore::MotionWindow> windows{w};pfcore::MotionMatch match;
+            match.leftStartSeconds=match.rightStartSeconds=w.sceneStartSeconds;match.leftEndSeconds=match.rightEndSeconds=w.sceneEndSeconds;
+            const auto stats=pfui::reviewMatchedBodyOrientations(windows,{match},pose,pfcore::pathFromUtf8(model.toStdString()),
+                pfcore::pathFromUtf8(cache.path().toStdString()),{{w.sourceId,id.toStdString()}},params.provider,options,[]{return false;});
+            QVERIFY2(stats.error.empty(),stats.error.c_str());QCOMPARE(stats.requested,std::size_t(3));
+            QCOMPARE(stats.rawReplays,std::size_t(3));
+            QJsonArray samples;int correct=0,wrong=0,unknown=0;
+            for(const auto& s:windows[0].bodyOrientations) {
+                double yaw=s.yawDegrees;if(interval[1].toDouble()>180&&yaw<0)yaw+=360;
+                const bool agrees=s.observed&&yaw>=interval[0].toDouble()&&yaw<=interval[1].toDouble();
+                if(!s.observed)++unknown;else if(agrees)++correct;else ++wrong;
+                samples.push_back(QJsonObject{{"time",s.time},{"observed",s.observed},{"yaw",s.observed?QJsonValue(s.yawDegrees):QJsonValue::Null},
+                    {"reason",QString::fromStdString(s.reason)},{"coarseCorrect",agrees},{"iou",s.associationIou},{"margin",s.associationMargin},
+                    {"mirror",s.mirrorDifference},{"crop",s.cropDifference}});
+            }
+            const auto descriptor=pfcore::describeScene(windows[0],w.sceneStartSeconds,w.sceneEndSeconds);
+            results.push_back(QJsonObject{{"id",id},{"samples",samples},{"correct",correct},{"wrong",wrong},{"unknown",unknown},
+                {"decodeBackend",QString::fromStdString(decoder.diagnostics().backend)},
+                {"conversionThreads",decoder.diagnostics().conversionThreads},
+                {"rawReplays",static_cast<int>(stats.rawReplays)},
+                {"descriptorYaw",descriptor.body.yawDegrees?QJsonValue(*descriptor.body.yawDegrees):QJsonValue::Null}});
+            const auto coldObservations=windows[0].bodyOrientations;
+            const auto warm=pfui::reviewMatchedBodyOrientations(windows,{match},pose,pfcore::pathFromUtf8(model.toStdString()),
+                pfcore::pathFromUtf8(cache.path().toStdString()),{{w.sourceId,id.toStdString()}},params.provider,options,[]{return false;});
+            QVERIFY2(warm.error.empty(),warm.error.c_str());QCOMPARE(warm.cached,std::size_t(3));
+            QCOMPARE(warm.decoded,std::size_t(0));QCOMPARE(warm.poseInferences,std::size_t(0));QCOMPARE(warm.bodyInferences,std::size_t(0));
+            QVERIFY(windows[0].bodyOrientations==coldObservations);
+            qInfo("BODY_TEMPORAL case=%s correct=%d wrong=%d unknown=%d interval_observed=%d",qPrintable(id),correct,wrong,unknown,int(descriptor.body.yawDegrees.has_value()));
+            QVERIFY2(correct>=item["minimumSupportedSamples"].toInt(),qPrintable(id+": measured positive orientation support regressed"));
+            // Unknown on a visible view remains a recorded miss. This assertion
+            // prevents confidently borrowing a neighbour's incompatible angle;
+            // the existing frontal control separately requires real support.
+            totalWrong+=wrong;
+        }
+        const auto output=qEnvironmentVariable("PF_BODY_REVIEW_REPORT");
+        if(!output.isEmpty()) {QFile file(output);QVERIFY(file.open(QIODevice::WriteOnly|QIODevice::NewOnly));
+            QVERIFY(file.write(QJsonDocument(QJsonObject{{"schema",1},{"provider",qEnvironmentVariable("PF_BODY_REVIEW_PROVIDER")},{"cases",results}}).toJson())>0);}
+        QCOMPARE(totalWrong,0);
+    }
     void CancelledAndHeadOnlyWorkDoesNotOpenModelsOrCreateCache() {
         pfgpu::PoseEstimatorParams params;params.provider=pfgpu::Provider::Cpu;
         pfgpu::PoseEstimator pose("missing-pose.onnx",params);

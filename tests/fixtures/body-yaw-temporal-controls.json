@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "annotationMethod": "Coarse yaw intervals and target rectangles chosen by visual review before temporal pipeline inference. Original and mirrored/cropped model outputs are not ground truth. Unknown on a visible view is a miss, not a correct negative.",
+  "regressionPolicy": "Minimum supported counts preserve actually measured positive controls; they are not ground-truth visibility labels. All twelve reviewed frames have a visible target body, including the six currently unresolved back views.",
+  "cases": [
+    {
+      "id": "butcher-balcony-left",
+      "minimumSupportedSamples": 3,
+      "sourceEnv": "PF_BODY_REVIEW_VIDEO",
+      "sourceSha256": "6c7ed560ed6e337e2a0d183f52c29d2bb6db6e95cf13f598ad105526e6dc5830",
+      "times": [10.9, 11.2, 11.5],
+      "end": 11.55,
+      "targetBox": [0.435, 0.12, 0.53, 0.95],
+      "yawInterval": [40, 120],
+      "note": "Standing person near the balcony, body facing image-left and head toward camera; seated foreground person is a different subject."
+    },
+    {
+      "id": "butcher-foreground-back",
+      "minimumSupportedSamples": 0,
+      "sourceEnv": "PF_BODY_REVIEW_VIDEO",
+      "sourceSha256": "6c7ed560ed6e337e2a0d183f52c29d2bb6db6e95cf13f598ad105526e6dc5830",
+      "times": [554.6, 554.85, 555.1],
+      "end": 555.15,
+      "targetBox": [0, 0, 0.43, 1],
+      "yawInterval": [110, 250],
+      "note": "Foreground adult viewed from behind. Another adult and child face the camera; interval stops before the observed next-shot cut."
+    },
+    {
+      "id": "kyle-video-left-woman-profile",
+      "minimumSupportedSamples": 3,
+      "sourceEnv": "PF_BODY_REVIEW_KYLE",
+      "sourceSha256": "b53b508003c48d537cbd0b77cb42320c4b8043e784cea73fc1b0a78e05d717ef",
+      "times": [51.8, 52.1, 52.4],
+      "end": 52.45,
+      "targetBox": [0, 0.02, 0.54, 1],
+      "yawInterval": [-125, -40],
+      "note": "Left woman in profile facing image-right, with seated man on the right. This is a person-orientation control, not an assertion that she is Kyle."
+    },
+    {
+      "id": "kyle-back-next-to-shirtless-man",
+      "minimumSupportedSamples": 0,
+      "sourceEnv": "PF_BODY_REVIEW_KYLE",
+      "sourceSha256": "b53b508003c48d537cbd0b77cb42320c4b8043e784cea73fc1b0a78e05d717ef",
+      "times": [57.6, 57.85, 58.1],
+      "end": 58.15,
+      "targetBox": [0, 0, 0.46, 1],
+      "yawInterval": [110, 250],
+      "note": "Green-jacketed left foreground person with back toward camera. The shirtless frontal man on the right must not supply the target angle; interval stops before the next shot."
+    }
+  ]
+}

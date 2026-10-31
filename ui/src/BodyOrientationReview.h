@@ -8,7 +8,7 @@
 
 namespace pfui {
 struct BodyOrientationReviewStats {
-    std::size_t requested=0,cached=0,observed=0,decoded=0,poseInferences=0,bodyInferences=0;
+    std::size_t requested=0,cached=0,observed=0,decoded=0,poseInferences=0,bodyInferences=0,rawReplays=0;
     std::string error;
 };
 BodyOrientationReviewStats reviewMatchedBodyOrientations(std::vector<pfcore::MotionWindow>& windows,
