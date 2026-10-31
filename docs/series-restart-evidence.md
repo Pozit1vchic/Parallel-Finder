@@ -110,3 +110,20 @@ cache failure above remains under investigation despite this successful run.
 Remaining: intermittent offline mode-cache miss, difficult/ambiguous real series,
 broader labelled identity and retrieval metrics, and the other open specification
 gates. This evidence does not declare the entire specification complete.
+
+
+## Follow-up diagnostics
+
+`PF_DEBUG_CACHE=buffer` retains the same decision fields in each source summary
+without writing during successful cache lookups. The reselection assertion emits
+its original/current source summaries only on failure, and static-mode timeout
+failures now include the current status, progress stage and source summary.
+This avoids relying on the timing effects of verbose diagnostic printing.
+
+The first buffered series passed 27 runs, then the 28th failed on a static-mode
+completion wait after 109.338 seconds (`cache-buffer-failure-28.txt`), rather
+than reproducing the earlier six-sample cache-miss assertion. Its output did not
+yet include stage context; no common cause has been established. With the added
+timeout context, all 40 runs in `cache-buffer-detailed-repeat-*.log` passed.
+These observations preserve two distinct unresolved symptoms; neither a timing
+change nor repeated passes is described as a fix.

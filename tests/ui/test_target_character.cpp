@@ -216,6 +216,7 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
         QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
         QCOMPARE(analysis->summaryForSource(source).value("targetCharacterId").toString(),first);
+        const auto originalSummary=analysis->summaryForSource(source);
         analysis->analyzeFiles({source});
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
         QVERIFY(analysis->analysisCompleted());
@@ -223,7 +224,8 @@ private slots:
         QCOMPARE(analysis->poseDetectionCount(),0);
         analysis->setAnalysisMode("static");
         analysis->analyzeFiles({source});
-        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
+        QTRY_VERIFY2_WITH_TIMEOUT(!analysis->busy(),qPrintable(analysis->status()+" | "+analysis->progressStage()+" | "+
+            QString::fromUtf8(QJsonDocument::fromVariant(analysis->summaryForSource(source)).toJson(QJsonDocument::Compact))),30000);
         QVERIFY(analysis->analysisCompleted());
         QCOMPARE(analysis->analyzedFrames(),0);
         analysis->setAnalysisMode("motion");
@@ -233,7 +235,8 @@ private slots:
         QVERIFY(analysis->selectTargetCharacter(second));
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
         QCOMPARE(analysis->summaryForSource(source).value("targetCharacterId").toString(),second);
-        QCOMPARE(analysis->analyzedFrames(),0);
+        QVERIFY2(analysis->analyzedFrames()==0,qPrintable(QString::fromUtf8(QJsonDocument::fromVariant(QVariantMap{
+            {"original",originalSummary},{"reselected",analysis->summaryForSource(source)}}).toJson(QJsonDocument::Compact))));
         analysis->reselectTargetCharacter(source);
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
         QVERIFY(analysis->awaitingTarget());analysis->stopAnalysis();

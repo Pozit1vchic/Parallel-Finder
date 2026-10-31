@@ -2631,9 +2631,14 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                         } else cacheHit = pfservices::deserializeMotionWindows(*cached, cachedWindows, cachedSceneCount);
                     }
                 }
+                QVariantMap cacheDecision;
                 if(qEnvironmentVariableIsSet("PF_DEBUG_CACHE")) {
                     const auto digest=QCryptographicHash::hash(QByteArray::fromStdString(cacheKey),QCryptographicHash::Sha256).toHex();
-                    std::fprintf(stderr,"PF_CACHE_OBSERVATIONS key=%s entry=%d valid=%d cache_root=%s scene=%.6f:%zu:%.6f source=%s\n",
+                    cacheDecision={{"key",QString::fromLatin1(digest)},{"entryFound",cacheEntryFound},{"validated",cacheHit},
+                        {"configuredRoot",QString::fromStdString(settings.cachePath)},{"sceneThreshold",settings.sceneThreshold},
+                        {"sceneMinFrames",static_cast<qulonglong>(settings.sceneMinFrames)},
+                        {"sceneAdaptiveMultiplier",settings.sceneAdaptiveMultiplier}};
+                    if(qEnvironmentVariable("PF_DEBUG_CACHE")!="buffer")std::fprintf(stderr,"PF_CACHE_OBSERVATIONS key=%s entry=%d valid=%d cache_root=%s scene=%.6f:%zu:%.6f source=%s\n",
                         digest.constData(),cacheEntryFound?1:0,cacheHit?1:0,settings.cachePath.c_str(),
                         settings.sceneThreshold,settings.sceneMinFrames,settings.sceneAdaptiveMultiplier,path.toUtf8().constData());
                 }
@@ -2645,6 +2650,9 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                     {"frameCount", static_cast<qlonglong>(std::max(0.0, info.durationSeconds * info.frameRate))},
                     {"durationSeconds", info.durationSeconds}, {"frameRate", info.frameRate}, {"sceneCount", 0}, {"matchCount", 0},
                     {"observationCacheHit",false}});
+                if(!cacheDecision.isEmpty()) {
+                    auto summary=summaries.value(path).toMap();summary.insert("observationCacheDecision",cacheDecision);summaries.insert(path,summary);
+                }
                 if (cacheHit && cachedSceneCount >= 0) {
                     // Upgrade only spatial view evidence from old pose caches.
                     // The expensive detector/identity observations stay intact.
