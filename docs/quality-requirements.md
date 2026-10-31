@@ -31,9 +31,9 @@ test does not establish general recognition accuracy or release readiness.
 | A02 | Multiple significant identity clusters; brief target retained | `characterCandidates`, minority regression, unresolved appearances retained. Recognition coverage beyond reviewed montage remains unverified. | Partial |
 | A03 | Structured candidate ID/tracks/body/face/presence/observations/evidence/previews/windows | `CharacterCandidate`, PFCH metadata + all-character MotionWindows, serialization tests. IDs are artifact-local. | Evidenced |
 | A04 | Inspect multiple appearances, select one, continue, change later | `CharacterSelector`, `CharacterAppearance`, workflow tests and real screenshots. | Evidenced |
-| A05 | Cached target rebuild/reselection, no needless inference | Real reselection logs decoded=0, pose_samples=0; synthetic mode/reselection tests. | Evidenced |
+| A05 | Cached target rebuild/reselection, no needless inference | Real reselection/restart reuse observations and downstream head/action caches. Two normal offline mode-change checks unexpectedly missed the cache; subsequent stress checks pass but cause remains open (series-restart-evidence.md). | Partial |
 | A06 | Batch strong automatic carryover; weak/ambiguous confirmation | Strong-face real-media control now carries one explicit choice across eight files and two additions in fresh processes; newly earlier-sorting source also works. Synthetic weak-evidence confirmation exists; difficult real series remains to review. | Partial |
-| A07 | Manual override and target non-dominant, e.g. 8% | Real-media 37.5-second control selects the 3-second target (8%) over competing identities, with full models and cached restart. Synthetic manual cached overrides pass; real manual minority override/restart remains to exercise. | Partial |
+| A07 | Manual override and target non-dominant, e.g. 8% | Real-media 37.5-second control selects the 3-second target (8%) over competing identities, with full models and cached restart. Real manual reselection changes the minority source from ID 78 / 3 s to competing ID 2 / 33.083 s and preserves ID 2 after a fresh-process restart. Broader real manual series remains to exercise. | Partial |
 | A08 | Identity diagnostics and unique identities | Selection reason/margin logs, coherent tracks, single-face ownership, relative distinctness, six reviewed Kyle controls. General false merge/split rates not measured. | Partial |
 | B01 | Identity/temporal/source/scene/sequence/cluster descriptors | `SceneDescriptor` has most fields; sequenceId currently not established by real sequence detection. | Partial |
 | B02 | Continuous body yaw/pitch/roll and eight useful directions | Torso roll measured; yaw/pitch unknown; eight labels are only a helper. Direct JointBDOE body-orientation research now has a pinned, reproduced ONNX export and three-frame numerical fidelity checks; real convention/association/accuracy and production integration are still open. See `body-orientation-investigation.md`. | Missing in production |
@@ -82,14 +82,14 @@ test does not establish general recognition accuracy or release readiness.
 | I01 | Reproducible labelled real benchmark format covering listed hard cases | Real identity controls and existing movement anchors; generic judgement evaluator exists. Comprehensive retrieval/orientation/family labels missing. | Partial |
 | I02 | Recall@K, Precision@K, MRR, median rank/false positives/identity/family/confusion where appropriate | Evaluator tests exist; real retrieval/family metric reports are missing, not zero. | Missing |
 | I03 | Controlled before/after quality and performance | Frozen Butcher replay and six Kyle controls documented; classifier refinement needs its own baseline/replay evidence. | Partial |
-| J01 | Character tests: all enumerated selection/batch/minority cases | Core and workflow evidence; controlled strong-face and 8% minority E2E now pass (A06/A07); difficult series and real manual minority override remain open. | Partial |
+| J01 | Character tests: all enumerated selection/batch/minority cases | Core and workflow evidence; controlled strong-face and 8% minority E2E now pass (A06/A07); real manual minority override/restart also pass; difficult series and intermittent offline mode-cache misses remain open. | Partial |
 | J02 | Classification tests: all views, boundary, posture, head/body, missing/unknown | Helper angular tests are not body-orientation estimator tests. Specific posture working change adds evidence gating checks. | Partial |
 | J03 | Dedup/sort/cache/downloader enumerated regression controls | Existing suites cover many clauses. Requirement-to-test name mapping and missing no-Range/slow/restart cases still required. | Partial |
 | J04 | UI transitions never leave controls inaccessible | Existing UI suite plus selector/runtime proof; family/source morph states remain untested. | Partial |
 | K01 | Why selected/matched/rejected/family/representative/cache invalidated/download reused/probe failed | Selection and matcher reason enums/logs exist. Family admission measurements and representative component scores now retained/shared/exported. Cache invalidation explanations and remaining provider diagnostics still require audit. | Partial |
 | L01 | Grounded phases, baseline before changes, no reckless rewrite | Baseline worktree and logs retained; logical commit history. This audit preserves original unfinished scope. | Evidenced |
 | M01 | Branch/status/tags/release conventions, no unrelated deletion | Feature branch clean at start; release README inspected. Tag/release state and complete licenses/package audit still required. | Partial |
-| M02 | Full suite, benchmark, clean Release build, packaging/resources | Release build and 13/13 CTest targets pass in 123.81 s (family-evidence-verified-suite.log); 22 focused family/export checks also pass. Clean final package verification not performed. | Partial |
+| M02 | Full suite, benchmark, clean Release build, packaging/resources | Latest Release build and all 13 CTest targets pass in 117.71 s (series-manual-final-suite.log), including 56 UI checks; 22 focused family/export checks also pass. Clean final package verification not performed. | Partial |
 | M03 | Fresh install, previous upgrade, cache migration, provider update | Developer binary and synthetic store tests are not packaged fresh-install/upgrade proof. | Missing |
 | M04 | Version/changelog/notes; publish/tag only when actually ready | Local `0.1.0-rc.23.3-dev`; notes retained; no tag/push/release attempted. Remains unreleased until gates pass. | Partial |
 | N01 | Target + series + result + restart-cache + bad-network + failed-install + Unicode + UI end-to-end flows | See A/D/E/F/G and packaging gaps. Cannot infer all flows from one montage or green unit tests. | Partial |
@@ -101,9 +101,11 @@ test does not establish general recognition accuracy or release readiness.
    and real before/after checks without inventing depth from 2D keypoints.
    Implemented and locally verified for sitting/standing controls; a real lying
    case and broader posture/false-positive coverage remain open under B04/I.
-2. Retain auditable SceneFamily members/admission reasons/representative evidence,
-   inspect trajectories and scope, and expose coherent member expansion.
-3. Complete series/restart/incremental/manual-minority end-to-end controls.
+2. Family members/reasons/representative evidence and inspection are implemented;
+   finish trajectory/scope review and independent real duplicate-positive controls.
+3. Controlled strong-face series/restart/incremental/8%-minority and manual
+   reselection controls pass. Investigate intermittent offline mode-cache misses
+   and add difficult/ambiguous real episode controls.
 4. Build independent real retrieval, duplicate/family and orientation judgements;
    use them to guide missing body-orientation and matcher work rather than
    declaring every unknown dimension finished.
@@ -143,7 +145,7 @@ the open items is currently an external blocker: useful local work remains.
   not successful validation (`structured-posture-final-suite.log` and
   `structured-posture-verified-suite.log`).
 - The goal is still active. B02 body orientation, real retrieval/family quality,
-  full series/incremental behavior, member inspection/motion and release/package
+  difficult series behavior, remaining motion and release/package
   gates are not closed by the posture correction.
 
 - Family evidence, canonical boundaries, physical export reuse, inspector playback and
@@ -156,3 +158,9 @@ the open items is currently an external blocker: useful local work remains.
   processes with full real-media inference, strong automatic carryover, 8% target
   presence and 8 cached + 2 new per-source assertions. These repeated excerpts
   establish cache/selection behavior, not broad identity or retrieval accuracy.
+
+- Five-process real control additionally proves manual minority override and
+  restart persistence, including reuse of all 107 head and 12 action requests.
+  A separate intermittent offline mode-change cache miss remains under audit;
+  repeated green runs are not described as a causal fix. PF_DEBUG_CACHE now
+  retains entry/key/validation/settings/source decisions for investigation.

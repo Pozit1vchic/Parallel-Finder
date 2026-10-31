@@ -2615,8 +2615,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 if (interactiveTargets) cacheKey += "|all-characters-v9-head-face-agreement";
                 if (interactiveTargets) characterArtifactKeys[path.toStdString()]=cacheKey;
                 sequenceCacheKeys[path.toStdString()]=cacheKey;
+                bool cacheEntryFound=false;
                 if (analysisCache) {
                     if (const auto cached = analysisCache->get(cacheKey)) {
+                        cacheEntryFound=true;
                         if (interactiveTargets) {
                             pfservices::CharacterAnalysis artifact;
                             cacheHit = pfservices::deserializeCharacterAnalysis(*cached,artifact);
@@ -2628,6 +2630,12 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                             }
                         } else cacheHit = pfservices::deserializeMotionWindows(*cached, cachedWindows, cachedSceneCount);
                     }
+                }
+                if(qEnvironmentVariableIsSet("PF_DEBUG_CACHE")) {
+                    const auto digest=QCryptographicHash::hash(QByteArray::fromStdString(cacheKey),QCryptographicHash::Sha256).toHex();
+                    std::fprintf(stderr,"PF_CACHE_OBSERVATIONS key=%s entry=%d valid=%d cache_root=%s scene=%.6f:%zu:%.6f source=%s\n",
+                        digest.constData(),cacheEntryFound?1:0,cacheHit?1:0,settings.cachePath.c_str(),
+                        settings.sceneThreshold,settings.sceneMinFrames,settings.sceneAdaptiveMultiplier,path.toUtf8().constData());
                 }
                 ++files;
                 duration += info.durationSeconds;

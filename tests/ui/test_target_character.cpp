@@ -26,13 +26,15 @@ private slots:
         QFile file(manifestPath);QVERIFY(file.open(QIODevice::ReadOnly));
         const auto manifest=QJsonDocument::fromJson(file.readAll()).object();
         const auto phase=qEnvironmentVariable("PF_TEST_REAL_SERIES_PHASE","seed");
-        QVERIFY(phase=="seed"||phase=="incremental"||phase=="warm");
+        const bool manualPhase=phase=="manual"||phase=="manual-warm";
+        QVERIFY(phase=="seed"||phase=="incremental"||phase=="warm"||manualPhase);
         QStringList sources;
         for(const auto value:manifest.value("initialSources").toArray())sources.push_back(value.toString());
         QCOMPARE(sources.size(),8);
         const auto initialSources=sources;
         if(phase!="seed")for(const auto value:manifest.value("addedSources").toArray())sources.push_back(value.toString());
         QCOMPARE(sources.size(),phase=="seed"?8:10);
+        if(manualPhase)sources={manifest.value("minorityTargetRange").toObject().value("source").toString()};
         for(const auto& source:sources)QVERIFY(QFileInfo::exists(source));
         const auto model=qEnvironmentVariable("PF_MODEL_PATH");QVERIFY(QFileInfo::exists(model));
         pfservices::Settings settings;settings.modelPath=model.toStdString();settings.provider="cuda";
@@ -45,10 +47,34 @@ private slots:
         auto* analysis=pfui::AnalysisController::instance();analysis->setProviderChoice("cuda");analysis->setAnalysisMode("combined");
         analysis->analyzeFiles(sources);
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),180000);
-        if(phase=="seed") {
+        QString expectedManualId;
+        if(manualPhase) {
+            QFile prior(QFileInfo(manifestPath).dir().filePath(phase=="manual"?"incremental.json":"manual.json"));
+            QVERIFY(prior.open(QIODevice::ReadOnly));
+            const auto rows=QJsonDocument::fromJson(prior.readAll()).object().value("sources").toArray();
+            for(const auto row:rows)if(row.toObject().value("source").toString()==sources.front())
+                expectedManualId=row.toObject().value("targetCharacterId").toString();
+            QVERIFY(!expectedManualId.isEmpty());
+        }
+        if(phase=="seed"||phase=="manual") {
             QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
-            QCOMPARE(analysis->targetSelectionSource(),manifest.value("anchor").toString());
-            QVERIFY(analysis->selectTargetCharacter(manifest.value("anchorCandidateId").toString()));
+            QCOMPARE(analysis->targetSelectionSource(),manualPhase?sources.front():manifest.value("anchor").toString());
+            QVERIFY(analysis->selectTargetCharacter(manualPhase?expectedManualId:manifest.value("anchorCandidateId").toString()));
+            QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),180000);
+        }
+        if(phase=="manual"&&!analysis->awaitingTarget()&&analysis->analysisCompleted()) {
+            analysis->reselectTargetCharacter(sources.front());
+            QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),180000);
+            QVERIFY(analysis->awaitingTarget());
+            QString alternative;double longest=3.1;
+            for(const auto value:analysis->targetCandidates()) {
+                const auto row=value.toMap();
+                if(row.value("id").toString()!=expectedManualId&&row.value("presence").toDouble()>longest) {
+                    longest=row.value("presence").toDouble();alternative=row.value("id").toString();
+                }
+            }
+            QVERIFY2(!alternative.isEmpty(),"Fixture must contain a longer-lived competing person");
+            QVERIFY(analysis->selectTargetCharacter(alternative));expectedManualId=alternative;
             QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),180000);
         }
         if(analysis->awaitingTarget()) {
@@ -64,10 +90,13 @@ private slots:
         for(const auto& source:sources) {
             const auto summary=analysis->summaryForSource(source);
             QVERIFY2(!summary.value("targetCharacterId").toString().isEmpty(),qPrintable(source));
-            QCOMPARE(summary.value("targetAutomatic").toBool(),source!=manifest.value("anchor").toString());
+            QCOMPARE(summary.value("targetAutomatic").toBool(),!manualPhase&&source!=manifest.value("anchor").toString());
             QVERIFY(summary.contains("observationCacheHit"));
-            QCOMPARE(summary.value("observationCacheHit").toBool(),phase=="warm"||(phase=="incremental"&&initialSources.contains(source)));
-            if(source==manifest.value("minorityTargetRange").toObject().value("source").toString()) {
+            QCOMPARE(summary.value("observationCacheHit").toBool(),manualPhase||phase=="warm"||(phase=="incremental"&&initialSources.contains(source)));
+            if(manualPhase) {
+                QCOMPARE(summary.value("targetCharacterId").toString(),expectedManualId);
+                QVERIFY(summary.value("targetPresenceSeconds").toDouble()>3.1);
+            } else if(source==manifest.value("minorityTargetRange").toObject().value("source").toString()) {
                 const auto presence=summary.value("targetPresenceSeconds").toDouble();
                 QVERIFY(presence>1 && presence<=3.1);
                 QVERIFY(presence/summary.value("durationSeconds").toDouble()<=.085);
@@ -75,7 +104,7 @@ private slots:
             auto row=QJsonObject::fromVariantMap(summary);row.insert("source",source);summaries.push_back(row);
         }
         report.insert("sources",summaries);
-        if(phase=="warm") {QCOMPARE(analysis->analyzedFrames(),0);QCOMPARE(analysis->poseDetectionCount(),0);}
+        if(phase=="warm"||manualPhase) {QCOMPARE(analysis->analyzedFrames(),0);QCOMPARE(analysis->poseDetectionCount(),0);}
         else QVERIFY(analysis->analyzedFrames()>0);
         const auto output=qEnvironmentVariable("PF_TEST_REAL_SERIES_REPORT");QVERIFY(!output.isEmpty());
         QSaveFile reportFile(output);QVERIFY(reportFile.open(QIODevice::WriteOnly));

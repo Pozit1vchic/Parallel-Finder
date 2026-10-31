@@ -56,7 +56,7 @@ manual overrides, weak-evidence confirmation and cancellation still pass in
 Create a **new** fixture directory, then run `run_real_series_restart.py` with
 the test executable, generated manifest, pose model, runtime DLL, model directory,
 Qt platform plugin directory and Qt DLL directory. Both utilities expose these
-as explicit command-line arguments. The runner launches three separate processes,
+as explicit command-line arguments. The runner launches five separate processes (including manual override/restart),
 removes unrelated diagnostic overrides, captures native UTF-8 diagnostics, and
 refuses an existing cache/evidence directory. It never deletes an old run to
 manufacture a cold result.
@@ -77,6 +77,36 @@ An earlier attempted offscreen run timed out before analysis because its command
 omitted the SDK platform plugin path; it is not counted as a passing application
 run. The corrected invocation explicitly supplies that plugin path.
 
-Remaining: real manual minority override/restart, difficult/ambiguous real series,
+## Real manual override and restart
+
+`build/series-manual-verified` repeats the three phases above with a fresh cache,
+then adds two more fresh processes. The manual phase opens the minority source,
+explicitly selects its prior Kyle candidate, then uses the normal reselection API
+to choose the longest-lived competing candidate. That candidate is ID 2 with
+33.083 seconds of observed presence, replacing Kyle's ID 78 / 3.000 seconds.
+The next process preserves ID 2 and reports `targetAutomatic=false`.
+
+Both manual phases reuse the complete observation artifact and report zero
+primary pose sample frames / detections. Changing the target first needs 107
+head-review requests and 12 action-review requests whose data did not previously
+exist. These are downstream evidence measurements, not a claim of zero model
+work. On the following restart all 107 head and 12 action requests are cache
+hits with zero decode, face or head-orientation inference. The manual phase takes
+14.741 s; the cached restart takes 2.201 s in this controlled run.
+
+A normal offline workflow check failed twice after a mode change, unexpectedly
+reporting six primary pose samples instead of zero (`series-manual-normal-failed.txt`
+and `series-normal-ctest-failure-1.txt`). Its cause is not yet established. Ten
+focused diagnostic runs, ten cache-instrumented CTest runs and ten uninstrumented
+CTest runs then passed; these repeats do not establish a fix. `PF_DEBUG_CACHE=1`
+now records observation key digest, entry presence, validation outcome, configured
+cache path, scene settings and UTF-8 source. The failure remains an explicit cache
+reliability investigation, separate from the passing real fixture controls.
+
+The final Release build and all 13 CTest targets pass in 117.71 s
+(`series-manual-final-suite.log`), including 56 passing UI checks. The intermittent
+cache failure above remains under investigation despite this successful run.
+
+Remaining: intermittent offline mode-cache miss, difficult/ambiguous real series,
 broader labelled identity and retrieval metrics, and the other open specification
 gates. This evidence does not declare the entire specification complete.

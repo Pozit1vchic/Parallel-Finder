@@ -1,4 +1,4 @@
-"""Run three fresh processes against a NEW real series fixture cache.
+"""Run five fresh processes against a NEW real series fixture cache.
 
 Use prepare_real_series_fixture.py first. Each process gets an isolated Qt test
 profile; only the explicit observation/selection cache persists across processes.
@@ -40,7 +40,7 @@ def main():
                QT_QPA_PLATFORM_PLUGIN_PATH=str(args.qt_plugins.resolve()))
     env['PATH'] = str(args.runtime.resolve().parent) + os.pathsep + str(args.qt_bin.resolve()) + os.pathsep + env.get('PATH', '')
     reports = []
-    for phase in ('seed', 'incremental', 'warm'):
+    for phase in ('seed', 'incremental', 'warm', 'manual', 'manual-warm'):
         prefix = root / phase
         outputs = [prefix.with_suffix(suffix) for suffix in ('.json', '.txt', '.diagnostics.log')]
         if any(path.exists() for path in outputs):
