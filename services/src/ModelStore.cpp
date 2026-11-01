@@ -462,12 +462,17 @@ bool ModelStore::download(const ModelAsset& asset,
             reply->abort();
             return;
         }
+        const auto length=reply->header(QNetworkRequest::ContentLengthHeader);
+        const qint64 total = length.isValid()?length.toLongLong():-1;
+        // Validate the replacement before discarding a resumable prefix. A
+        // broken server can ignore Range and return a different object.
+        if(status==200 && !detail::validFullResponseLength(total,asset.sizeBytes)) {
+            error="downloaded model size mismatch";reply->abort();return;
+        }
         if (offset > 0 && status == 200) {
             if(!part.resize(0)) {error="PROVIDER_PART_RESET_FAILED";reply->abort();return;}
             offset = 0;
         }
-        const auto length=reply->header(QNetworkRequest::ContentLengthHeader);
-        const qint64 total = length.isValid()?length.toLongLong():-1;
         if(status==206 && !detail::validContentRange(reply->rawHeader("Content-Range"),offset,asset.sizeBytes,total)) {
             error="PROVIDER_RANGE_RESPONSE_INVALID";reply->abort();return;
         }
@@ -475,7 +480,8 @@ bool ModelStore::download(const ModelAsset& asset,
         else if (total > 0) expectedTotal = total;
         if (expectedTotal > static_cast<qint64>(kMaxDownloadBytes)
             || (expectedTotal > 0 && expectedTotal < offset)) {
-            error = "model download exceeds the maximum supported size";
+            error = asset.sizeBytes ? "downloaded model size mismatch"
+                                    : "model download exceeds the maximum supported size";
             reply->abort();
             return;
         }
@@ -489,10 +495,10 @@ bool ModelStore::download(const ModelAsset& asset,
         }
         const QByteArray data = reply->readAll();
         const qint64 currentSize = part.size();
-        if (currentSize < 0 || static_cast<std::uint64_t>(currentSize) > kMaxDownloadBytes
-            || static_cast<std::uint64_t>(data.size())
-                > kMaxDownloadBytes - static_cast<std::uint64_t>(currentSize)) {
-            error = "model download exceeds the maximum supported size";
+        if (currentSize < 0 || !detail::withinDownloadLimit(static_cast<std::uint64_t>(currentSize),
+                static_cast<std::uint64_t>(data.size()),asset.sizeBytes,kMaxDownloadBytes)) {
+            error = asset.sizeBytes ? "downloaded model size mismatch"
+                                    : "model download exceeds the maximum supported size";
             reply->abort();
             return;
         }
@@ -538,10 +544,10 @@ bool ModelStore::download(const ModelAsset& asset,
         return false;
     }
     const QByteArray tail = reply->readAll();
-    if (part.size() < 0 || static_cast<std::uint64_t>(part.size()) > kMaxDownloadBytes
-        || static_cast<std::uint64_t>(tail.size())
-            > kMaxDownloadBytes - static_cast<std::uint64_t>(part.size())) {
-        error = "model download exceeds the maximum supported size";
+    if (part.size() < 0 || !detail::withinDownloadLimit(static_cast<std::uint64_t>(part.size()),
+            static_cast<std::uint64_t>(tail.size()),asset.sizeBytes,kMaxDownloadBytes)) {
+        error = asset.sizeBytes ? "downloaded model size mismatch"
+                                : "model download exceeds the maximum supported size";
         reply->deleteLater();
         part.close();
         return false;

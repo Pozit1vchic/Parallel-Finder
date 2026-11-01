@@ -7,6 +7,14 @@
 #include <QRegularExpression>
 
 namespace pfservices::detail {
+inline bool validFullResponseLength(qint64 length, std::uint64_t expectedSize) {
+    return length < 0 || !expectedSize || static_cast<std::uint64_t>(length) == expectedSize;
+}
+inline bool withinDownloadLimit(std::uint64_t current, std::uint64_t incoming,
+                                std::uint64_t expectedSize, std::uint64_t maximumSize) {
+    const auto limit = expectedSize && expectedSize < maximumSize ? expectedSize : maximumSize;
+    return current <= limit && incoming <= limit - current;
+}
 inline bool validContentRange(const QByteArray& header,std::uint64_t offset,
     std::uint64_t expectedSize,qint64 contentLength) {
     const auto match=QRegularExpression(QStringLiteral("^bytes ([0-9]+)-([0-9]+)/([0-9]+)$"))
