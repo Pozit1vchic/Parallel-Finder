@@ -604,6 +604,22 @@ static void recoverCharacterViews(std::vector<std::vector<std::size_t>>& compone
         std::vector<const PersonDetection*> observations;
         std::vector<float> body;
     };
+    const auto originalComponents=components;
+    std::vector<std::vector<const PersonDetection*>> atomicFaces(indices.size());
+    for(std::size_t i=0;i<indices.size();++i) {
+        auto& faces=atomicFaces[i];
+        for(const auto& o:tracks[indices[i]].observations)
+            if(std::isfinite(o.timestampSeconds) && embeddingScore(o.faceEmbedding,o.faceEmbedding)>.99)
+                faces.push_back(&o);
+        std::stable_sort(faces.begin(),faces.end(),[](auto a,auto b){return a->timestampSeconds<b->timestampSeconds;});
+        std::vector<const PersonDetection*> distinct;
+        for(auto face:faces)if(distinct.empty() || face->timestampSeconds-distinct.back()->timestampSeconds>=.1-1e-9)
+            distinct.push_back(face);
+        faces.clear();
+        constexpr std::size_t limit=64;
+        for(std::size_t j=0;j<std::min(limit,distinct.size());++j)
+            faces.push_back(distinct[distinct.size()<=limit ? j : j*(distinct.size()-1)/(limit-1)]);
+    }
     std::vector<Gallery> galleries(components.size());
     for (std::size_t i=0;i<components.size();++i) {
         auto& gallery=galleries[i];
@@ -643,6 +659,21 @@ static void recoverCharacterViews(std::vector<std::vector<std::size_t>>& compone
     }
     const auto concurrent=[&](std::size_t a,std::size_t b) {
         return coVisibleDifferent(galleries[a].observations,galleries[b].observations);
+    };
+    std::map<std::pair<std::size_t,std::size_t>,bool> trackConflictCache;
+    const auto strongTrackConflict=[&](std::size_t a,std::size_t b) {
+        const auto ordered=std::minmax(a,b);
+        const auto key=std::pair{ordered.first,ordered.second};
+        if(const auto found=trackConflictCache.find(key);found!=trackConflictCache.end())return found->second;
+        for(auto i:originalComponents[a])for(auto j:originalComponents[b]) {
+            const auto& left=atomicFaces[i];const auto& right=atomicFaces[j];
+            if(left.size()<3 || right.size()<3)continue;
+            double best=-1;
+            for(auto x:left)for(auto y:right)best=std::max(best,embeddingScore(x->faceEmbedding,y->faceEmbedding));
+            if(best<.30){trackConflictCache.emplace(key,true);return true;}
+        }
+        trackConflictCache.emplace(key,false);
+        return false;
     };
     struct Link {std::size_t a,b;double score;bool repeated;};
     std::vector<Link> links;
@@ -705,7 +736,7 @@ static void recoverCharacterViews(std::vector<std::vector<std::size_t>>& compone
         bool conflict=false,weakFaceConflict=false;
         for(auto x:seeds[a])for(auto y:seeds[b]) {
             const auto pair=std::minmax(x,y);
-            conflict=conflict || concurrent(x,y);
+            conflict=conflict || concurrent(x,y) || strongTrackConflict(x,y);
             weakFaceConflict=weakFaceConflict || contradictions.contains({pair.first,pair.second});
         }
         if(weakFaceConflict) {
@@ -974,6 +1005,10 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
     recoverUniqueBodyTracks(components,tracks,indices,control);
     if(control.cancelled && control.cancelled())return {};
     recoverCompanionContinuity(components,tracks,indices,control);
+    if(control.cancelled && control.cancelled())return {};
+    // Recheck newly assembled galleries without losing contradictions between
+    // their original face-backed tracks.
+    recoverCharacterViews(components,tracks,indices,control);
     std::vector<CharacterCandidate> result;
     const auto addPrototype = [](std::vector<float>& sum, const std::vector<float>& value) {
         double norm = 0;

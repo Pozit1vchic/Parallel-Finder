@@ -9,8 +9,9 @@
 #include <map>
 #include <chrono>
 
-// Replay frozen observations through production tracking/clustering. No source
-// decoding, model inference, settings writes, or biometric output.
+// Replay saved observations through production tracking/clustering, or use
+// --frozen-tracks to preserve the application's actual post-tracking groups.
+// No source decoding, model inference, settings writes, or biometric output.
 int main(int argc,char** argv) {
     QCoreApplication app(argc,argv);const auto args=app.arguments();
     if(args.size()<3||args.size()>4){std::cerr<<"usage: pf_character_probe tracks.json scene-log [minimumBodySimilarity|--frozen-tracks]\n";return 2;}
