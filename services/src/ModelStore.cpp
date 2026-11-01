@@ -529,6 +529,7 @@ bool ModelStore::download(const ModelAsset& asset,
     });
     timeout.start(2 * 60 * 60 * 1000);
     loop.exec();
+    const int finalStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const auto networkError = reply->error();
     const std::string networkMessage = reply->errorString().toStdString();
     if (!metadataSeen && networkError == QNetworkReply::NoError) {
@@ -564,7 +565,11 @@ bool ModelStore::download(const ModelAsset& asset,
 
     const auto actualSize = std::filesystem::file_size(partPath, filesystemError);
     if (filesystemError || (asset.sizeBytes != 0 && actualSize != asset.sizeBytes)) {
-        error = "downloaded model size mismatch";
+        // A server may return a valid 206 containing only part of the requested
+        // range. Preserve those bytes and allow the caller to resume at EOF.
+        if (!filesystemError && finalStatus == 206 && actualSize < asset.sizeBytes)
+            error = "model download: partial response incomplete";
+        else error = "downloaded model size mismatch";
         return false;
     }
     if (!verifySha256(partPath, asset.sha256, error)) {

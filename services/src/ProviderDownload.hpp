@@ -23,7 +23,8 @@ inline bool downloadWithRetry(const ModelAsset& asset,const std::filesystem::pat
         // Metadata/path errors cannot be fixed by retrying a network transfer.
         const bool transient=error.starts_with("download model:") || error.starts_with("model download: HTTP 5")
             || error.starts_with("model download: HTTP 429") || error.starts_with("model SHA-256 mismatch")
-            || error == "model download: partial exceeds expected size";
+            || error == "model download: partial exceeds expected size"
+            || error == "model download: partial response incomplete";
         if(!transient)return false;
         if(retry)retry(attempt+1);
         for(std::size_t tick=0;tick<(attempt+1)*10;++tick) {

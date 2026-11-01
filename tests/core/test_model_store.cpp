@@ -1,4 +1,5 @@
 #include "../../services/src/NetworkOperation.hpp"
+#include "../../services/src/ProviderDownload.hpp"
 #include <gtest/gtest.h>
 
 #include <pfservices/ModelStore.hpp>
@@ -262,6 +263,54 @@ TEST(ModelStore, RealTlsRangeIgnoredResponseValidatesSizeBeforeResettingPartial)
         if(QByteArray(mode)!="untrusted")
             EXPECT_TRUE(server.readAllStandardOutput().toLower().contains("range: bytes=3-"));
     }
+}
+
+TEST(ModelStore, RealTlsShortRangeAutomaticallyContinuesFromSavedBytes) {
+    int argc = 1; char name[] = "pf-short-range"; char* argv[] = {name, nullptr};
+    std::unique_ptr<QCoreApplication> application;
+    if (!QCoreApplication::instance()) application = std::make_unique<QCoreApplication>(argc, argv);
+    const auto python = QStandardPaths::findExecutable(QStringLiteral("python"));
+    if (python.isEmpty()) GTEST_SKIP() << "Python is required for the local TLS server";
+    ASSERT_TRUE(QSslSocket::supportsSsl());
+    const auto originalSsl = QSslConfiguration::defaultConfiguration();
+    const auto originalProxy = QNetworkProxy::applicationProxy();
+    struct Restore {
+        QSslConfiguration ssl; QNetworkProxy proxy;
+        ~Restore() { QSslConfiguration::setDefaultConfiguration(ssl); QNetworkProxy::setApplicationProxy(proxy); }
+    } restore{originalSsl, originalProxy};
+    const QString fixture = QString::fromUtf8(PF_TEST_FIXTURE_DIR);
+    auto ssl = originalSsl;
+    auto ca = ssl.caCertificates();
+    const auto certs = QSslCertificate::fromPath(fixture + "/provider-test-cert.pem");
+    ASSERT_EQ(certs.size(), 1); ca.append(certs); ssl.setCaCertificates(ca);
+    QSslConfiguration::setDefaultConfiguration(ssl);
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    const auto destination = std::filesystem::path(directory.filePath("chunk").toStdWString());
+    auto partial = destination; partial += ".part";
+    QFile prefix(QString::fromStdWString(partial.wstring()));
+    ASSERT_TRUE(prefix.open(QIODevice::WriteOnly)); ASSERT_EQ(prefix.write("cor"), 3); prefix.close();
+    QProcess server;
+    server.start(python, {fixture + "/../helpers/provider_tls_proxy.py", fixture + "/provider-test-cert.pem",
+                          fixture + "/provider-test-key.pem", "short-range"});
+    ASSERT_TRUE(server.waitForStarted(5000)); ASSERT_TRUE(server.waitForReadyRead(5000));
+    bool validPort = false; const auto port = server.readLine().trimmed().toUShort(&validPort);
+    ASSERT_TRUE(validPort);
+    QNetworkProxy::setApplicationProxy(QNetworkProxy(QNetworkProxy::HttpProxy, "127.0.0.1", port));
+    pfservices::ModelAsset asset;
+    asset.filename = "chunk"; asset.sizeBytes = 7;
+    asset.sha256 = QCryptographicHash::hash(QByteArray("correct"), QCryptographicHash::Sha256).toHex().toStdString();
+    asset.downloadUrl = "https://github.com/test/chunk";
+    std::string error;
+    const auto success = pfservices::detail::downloadWithRetry(asset, destination, {}, error,
+        [](const auto& item, const auto& path, auto progress, auto& message) {
+            return pfservices::ModelStore::download(item, path, progress, message);
+        });
+    ASSERT_TRUE(success) << error;
+    ASSERT_TRUE(server.waitForFinished(5000)); ASSERT_EQ(server.exitCode(), 0);
+    const auto requests = server.readAllStandardOutput().toLower();
+    EXPECT_TRUE(requests.contains("range: bytes=3-")); EXPECT_TRUE(requests.contains("range: bytes=5-"));
+    QFile result(QString::fromStdWString(destination.wstring())); ASSERT_TRUE(result.open(QIODevice::ReadOnly));
+    EXPECT_EQ(result.readAll(), "correct"); EXPECT_FALSE(std::filesystem::exists(partial));
 }
 
 TEST(ModelStore, CorruptCompletePartialDoesNotTrapEveryRetryAtEndOfFile) {

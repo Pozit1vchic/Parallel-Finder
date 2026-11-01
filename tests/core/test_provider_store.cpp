@@ -150,6 +150,23 @@ TEST(ProviderDownload, OversizedPartialRetriesOnlyTheInvalidPart)
     EXPECT_EQ(attempts, 2);
 }
 
+TEST(ProviderDownload, IncompleteRangesStopAfterBoundedRetriesAndKeepPartial)
+{
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    const auto path = std::filesystem::path(directory.filePath("chunk").toStdWString());
+    auto partial = path; partial += ".part";
+    const auto partialName = QString::fromStdWString(partial.wstring());
+    pfservices::ModelAsset asset; asset.sizeBytes = 10;
+    std::string error; int attempts = 0;
+    EXPECT_FALSE(pfservices::detail::downloadWithRetry(asset, path, {}, error,
+        [&](const auto&, const auto&, auto, std::string& failure) {
+            ++attempts; put(partialName, QByteArray(attempts, 'x'));
+            failure = "model download: partial response incomplete"; return false;
+        }));
+    EXPECT_EQ(attempts, 3); EXPECT_EQ(get(partialName), QByteArray("xxx"));
+    EXPECT_EQ(error, "model download: partial response incomplete");
+}
+
 TEST(ProviderDownload, FreeSlotStartsNextPartBeforeUnrelatedSlowPartFinishes)
 {
     pfservices::ProviderAsset asset;asset.sizeBytes=6;

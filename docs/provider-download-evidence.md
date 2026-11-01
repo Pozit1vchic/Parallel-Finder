@@ -111,3 +111,20 @@ smoke and startup-isolation tests pass (`provider-recovery-startup-tests.log`).
 
 This closes the inspected discovery gap. Killing a real GPU installation at every
 publication/marker boundary and packaged upgrade readiness remain broader gates.
+
+## Short but valid ranged responses
+
+A real local TLS server reproduced a stalled installation when a valid `206`
+response returned only part of the requested range. The existing code saved the
+bytes but reported a non-retryable size mismatch. The downloader now marks this
+specific case as incomplete, preserving the partial for the bounded retry. It
+still checks Content-Range, manifest size and the final SHA-256 before publishing.
+A loopback HTTPS integration test verifies actual `Range: bytes=3-` followed by
+`Range: bytes=5-` and the verified complete file; it failed before the fix.
+A separate test confirms the normal three-attempt limit and retention of the
+partial when the server repeatedly sends incomplete ranges.
+
+The separate Release test build ran 28 focused tests: 24 passed, four public
+network/package controls were skipped (`build/download-focused.log`). This does
+not prove recovery after a process restart, behaviour on slow/stalled servers,
+or the real GPU activation and packaged release gates.
