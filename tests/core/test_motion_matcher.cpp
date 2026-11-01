@@ -128,6 +128,29 @@ std::vector<pfcore::MotionWindow> recordedPoseFixture(const char* filename, bool
     return windows;
 }
 
+TEST(MotionMatcher, SustainedPartialHandPoseNeedsTemporalAndIdentitySupport)
+{
+    const auto windows=recordedPoseFixture("butcher-sustained-hand-pose.json",true);
+    ASSERT_EQ(windows.size(),3U);
+    pfcore::MotionMatcherParams p;
+    p.allowStaticFrames=p.requireAppearance=p.mirrorInvariant=true;
+    p.similarityThreshold=.7;p.staticPoseSimilarityThreshold=.86;
+    const pfcore::MotionMatcher matcher(p);
+    EXPECT_GE(matcher.compare(windows[0],windows[1]).similarity,.86);
+    EXPECT_LT(matcher.compare(windows[0],windows[2]).similarity,.86);
+    auto shortPose=windows[1];shortPose.frames.erase(shortPose.frames.begin()+5,shortPose.frames.end());
+    EXPECT_LT(matcher.compare(windows[0],shortPose).similarity,.86);
+    auto movingHand=windows[1];
+    for(std::size_t i=0;i<movingHand.frames.size();++i) {
+        auto& points=movingHand.frames[i].keypoints;
+        const double shoulder=std::hypot(points[5].x-points[6].x,points[5].y-points[6].y);
+        points[10].x+=(i%2 ? .30 : -.30)*shoulder;
+    }
+    EXPECT_LT(matcher.compare(windows[0],movingHand).similarity,.86);
+    auto other=windows[1];other.appearanceEmbedding={0,1};
+    EXPECT_EQ(matcher.compare(windows[0],other).similarity,0);
+}
+
 TEST(MotionMatcher, RecordedElliotBodyDuplicatesRejectWithoutLosingDistinctSettings)
 {
     // Original-PTS review confirmed independent office/church and outdoor

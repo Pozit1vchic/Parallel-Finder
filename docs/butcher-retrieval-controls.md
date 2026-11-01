@@ -54,3 +54,28 @@ retrieval benchmark: it has only one semantic positive pair, one hard negative,
 one video and one capture; many other returned scenes have not been judged.
 Broader positive/negative candidate sets, rankings, family judgements and
 independent holdout videos remain necessary before drawing quality conclusions.
+
+## Sustained partial-body recovery
+
+The matcher now measures a sustained visible hand-to-face pose when another
+arm is cropped. It requires a verified identity, compatible coarse geometry,
+at least 1.25 seconds of temporally supported and stable landmarks, and
+agreement between the two views. This is pose evidence only: it does not
+identify a phone, glasses, an object, or intent.
+
+On the exact recorded windows and captured production parameters, a replay
+now returns the forest/shop pair in both query directions, while the reviewed
+sunglasses transition is not returned. A replay of all 2,054 captured windows
+changed the selected results from 126 to 127: the added result pairs the two
+phone scenes, no previously selected pair disappeared, and the fields of the
+126 retained pairs were unchanged. The controlled fixture and 124 matcher
+tests pass. This comparison is on one saved analysis, not a population recall
+or precision claim; sustained hand-to-face poses can occur for different
+actions, and a broader independent review is still required.
+
+A subsequent fresh application process reused the v16 analysis cache and ran
+the complete target-selected search on the source video. Its 127 cards include
+the forest/shop pair as a body-pose result (score 0.889); the reviewed glasses
+scene did not appear as its counterpart. This confirms the specific case in
+the application as well as the isolated replay; it is still one labelled pair
+and the known character identity errors remain release blockers.

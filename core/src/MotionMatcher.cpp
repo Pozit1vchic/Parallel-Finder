@@ -1762,6 +1762,44 @@ std::vector<double> embedding(const std::vector<Descriptor>& descriptors,
     return result;
 }
 
+// A partially cropped body can still provide a sustained, visible hand-to-
+// face pose. Keep the measurement geometric: it says nothing about an object
+// or the person's intent. Short transitions and intermittent observations do
+// not provide enough temporal support.
+using HandFaceSignatures=std::array<std::optional<std::array<double,2>>,2>;
+HandFaceSignatures prepareHandFaceSignatures(const std::vector<NormalizedPose>& poses,
+                                             const MotionWindow& window)
+{
+    HandFaceSignatures result{};
+    if(poses.size()!=window.frames.size() || poses.size()<5) return result;
+    for(std::size_t side=0;side<2;++side) {
+        const auto wrist=side==0?9U:10U;
+        std::array<double,2> sum{};std::size_t count=0;
+        double first=0,last=0,sumSquared=0,maxGap=0;
+        for(std::size_t i=0;i<poses.size();++i) {
+            const auto& p=poses[i];
+            if(p.size()!=17 || !validPoint(p[0]) || !validPoint(p[5])
+                || !validPoint(p[6]) || !validPoint(p[wrist]))continue;
+            const double scale=std::hypot(p[5].first-p[6].first,p[5].second-p[6].second);
+            if(scale<1e-9)continue;
+            const double x=(p[wrist].first-p[0].first)/scale;
+            const double y=(p[wrist].second-p[0].second)/scale;
+            if(!std::isfinite(x+y) || std::hypot(x,y)>.80)continue;
+            const double time=window.frames[i].timestampSeconds;
+            if(!std::isfinite(time))continue;
+            if(!count)first=time;
+            else maxGap=std::max(maxGap,time-last);
+            last=time;sum[0]+=x;sum[1]+=y;sumSquared+=x*x+y*y;++count;
+        }
+        if(count>=5 && count*5>=poses.size()*4 && last-first>=1.25 && maxGap<=.5) {
+            const std::array<double,2> mean{sum[0]/count,sum[1]/count};
+            const double variance=std::max(0.,sumSquared/count-mean[0]*mean[0]-mean[1]*mean[1]);
+            if(variance<=.18*.18)result[side]=mean;
+        }
+    }
+    return result;
+}
+
 struct PreparedWindow {
     double noise = 0.0;
     double mirroredNoise = 0.0;
@@ -1775,6 +1813,8 @@ struct PreparedWindow {
     ShapeGeometry mirroredShapeGeometry;
     std::vector<ArticulationFrame> articulationGeometry;
     std::vector<ArticulationFrame> mirroredArticulationGeometry;
+    HandFaceSignatures handFace;
+    HandFaceSignatures mirroredHandFace;
     std::vector<Descriptor> mirroredDescriptors;
     std::vector<double> mirroredEmbedding;
     double motionDelta = 0.0;
@@ -1799,6 +1839,8 @@ void prepareWindowFacts(PreparedWindow& prepared, const MotionWindow& window,
     prepared.mirroredShapeGeometry=ShapeGeometry(prepared.mirroredPoses);
     prepared.articulationGeometry=prepareArticulation(prepared.articulation,prepared.poses);
     prepared.mirroredArticulationGeometry=prepareArticulation(prepared.mirroredArticulation,prepared.mirroredPoses);
+    prepared.handFace=prepareHandFaceSignatures(prepared.poses,window);
+    prepared.mirroredHandFace=prepareHandFaceSignatures(prepared.mirroredPoses,window);
     prepared.bodyObserved = observedBody(window);
     prepared.confidentBodyObserved = observedBody(window, .5);
     prepared.samplesSupported = hasDistinctTemporalSamples(window, prepared.descriptors, params);
@@ -2186,6 +2228,18 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
             std::fprintf(stderr, "PF_DEBUG_MATCHER articulation a=%zu b=%zu score=%.4f\n",
                 leftIndex, rightIndex, articulation);
         poseScore = std::max(poseScore, articulation);
+        // Independent sustained landmarks can corroborate a partial-body
+        // pose when an occluded opposite wrist makes bilateral articulation
+        // unavailable. Keep identity, coarse geometry and temporal gates;
+        // this does not classify an object or action.
+        if(identity.verified && !leftPrepared.headRegion && dtwScore>=.90 && anatomyScore>=.68) {
+            const auto& rightHand=mirrorRight ? rightPrepared.mirroredHandFace : rightPrepared.handFace;
+            for(std::size_t side=0;side<2;++side)if(leftPrepared.handFace[side] && rightHand[side]) {
+                const auto& x=*leftPrepared.handFace[side];const auto& y=*rightHand[side];
+                const double distance=std::hypot(x[0]-y[0],x[1]-y[1]);
+                if(distance<=.12)poseScore=std::max(poseScore,.90-.2*distance);
+            }
+        }
         // Background colour is displayed separately. Different lighting or
         // locations cannot make an independently verified pose less similar.
         // Holding the same pose for a different length is not a different
