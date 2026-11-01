@@ -80,6 +80,22 @@ TEST(SceneFamily, SeparateOccurrencesAndOverlapChainsRemainSeparate) {
     auto missing=occurrence(10.2,13);missing.descriptor.jointEvidence.fill(0);
     EXPECT_EQ(pfcore::buildSceneFamilies(std::vector{occurrence(10,13),missing}).families.size(),2);
 }
+TEST(SceneFamily, UnknownIdentityAndConflictingSameRangeNeverShareCanonicalIdentity) {
+    auto unknown=occurrence(10,13);unknown.descriptor.identityId=0;
+    EXPECT_TRUE(pfcore::canonicalSceneFingerprint("film",0,10,13).empty());
+    const auto unknownFamilies=pfcore::buildSceneFamilies(std::vector{unknown,unknown});
+    ASSERT_EQ(unknownFamilies.families.size(),2);
+    EXPECT_TRUE(unknownFamilies.families[0].canonicalId.empty());
+    EXPECT_TRUE(unknownFamilies.families[1].canonicalId.empty());
+
+    auto first=occurrence(10,13),second=first;
+    second.windowIndex=1;
+    second.descriptor.jointEvidence.fill(0);
+    const auto families=pfcore::buildSceneFamilies(std::vector{first,second});
+    ASSERT_EQ(families.families.size(),2);
+    EXPECT_TRUE(families.families[0].canonicalId.empty());
+    EXPECT_TRUE(families.families[1].canonicalId.empty());
+}
 TEST(SceneFamily, ContinuityRespectsTemporalLocalityAndCancellation) {
     auto a=occurrence(2,3),b=occurrence(40,41),c=occurrence(2.2,3.2);
     c.descriptor.normalizedSkeleton.fill(.1);
@@ -160,6 +176,20 @@ TEST(SceneFamily, ProductionOrganizationDeduplicatesPairsAndPreservesDeterminist
     std::vector cancelled{a,b};
     EXPECT_FALSE(pfcore::MotionRanker::organize(cancelled,windows,{},[]{return true;}));
     EXPECT_EQ(cancelled.size(),2);EXPECT_TRUE(cancelled[0].leftSceneFamily.empty());
+
+    auto unknownWindows=windows;
+    unknownWindows[0].trackId=0;
+    std::vector unknownMatches{a,a};
+    ASSERT_TRUE(pfcore::MotionRanker::organize(unknownMatches,unknownWindows));
+    EXPECT_EQ(unknownMatches.size(),2);
+
+    auto poorPose=windows[0];
+    for(auto& frame:poorPose.frames)for(auto& point:frame.keypoints)point.confidence=0;
+    auto conflictingWindows=windows;conflictingWindows.push_back(poorPose);
+    auto unproven=a;unproven.leftIndex=2;
+    std::vector conflictingMatches{a,unproven};
+    ASSERT_TRUE(pfcore::MotionRanker::organize(conflictingMatches,conflictingWindows));
+    EXPECT_EQ(conflictingMatches.size(),2);
 }
 
 TEST(SceneFamily, PairedContinuityIncludesRightLaneAndPreservesCancellation) {

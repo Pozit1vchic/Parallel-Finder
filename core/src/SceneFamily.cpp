@@ -9,7 +9,7 @@
 
 namespace pfcore {
 std::string canonicalSceneFingerprint(const std::string& source,std::size_t identityId,double start,double end) {
-    if (source.empty()||!std::isfinite(start)||!std::isfinite(end)||start<0||end<=start||end>1e9) return {};
+    if (source.empty()||!identityId||!std::isfinite(start)||!std::isfinite(end)||start<0||end<=start||end>1e9) return {};
     const auto text=source+"\n"+std::to_string(identityId)+"\n"+std::to_string(std::llround(start*1e6))+"\n"+std::to_string(std::llround(end*1e6));
     std::uint64_t hash=14695981039346656037ULL;
     for (const auto c:text) {hash^=static_cast<unsigned char>(c);hash*=1099511628211ULL;}
@@ -136,6 +136,18 @@ SceneFamilySet buildSceneFamilies(std::span<const SceneOccurrence> occurrences,c
         if(cancelled&&cancelled())return {{},{},true};
         const auto& o=occurrences[family.representative];
         family.canonicalId=canonicalSceneFingerprint(o.descriptor.sourceId,o.descriptor.identityId,o.start,o.end);
+    }
+    // The fingerprint contains only identity and interval, while admission also
+    // requires compatible pose, scene and context. Two rejected families can
+    // therefore have the same fingerprint. Treat those IDs as unproven rather
+    // than letting result deduplication merge independent or uncertain events.
+    std::map<std::string,std::size_t> fingerprintCounts;
+    for(const auto& family:result.families)
+        if(!family.canonicalId.empty())++fingerprintCounts[family.canonicalId];
+    for(auto& family:result.families) {
+        if(cancelled&&cancelled())return {{},{},true};
+        if(!family.canonicalId.empty()&&fingerprintCounts[family.canonicalId]>1)
+            family.canonicalId.clear();
     }
     return result;
 }
