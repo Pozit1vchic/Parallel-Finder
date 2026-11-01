@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scope": "Independently reviewed visible people in the supplied Butcher montage. Coordinates use the 1280x544 inference frame. Six examples are a regression check, not a population benchmark.",
+  "scope": "Independently reviewed visible people in the supplied Butcher montage. Coordinates use the 1280x544 inference frame. Seven examples are a regression check, not a population benchmark.",
   "sourceBasename": "butcher_parallel_notsorted.mov",
   "controls": [
     {
@@ -37,6 +37,12 @@
       "id": "butcher-and-young-man-share-shot",
       "left": {"time": 30.6974, "point": [600, 200]},
       "right": {"time": 30.6974, "point": [1100, 200]},
+      "sameIdentity": false
+    },
+    {
+      "id": "different-men-train-and-mothers-milk",
+      "left": {"time": 15.891, "point": [950, 400]},
+      "right": {"time": 658.8629127, "point": [630, 280]},
       "sameIdentity": false
     }
   ]
