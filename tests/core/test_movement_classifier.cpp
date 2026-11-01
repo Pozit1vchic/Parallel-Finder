@@ -53,6 +53,41 @@ TEST(MovementClassifier, LabelsStaticMotion)
     EXPECT_EQ(result.gesture, pfcore::GestureClass::Static);
 }
 
+TEST(MovementClassifier, RecordedVisibleAndInvisibleWrists)
+{
+    QFile file(QString::fromUtf8(PF_TEST_FIXTURE_DIR)+"/butcher-wrist-visibility.json");
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const auto rows=QJsonDocument::fromJson(file.readAll()).array();
+    ASSERT_EQ(rows.size(),3);
+    const pfcore::GestureClass expected[]={pfcore::GestureClass::Unknown,
+        pfcore::GestureClass::Raise,pfcore::GestureClass::Lower};
+    int i=0;
+    for(const auto row:rows) {
+        pfcore::MotionWindow w;
+        for(const auto frame:row.toObject()["frames"].toArray()) {
+            pfcore::PoseFrame f;const auto o=frame.toObject();f.timestampSeconds=o["time"].toDouble();
+            for(const auto p:o["points"].toArray()) {
+                const auto a=p.toArray();f.keypoints.push_back({a[0].toDouble(),a[1].toDouble(),a[2].toDouble()});
+            }
+            w.frames.push_back(std::move(f));
+        }
+        EXPECT_EQ(pfcore::MovementClassifier().classify(w).gesture,expected[i]) << row.toObject()["id"].toString().toStdString();
+        ++i;
+    }
+}
+
+TEST(MovementClassifier, InvisibleIntermediateWristsDoNotInventExcursion)
+{
+    auto window = moving("still", 0, 0);
+    for (std::size_t i = 1; i + 1 < window.frames.size(); ++i) {
+        window.frames[i].keypoints[9].confidence = 0.01;
+        window.frames[i].keypoints[10].confidence = 0.01;
+    }
+    const auto result = pfcore::MovementClassifier().classify(window);
+    EXPECT_EQ(result.gesture, pfcore::GestureClass::Static);
+    EXPECT_EQ(result.direction, pfcore::MovementDirection::Static);
+}
+
 TEST(MovementClassifier, CachedCombinationPreservesAllClassificationEvidence)
 {
     const pfcore::MovementClassifier classifier;

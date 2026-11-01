@@ -50,6 +50,16 @@ double keypointDelta(const PoseFrame& first, const PoseFrame& last, std::size_t 
     return (yAxis ? b.y - a.y : b.x - a.x) / std::max(bodyScale(first), bodyScale(last));
 }
 
+bool observedAtBothEnds(const PoseFrame& first, const PoseFrame& last, std::size_t index)
+{
+    if (index >= first.keypoints.size() || index >= last.keypoints.size()) return false;
+    const auto valid = [](const auto& point) {
+        return std::isfinite(point.x) && std::isfinite(point.y)
+            && std::isfinite(point.confidence) && point.confidence >= 0.3;
+    };
+    return valid(first.keypoints[index]) && valid(last.keypoints[index]);
+}
+
 MovementClassification classifyEndpoints(const PoseFrame& first, const PoseFrame& last)
 {
     MovementClassification result;
@@ -78,30 +88,35 @@ MovementClassification classifyEndpoints(const PoseFrame& first, const PoseFrame
     // COCO order: left/right shoulder 5/6 and wrist 9/10. These heuristics are
     // deliberately transparent and deterministic; no second classifier model
     // is smuggled into the pose-only v1 pipeline.
-    const double leftWristY = keypointDelta(first, last, 9, true);
-    const double rightWristY = keypointDelta(first, last, 10, true);
-    const double wristLift = -(leftWristY + rightWristY) * 0.5;
-    const double wristSpread = std::abs(keypointDelta(first, last, 9, false))
-        + std::abs(keypointDelta(first, last, 10, false));
-    const double shoulderTurn = std::abs(keypointDelta(first, last, 5, false)
-                                         - keypointDelta(first, last, 6, false));
-    if (wristLift > 0.10) {
+    const bool leftWrist = observedAtBothEnds(first, last, 9);
+    const bool rightWrist = observedAtBothEnds(first, last, 10);
+    const int wristCount = int(leftWrist) + int(rightWrist);
+    const double leftWristY = leftWrist ? keypointDelta(first, last, 9, true) : 0.0;
+    const double rightWristY = rightWrist ? keypointDelta(first, last, 10, true) : 0.0;
+    const double wristLift = wristCount ? -(leftWristY + rightWristY) / wristCount : 0.0;
+    const double wristSpread = (leftWrist ? std::abs(keypointDelta(first, last, 9, false)) : 0.0)
+        + (rightWrist ? std::abs(keypointDelta(first, last, 10, false)) : 0.0);
+    const bool shoulders = observedAtBothEnds(first, last, 5) && observedAtBothEnds(first, last, 6);
+    const double shoulderTurn = shoulders ? std::abs(keypointDelta(first, last, 5, false)
+                                         - keypointDelta(first, last, 6, false)) : 0.0;
+    if (wristCount && wristLift > 0.10) {
         result.gesture = GestureClass::Raise;
         result.gestureConfidence = std::clamp(wristLift / 0.30, 0.0, 1.0);
-    } else if (wristLift < -0.10) {
+    } else if (wristCount && wristLift < -0.10) {
         result.gesture = GestureClass::Lower;
         result.gestureConfidence = std::clamp(-wristLift / 0.30, 0.0, 1.0);
-    } else if (wristSpread > 0.22 && displacement < 0.18) {
+    } else if (wristCount && wristSpread > 0.22 && displacement < 0.18) {
         result.gesture = GestureClass::Wave;
         result.gestureConfidence = std::clamp(wristSpread / 0.6, 0.0, 1.0);
     } else if (shoulderTurn > 0.20) {
         result.gesture = GestureClass::Turn;
         result.gestureConfidence = std::clamp(shoulderTurn / 0.6, 0.0, 1.0);
-    } else if (displacement > 0.10) {
+    } else if (displacement > 0.10
+               && (observedAtBothEnds(first,last,15) || observedAtBothEnds(first,last,16))) {
         result.gesture = GestureClass::Step;
         result.gestureConfidence = std::clamp(displacement / 0.35, 0.0, 1.0);
     } else {
-        result.gesture = displacement < 0.035 ? GestureClass::Static : GestureClass::Unknown;
+        result.gesture = wristCount == 2 && displacement < 0.035 ? GestureClass::Static : GestureClass::Unknown;
         result.gestureConfidence = result.gesture == GestureClass::Static ? 1.0 : 0.0;
     }
     return result;
@@ -120,15 +135,18 @@ MovementClassification classifyOne(const MotionWindow& window)
     std::size_t consecutive = 0;
     for (std::size_t i = 1; i + 1 < window.frames.size(); ++i) {
         const auto excursion = classifyEndpoints(window.frames.front(), window.frames[i]);
-        const bool moving = excursion.direction != MovementDirection::Static
-            || excursion.gesture != GestureClass::Static;
+        const bool directionMoving = excursion.direction != MovementDirection::Static
+            && excursion.direction != MovementDirection::Unknown;
+        const bool gestureMoving = excursion.gesture != GestureClass::Static
+            && excursion.gesture != GestureClass::Unknown;
+        const bool moving = directionMoving || gestureMoving;
         consecutive = moving ? consecutive + 1 : 0;
         if (consecutive < 2) continue;
-        if (excursion.direction != MovementDirection::Static) {
+        if (directionMoving) {
             result.direction = MovementDirection::Mixed;
             result.directionConfidence = excursion.directionConfidence;
         }
-        if (excursion.gesture != GestureClass::Static) {
+        if (gestureMoving) {
             result.gesture = GestureClass::Mixed;
             result.gestureConfidence = excursion.gestureConfidence;
         }
