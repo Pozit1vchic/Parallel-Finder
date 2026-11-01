@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scope": "Independently reviewed visible people in the supplied Butcher montage. Coordinates use the 1280x544 inference frame. Eleven examples are a regression check, not a population benchmark.",
+  "scope": "Independently reviewed visible people in the supplied Butcher montage. Coordinates use the 1280x544 inference frame. Fifteen examples are a regression check, not a population benchmark.",
   "sourceBasename": "butcher_parallel_notsorted.mov",
   "controls": [
     {
@@ -67,6 +67,30 @@
       "id": "mothers-milk-closeup-and-seated",
       "left": {"time": 547.5231193, "point": [150, 350]},
       "right": {"time": 658.8629127, "point": [630, 280]},
+      "sameIdentity": true
+    },
+    {
+      "id": "train-and-mothers-milk-standing",
+      "left": {"time": 15.891, "point": [950, 400]},
+      "right": {"time": 30.3636993, "point": [268, 362]},
+      "sameIdentity": false
+    },
+    {
+      "id": "train-and-mothers-milk-forest",
+      "left": {"time": 15.891, "point": [950, 400]},
+      "right": {"time": 85.1891047, "point": [478, 271]},
+      "sameIdentity": false
+    },
+    {
+      "id": "mothers-milk-closeup-and-standing",
+      "left": {"time": 547.5231193, "point": [150, 350]},
+      "right": {"time": 30.3636993, "point": [268, 362]},
+      "sameIdentity": true
+    },
+    {
+      "id": "mothers-milk-closeup-and-forest",
+      "left": {"time": 547.5231193, "point": [150, 350]},
+      "right": {"time": 85.1891047, "point": [478, 271]},
       "sameIdentity": true
     }
   ]

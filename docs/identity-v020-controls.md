@@ -22,6 +22,13 @@ On the user's much longer `butcher_parallel_notsorted.mov`, the same fast-profil
 
 Eleven visibly reviewed Butcher pairs are recorded in `butcher-identity-controls.json`: six same-person pairs and five different-person pairs. On the saved tracks four same-person pairs join, two split, two different-person pairs remain separate, and three cross-view pairs of different men are incorrectly joined. This tiny control set does not validate the other appearances or resolve the coverage gap. The false join of A-Train and Mother's Milk in candidate 24 is a release-blocking error; a second clear Mother's Milk view tests against merely detaching one bad track.
 
+Four further pairs were added after inspection of the actual bridging tracks
+60 and 182: each is compared both with A-Train and with the clear Mother's
+Milk view. On the fresh v16 tracks the expanded 15-pair set has 7 joined
+positive, 2 separated negative, 5 incorrectly joined and 1 split positive.
+This prevents an apparent pass that merely detaches track 814 while leaving
+the original bridge mixed.
+
 `butcher-independent-identities.json` adds nine separately reviewed pairs for
 other people in the same montage: Starlight, Frenchie, Kimiko, Hughie, the
 older man and Butcher. The v16 frozen-track replay joins all five labelled

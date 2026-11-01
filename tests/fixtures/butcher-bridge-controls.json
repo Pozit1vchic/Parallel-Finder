@@ -1,0 +1,169 @@
+{
+  "schema": 1,
+  "scope": "Visually reviewed Butcher montage faces, 1280x544 inference frame; targeted transitive bridge controls, not a population benchmark.",
+  "sourceBasename": "butcher_parallel_notsorted.mov",
+  "controls": [
+    {
+      "id": "atrain-vs-milk-first",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          920,
+          380
+        ]
+      },
+      "right": {
+        "time": 30.363699333808835,
+        "point": [
+          260,
+          225
+        ]
+      },
+      "sameIdentity": false
+    },
+    {
+      "id": "atrain-vs-milk-bridge",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          920,
+          380
+        ]
+      },
+      "right": {
+        "time": 85.18910466707685,
+        "point": [
+          470,
+          117
+        ]
+      },
+      "sameIdentity": false
+    },
+    {
+      "id": "atrain-later-vs-milk-first",
+      "left": {
+        "time": 642.2005400000206,
+        "point": [
+          572,
+          200
+        ]
+      },
+      "right": {
+        "time": 30.363699333808835,
+        "point": [
+          260,
+          225
+        ]
+      },
+      "sameIdentity": false
+    },
+    {
+      "id": "atrain-later-vs-milk-bridge",
+      "left": {
+        "time": 642.2005400000206,
+        "point": [
+          572,
+          200
+        ]
+      },
+      "right": {
+        "time": 85.18910466707685,
+        "point": [
+          470,
+          117
+        ]
+      },
+      "sameIdentity": false
+    },
+    {
+      "id": "milk-first-vs-bridge",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          260,
+          225
+        ]
+      },
+      "right": {
+        "time": 85.18910466707685,
+        "point": [
+          470,
+          117
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-first-vs-seated",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          260,
+          225
+        ]
+      },
+      "right": {
+        "time": 658.8629126670146,
+        "point": [
+          630,
+          215
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-bridge-vs-seated",
+      "left": {
+        "time": 85.18910466707685,
+        "point": [
+          470,
+          117
+        ]
+      },
+      "right": {
+        "time": 658.8629126670146,
+        "point": [
+          630,
+          215
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-first-vs-closeup",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          260,
+          225
+        ]
+      },
+      "right": {
+        "time": 547.3562860004948,
+        "point": [
+          210,
+          350
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-bridge-vs-closeup",
+      "left": {
+        "time": 85.18910466707685,
+        "point": [
+          470,
+          117
+        ]
+      },
+      "right": {
+        "time": 547.3562860004948,
+        "point": [
+          210,
+          350
+        ]
+      },
+      "sameIdentity": true
+    }
+  ]
+}
