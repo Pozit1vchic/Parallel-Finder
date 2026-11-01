@@ -2251,6 +2251,65 @@ TEST(MotionMatcher, CrossSourceBodyIdentityGapNeedsStrongMotionCorroboration)
     EXPECT_TRUE(matcher.findAllPairs({changedAppearance[0],unrelated}).empty());
 }
 
+TEST(MotionMatcher, IdentityMemoKeepsSourceAndWindowKindIndependent)
+{
+    auto motion=recordedPoseFixture("soldier-cross-source-walking.json",false,true);
+    ASSERT_EQ(motion.size(),2U);
+    for(auto& window:motion) {
+        window.faceEmbedding.clear();
+        window.faceConfidence=0;
+    }
+    pfcore::MotionMatcherParams params;
+    params.individualPairs=params.allowStaticFrames=params.requireAppearance=true;
+    params.similarityThreshold=.70;
+    params.minAppearanceSimilarity=.76;
+    params.minMotionBodyIdentitySimilarity=.72;
+    params.minTemporalFrames=6;
+    params.timeWeight=.10;
+    params.maxComparisonThreads=1;
+    params.individualPairs=false;
+    params.maxResultsPerShot=0;
+    params.maxUniqueResults=1000;
+    params.duplicateWindowSec=0;
+    const pfcore::MotionMatcher matcher(params);
+    ASSERT_EQ(matcher.compare(motion[0],motion[1]).rejection,pfcore::MotionRejection::None);
+
+    auto sameSource=motion[1];
+    sameSource.sourceId=motion[0].sourceId;
+    sameSource.hasSceneIndex=false;
+    for(auto& frame:sameSource.frames)frame.timestampSeconds+=1000;
+    sameSource.sceneStartSeconds=-1;
+    sameSource.sceneEndSeconds=-1;
+    ASSERT_EQ(matcher.compare(motion[0],sameSource).rejection,pfcore::MotionRejection::Identity);
+    std::vector<pfcore::MotionWindow> crowded{motion[0]};
+    for(int i=0;i<20;++i) {
+        auto duplicate=sameSource;
+        for(auto& frame:duplicate.frames)frame.timestampSeconds+=i*10;
+        crowded.push_back(std::move(duplicate));
+    }
+    crowded.push_back(motion[1]);
+    const auto crowdedMatches=matcher.findAllPairs(crowded);
+    EXPECT_TRUE(std::any_of(crowdedMatches.begin(),crowdedMatches.end(),[&](const auto& match) {
+        return (match.leftIndex==0 && match.rightIndex==crowded.size()-1)
+            || (match.rightIndex==0 && match.leftIndex==crowded.size()-1);
+    }));
+    for (const auto& windows : {std::vector<pfcore::MotionWindow>{motion[0],sameSource,motion[1]},
+                                std::vector<pfcore::MotionWindow>{motion[0],motion[1],sameSource}}) {
+        const auto matches=matcher.findAllPairs(windows);
+        EXPECT_TRUE(std::any_of(matches.begin(),matches.end(),[&](const auto& match) {
+            return (match.leftIndex==0 || match.rightIndex==0)
+                && windows[match.leftIndex].sourceId!=windows[match.rightIndex].sourceId;
+        }));
+    }
+
+    auto staticCopy=motion[1];
+    staticCopy.staticFrameSet=true;
+    const auto matches=matcher.findAllPairs({motion[0],staticCopy,motion[1]});
+    EXPECT_TRUE(std::any_of(matches.begin(),matches.end(),[](const auto& match) {
+        return match.leftIndex==0 && match.rightIndex==2;
+    }));
+}
+
 TEST(MotionMatcher, CrossSourceWalkingWithHiddenFaceSurvivesProfileProjection)
 {
     auto motion=recordedPoseFixture("soldier-cross-source-walking.json",false,true);

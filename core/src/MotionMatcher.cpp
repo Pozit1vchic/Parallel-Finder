@@ -571,8 +571,11 @@ bool identityCandidate(const IdentityEvidence& identity)
 }
 
 // Overlapping motion/static chunks retain the same identity prototypes.
-// Intern only exactly equal usable descriptors, not tracks or approximate
-// identities. Provenance, gaps, posture and shot quotas still use window IDs.
+// Intern only exactly equal usable descriptors with the same source and
+// window kind. Identity evidence also depends on whether both windows are
+// motion and whether their sources differ; sharing across either boundary
+// would make retrieval depend on which pair populated the memo first.
+// Provenance, gaps, posture and shot quotas still use window IDs.
 std::vector<std::size_t> identityPrototypeIds(const std::vector<MotionWindow>& windows,
                                             double minimumEvidence,bool directConsensus)
 {
@@ -597,6 +600,8 @@ std::vector<std::size_t> identityPrototypeIds(const std::vector<MotionWindow>& w
         const bool face = !window.faceEmbedding.empty() && window.faceConfidence >= minimumEvidence;
         const bool body = !window.appearanceEmbedding.empty() && window.appearanceConfidence >= minimumEvidence;
         std::size_t hash = static_cast<std::size_t>(face) | (static_cast<std::size_t>(body) << 1U);
+        combine(hash, std::hash<std::string>{}(window.sourceId));
+        combine(hash, static_cast<std::size_t>(window.staticFrameSet));
         if (face) hashVector(hash, window.faceEmbedding);
         if (body) hashVector(hash, window.appearanceEmbedding);
         auto& bucket = buckets[hash];
@@ -604,6 +609,8 @@ std::vector<std::size_t> identityPrototypeIds(const std::vector<MotionWindow>& w
             const auto& prototype = prototypes[id];
             const auto& previous = windows[prototype.window];
             return prototype.face == face && prototype.body == body
+                && previous.sourceId == window.sourceId
+                && previous.staticFrameSet == window.staticFrameSet
                 && (!face || previous.faceEmbedding == window.faceEmbedding)
                 && (!body || previous.appearanceEmbedding == window.appearanceEmbedding);
         });
