@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "sourceName": "butcher_parallel_notsorted.mov",
+  "sourceSha256": "6c7ed560ed6e337e2a0d183f52c29d2bb6db6e95cf13f598ad105526e6dc5830",
+  "windowsSha256": "1ca463034e3411b5f1b38611fcc0927cc6106706b62dd6a3a5665b5612d49570",
+  "paramsSha256": "d3be5b31bb58a6e6f10f40538421ca9ae95620b04741924de1e5550c7c66d55b",
+  "applicationSha256": "4efc3e5c9afcd6fa878494a03d1c68ba10919b4729c314823090bf832d8b8c0d",
+  "scope": "Butcher holding a phone to his ear, body-action results; reviewed candidate pool and full application output, one source",
+  "review": "Manual visual review of frames every 0.5 seconds in 495–499, 521–525 and 556–560. The forest and shop are different footage. The third scene is a hard negative: raising sunglasses, not a phone. The forest shot at 523.812–525.668 repeats the first scene and is a duplicate control, not an independent positive.",
+  "candidates": [
+    {"id":"forest-phone", "windowIndex":1039, "track":723, "sceneStart":496.201, "sceneEnd":498.057, "positiveIds":["shop-phone"], "negativeIds":["sunglasses"]},
+    {"id":"shop-phone", "windowIndex":1094, "track":779, "sceneStart":521.956, "sceneEnd":523.812, "positiveIds":["forest-phone"], "negativeIds":["sunglasses"]},
+    {"id":"sunglasses", "windowIndex":1175, "track":831, "sceneStart":556.949, "sceneEnd":558.805, "positiveIds":[], "negativeIds":[]}
+  ],
+  "duplicateControl": {"sceneStart":523.812, "sceneEnd":525.668, "duplicates":"forest-phone", "purpose":"family/dedup audit; excluded from positive and negative retrieval labels"}
+}
