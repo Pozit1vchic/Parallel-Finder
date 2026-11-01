@@ -135,6 +135,26 @@ TEST(PfCache, BatchSourceWritesRemainReadableAndResetByOwnership)
     EXPECT_TRUE(cache.get("other-sample"));
 }
 
+TEST(PfCache, ResetFindsLongOwnedKeysAndLongSourceNames)
+{
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    pfservices::PfCache cache(std::filesystem::path(directory.path().toStdWString()), 131072);
+    const std::string source = "D:/" + std::string(4500, 's') + ".mp4";
+    const std::string owned = "opaque-" + std::string(3000, 'k');
+    const std::string other = "other-" + std::string(3000, 'k');
+    std::string error;
+    ASSERT_TRUE(cache.putForSource(source, owned, {1,2,3}, error)) << error;
+    ASSERT_TRUE(cache.putForSource("D:/other.mp4", other, {4,5,6}, error)) << error;
+    const auto keys = cache.keysForSource(source, &error);
+    ASSERT_TRUE(error.empty()) << error;
+    ASSERT_EQ(keys.size(), 1U);
+    EXPECT_EQ(keys.front(), owned);
+    ASSERT_TRUE(cache.resetSource(source, error)) << error;
+    EXPECT_FALSE(cache.get(owned));
+    EXPECT_TRUE(cache.get(other));
+    EXPECT_FALSE(cache.sourceGeneration(source).empty());
+}
+
 TEST(PfCache, BatchWritesPreserveEntriesAndEnforceLimitAfterPartialFailure)
 {
     QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
@@ -153,6 +173,21 @@ TEST(PfCache, BatchWritesPreserveEntriesAndEnforceLimitAfterPartialFailure)
     ASSERT_TRUE(cache.get("four"));
     EXPECT_EQ(cache.get("four")->front(),4);
     EXPECT_FALSE(cache.get("too-large"));
+}
+
+TEST(PfCache, SourceBatchEnforcesLimitAfterPartialFailure)
+{
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    pfservices::PfCache cache(std::filesystem::path(directory.path().toStdWString()), 300);
+    std::string error;
+    ASSERT_TRUE(cache.put("older", std::vector<std::uint8_t>(135,1), error)) << error;
+    const std::vector<std::pair<std::string,std::vector<std::uint8_t>>> entries {
+        {"newer", std::vector<std::uint8_t>(135,2)},
+        {std::string(16385,'x'), {3}}};
+    EXPECT_FALSE(cache.putForSourceBatch("D:/film.mp4", entries, error));
+    EXPECT_FALSE(error.empty());
+    EXPECT_LE(cache.bytesUsed(), cache.limitBytes());
+    EXPECT_TRUE(cache.get("newer"));
 }
 
 TEST(PfCache, WritesReadsAndEvictsVersionedEntries)

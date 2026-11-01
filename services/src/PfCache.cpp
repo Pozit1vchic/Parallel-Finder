@@ -190,10 +190,16 @@ bool PfCache::putForSourceBatch(const std::string& source,
     const std::vector<std::pair<std::string,std::vector<std::uint8_t>>>& entries,std::string& error)
 {
     if(source.empty()) { error="cache source must not be empty";return false; }
+    std::filesystem::path lastWritten;
     for(const auto& [key,payload]:entries) {
-        if(!rememberSourceKey(source,key,error) || !writeEntry(fileFor(key),key,payload,error))return false;
+        const auto path=fileFor(key);
+        if(!rememberSourceKey(source,key,error) || !writeEntry(path,key,payload,error)) {
+            if(!lastWritten.empty())evictIfNeeded(lastWritten);
+            return false;
+        }
+        lastWritten=path;
     }
-    if(!entries.empty())evictIfNeeded({});
+    if(!lastWritten.empty())evictIfNeeded(lastWritten);
     return true;
 }
 
@@ -272,10 +278,12 @@ std::vector<std::string> PfCache::keysForSource(const std::string& source,std::s
         std::ifstream stream(entry.path(),std::ios::binary);
         std::array<char,8> magic{};std::uint32_t version=0,size=0;std::uint64_t payloadSize=0;
         if(!stream.read(magic.data(),magic.size()) || magic!=kMagic || !readScalar(stream,version)
-            || !readScalar(stream,size) || !readScalar(stream,payloadSize) || version!=kVersion || !size || size>2048)continue;
+            || !readScalar(stream,size) || !readScalar(stream,payloadSize) || version!=kVersion || !size || size>kMaxCacheKeyBytes)continue;
         std::string stored(size,'\0');if(!stream.read(stored.data(),size))continue;
         if(extension==".owner") {
-            if(!stored.starts_with("source-owner-v1|") || payloadSize>4096)continue;
+            // Use the same key bound as the writer: valid long observation
+            // keys must remain discoverable when the source is reset.
+            if(!stored.starts_with("source-owner-v1|") || payloadSize>kMaxCacheKeyBytes)continue;
             std::string owner(payloadSize,'\0');if(stream.read(owner.data(),owner.size()) && normalize(owner)==normalized)
                 keys.insert(stored.substr(16));
         }else {
