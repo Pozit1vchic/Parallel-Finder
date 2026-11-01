@@ -98,7 +98,9 @@ Hsv toHsv(std::uint8_t red, std::uint8_t green, std::uint8_t blue)
 
     double hue = 0.0;
     if (delta > 1e-12) {
-        if (maximum == r) hue = std::fmod((g - b) / delta, 6.0) / 6.0;
+        // With red as the maximum, |g-b| <= delta, so the quotient is
+        // always in [-1, 1]. Its remainder modulo 6 is the quotient itself.
+        if (maximum == r) hue = ((g - b) / delta) / 6.0;
         else if (maximum == g) hue = ((b - r) / delta + 2.0) / 6.0;
         else hue = ((r - g) / delta + 4.0) / 6.0;
         if (hue < 0.0) hue += 1.0;
