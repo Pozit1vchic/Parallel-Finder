@@ -381,6 +381,21 @@ bool ModelStore::download(const ModelAsset& asset,
         return false;
     }
 
+    // An interrupted or incorrect response can leave a partial larger than the
+    // authoritative manifest size. It cannot be resumed: its next Range would
+    // start beyond EOF and repeatedly receive HTTP 416. Discard only this bad
+    // part and let the provider retry it from the beginning.
+    if (asset.sizeBytes != 0 && static_cast<std::uint64_t>(offset) > asset.sizeBytes) {
+        part.close();
+        filesystemError.clear();
+        if (!std::filesystem::remove(partPath, filesystemError) || filesystemError) {
+            error = "remove oversized partial model: " + filesystemError.message();
+            return false;
+        }
+        error = "model download: partial exceeds expected size";
+        return false;
+    }
+
     // A previous publication may have failed after the complete download was
     // verified (e.g. the destination was locked). Retry publication locally;
     // requesting Range at EOF would otherwise get HTTP 416 forever.

@@ -126,6 +126,30 @@ TEST(ProviderDownload, TransientFailureRetriesTheSamePersistentPartial)
     EXPECT_EQ(attempts,2);
 }
 
+TEST(ProviderDownload, OversizedPartialRetriesOnlyTheInvalidPart)
+{
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    const auto path = std::filesystem::path(directory.filePath("chunk").toStdWString());
+    auto partial = path; partial += ".part";
+    const auto partialName = QString::fromStdWString(partial.wstring());
+    put(partialName, "oversized");
+    put(directory.filePath("other.part"), "keep");
+    pfservices::ModelAsset asset;
+    asset.filename = "chunk"; asset.sizeBytes = 7; asset.sha256 = digest("correct");
+    asset.downloadUrl = "https://github.com/example/unused";
+    std::string error; int attempts = 0;
+    ASSERT_TRUE(pfservices::detail::downloadWithRetry(asset, path, {}, error,
+        [&](const auto& value, const auto& destination, auto progress, std::string& failure) {
+            ++attempts;
+            if (attempts == 1)
+                return pfservices::ModelStore::download(value, destination, progress, failure);
+            EXPECT_FALSE(QFile::exists(partialName));
+            EXPECT_EQ(get(directory.filePath("other.part")), "keep");
+            return true;
+        })) << error;
+    EXPECT_EQ(attempts, 2);
+}
+
 TEST(ProviderDownload, FreeSlotStartsNextPartBeforeUnrelatedSlowPartFinishes)
 {
     pfservices::ProviderAsset asset;asset.sizeBytes=6;

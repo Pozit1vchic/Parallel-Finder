@@ -12,6 +12,7 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <QEventLoop>
+#include <QNetworkProxy>
 
 #include <filesystem>
 #include <atomic>
@@ -200,6 +201,28 @@ TEST(ModelStore, CorruptCompletePartialDoesNotTrapEveryRetryAtEndOfFile) {
     std::string error;
     EXPECT_FALSE(pfservices::ModelStore::download(asset,destination,{},error));
     EXPECT_TRUE(error.starts_with("model SHA-256 mismatch"));
+    EXPECT_FALSE(std::filesystem::exists(partial));
+}
+
+TEST(ModelStore, OversizedPartialIsDiscardedBeforeNetworkRetry) {
+    int argc = 1; char name[] = "pf-network-test"; char* argv[] = {name, nullptr};
+    std::unique_ptr<QCoreApplication> application;
+    if (!QCoreApplication::instance()) application = std::make_unique<QCoreApplication>(argc, argv);
+    const auto originalProxy = QNetworkProxy::applicationProxy();
+    QNetworkProxy::setApplicationProxy(QNetworkProxy(QNetworkProxy::HttpProxy, "127.0.0.1", 1));
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    const auto destination = std::filesystem::path(directory.filePath("chunk").toStdWString());
+    auto partial = destination; partial += ".part";
+    QFile file(QString::fromStdWString(partial.wstring())); ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    ASSERT_EQ(file.write("oversized"), 9); file.close();
+    pfservices::ModelAsset asset;
+    asset.filename = "chunk"; asset.sizeBytes = 7;
+    asset.sha256 = QCryptographicHash::hash(QByteArray("correct"), QCryptographicHash::Sha256).toHex().toStdString();
+    asset.downloadUrl = "https://github.com/example/unused";
+    std::string error;
+    EXPECT_FALSE(pfservices::ModelStore::download(asset, destination, {}, error));
+    QNetworkProxy::setApplicationProxy(originalProxy);
+    EXPECT_EQ(error, "model download: partial exceeds expected size");
     EXPECT_FALSE(std::filesystem::exists(partial));
 }
 
