@@ -874,9 +874,8 @@ static void recoverUniqueBodyTracks(std::vector<std::vector<std::size_t>>& compo
     std::erase_if(components,[](const auto& c){return c.empty();});
 }
 
-// Recover a short continuity across a cut only when the same independently
-// identified companion is observed on both sides, the candidate remains on
-// the same side of that companion, and its measured box and body agree.
+// Recover short continuity across a cut when measured box/body agreement is
+// corroborated by an identified companion or independently observed faces.
 static void recoverCompanionContinuity(std::vector<std::vector<std::size_t>>& components,
     const std::vector<PersonTrack>& tracks,const std::vector<std::size_t>& indices,
     const DominantSelectionControl& control)
@@ -950,7 +949,15 @@ static void recoverCompanionContinuity(std::vector<std::vector<std::size_t>>& co
                 const double after=center(first.box)-center((*b)->box);
                 if(before*after>0 && !sameObservedSkeleton(last,**a) && !sameObservedSkeleton(first,**b))companion=true;
             }
-            if(companion)edges.push_back({left.group,right.group,.65*box+.35*body});
+            // A cut can split one close-up even when no companion is in
+            // frame. Require a well-observed face before the cut, an actual
+            // face afterwards, and simultaneous position and body agreement.
+            // The usual competing-edge and co-visibility checks still apply.
+            const double boundaryFace=embeddingScore(left.identity.face,right.identity.face);
+            const bool faceContinuity=faceSamples[left.group]>=3
+                && left.identity.faceEvidence>=.99 && right.identity.faceEvidence>0
+                && boundaryFace>=.52 && body>=.70 && box>=.65;
+            if(companion || faceContinuity)edges.push_back({left.group,right.group,.65*box+.35*body});
         }
     }
     std::stable_sort(edges.begin(),edges.end(),[](const auto& a,const auto& b){return a.score>b.score;});

@@ -243,6 +243,31 @@ TEST(CharacterCandidates, ContinuityAcrossCutNeedsTheSameObservedCompanion)
     EXPECT_EQ(pfcore::characterCandidates({companion,before,after}).size(),3);
 }
 
+TEST(CharacterCandidates, FaceBackedCutContinuityRequiresIndependentEvidence)
+{
+    auto before=track(1,0,{1,0},4),after=track(2,1,{},4);
+    for(auto& o:before.observations){o.box={0,0,100,200};o.appearanceEmbedding={1,0};}
+    for(auto& o:after.observations){o.box={3,0,103,200};o.appearanceEmbedding={.73F,.6834471F};}
+    after.observations.front().faceEmbedding={.53F,.848F};
+    const auto matched=pfcore::characterCandidates({before,after});
+    ASSERT_EQ(matched.size(),1);
+    EXPECT_EQ(matched.front().trackIds,(std::vector<std::size_t>{1,2}));
+    auto competing=after; competing.id=3;
+    EXPECT_EQ(pfcore::characterCandidates({before,after,competing}).size(),3);
+
+    // Position alone, weak facial agreement, unrelated clothing, or a
+    // displaced box must not identify a person across a cut.
+    after.observations.front().faceEmbedding.clear();
+    EXPECT_EQ(pfcore::characterCandidates({before,after}).size(),2);
+    after.observations.front().faceEmbedding={.4F,.916515F};
+    EXPECT_EQ(pfcore::characterCandidates({before,after}).size(),2);
+    after.observations.front().faceEmbedding={.53F,.848F};
+    for(auto& o:after.observations)o.appearanceEmbedding={0,1};
+    EXPECT_EQ(pfcore::characterCandidates({before,after}).size(),2);
+    for(auto& o:after.observations){o.appearanceEmbedding={.73F,.6834471F};o.box={80,0,180,200};}
+    EXPECT_EQ(pfcore::characterCandidates({before,after}).size(),2);
+}
+
 TEST(CharacterCandidates, MultiViewRecoveryCannotMergeConcurrentPeopleThroughAThirdView)
 {
     auto front=track(1,0,{.7660444F,.6427876F},6);
