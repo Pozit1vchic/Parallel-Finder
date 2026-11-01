@@ -14,8 +14,24 @@ def evaluate(assignments, labels):
             intersection = max(0, min(a[2], b[2])-max(a[0], b[0])) * max(0, min(a[3], b[3])-max(a[1], b[1]))
             union = (a[2]-a[0])*(a[3]-a[1])+(b[2]-b[0])*(b[3]-b[1])-intersection
             return intersection/union if union > 0 else 0
-        found = [row["identity"] for row in assignments if abs(row["time"]-anchor["time"]) < .002
-                 and iou(row["box"], anchor["box"]) > .99]
+        if "point" in anchor:
+            # A manually reviewed point identifies a visible person without
+            # binding the judgement to a particular detector's bounding box.
+            # Do not guess when two detections cover the point in one frame.
+            x, y = anchor["point"]
+            tolerance = anchor.get("timeTolerance", .09)
+            matches = [row for row in assignments
+                       if abs(row["time"]-anchor["time"]) <= tolerance
+                       and row["box"][0] <= x <= row["box"][2]
+                       and row["box"][1] <= y <= row["box"][3]]
+            if not matches:
+                raise ValueError("A reviewed point did not resolve to an observed person")
+            nearest = min(abs(row["time"]-anchor["time"]) for row in matches)
+            found = [row["identity"] for row in matches
+                     if abs(abs(row["time"]-anchor["time"])-nearest) < 1e-6]
+        else:
+            found = [row["identity"] for row in assignments if abs(row["time"]-anchor["time"]) < .002
+                     and iou(row["box"], anchor["box"]) > .99]
         if len(found) != 1 or not found[0]:
             raise ValueError("Every reviewed anchor must resolve to exactly one observed identity")
         return found[0]

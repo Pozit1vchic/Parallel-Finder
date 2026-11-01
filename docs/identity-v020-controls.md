@@ -1,0 +1,19 @@
+# Character identity controls for v0.2.0
+
+Release remains blocked: these controls are a small, manually inspected sample, not a measure of whole-video accuracy. In particular, three known same-person pairs are still split.
+
+The source was `KyleCrane_Parallel_NikolayOM.mp4`, supplied by the user. The woman driving around 17.03 seconds and the older woman in the dark room around 59.03 seconds are different people. The two labeled negative controls for them must remain separate. The fixtures also contain visually reviewed examples of repeated appearances and other people; they store timestamps and locations, not video frames or embeddings.
+
+On freshly extracted observations, the current candidate clustering gives these results:
+
+| Fixture | Same, joined | Different, separate | Different, joined | Same, split |
+| --- | ---: | ---: | ---: | ---: |
+| `kyle-user-women-controls.json` | 4 | 8 | 0 | 0 |
+| `kyle-independent-controls.json` | 2 | 2 | 0 | 0 |
+| `kyle-additional-controls.json` | 3 | 0 | 0 | 3 |
+
+This checks 22 selected pairs, not every appearance in the video. The three remaining misses involve back and profile views; unresolved appearances must not be represented as fully solved. An earlier baseline, replayed over the same saved observations, gave 6 same-person joins, 7 correct separations, 3 false joins and 6 false splits on these controls. This is a controlled comparison of clustering only, not a comparison of complete video pipelines.
+
+The current application was also run on the video with CUDA and the fast profile. The actual pose model was YOLO26m, SHA-256 `dc8741d097d642df343361cb956087e2991140ababcb6e063a6f077968c28fe1`; its local filename used the `yolo26x-pose.onnx` alias to accommodate the existing saved model setting. The OSNet ReID model SHA-256 was `75146f8fa0893808981a8d2d52586789e59521f2b06e3d7415439e7e718dd2ea`. A repeat using the analysis cache returned the same 24 candidate identities, preview times and boxes, with no video decoding or pose inference. The inspection run intentionally stops at character selection and does not test matching or exported results.
+
+To reproduce the pair evaluation, run `pf_character_probe` on freshly captured track observations and the corresponding scene log, then run `tools/benchmark/evaluate_identity_controls.py` against each fixture. Validate additional negative and positive pairs on more videos before treating these results as evidence of release readiness.

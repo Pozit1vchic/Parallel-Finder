@@ -2625,7 +2625,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
                 const auto generation = sourceGenerations[path.toStdString()];
                 if (!generation.empty()) cacheKey += "|generation=" + generation;
-                if (interactiveTargets) cacheKey += "|all-characters-v9-head-face-agreement";
+                if (interactiveTargets) cacheKey += "|all-characters-v14-companion-continuity";
                 if (interactiveTargets) characterArtifactKeys[path.toStdString()]=cacheKey;
                 sequenceCacheKeys[path.toStdString()]=cacheKey;
                 bool cacheEntryFound=false;
@@ -2742,7 +2742,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 // prevents "maximum" mode from spending most of its runtime
                 // re-identifying nearly identical frames. The 0.5 s floor
                 // still gives several independent crops per motion window.
-                const double reidIntervalSeconds = auditDenseIdentity ? 0.10 : 0.50;
+                const double reidIntervalSeconds = (interactiveTargets || auditDenseIdentity) ? 0.10 : 0.50;
                 double nextReIdTimestamp = -std::numeric_limits<double>::infinity();
                 struct PendingPoseSample {
                     double timestamp = 0.0;
@@ -2815,7 +2815,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                                 const bool captureFace = !faceCropAuditDir.isEmpty() && faceCropAudit.size() < 128;
                                 frameDetections.back().faceEmbedding = face->infer({sample.width, sample.height,
                                     sample.pixels(), detection.left, detection.top, detection.right, detection.bottom},
-                                    &diagnostic, .85, interactiveTargets?&expectedNose:nullptr, forwardFaceAlignmentAudit);
+                                    &diagnostic, .85, interactiveTargets?&expectedNose:nullptr, interactiveTargets || forwardFaceAlignmentAudit);
                                 observedFaces[frameDetections.size()-1]={diagnostic.accepted,diagnostic.landmarks};
                                 faceNs += stageNow() - stageStart;
                                 if (captureFace && diagnostic.accepted) {

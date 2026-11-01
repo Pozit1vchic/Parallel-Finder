@@ -376,7 +376,8 @@ std::optional<PersonTrack> DominantPersonTracker::dominant() const
 }
 
 static std::vector<bool> selectIdentityComponents(const std::vector<IdentitySummary>& identities,
-    const DominantSelectionControl& control, std::vector<std::vector<std::size_t>>* components)
+    const DominantSelectionControl& control, std::vector<std::vector<std::size_t>>* components,
+    double faceLink = .363, double bodyLink = .76)
 {
     const auto count = identities.size();
     std::vector<bool> selected(count, false);
@@ -449,7 +450,7 @@ static std::vector<bool> selectIdentityComponents(const std::vector<IdentitySumm
                     conflicts[a*wordsPerRow+b/64]|=std::uint64_t{1}<<(b%64);
                 if(visible || (!face && !(bodyReady(a) && bodyReady(b))))continue;
                 const double score=face ? faceScore : prototypeScore(a,b,false);
-                if(score >= (face ? .363 : .76))found.push_back({a,b,score,face});
+                if(score >= (face ? faceLink : bodyLink))found.push_back({a,b,score,face});
             }
             ++completedRows;
         }
@@ -550,6 +551,406 @@ std::vector<bool> selectDominantIdentities(const std::vector<IdentitySummary>& i
     return selectIdentityComponents(identities, control, nullptr);
 }
 
+static bool coVisibleDifferent(const std::vector<const PersonDetection*>& x,
+                               const std::vector<const PersonDetection*>& y)
+{
+    std::size_t i=0,j=0;
+    while(i<x.size() && j<y.size()) {
+        const auto xt=x[i]->timestampSeconds,yt=y[j]->timestampSeconds;
+        if(std::abs(xt-yt)<=1e-6) {
+            std::size_t ie=i+1,je=j+1;
+            while(ie<x.size() && std::abs(x[ie]->timestampSeconds-xt)<=1e-6)++ie;
+            while(je<y.size() && std::abs(y[je]->timestampSeconds-yt)<=1e-6)++je;
+            // A second detector box on the same skeleton is not a second
+            // person. Any genuinely distinct observation still vetoes.
+            for(auto a=i;a<ie;++a)for(auto b=j;b<je;++b)
+                if(!sameObservedSkeleton(*x[a],*y[b]))return true;
+            i=ie;j=je;
+        } else if(xt<yt)++i;else ++j;
+    }
+    return false;
+}
+
+// A partial close-up can expose only one head and one torso joint. This is
+// insufficient on its own; the caller also requires very strong body agreement
+// and verifies every overlapping frame before joining two short fragments.
+static bool samePartialObservedSkeleton(const PersonDetection& a,const PersonDetection& b)
+{
+    const auto intersection=std::max(0.,std::min(a.box.right,b.box.right)-std::max(a.box.left,b.box.left))
+        *std::max(0.,std::min(a.box.bottom,b.box.bottom)-std::max(a.box.top,b.box.top));
+    const double smaller=std::min(a.box.area(),b.box.area());
+    if(!std::isfinite(smaller) || !std::isfinite(intersection) || smaller<=0 || intersection/smaller<.97)return false;
+    const double scale=std::sqrt(smaller);std::size_t head=0,torso=0,count=0;double sum=0,maximum=0;
+    for(std::size_t j=0;j<std::min(a.keypoints.size(),b.keypoints.size());++j) {
+        const auto& x=a.keypoints[j];const auto& y=b.keypoints[j];
+        if(x.confidence<.8 || y.confidence<.8 || !std::isfinite(x.x+x.y+y.x+y.y))continue;
+        if(j>=5 && j!=5 && j!=6 && j!=11 && j!=12)continue;
+        const double distance=std::hypot(x.x-y.x,x.y-y.y)/scale;
+        if(j<5)++head;else ++torso;
+        ++count;sum+=distance;maximum=std::max(maximum,distance);
+    }
+    return head>=1 && torso>=1 && count>=2 && sum/count<=.07 && maximum<=.10;
+}
+
+// Track means are useful seeds, but are not a multi-view identity model: a
+// profile can disagree with a frontal mean of the very same person. Recover
+// links using repeated, independent observed faces, never a clothing chain.
+static void recoverCharacterViews(std::vector<std::vector<std::size_t>>& components,
+    const std::vector<PersonTrack>& tracks, const std::vector<std::size_t>& indices,
+    const DominantSelectionControl& control)
+{
+    struct Gallery {
+        std::vector<const PersonDetection*> faces;
+        std::vector<const PersonDetection*> observations;
+        std::vector<float> body;
+    };
+    std::vector<Gallery> galleries(components.size());
+    for (std::size_t i=0;i<components.size();++i) {
+        auto& gallery=galleries[i];
+        for (auto index:components[i]) for (const auto& observation:tracks[indices[index]].observations) {
+            if(std::isfinite(observation.timestampSeconds))gallery.observations.push_back(&observation);
+            if (std::isfinite(observation.timestampSeconds)
+                && embeddingScore(observation.faceEmbedding,observation.faceEmbedding)>.99)
+                gallery.faces.push_back(&observation);
+            const auto& body=observation.appearanceEmbedding;
+            if (embeddingScore(body,body)>.99 && (gallery.body.empty() || gallery.body.size()==body.size())) {
+                if(gallery.body.empty())gallery.body.resize(body.size());
+                for(std::size_t j=0;j<body.size();++j)gallery.body[j]+=body[j];
+            }
+        }
+        std::stable_sort(gallery.observations.begin(),gallery.observations.end(),
+            [](auto a,auto b){return a->timestampSeconds<b->timestampSeconds;});
+        std::stable_sort(gallery.faces.begin(),gallery.faces.end(),[](auto a,auto b){return a->timestampSeconds<b->timestampSeconds;});
+        std::vector<const PersonDetection*> independent;
+        for(std::size_t j=0;j<gallery.faces.size();) {
+            std::size_t end=j+1;
+            while(end<gallery.faces.size()
+                && std::abs(gallery.faces[end]->timestampSeconds-gallery.faces[j]->timestampSeconds)<1e-6)++end;
+            bool ambiguous=false;
+            for(auto k=j+1;k<end;++k)
+                if(gallery.faces[k]->faceEmbedding!=gallery.faces[j]->faceEmbedding)ambiguous=true;
+            const auto* observation=gallery.faces[j];
+            if(!ambiguous && (independent.empty()
+                || observation->timestampSeconds-independent.back()->timestampSeconds>=.1-1e-9))
+                independent.push_back(observation);
+            j=end;
+        }
+        // Bound comparisons while retaining views across the complete history.
+        constexpr std::size_t limit=64;
+        gallery.faces.clear();
+        for(std::size_t j=0;j<std::min(limit,independent.size());++j)
+            gallery.faces.push_back(independent[independent.size()<=limit ? j : j*(independent.size()-1)/(limit-1)]);
+    }
+    const auto concurrent=[&](std::size_t a,std::size_t b) {
+        return coVisibleDifferent(galleries[a].observations,galleries[b].observations);
+    };
+    struct Link {std::size_t a,b;double score;bool repeated;};
+    std::vector<Link> links;
+    std::set<std::pair<std::size_t,std::size_t>> contradictions;
+    for(std::size_t a=0;a<galleries.size();++a) {
+        if(control.cancelled && control.cancelled())return;
+        if(control.progress)control.progress(DominantSelectionStage::Recovery,a,galleries.size());
+        const auto& x=galleries[a];
+        if(x.faces.empty())continue;
+        for(std::size_t b=0;b<a;++b) {
+            if((b%32)==0 && control.cancelled && control.cancelled())return;
+            const auto& y=galleries[b];
+            if(y.faces.empty() || concurrent(a,b))continue;
+            const double body=embeddingScore(x.body,y.body);
+            if(x.faces.size()==1 || y.faces.size()==1) {
+                const auto& single=x.faces.size()==1 ? x : y;
+                const auto& many=x.faces.size()==1 ? y : x;
+                if(many.faces.size()<3 || body<.78 || single.observations.size()<3)continue;
+                std::vector<double> scores;
+                for(const auto* other:many.faces)
+                    scores.push_back(embeddingScore(single.faces.front()->faceEmbedding,other->faceEmbedding));
+                std::sort(scores.begin(),scores.end(),std::greater<>());
+                // One image may corroborate a track only when at least three
+                // independent reference images and body evidence agree.
+                if(scores[0]>=.65 && scores[2]>=.55)
+                    links.push_back({a,b,(scores[0]+scores[1]+scores[2])/3,false});
+                continue;
+            }
+            std::vector<double> left(x.faces.size(),-1),right(y.faces.size(),-1);
+            std::vector<double> leftBest(x.faces.size(),-1),rightBest(y.faces.size(),-1);
+            for(std::size_t i=0;i<x.faces.size();++i)for(std::size_t j=0;j<y.faces.size();++j) {
+                const double score=embeddingScore(x.faces[i]->faceEmbedding,y.faces[j]->faceEmbedding);
+                if(score>leftBest[i]) {left[i]=leftBest[i];leftBest[i]=score;} else left[i]=std::max(left[i],score);
+                if(score>rightBest[j]) {right[j]=rightBest[j];rightBest[j]=score;} else right[j]=std::max(right[j],score);
+            }
+            std::size_t l=0,r=0;double sum=0;
+            for(double score:left)if(score>=.363){++l;sum+=score;}
+            for(double score:right)if(score>=.363){++r;sum+=score;}
+            // Each accepted face needs TWO independent matching references.
+            // A single lucky pair, or repeated copies of one frame, cannot link.
+            if(l<2 || r<2) {
+                const auto best=std::max(*std::max_element(leftBest.begin(),leftBest.end()),
+                                         *std::max_element(rightBest.begin(),rightBest.end()));
+                if(x.faces.size()>=3 && y.faces.size()>=3 && best<.30)contradictions.emplace(b,a);
+                continue;
+            }
+            const bool covered=x.faces.size()<=y.faces.size() ? l*5>=x.faces.size()*3 : r*5>=y.faces.size()*3;
+            const double score=sum/(l+r);
+            if(covered && (body>=.72 || (body>=.70 && score>=.52) || score>=.65))
+                links.push_back({a,b,score,true});
+        }
+    }
+    std::stable_sort(links.begin(),links.end(),[](const auto& a,const auto& b){return a.score>b.score;});
+    std::vector<std::size_t> owner(components.size());std::iota(owner.begin(),owner.end(),0);
+    std::vector<std::vector<std::size_t>> seeds(components.size());
+    for(std::size_t i=0;i<seeds.size();++i)seeds[i].push_back(i);
+    for(const auto& link:links) {
+        if(control.cancelled && control.cancelled())return;
+        const auto a=owner[link.a],b=owner[link.b];if(a==b)continue;
+        bool conflict=false,weakFaceConflict=false;
+        for(auto x:seeds[a])for(auto y:seeds[b]) {
+            const auto pair=std::minmax(x,y);
+            conflict=conflict || concurrent(x,y);
+            weakFaceConflict=weakFaceConflict || contradictions.contains({pair.first,pair.second});
+        }
+        if(weakFaceConflict) {
+            const auto prototype=[&](std::size_t group) {
+                std::vector<float> sum;
+                for(auto seed:seeds[group])for(const auto* observation:galleries[seed].faces) {
+                    const auto& face=observation->faceEmbedding;
+                    if(sum.empty())sum.resize(face.size());
+                    if(sum.size()==face.size())for(std::size_t i=0;i<sum.size();++i)sum[i]+=face[i];
+                }
+                return sum;
+            };
+            // A weak negative from a single view cannot veto repeated
+            // multi-view agreement, but one-face corroboration may not
+            // override any observed contradiction.
+            conflict=conflict || !link.repeated || link.score<.45
+                || embeddingScore(prototype(a),prototype(b))<.363;
+        }
+        if(conflict)continue;
+        components[a].insert(components[a].end(),components[b].begin(),components[b].end());components[b].clear();
+        for(auto seed:seeds[b]) {owner[seed]=a;seeds[a].push_back(seed);}seeds[b].clear();
+    }
+    std::erase_if(components,[](const auto& c){return c.empty();});
+}
+
+// Some back/profile tracks have no face at all. Attach a single such track
+// only when several independent body observations agree with one face-backed
+// candidate and clearly outrank all other eligible face-backed candidates.
+static void recoverUniqueBodyTracks(std::vector<std::vector<std::size_t>>& components,
+    const std::vector<PersonTrack>& tracks,const std::vector<std::size_t>& indices,
+    const DominantSelectionControl& control)
+{
+    struct Evidence {
+        std::vector<const PersonDetection*> observations,body,face;
+        std::vector<float> prototype;
+        std::size_t faces=0;
+    };
+    std::vector<Evidence> evidence(components.size());
+    for(std::size_t i=0;i<components.size();++i) {
+        auto& e=evidence[i];
+        for(auto index:components[i])for(const auto& o:tracks[indices[index]].observations) {
+            if(!std::isfinite(o.timestampSeconds))continue;
+            e.observations.push_back(&o);
+            if(embeddingScore(o.faceEmbedding,o.faceEmbedding)>.99)e.face.push_back(&o);
+            if(embeddingScore(o.appearanceEmbedding,o.appearanceEmbedding)>.99)e.body.push_back(&o);
+        }
+        std::stable_sort(e.observations.begin(),e.observations.end(),[](auto a,auto b){return a->timestampSeconds<b->timestampSeconds;});
+        std::stable_sort(e.face.begin(),e.face.end(),[](auto a,auto b){return a->timestampSeconds<b->timestampSeconds;});
+        double faceTime=-std::numeric_limits<double>::infinity();
+        for(auto o:e.face)if(o->timestampSeconds-faceTime>=.1-1e-9) {++e.faces;faceTime=o->timestampSeconds;}
+        std::stable_sort(e.body.begin(),e.body.end(),[](auto a,auto b){return a->timestampSeconds<b->timestampSeconds;});
+        std::vector<const PersonDetection*> independent;
+        for(auto o:e.body)if(independent.empty() || o->timestampSeconds-independent.back()->timestampSeconds>=.1-1e-9)
+            independent.push_back(o);
+        e.body.clear();
+        constexpr std::size_t sampleLimit=64;
+        for(std::size_t j=0;j<std::min(sampleLimit,independent.size());++j)
+            e.body.push_back(independent[independent.size()<=sampleLimit ? j : j*(independent.size()-1)/(sampleLimit-1)]);
+        for(auto o:e.body) {
+            if(e.prototype.empty())e.prototype.resize(o->appearanceEmbedding.size());
+            if(e.prototype.size()!=o->appearanceEmbedding.size())continue;
+            for(std::size_t k=0;k<e.prototype.size();++k)e.prototype[k]+=o->appearanceEmbedding[k];
+        }
+    }
+    const auto concurrent=[&](std::size_t a,std::size_t b) {
+        return coVisibleDifferent(evidence[a].observations,evidence[b].observations);
+    };
+    struct Proposal {std::size_t source,anchor;double score;};
+    std::vector<Proposal> proposals;
+    for(std::size_t i=0;i<components.size();++i) {
+        if(control.cancelled && control.cancelled())return;
+        const auto& source=evidence[i];
+        if(components[i].size()!=1 || source.faces || source.body.size()<3)continue;
+        double best=-1,second=-1;std::size_t bestIndex=components.size();
+        for(std::size_t j=0;j<components.size();++j) {
+            if((j%32)==0 && control.cancelled && control.cancelled())return;
+            if(i==j || evidence[j].faces<3 || evidence[j].body.size()<3 || concurrent(i,j))continue;
+            const double score=embeddingScore(source.prototype,evidence[j].prototype);
+            if(score>best){second=best;best=score;bestIndex=j;}else second=std::max(second,score);
+        }
+        if(bestIndex==components.size() || second<0 || best<.82 || best-second<.08)continue;
+        const auto& reference=evidence[bestIndex];std::size_t supported=0;
+        for(auto sample:source.body) {
+            std::size_t votes=0;
+            for(auto anchor:reference.body)if(embeddingScore(sample->appearanceEmbedding,anchor->appearanceEmbedding)>=.78 && ++votes>=2)break;
+            if(votes>=2)++supported;
+        }
+        if(supported>=3 && supported*5>=source.body.size()*3)proposals.push_back({i,bestIndex,best});
+    }
+    std::stable_sort(proposals.begin(),proposals.end(),[](const auto& a,const auto& b){return a.score>b.score;});
+    std::vector<std::vector<std::size_t>> attached(components.size());
+    for(const auto& proposal:proposals) {
+        if(control.cancelled && control.cancelled())return;
+        if(components[proposal.source].empty() || components[proposal.anchor].empty())continue;
+        bool conflict=false;
+        for(auto earlier:attached[proposal.anchor])if(concurrent(proposal.source,earlier))conflict=true;
+        if(conflict)continue;
+        auto& destination=components[proposal.anchor];auto& source=components[proposal.source];
+        destination.insert(destination.end(),source.begin(),source.end());source.clear();
+        attached[proposal.anchor].push_back(proposal.source);
+    }
+    // Split detections of an occluded person can overlap in time and have too
+    // few visible joints for the ordinary duplicate check. Avoid a permanent
+    // false separation when the smaller box, head/torso joints and body
+    // descriptors all independently corroborate the same observed person.
+    for(std::size_t i=0;i<components.size();++i) {
+        if(control.cancelled && control.cancelled())return;
+        if(components[i].size()!=1 || evidence[i].faces || evidence[i].observations.size()<2)continue;
+        for(std::size_t j=0;j<i;++j) {
+            if((j%32)==0 && control.cancelled && control.cancelled())return;
+            if(components[j].size()!=1 || evidence[j].faces || evidence[j].observations.size()<2
+                || embeddingScore(evidence[i].prototype,evidence[j].prototype)<.85)continue;
+            bool same=false,contradiction=false;
+            const auto& left=evidence[i].observations;const auto& right=evidence[j].observations;
+            std::size_t a=0,b=0;
+            while(a<left.size() && b<right.size()) {
+                const auto ta=left[a]->timestampSeconds,tb=right[b]->timestampSeconds;
+                if(std::abs(ta-tb)<=1e-6) {
+                    std::size_t ae=a+1,be=b+1;
+                    while(ae<left.size() && std::abs(left[ae]->timestampSeconds-ta)<=1e-6)++ae;
+                    while(be<right.size() && std::abs(right[be]->timestampSeconds-tb)<=1e-6)++be;
+                    for(auto p=a;p<ae;++p)for(auto q=b;q<be;++q) {
+                        if(sameObservedSkeleton(*left[p],*right[q]) || samePartialObservedSkeleton(*left[p],*right[q]))same=true;
+                        else contradiction=true;
+                    }
+                    a=ae;b=be;
+                } else if(ta<tb)++a;else ++b;
+            }
+            if(same && !contradiction) {
+                components[j].insert(components[j].end(),components[i].begin(),components[i].end());
+                components[i].clear();break;
+            }
+        }
+    }
+    std::erase_if(components,[](const auto& c){return c.empty();});
+}
+
+// Recover a short continuity across a cut only when the same independently
+// identified companion is observed on both sides, the candidate remains on
+// the same side of that companion, and its measured box and body agree.
+static void recoverCompanionContinuity(std::vector<std::vector<std::size_t>>& components,
+    const std::vector<PersonTrack>& tracks,const std::vector<std::size_t>& indices,
+    const DominantSelectionControl& control)
+{
+    struct Entry {std::size_t group;const PersonTrack* track;IdentitySummary identity;};
+    std::vector<Entry> entries;
+    std::vector<std::vector<const PersonDetection*>> observations(components.size());
+    std::vector<std::size_t> faceSamples(components.size());
+    std::vector<std::vector<double>> faceTimes(components.size());
+    std::vector<std::vector<float>> facePrototypes(components.size());
+    for(std::size_t group=0;group<components.size();++group)for(auto index:components[group]) {
+        const auto& track=tracks[indices[index]];
+        if(track.observations.size()<2 || !std::isfinite(track.observations.front().timestampSeconds)
+            || !std::isfinite(track.observations.back().timestampSeconds))continue;
+        auto summary=summarizeObservations(track.observations);
+        entries.push_back({group,&track,std::move(summary)});
+        for(const auto& o:track.observations)if(std::isfinite(o.timestampSeconds)) {
+            observations[group].push_back(&o);
+            if(embeddingScore(o.faceEmbedding,o.faceEmbedding)>.99) {
+                faceTimes[group].push_back(o.timestampSeconds);
+                auto& prototype=facePrototypes[group];
+                if(prototype.empty())prototype.resize(o.faceEmbedding.size());
+                if(prototype.size()==o.faceEmbedding.size())
+                    for(std::size_t i=0;i<prototype.size();++i)prototype[i]+=o.faceEmbedding[i];
+            }
+        }
+    }
+    for(std::size_t group=0;group<faceTimes.size();++group) {
+        auto& times=faceTimes[group];std::sort(times.begin(),times.end());
+        double previous=-std::numeric_limits<double>::infinity();
+        for(double time:times)if(time-previous>=.1-1e-9){++faceSamples[group];previous=time;}
+    }
+    for(auto& group:observations)std::stable_sort(group.begin(),group.end(),
+        [](auto a,auto b){return a->timestampSeconds<b->timestampSeconds;});
+    std::vector<std::size_t> byStart(entries.size());std::iota(byStart.begin(),byStart.end(),0);
+    std::stable_sort(byStart.begin(),byStart.end(),[&](auto a,auto b){
+        return entries[a].track->firstTimestampSeconds()<entries[b].track->firstTimestampSeconds();});
+    struct Edge {std::size_t a,b;double score;};std::vector<Edge> edges;
+    for(std::size_t i=0;i<entries.size();++i) {
+        if(control.cancelled && control.cancelled())return;
+        const auto& left=entries[i];const auto& last=left.track->observations.back();
+        if(!std::isfinite(last.timestampSeconds) || left.identity.bodyEvidence<.45)continue;
+        const auto begin=std::lower_bound(byStart.begin(),byStart.end(),last.timestampSeconds,
+            [&](auto index,double time){return entries[index].track->firstTimestampSeconds()<time;});
+        for(auto it=begin;it!=byStart.end();++it) {
+            const auto& right=entries[*it];const auto& first=right.track->observations.front();
+            const double gap=first.timestampSeconds-last.timestampSeconds;
+            if(gap>.35)break;
+            if(gap<=1e-6 || left.group==right.group || right.identity.bodyEvidence<.45)continue;
+            const double box=last.box.iou(first.box),body=embeddingScore(left.identity.body,right.identity.body);
+            if(box<.55 || body<.60)continue;
+            if(left.identity.faceEvidence>=.45 && right.identity.faceEvidence>=.45
+                && embeddingScore(left.identity.face,right.identity.face)<.363)continue;
+            if(faceSamples[left.group]>=3 && faceSamples[right.group]>=3
+                && embeddingScore(facePrototypes[left.group],facePrototypes[right.group])<.20)continue;
+            if(coVisibleDifferent(observations[left.group],observations[right.group]))continue;
+            bool companion=false;
+            for(std::size_t k=0;k<observations.size() && !companion;++k) {
+                if(k==left.group || k==right.group || faceSamples[k]<3)continue;
+                const auto& group=observations[k];
+                const auto findAt=[&](double time) {
+                    return std::lower_bound(group.begin(),group.end(),time-1e-6,
+                        [](auto item,double value){return item->timestampSeconds<value;});
+                };
+                const auto a=findAt(last.timestampSeconds),b=findAt(first.timestampSeconds);
+                if(a==group.end() || b==group.end()
+                    || std::abs((*a)->timestampSeconds-last.timestampSeconds)>1e-6
+                    || std::abs((*b)->timestampSeconds-first.timestampSeconds)>1e-6)continue;
+                const auto center=[](const BoundingBox& box){return (box.left+box.right)*.5;};
+                const double before=center(last.box)-center((*a)->box);
+                const double after=center(first.box)-center((*b)->box);
+                if(before*after>0 && !sameObservedSkeleton(last,**a) && !sameObservedSkeleton(first,**b))companion=true;
+            }
+            if(companion)edges.push_back({left.group,right.group,.65*box+.35*body});
+        }
+    }
+    std::stable_sort(edges.begin(),edges.end(),[](const auto& a,const auto& b){return a.score>b.score;});
+    std::vector<std::map<std::size_t,double>> alternatives(components.size());
+    for(const auto& edge:edges) {
+        auto& a=alternatives[edge.a];auto& b=alternatives[edge.b];
+        a[edge.b]=std::max(a[edge.b],edge.score);b[edge.a]=std::max(b[edge.a],edge.score);
+    }
+    std::vector<std::size_t> owner(components.size());std::iota(owner.begin(),owner.end(),0);
+    std::vector<std::vector<std::size_t>> seeds(components.size());
+    for(std::size_t i=0;i<seeds.size();++i)seeds[i].push_back(i);
+    for(const auto& edge:edges) {
+        if(control.cancelled && control.cancelled())return;
+        // A near-tie at either endpoint is a competing interpretation.
+        const auto ambiguousFor=[&](std::size_t endpoint,std::size_t intended) {
+            for(const auto& [other,score]:alternatives[endpoint])
+                if(other!=intended && edge.score-score<.05)return true;
+            return false;
+        };
+        const bool ambiguous=ambiguousFor(edge.a,edge.b) || ambiguousFor(edge.b,edge.a);
+        if(ambiguous)continue;
+        const auto a=owner[edge.a],b=owner[edge.b];if(a==b)continue;
+        bool conflict=false;
+        for(auto x:seeds[a])for(auto y:seeds[b])if(coVisibleDifferent(observations[x],observations[y]))conflict=true;
+        if(conflict)continue;
+        components[a].insert(components[a].end(),components[b].begin(),components[b].end());components[b].clear();
+        for(auto seed:seeds[b]){owner[seed]=a;seeds[a].push_back(seed);}seeds[b].clear();
+    }
+    std::erase_if(components,[](const auto& c){return c.empty();});
+}
+
 std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrack>& tracks,
     const DominantSelectionControl& control)
 {
@@ -562,7 +963,17 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
         indices.push_back(i);
     }
     std::vector<std::vector<std::size_t>> components;
-    selectIdentityComponents(summaries, control, &components);
+    // Candidate selection requires stronger seed links than legacy dominant
+    // tracking: a weak mean or similar clothing alone previously joined
+    // different people before their face views could be compared. The
+    // following recovery passes reconsider lower-scoring matches using
+    // repeated observations and conflict checks.
+    selectIdentityComponents(summaries, control, &components,.60,.90);
+    recoverCharacterViews(components,tracks,indices,control);
+    if(control.cancelled && control.cancelled())return {};
+    recoverUniqueBodyTracks(components,tracks,indices,control);
+    if(control.cancelled && control.cancelled())return {};
+    recoverCompanionContinuity(components,tracks,indices,control);
     std::vector<CharacterCandidate> result;
     const auto addPrototype = [](std::vector<float>& sum, const std::vector<float>& value) {
         double norm = 0;

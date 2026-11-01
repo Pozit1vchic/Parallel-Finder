@@ -4,6 +4,13 @@ Goal: finish the **whole** supplied specification, not just the character picker
 This document is a work queue, not a completion certificate. An active goal stays
 active until the missing and unverified items below have authoritative evidence.
 
+Current release decision: **blocked** by the reported identity errors on the Kyle
+Crane source. The two women shown in the 2026-11-01 screenshots are different
+people; visual similarity is not ground truth for merging them. A release
+candidate must demonstrate both recovery of repeated appearances of the same
+person and separation of different people on independently reviewed examples.
+The existing packages are packaging evidence, not approval to publish.
+
 Source: the user attachment `Вставленный текст.txt`, SHA-256
 `cc205bdefaa244e56e56b00961d681468367e20c7248fdb792250c5f9c621da2`.
 Initial audited revision: `877500e`, following `ede833d` and the preceding quality
@@ -34,7 +41,7 @@ test does not establish general recognition accuracy or release readiness.
 | A05 | Cached target rebuild/reselection, no needless inference | Real reselection/restart reuse observations and downstream head/action caches. Two normal offline mode-change checks unexpectedly missed the cache; subsequent stress checks pass but cause remains open (series-restart-evidence.md). | Partial |
 | A06 | Batch strong automatic carryover; weak/ambiguous confirmation | Strong-face real-media control now carries one explicit choice across eight files and two additions in fresh processes; newly earlier-sorting source also works. Synthetic weak-evidence confirmation exists; difficult real series remains to review. | Partial |
 | A07 | Manual override and target non-dominant, e.g. 8% | Real-media 37.5-second control selects the 3-second target (8%) over competing identities, with full models and cached restart. Real manual reselection changes the minority source from ID 78 / 3 s to competing ID 2 / 33.083 s and preserves ID 2 after a fresh-process restart. Broader real manual series remains to exercise. | Partial |
-| A08 | Identity diagnostics and unique identities | Selection reason/margin logs, coherent tracks, single-face ownership, relative distinctness, six reviewed Kyle controls. General false merge/split rates not measured. | Partial |
+| A08 | Identity diagnostics and unique identities | Selection reason/margin logs, coherent tracks, single-face ownership and relative distinctness. Twenty-two reviewed Kyle pair controls include the user's two different women; three same-person pairs still split. See `identity-v020-controls.md`. General false merge/split rates remain unmeasured. | Partial |
 | B01 | Identity/temporal/source/scene/sequence/cluster descriptors | `SceneDescriptor` has most fields; sequenceId currently not established by real sequence detection. | Partial |
 | B02 | Continuous body yaw/pitch/roll and eight useful directions | Optional pinned local model runs before family organization with temporal/flip/crop checks and separate persistence. Explain Match now shows eight view labels plus continuous angles/support/unknowns in six languages, with short-window/reduced-motion checks. Same-frame all-17-output replay improves difficult temporal controls from 4/12 to 6/12 coarse-correct samples on CPU/CUDA, zero supported coarse errors; six back-view misses remain. Native single-frame controls support 9/11. Independent body/head view filters and unsupported/removed-side guards now work (orientation-dimension-filters.md). Dedicated dimension sorts, broader recovery, unsupported pitch and packaging remain open; see body-orientation-investigation.md. | Partial |
 | B03 | Independent continuous head yaw/pitch/roll | Measured rotation, validity checks, head/body-independent tests and SO(3) similarity. Vertical head directions now retain rotation/pitch without invented yaw/roll; independent head-view filtering uses measured descriptors. Need independently reviewed real orientation cases. | Partial |
@@ -66,7 +73,7 @@ test does not establish general recognition accuracy or release readiness.
 | F01 | Persistent resumable Range/chunk downloads, bounded/adaptive concurrency | Persistent chunks and rolling queue now reuse free slots; retry pressure halves new-work concurrency, clean completions recover within a 1–4 caller bound. Semaphore, retry, limits, cancellation/failure/exception tests and controlled scheduling benchmark pass (provider-download-evidence.md). Full network adaptation remains to exercise. | Partial |
 | F02 | Per-part exponential retry, timeouts, fallback/mirrors where supported | Inspected three attempts with nominal 500/1000 ms backoff, 60 s inactivity and 2 h total guards; manifest fallback exists, package metadata currently has one URL. Per-part retry/cancel controls pass; actual slow/no-Range/mirror workflows remain unproven. | Partial |
 | F03 | Separate installer cache, version/size/hash state, verify before complete | ProviderStore persistent verified archives/parts, hash-failure tests. | Evidenced |
-| F04 | Offline/restart retry and cancellation preserve valid parts | Local interrupted-transfer/offline/cancel tests. Add/inspect explicit process-restart and no-Range server proof. | Partial |
+| F04 | Offline/restart retry and cancellation preserve valid parts | Local interrupted-transfer/offline/cancel tests. An oversized persistent partial is now discarded and retried alone, preserving sibling parts; red/green and retry tests are in build/oversized-part-red.log and build/oversized-part-retry.log. Explicit process-restart and real no-Range/HTTP 416 server proof remain open. | Partial |
 | F05 | Transactional staging/probe/activation preserves active provider | Interrupted rename state is now discoverable on startup through the preserved previous bundle, without mutation; fresh-process Unicode controls and installer restore-before-failed-probe/offline retry pass. Real GPU process-kill and activation-marker boundaries still need package-level proof. | Partial |
 | F06 | Unicode discovery/probe/child args/config/logs | Native paths and Cyrillic/Japanese install controls; audit all remaining conversions. | Partial |
 | F07 | Human error + stable code + Retry/Details | Raw installed-provider reasons and unknown raw status fallback are removed from the main message; installed failures retain expandable details, and error/cancel states show a localized Retry label. Six-language validation and focused settings/provider checks pass. Actual offline/error-state rendering still needs verification. | Partial |
@@ -89,19 +96,41 @@ test does not establish general recognition accuracy or release readiness.
 | K01 | Why selected/matched/rejected/family/representative/cache invalidated/download reused/probe failed | Selection and matcher reason enums/logs exist. Family admission measurements and representative component scores now retained/shared/exported. Cache invalidation explanations and remaining provider diagnostics still require audit. | Partial |
 | L01 | Grounded phases, baseline before changes, no reckless rewrite | Baseline worktree and logs retained; logical commit history. This audit preserves original unfinished scope. | Evidenced |
 | M01 | Branch/status/tags/release conventions, no unrelated deletion | Feature branch clean at start; release README inspected. Tag/release state and complete licenses/package audit still required. | Partial |
-| M02 | Full suite, benchmark, clean Release build, packaging/resources | Latest Release build and all 14 CTest targets pass in 116.36 s (orientation-dimension-full-suite.log), including 58 UI checks, independent orientation filters, translated-selection persistence, compound posture/action grouping and delayed-writer selection/reuse control. Actual-model CPU/CUDA and hardware NVDEC body controls pass; six difficult back-view misses remain documented. Export cancellation has separate real-progress and live-child barriers, each repeated three times. Clean final installer/upgrade verification remains open. | Partial |
-| M03 | Fresh install, previous upgrade, cache migration, provider update | Developer binary and synthetic store tests are not packaged fresh-install/upgrade proof. | Missing |
-| M04 | Version/changelog/notes; publish/tag only when actually ready | Local `0.1.0-rc.23.3-dev`; notes retained; no tag/push/release attempted. Remains unreleased until gates pass. | Partial |
+| M02 | Full suite, benchmark, clean Release build, packaging/resources | Latest Release build and all 14 CTest targets pass in 116.36 s (orientation-dimension-full-suite.log), including 58 UI checks, independent orientation filters, translated-selection persistence, compound posture/action grouping and delayed-writer selection/reuse control. Actual-model CPU/CUDA and hardware NVDEC body controls pass; six difficult back-view misses remain documented. Export cancellation has separate real-progress and live-child barriers, each repeated three times. Packaged candidate 499a2218 passed full 14-target suite and fresh installation/upgrade checks; these results predate the reported identity errors and do not establish release readiness. See v0.2.0-verification.md. | Partial |
+| M03 | Fresh install, previous upgrade, cache migration, provider update | Candidate 499a2218 passed fresh Unicode-path install and upgrade from rc23.2 with a preserved sentinel, on the current Windows machine. Clean-VM, actual cache migration and provider-update workflows remain unverified. See v0.2.0-verification.md. | Partial |
+| M04 | Version/changelog/notes; publish/tag only when actually ready | Local version is `0.2.0`; candidate packages and notes exist, but reported identity errors block release. No evidence of an authorized public release in the local verification record. | Partial |
 | N01 | Target + series + result + restart-cache + bad-network + failed-install + Unicode + UI end-to-end flows | See A/D/E/F/G and packaging gaps. Cannot infer all flows from one montage or green unit tests. | Partial |
 | O01 | Final 14-part report with exact commits/version/remote status/limits | Existing reports cover completed phases. A final completion report is premature until this audit closes. | Pending final gate |
 
+## Identity release gate: reviewed evidence required
+
+The user supplied `D:/Торрент/KyleCrane_Parallel_NikolayOM.mp4` and screenshots
+showing that apparent similarity between female characters caused a mistaken
+identity claim. Treat the screenshot labels as user-provided ground truth: the
+woman in the vehicle and the woman in the dark scene are distinct. Identify the
+corresponding source timestamps by visual inspection before using them as a
+regression fixture; do not infer identity from candidate number or clothing.
+
+The reviewed control must report, for each labelled appearance, the source time,
+expected identity, actual candidate/track assignment, and whether it is
+unresolved. It must include repeated appearances of each confirmed identity,
+the two distinct women, Kyle, difficult side/back/occluded views, and simultaneous
+characters where available. Record false merges separately from missed links or
+unresolved tracks. A broad positive merge threshold alone cannot establish the
+requirement, and assigning everything to unresolved does not satisfy recovery.
+Confirm the results against a fresh analysis and a restart/cache reuse; preserve
+raw diagnostics and note the exact model files and revision. Extend the labels
+before claiming accuracy beyond the reviewed source. The v0.2.0 packages remain
+blocked until the user-reported cases and relevant automated regressions pass.
+
 ## Dependency-ordered remaining queue
 
-Current user sequencing: finish quick fixes and the remaining non-core work
-first; defer classifier, sorting, matcher and performance changes. The user has
-8% of the weekly allowance left and needs a future v0.2.0 release. Prefer focused
-verification over repeated expensive full runs. This defers those workstreams;
-it does not mark them complete or authorize publishing an unfinished release.
+The latest user instruction restores the full scope and explicitly requests
+parallel work on the matcher, performance and general audit. The immediate
+release gate is the newly reported identity failure: do not join distinct people
+or abandon known repeat appearances, and validate both outcomes on reviewed
+source frames. Other workstreams proceed independently; the former instruction
+to defer classifier, sorting, matcher and performance no longer applies.
 
 1. Refine posture using already validated model observations; add evidence tests
    and real before/after checks without inventing depth from 2D keypoints.

@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "scope": "Kyle montage: user-identified different women and repeated appearances, plus separately visually reviewed Kyle and other-person controls. Points use 1280x720 inference coordinates; this small set is not a population benchmark.",
+  "sourceBasename": "KyleCrane_Parallel_NikolayOM.mp4",
+  "controls": [
+    {
+      "id": "different-women-user-correction",
+      "left": {"time": 17.0296875, "point": [1040, 320]},
+      "right": {"time": 59.0296875, "point": [850, 590]},
+      "sameIdentity": false
+    },
+    {
+      "id": "selected-woman-at-car-and-forest",
+      "left": {"time": 17.0296875, "point": [1040, 320]},
+      "right": {"time": 54.8546875, "point": [1150, 180]},
+      "sameIdentity": true
+    },
+    {
+      "id": "selected-woman-profile-and-forest",
+      "left": {"time": 24.3630208, "point": [1160, 180]},
+      "right": {"time": 54.8546875, "point": [1150, 180]},
+      "sameIdentity": true
+    },
+    {
+      "id": "selected-woman-and-other-woman",
+      "left": {"time": 24.3630208, "point": [1160, 180]},
+      "right": {"time": 59.0296875, "point": [850, 590]},
+      "sameIdentity": false
+    },
+    {
+      "id": "kyle-across-two-scenes",
+      "left": {"time": 24.3630208, "point": [400, 300]},
+      "right": {"time": 54.8546875, "point": [440, 300]},
+      "sameIdentity": true
+    },
+    {
+      "id": "kyle-and-woman-share-scene",
+      "left": {"time": 54.8546875, "point": [440, 300]},
+      "right": {"time": 54.8546875, "point": [1150, 180]},
+      "sameIdentity": false
+    },
+    {
+      "id": "kyle-and-shirtless-man",
+      "left": {"time": 24.3630208, "point": [400, 300]},
+      "right": {"time": 57.1963542, "point": [1000, 240]},
+      "sameIdentity": false
+    },
+    {
+      "id": "woman-and-seated-man",
+      "left": {"time": 17.0296875, "point": [1040, 320]},
+      "right": {"time": 26.1963542, "point": [1200, 500]},
+      "sameIdentity": false
+    },
+    {
+      "id": "woman-and-kyle-back-view",
+      "left": {"time": 17.0296875, "point": [1040, 320]},
+      "right": {"time": 57.1963542, "point": [180, 400]},
+      "sameIdentity": false
+    },
+    {
+      "id": "woman-and-dark-haired-woman",
+      "left": {"time": 17.0296875, "point": [1040, 320]},
+      "right": {"time": 64.6880208, "point": [200, 300]},
+      "sameIdentity": false
+    },
+    {
+      "id": "kyle-in-car-and-shirtless-man",
+      "left": {"time": 19.0213542, "point": [450, 320]},
+      "right": {"time": 57.1963542, "point": [1000, 240]},
+      "sameIdentity": false
+    },
+    {
+      "id": "kyle-in-car-and-forest",
+      "left": {"time": 19.0213542, "point": [450, 320]},
+      "right": {"time": 24.3630208, "point": [400, 300]},
+      "sameIdentity": true
+    }
+  ]
+}

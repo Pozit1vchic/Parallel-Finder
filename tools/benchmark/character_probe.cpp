@@ -48,7 +48,7 @@ int main(int argc,char** argv) {
     }
     for(const auto& track:tracker.tracks())for(const auto& o:track.observations) {
         const auto identity=identities.find(track.id);if(identity==identities.end())continue;
-        assignments.append(QJsonObject{{"time",o.timestampSeconds},{"identity",QString::number(identity->second)},
+        assignments.append(QJsonObject{{"time",o.timestampSeconds},{"track",QString::number(track.id)},{"identity",QString::number(identity->second)},
             {"box",QJsonArray{o.box.left,o.box.top,o.box.right,o.box.bottom}}});
     }
     std::cout<<QJsonDocument(QJsonObject{{"candidates",output},{"trackCount",static_cast<qint64>(tracker.tracks().size())},

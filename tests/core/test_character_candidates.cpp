@@ -129,6 +129,176 @@ TEST(CharacterCandidates, ReusesFaceVetoAndCoVisibility)
     EXPECT_EQ(pfcore::characterCandidates({a,track(2,0,{1,0})}).size(),2);
 }
 
+TEST(CharacterCandidates, RepeatedObservedViewsRecoverAProfileRejectedByTheMean)
+{
+    auto front=track(1,0,{.7660444F,.6427876F},6);
+    for(std::size_t i=3;i<front.observations.size();++i)
+        front.observations[i].faceEmbedding={.7660444F,-.6427876F};
+    auto profile=track(2,3,{.3420201F,.9396926F});
+    for(auto* person:{&front,&profile})for(auto& o:person->observations)o.appearanceEmbedding={1,0};
+    const auto candidates=pfcore::characterCandidates({front,profile});
+    ASSERT_EQ(candidates.size(),1);
+    EXPECT_EQ(candidates.front().trackIds,(std::vector<std::size_t>{1,2}));
+    EXPECT_EQ(candidates.front().observationCount,10);
+}
+
+TEST(CharacterCandidates, OneMatchingImageOrRepeatedTimestampCannotRecoverIdentity)
+{
+    auto front=track(1,0,{.7660444F,-.6427876F},6);
+    front.observations[0].faceEmbedding={.7660444F,.6427876F};
+    auto profile=track(2,3,{.3420201F,.9396926F});
+    for(auto* person:{&front,&profile})for(auto& o:person->observations)o.appearanceEmbedding={1,0};
+    EXPECT_EQ(pfcore::characterCandidates({front,profile}).size(),2);
+    front.observations[1].faceEmbedding=front.observations[0].faceEmbedding;
+    front.observations[1].timestampSeconds=front.observations[0].timestampSeconds;
+    EXPECT_EQ(pfcore::characterCandidates({front,profile}).size(),2);
+}
+
+TEST(CharacterCandidates, OneFaceNeedsSeveralIndependentReferencesAndBodyAgreement)
+{
+    auto reference=track(1,0,{1,0},4);
+    auto brief=track(2,3,{},4);
+    brief.observations.front().faceEmbedding={1,0};
+    for(auto& observation:reference.observations)observation.appearanceEmbedding={1,0};
+    for(auto& observation:brief.observations)observation.appearanceEmbedding={.8F,.6F};
+    ASSERT_EQ(pfcore::characterCandidates({reference,brief}).size(),1);
+
+    for(auto& observation:brief.observations)observation.appearanceEmbedding={0,1};
+    EXPECT_EQ(pfcore::characterCandidates({reference,brief}).size(),2);
+
+    for(auto& observation:brief.observations)observation.appearanceEmbedding={.8F,.6F};
+    reference.observations[2].faceEmbedding.clear();
+    reference.observations[3].faceEmbedding.clear();
+    EXPECT_EQ(pfcore::characterCandidates({reference,brief}).size(),2);
+}
+
+TEST(CharacterCandidates, BodyOnlyTrackNeedsAnUnambiguousFaceBackedCandidate)
+{
+    auto reference=track(1,0,{1,0},4);
+    auto other=track(2,10,{0,1},4);
+    auto back=track(3,5,{},4);
+    for(auto& o:reference.observations)o.appearanceEmbedding={1,0};
+    for(auto& o:other.observations)o.appearanceEmbedding={0,1};
+    for(auto& o:back.observations)o.appearanceEmbedding={.84F,.5425864F};
+    auto candidates=pfcore::characterCandidates({reference,other,back});
+    ASSERT_EQ(candidates.size(),2);
+    const auto matched=std::find_if(candidates.begin(),candidates.end(),[](const auto& c){return c.id==1;});
+    ASSERT_NE(matched,candidates.end());
+    EXPECT_EQ(matched->trackIds,(std::vector<std::size_t>{1,3}));
+
+    // Two plausible different face-backed candidates make the body-only
+    // observation ambiguous; do not silently choose the closest clothing.
+    for(auto& o:other.observations)o.appearanceEmbedding={.5F,.8660254F};
+    EXPECT_EQ(pfcore::characterCandidates({reference,other,back}).size(),3);
+
+    for(auto& o:other.observations)o.appearanceEmbedding={0,1};
+    for(std::size_t i=0;i<back.observations.size();++i)
+        back.observations[i].timestampSeconds=reference.observations[i].timestampSeconds;
+    EXPECT_EQ(pfcore::characterCandidates({reference,other,back}).size(),3);
+}
+
+TEST(CharacterCandidates, OccludedDuplicateNeedsHeadTorsoAndBodyAgreement)
+{
+    auto wide=track(1,0,{},4),partial=track(2,0,{},4);
+    for(auto& observation:wide.observations) {
+        observation.box={0,0,866,705};observation.appearanceEmbedding={1,0};
+        observation.keypoints.resize(17);
+        observation.keypoints[4]={100,100,.95};observation.keypoints[6]={200,300,.95};
+    }
+    for(auto& observation:partial.observations) {
+        observation.box={0,0,572,705};observation.appearanceEmbedding={.87F,.4930517F};
+        observation.keypoints.resize(17);
+        observation.keypoints[4]={106,106,.95};observation.keypoints[6]={241,318,.95};
+    }
+    ASSERT_EQ(pfcore::characterCandidates({wide,partial}).size(),1);
+    // A crossing or otherwise different pose is not a duplicate even when
+    // boxes and appearance overlap closely.
+    partial.observations[2].keypoints[6].x+=180;
+    EXPECT_EQ(pfcore::characterCandidates({wide,partial}).size(),2);
+    partial.observations[2].keypoints[6].x-=180;
+    for(auto& observation:partial.observations)observation.appearanceEmbedding={0,1};
+    EXPECT_EQ(pfcore::characterCandidates({wide,partial}).size(),2);
+}
+
+TEST(CharacterCandidates, ContinuityAcrossCutNeedsTheSameObservedCompanion)
+{
+    auto companion=track(1,0,{1,0},8);
+    auto before=track(2,0,{},4),after=track(3,1,{},4);
+    for(auto& o:companion.observations){o.box={0,0,100,200};o.appearanceEmbedding={0,1};}
+    for(auto& o:before.observations){o.box={200,0,300,200};o.appearanceEmbedding={1,0};}
+    for(auto& o:after.observations){o.box={201,0,301,200};o.appearanceEmbedding={.65F,.7599342F};}
+    auto result=pfcore::characterCandidates({companion,before,after});
+    ASSERT_EQ(result.size(),2);
+    const auto recovered=std::find_if(result.begin(),result.end(),[](const auto& c){return c.id==2;});
+    ASSERT_NE(recovered,result.end());
+    EXPECT_EQ(recovered->trackIds,(std::vector<std::size_t>{2,3}));
+
+    // One side lacks the same companion, so the cut has no identity context.
+    companion.observations.erase(companion.observations.begin()+4);
+    EXPECT_EQ(pfcore::characterCandidates({companion,before,after}).size(),3);
+    companion=track(1,0,{1,0},8);
+    for(auto& o:companion.observations){o.box={0,0,100,200};o.appearanceEmbedding={0,1};}
+    for(auto& o:before.observations)o.faceEmbedding={1,0};
+    for(auto& o:after.observations)o.faceEmbedding={0,1};
+    EXPECT_EQ(pfcore::characterCandidates({companion,before,after}).size(),3);
+}
+
+TEST(CharacterCandidates, MultiViewRecoveryCannotMergeConcurrentPeopleThroughAThirdView)
+{
+    auto front=track(1,0,{.7660444F,.6427876F},6);
+    for(std::size_t i=3;i<front.observations.size();++i)
+        front.observations[i].faceEmbedding={.7660444F,-.6427876F};
+    auto profile=track(2,3,{.3420201F,.9396926F});
+    auto bystander=track(3,0,{.3420201F,.9396926F});
+    for(auto* person:{&front,&profile,&bystander})for(auto& o:person->observations)o.appearanceEmbedding={1,0};
+    const auto candidates=pfcore::characterCandidates({front,profile,bystander});
+    ASSERT_EQ(candidates.size(),2);
+    for(const auto& c:candidates)
+        EXPECT_FALSE(std::find(c.trackIds.begin(),c.trackIds.end(),1)!=c.trackIds.end()
+            && std::find(c.trackIds.begin(),c.trackIds.end(),3)!=c.trackIds.end());
+}
+
+TEST(CharacterCandidates, DuplicateDetectionDoesNotBlockRepeatedPersonButDistinctSkeletonDoes)
+{
+    auto first=track(1,0,{.7660444F,.6427876F},6);
+    for(std::size_t i=3;i<first.observations.size();++i)
+        first.observations[i].faceEmbedding={.7660444F,-.6427876F};
+    auto second=track(2,1.25,{.3420201F,.9396926F});
+    for(auto* person:{&first,&second})for(auto& observation:person->observations) {
+        observation.appearanceEmbedding={1,0};observation.box={0,0,100,200};
+        observation.keypoints.resize(17);
+        for(auto j:{0,1,2,5,6,9,10})
+            observation.keypoints[j]={20.+j*2,30.+j*3,.9};
+    }
+    const auto duplicate=pfcore::characterCandidates({first,second});
+    ASSERT_EQ(duplicate.size(),1);
+    EXPECT_EQ(duplicate.front().trackIds,(std::vector<std::size_t>{1,2}));
+
+    for(auto& point:second.observations.front().keypoints)if(point.confidence>0)point.x+=30;
+    const auto different=pfcore::characterCandidates({first,second});
+    ASSERT_EQ(different.size(),2);
+}
+
+TEST(CharacterCandidates, MultiViewBridgeCannotJoinFacesWithRepeatedContradictoryEvidence)
+{
+    // A third view contains plausible samples for each person. Its average is
+    // intentionally distant from both, so this exercises recovery rather than
+    // the initial mean-based grouping. A-B lack any supporting face pair.
+    auto a=track(1,0,{1,0,0},4);
+    auto b=track(2,4,{0,1,0},4);
+    auto bridge=track(3,8,{0,0,1},18);
+    for(int i=0;i<3;++i)bridge.observations[i].faceEmbedding={1,0,0};
+    for(int i=3;i<6;++i)bridge.observations[i].faceEmbedding={0,1,0};
+    for(auto* person:{&a,&b,&bridge})
+        for(auto& observation:person->observations)observation.appearanceEmbedding={1,0,0};
+    const auto candidates=pfcore::characterCandidates({a,b,bridge});
+    for(const auto& candidate:candidates) {
+        const auto hasA=std::find(candidate.trackIds.begin(),candidate.trackIds.end(),1)!=candidate.trackIds.end();
+        const auto hasB=std::find(candidate.trackIds.begin(),candidate.trackIds.end(),2)!=candidate.trackIds.end();
+        EXPECT_FALSE(hasA && hasB);
+    }
+}
+
 TEST(CharacterCandidates, BatchSuggestionRequiresStrongUniqueFaceEvidence)
 {
     const auto target = pfcore::characterCandidates({track(1,0,{1,0})}).front();
