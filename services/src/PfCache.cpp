@@ -167,6 +167,25 @@ bool PfCache::put(const std::string& key, const std::vector<std::uint8_t>& paylo
     return true;
 }
 
+bool PfCache::putBatch(const std::vector<std::pair<std::string,std::vector<std::uint8_t>>>& entries,
+                       std::string& error)
+{
+    std::filesystem::path lastWritten;
+    bool success = true;
+    for (const auto& [key,payload] : entries) {
+        const auto path = fileFor(key);
+        std::string entryError;
+        if (!writeEntry(path,key,payload,entryError)) {
+            if (success) error = std::move(entryError);
+            success = false;
+            continue;
+        }
+        lastWritten = path;
+    }
+    if (!lastWritten.empty()) evictIfNeeded(lastWritten);
+    return success;
+}
+
 bool PfCache::putForSourceBatch(const std::string& source,
     const std::vector<std::pair<std::string,std::vector<std::uint8_t>>>& entries,std::string& error)
 {

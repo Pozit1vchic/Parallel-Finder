@@ -29,8 +29,15 @@ struct PreviewWriter::Impl {
         if (slotCount == 0 || slotCount > 4) throw std::invalid_argument("PreviewWriter: invalid capacity");
         worker = std::jthread([this] {
             std::vector<std::pair<std::string,std::vector<std::uint8_t>>> batch;
+            std::size_t batchBytes = 0;
             const auto flush=[&] {
-                if(cache&&!batch.empty()) {std::string error;cache->putForSourceBatch(source,batch,error);batch.clear();}
+                if(cache&&!batch.empty()) {
+                    std::string error;
+                    if(source.empty())cache->putBatch(batch,error);
+                    else cache->putForSourceBatch(source,batch,error);
+                    batch.clear();
+                    batchBytes = 0;
+                }
             };
             for (;;) {
                 Task task;
@@ -49,12 +56,9 @@ struct PreviewWriter::Impl {
                             QFile file(task.path);
                             if (file.open(QIODevice::ReadOnly)) {
                                 const auto bytes = file.readAll();
-                                std::string error;
-                                if(source.empty())cache->put(task.key,std::vector<std::uint8_t>(bytes.begin(),bytes.end()),error);
-                                else {
-                                    batch.emplace_back(task.key,std::vector<std::uint8_t>(bytes.begin(),bytes.end()));
-                                    if(batch.size()>=32)flush();
-                                }
+                                batchBytes += static_cast<std::size_t>(bytes.size());
+                                batch.emplace_back(task.key,std::vector<std::uint8_t>(bytes.begin(),bytes.end()));
+                                if(batch.size()>=32 || batchBytes>=32U*1024U*1024U)flush();
                             }
                         }
                     }

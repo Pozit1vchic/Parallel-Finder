@@ -135,6 +135,26 @@ TEST(PfCache, BatchSourceWritesRemainReadableAndResetByOwnership)
     EXPECT_TRUE(cache.get("other-sample"));
 }
 
+TEST(PfCache, BatchWritesPreserveEntriesAndEnforceLimitAfterPartialFailure)
+{
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    pfservices::PfCache cache(std::filesystem::path(directory.path().toStdWString()), 400);
+    const std::vector<std::pair<std::string,std::vector<std::uint8_t>>> first {
+        {"one",std::vector<std::uint8_t>(70,1)}, {"two",std::vector<std::uint8_t>(70,2)}};
+    std::string error;
+    ASSERT_TRUE(cache.putBatch(first,error)) << error;
+    for (const auto& [key,value] : first) { const auto read=cache.get(key); ASSERT_TRUE(read); EXPECT_EQ(*read,value); }
+    const std::vector<std::pair<std::string,std::vector<std::uint8_t>>> partial {
+        {"three",std::vector<std::uint8_t>(70,3)}, {"too-large",std::vector<std::uint8_t>(401,9)},
+        {"four",std::vector<std::uint8_t>(70,4)}};
+    EXPECT_FALSE(cache.putBatch(partial,error));
+    EXPECT_FALSE(error.empty());
+    EXPECT_LE(cache.bytesUsed(),cache.limitBytes());
+    ASSERT_TRUE(cache.get("four"));
+    EXPECT_EQ(cache.get("four")->front(),4);
+    EXPECT_FALSE(cache.get("too-large"));
+}
+
 TEST(PfCache, WritesReadsAndEvictsVersionedEntries)
 {
     const auto root = std::filesystem::temp_directory_path() / "parallel-finder-pfcache-test";

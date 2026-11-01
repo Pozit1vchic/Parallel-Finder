@@ -23,6 +23,10 @@ public:
     [[nodiscard]] std::optional<std::vector<std::uint8_t>> get(const std::string& key) const;
     bool put(const std::string& key, const std::vector<std::uint8_t>& payload,
              std::string& error);
+    // Write a bounded group of independent entries before one LRU scan.
+    // Successfully written entries are still budgeted if a later write fails.
+    bool putBatch(const std::vector<std::pair<std::string,std::vector<std::uint8_t>>>& entries,
+                  std::string& error);
     bool erase(const std::string& key, std::string& error);
     // Ownership is kept separately from opaque hashed cache keys.
     bool rememberSourceKey(const std::string& source, const std::string& key, std::string& error);

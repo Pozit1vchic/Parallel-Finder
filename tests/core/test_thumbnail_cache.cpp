@@ -125,6 +125,29 @@ TEST(PreviewWriter, SourceBatchesFlushTheTailAndRemainResettable)
     std::string error;ASSERT_TRUE(cache.resetSource("film",error))<<error;
     EXPECT_FALSE(cache.get("character-34"));
 }
+TEST(PreviewWriter, GeneralBatchRetainsExternallyRegisteredSourceOwnership)
+{
+    QTemporaryDir directory, images;
+    ASSERT_TRUE(directory.isValid() && images.isValid());
+    pfservices::PfCache cache(std::filesystem::path(directory.path().toStdWString()));
+    std::string error;
+    pfservices::PreviewWriter writer(&cache,3);
+    std::vector<std::shared_future<QString>> results;
+    for (int i=0; i<35; ++i) {
+        const auto key="opaque-preview-"+std::to_string(i);
+        ASSERT_TRUE(cache.rememberSourceKey(i%2 ? "film-a" : "film-b",key,error)) << error;
+        QImage image(16,16,QImage::Format_RGBA8888); image.fill(qRgb(i,128,255-i));
+        results.push_back(writer.submit(image,images.filePath(QString::number(i)+".png"),key));
+    }
+    writer.finish();
+    for (int i=0; i<35; ++i) {
+        EXPECT_FALSE(results[i].get().isEmpty());
+        ASSERT_TRUE(cache.get("opaque-preview-"+std::to_string(i)));
+    }
+    ASSERT_TRUE(cache.resetSource("film-a",error)) << error;
+    for (int i=0; i<35; ++i)
+        EXPECT_EQ(cache.get("opaque-preview-"+std::to_string(i)).has_value(),i%2==0);
+}
 TEST(CachedPreview, OptionalExistingCachePreparationBenchmark)
 {
     const auto* root = std::getenv("PF_BENCH_PREVIEW_CACHE");
