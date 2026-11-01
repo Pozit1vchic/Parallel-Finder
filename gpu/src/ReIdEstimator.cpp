@@ -1,6 +1,7 @@
 #include "pfgpu/ReIdEstimator.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -69,6 +70,15 @@ FloatTensor makeInput(const ReIdImage& image, const InputShape& shape, bool chan
     // numerically compatible without an external image library.
     constexpr float mean[] = {0.485F, 0.456F, 0.406F};
     constexpr float stdev[] = {0.229F, 0.224F, 0.225F};
+    // Every source channel is an 8-bit integer, so its normalized value can
+    // be computed once. Preserve the original FP32 operation order exactly.
+    static const auto normalized = [=] {
+        std::array<std::array<float, 256>, 3> values {};
+        for (std::size_t channel = 0; channel < values.size(); ++channel)
+            for (std::size_t value = 0; value < values[channel].size(); ++value)
+                values[channel][value] = (static_cast<float>(value) / 255.0F - mean[channel]) / stdev[channel];
+        return values;
+    }();
     for (int y = 0; y < shape.height; ++y) {
         const int sourceY = std::clamp(static_cast<int>(((y + 0.5F) * cropHeight
             / static_cast<float>(shape.height)) + top), 0, image.height - 1);
@@ -78,11 +88,10 @@ FloatTensor makeInput(const ReIdImage& image, const InputShape& shape, bool chan
             const auto* pixel = image.rgba
                 + (static_cast<std::size_t>(sourceY) * image.width + sourceX) * 4U;
             const std::size_t offset = static_cast<std::size_t>(y) * shape.width + x;
-            const float channels[3] = {pixel[0] / 255.0F, pixel[1] / 255.0F, pixel[2] / 255.0F};
             for (std::size_t channel = 0; channel < 3; ++channel) {
-                const float normalized = (channels[channel] - mean[channel]) / stdev[channel];
-                if (channelsFirst) tensor.values[channel * plane + offset] = normalized;
-                else tensor.values[offset * 3U + channel] = normalized;
+                const float value = normalized[channel][pixel[channel]];
+                if (channelsFirst) tensor.values[channel * plane + offset] = value;
+                else tensor.values[offset * 3U + channel] = value;
             }
         }
     }

@@ -7,6 +7,7 @@
 #include <chrono>
 #include <array>
 #include <limits>
+#include <cmath>
 #include "../helpers/onnx_identity.hpp"
 
 TEST(ReIdEstimator, RefreshesDimensionsAndLayoutAfterModelReplacement)
@@ -68,4 +69,44 @@ TEST(ReIdEstimator, InvalidPersonBoxesCannotBecomeAnEdgePixelIdentity)
     // Legitimate crops partly outside the frame retain the same clipped input.
     const auto clipped=estimator.infer({8,8,rgba.data(),0,0,4,6});
     EXPECT_EQ(estimator.infer({8,8,rgba.data(),-4,-2,4,6}),clipped);
+}
+
+TEST(ReIdEstimator, AllByteValuesRetainNormalizedInputInBothLayouts)
+{
+    if (!pfgpu::ortApi()) GTEST_SKIP() << "ONNX Runtime unavailable";
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    std::vector<std::uint8_t> rgba(16 * 16 * 4);
+    for (int i = 0; i < 256; ++i) {
+        rgba[4*i] = static_cast<std::uint8_t>(i);
+        rgba[4*i+1] = static_cast<std::uint8_t>(255-i);
+        rgba[4*i+2] = static_cast<std::uint8_t>((i+73)%256);
+        rgba[4*i+3] = 255;
+    }
+    constexpr float mean[] = {.485F,.456F,.406F};
+    constexpr float stdev[] = {.229F,.224F,.225F};
+    for (bool planar : {false, true}) {
+        const auto path = directory.filePath(planar ? "nchw.onnx" : "nhwc.onnx");
+        QFile file(path);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        const auto model = planar ? pftest::identityModel({1,3,16,16})
+                                  : pftest::identityModel({1,16,16,3});
+        ASSERT_EQ(file.write(model.data(), static_cast<qint64>(model.size())),
+                  static_cast<qint64>(model.size()));
+        file.close();
+        std::vector<float> expected(256 * 3);
+        for (int pixel = 0; pixel < 256; ++pixel)
+            for (int channel = 0; channel < 3; ++channel)
+                expected[planar ? channel*256+pixel : pixel*3+channel]
+                    = (rgba[pixel*4+channel]/255.0F-mean[channel])/stdev[channel];
+        double norm = 0;
+        for (float value : expected) norm += static_cast<double>(value)*value;
+        norm = std::sqrt(norm);
+        for (float& value : expected) value = static_cast<float>(value/norm);
+        pfgpu::ReIdEstimatorParams params;
+        params.provider = pfgpu::Provider::Cpu;
+        params.intraOpThreads = 1;
+        pfgpu::ReIdEstimator estimator(path.toStdString(), params);
+        EXPECT_EQ(estimator.infer({16,16,rgba.data(),0,0,16,16}), expected);
+    }
 }
