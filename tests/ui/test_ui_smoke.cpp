@@ -2752,6 +2752,22 @@ void UiSmokeTests::orientationFiltersKeepIndependentEvidenceAndRemovedSides()
     QVERIFY(QMetaObject::invokeMethod(rail,"resetFilters"));QCOMPARE(rail->property("selectedCount").toInt(),10);
     QVERIFY(rail->property("bodyViewFilter").toString().isEmpty());QVERIFY(rail->property("headViewFilter").toString().isEmpty());
     QCOMPARE(rail->property("activeFilterCount").toInt(),0);
+    // Each sort uses its own measured direction. Swapped sources remain
+    // adjacent, removed sides do not contribute, and incomplete evidence is last.
+    auto oneSide=pair(3,back,front);oneSide.insert("leftRemoved",true);
+    rail->setProperty("results",QVariantList{pair(8,{},front),pair(2,profile,front),pair(1,front,profile),
+        pair(0,front,front),oneSide});
+    const auto ids=[&] {
+        const auto rows=rail->property("visibleResults").value<QJSValue>().toVariant().toList();
+        QList<int> result;for(const auto& row:rows)result.push_back(row.toMap().value("id").toInt());return result;
+    };
+    QVERIFY(QMetaObject::invokeMethod(rail,"chooseSort",Q_ARG(QVariant,QVariant(15))));
+    QCOMPARE(rail->property("sortCriterion").toString(),QString("bodyView"));
+    QCOMPARE(ids(),QList<int>({0,3,1,2,8}));
+    QVERIFY(QMetaObject::invokeMethod(rail,"chooseSort",Q_ARG(QVariant,QVariant(16))));
+    QCOMPARE(rail->property("sortCriterion").toString(),QString("headView"));
+    QCOMPARE(ids(),QList<int>({1,2,0,3,8}));
+    QVERIFY(QMetaObject::invokeMethod(rail,"resetFilters"));
     const std::vector<std::pair<double,int>> angles{{0,1},{45,2},{90,3},{135,4},{180,5},{-135,6},{-90,7},{-45,8},
         {22.499,1},{22.5,2},{-22.5,1},{-22.501,8},{-179.999,5}};
     const std::array<double,8> centers{0,45,90,135,180,-135,-90,-45};
@@ -2795,6 +2811,10 @@ void UiSmokeTests::orientationFiltersKeepIndependentEvidenceAndRemovedSides()
         QTRY_COMPARE(bodyCombo->property("currentIndex").toInt(),4);
         QTRY_COMPARE(headCombo->property("currentIndex").toInt(),8);
         QTRY_COMPARE(sortCombo->property("currentIndex").toInt(),6);
+        for(int index : {15,16}) {
+            QString label;QVERIFY(QMetaObject::invokeMethod(sortCombo,"textAt",Q_RETURN_ARG(QString,label),Q_ARG(int,index)));
+            QVERIFY(!label.isEmpty());QVERIFY(!label.startsWith("sort."));
+        }
         QString selectedLabel;
         QVERIFY(QMetaObject::invokeMethod(bodyCombo,"textAt",Q_RETURN_ARG(QString,selectedLabel),Q_ARG(int,4)));
         QCOMPARE(bodyCombo->property("displayText").toString(),selectedLabel);
@@ -2805,6 +2825,12 @@ void UiSmokeTests::orientationFiltersKeepIndependentEvidenceAndRemovedSides()
             QVERIFY(!label.isEmpty());QVERIFY(!label.startsWith("filter."));QVERIFY(!label.startsWith("orientation."));
         }
         QVERIFY(!headCombo->property("displayText").toString().isEmpty());
+    }
+    QVERIFY(QMetaObject::invokeMethod(rail,"chooseSort",Q_ARG(QVariant,QVariant(15))));
+    for(const auto& language:QStringList{"ru","en","ky","kk","uk","tr"}) {
+        l10n->setProperty("language",language);QTRY_COMPARE(sortCombo->property("currentIndex").toInt(),15);
+        QString label;QVERIFY(QMetaObject::invokeMethod(sortCombo,"textAt",Q_RETURN_ARG(QString,label),Q_ARG(int,15)));
+        QCOMPARE(sortCombo->property("displayText").toString(),label);
     }
     l10n->setProperty("language","ru");
     QVERIFY(QMetaObject::invokeMethod(rail,"resetFilters"));window->setHeight(450);

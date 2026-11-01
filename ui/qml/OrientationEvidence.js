@@ -28,6 +28,21 @@ function remainingDescriptors(row) {
     return descriptors
 }
 
+// Keep a pair together regardless of which source is on the left. Only
+// complete measured evidence participates in the ordered sectors; partial
+// and unsupported measurements sort after all supported rows.
+function sortKey(row, scope) {
+    const descriptors = remainingDescriptors(row)
+    if (!descriptors.length) return [1, 0, 0]
+    const views = []
+    for (const d of descriptors) {
+        if (!(scope === "body" ? bodySupported(d) : headSupported(d))) return [1, 0, 0]
+        views.push(scope === "body" ? d.bodyView : d.headView)
+    }
+    views.sort(function(a, b) { return a - b })
+    return [0, views[0], views[views.length - 1]]
+}
+
 function matches(row, scope, choice) {
     if (!choice) return true
     const views = []

@@ -360,9 +360,10 @@ Rectangle {
                     model: [L10n.t("results.scoreHigh"), L10n.t("results.scoreLow"), L10n.t("results.sceneHigh"), L10n.t("results.sceneLow"),
                             L10n.t("results.timeEarly"), L10n.t("results.timeLate"), L10n.t("ui.350"),
                             L10n.t("sort.best"),L10n.t("sort.continuity"),L10n.t("sort.pose"),L10n.t("sort.identity"),
-                            L10n.t("sort.evidence"),L10n.t("sort.longest"),L10n.t("sort.shortest"),L10n.t("sort.source")]
-                    selectionIndex: ["best","continuity","pose","identity","evidence","longest","shortest","source"].indexOf(root.sortCriterion)>=0
-                        ? 7+["best","continuity","pose","identity","evidence","longest","shortest","source"].indexOf(root.sortCriterion)
+                            L10n.t("sort.evidence"),L10n.t("sort.longest"),L10n.t("sort.shortest"),L10n.t("sort.source"),
+                            L10n.t("sort.bodyView"),L10n.t("sort.headView")]
+                    selectionIndex: ["best","continuity","pose","identity","evidence","longest","shortest","source","bodyView","headView"].indexOf(root.sortCriterion)>=0
+                        ? 7+["best","continuity","pose","identity","evidence","longest","shortest","source","bodyView","headView"].indexOf(root.sortCriterion)
                         : root.sortCriterion === "classification" ? 6 : root.sortCriterion === "time" ? (root.sortDescending ? 5 : 4)
                         : root.sortCriterion === "scene" ? (root.sortDescending ? 2 : 3) : (root.sortDescending ? 0 : 1)
                     onActivated: function(index) { root.chooseSort(index) }
@@ -438,7 +439,7 @@ Rectangle {
 
     function chooseSort(index) {
         suppressFilterRebuild = true
-        sortCriterion = index>=7 ? ["best","continuity","pose","identity","evidence","longest","shortest","source"][index-7]
+        sortCriterion = index>=7 ? ["best","continuity","pose","identity","evidence","longest","shortest","source","bodyView","headView"][index-7]
             : index === 6 ? "classification" : index >= 4 ? "time" : index >= 2 ? "scene" : "movement"
         sortDescending = index < 4 ? index % 2 === 0 : index === 5
         suppressFilterRebuild = false
@@ -457,6 +458,11 @@ Rectangle {
         let delta = 0
         const strongA=Number(a.bestMatchScore !== undefined ? a.bestMatchScore : root.movementSimilarity(a))
         const strongB=Number(b.bestMatchScore !== undefined ? b.bestMatchScore : root.movementSimilarity(b))
+        if (sortCriterion === "bodyView" || sortCriterion === "headView") {
+            const scope=sortCriterion === "bodyView" ? "body" : "head"
+            const ka=Orientation.sortKey(a,scope), kb=Orientation.sortKey(b,scope)
+            return ka[0]-kb[0] || ka[1]-kb[1] || ka[2]-kb[2] || timeValue(a)-timeValue(b) || Number(a.id)-Number(b.id)
+        }
         if (sortCriterion === "best") return (strongB-Number(b.redundancyPenalty || 0))-(strongA-Number(a.redundancyPenalty || 0)) || Number(a.id)-Number(b.id)
         if (sortCriterion === "continuity") return Number(a.continuityRank || 0)-Number(b.continuityRank || 0) || timeValue(a)-timeValue(b) || Number(a.id)-Number(b.id)
         if (sortCriterion === "pose") return Number(b.poseSimilarity || 0)-Number(a.poseSimilarity || 0) || strongB-strongA || Number(a.id)-Number(b.id)
