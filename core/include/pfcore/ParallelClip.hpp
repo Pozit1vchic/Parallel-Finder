@@ -53,4 +53,25 @@ inline ParallelClipRange parallelClipRange(double matchStart, double matchEnd,
     return {start, std::min(start + duration, upper)};
 }
 
+// Export a complete short shot around a match. For unusually long shots,
+// retain the whole match and add bounded context without crossing the cut.
+// If the shot bounds are unavailable or inconsistent, keep the supported
+// match instead of inventing an unknown scene boundary.
+inline ParallelClipRange parallelSceneClipRange(double matchStart, double matchEnd,
+                                                double sceneStart, double sceneEnd,
+                                                double framesPerSecond=24.0)
+{
+    const auto match=parallelClipRange(matchStart,matchEnd,sceneStart,sceneEnd,framesPerSecond);
+    if(!std::isfinite(matchStart) || !std::isfinite(matchEnd)
+        || !std::isfinite(sceneStart) || !std::isfinite(sceneEnd)
+        || sceneStart<0 || sceneEnd<=sceneStart || matchEnd<matchStart
+        || matchStart<sceneStart || matchEnd>=sceneEnd) return match;
+    constexpr double maxShotSeconds=12.0;
+    constexpr double contextSeconds=1.25;
+    if(sceneEnd-sceneStart<=maxShotSeconds) return {sceneStart,sceneEnd};
+    const double budget=std::max(0.0,maxShotSeconds-(match.end-match.start));
+    const double padding=std::min(contextSeconds,budget*.5);
+    return {std::max(sceneStart,match.start-padding),std::min(sceneEnd,match.end+padding)};
+}
+
 } // namespace pfcore

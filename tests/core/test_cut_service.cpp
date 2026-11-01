@@ -28,6 +28,36 @@
 #include <filesystem>
 #include <limits>
 
+TEST(ParallelClip, ExportUsesTheCompleteShortShotAroundTheMatch)
+{
+    const auto result=pfcore::parallelSceneClipRange(11,11.5,10,13);
+    EXPECT_DOUBLE_EQ(result.start,10);
+    EXPECT_DOUBLE_EQ(result.end,13);
+}
+
+TEST(ParallelClip, ExportKeepsLongShotsBoundedAndNeverTruncatesTheMatch)
+{
+    const auto normal=pfcore::parallelSceneClipRange(10,12,0,60);
+    EXPECT_DOUBLE_EQ(normal.start,8.75);
+    EXPECT_NEAR(normal.end,13.25+.5/24.,1e-12);
+    const auto longMatch=pfcore::parallelSceneClipRange(10,25,0,60);
+    EXPECT_DOUBLE_EQ(longMatch.start,10);
+    EXPECT_NEAR(longMatch.end,25+.5/24.,1e-12);
+    const auto edge=pfcore::parallelSceneClipRange(10,10.5,10,30);
+    EXPECT_DOUBLE_EQ(edge.start,10);
+    EXPECT_LE(edge.end,30);
+}
+
+TEST(ParallelClip, ExportDoesNotInventMissingOrInconsistentShotBounds)
+{
+    const auto unknown=pfcore::parallelSceneClipRange(10,10.5,-1,-1);
+    EXPECT_DOUBLE_EQ(unknown.start,10);
+    EXPECT_NEAR(unknown.end,10.5+.5/24.,1e-12);
+    const auto invalid=pfcore::parallelSceneClipRange(10,12,11,13);
+    EXPECT_DOUBLE_EQ(invalid.start,10);
+    EXPECT_NEAR(invalid.end,12+.5/24.,1e-12);
+}
+
 TEST(ParallelClip, IncludesLastSupportedFrameWithoutAddingSceneContext)
 {
     const auto clip = pfcore::parallelClipRange(10, 12, 0, 60);
@@ -784,6 +814,20 @@ TEST(CutService, ExactFractionalBoundariesKeepEveryFrameInsideTheInterval)
     std::vector<double> actualTimes;
     while(matchedOutput.readNext(matchedFrame,false))actualTimes.push_back(matchedFrame.timestampSeconds);
     EXPECT_EQ(actualTimes.size(),expectedTimes.size());
+    // The result card exports the enclosing short shot, including frames on
+    // both sides of the supported match, but excludes the next shot.
+    const auto completeScene=pfcore::parallelSceneClipRange(.7,1.0,.5,2.5,30.0);
+    pfservices::CutRequest sceneRequest;
+    sceneRequest.inputPath=source.toStdWString();
+    sceneRequest.outputPath=directory.filePath("complete-scene.mp4").toStdWString();
+    sceneRequest.startSeconds=completeScene.start;sceneRequest.endSeconds=completeScene.end;
+    const auto sceneCut=cutter.cut(sceneRequest);
+    ASSERT_TRUE(sceneCut.success)<<sceneCut.error;
+    pfcore::VideoDecoder sceneOutput;
+    sceneOutput.open(sceneRequest.outputPath.string());
+    int sceneFrames=0;
+    while(sceneOutput.readNext(matchedFrame,false))++sceneFrames;
+    EXPECT_EQ(sceneFrames,60);
     pfservices::CutRequest earlier, later;
     earlier.inputPath = later.inputPath = source.toStdWString();
     earlier.startSeconds = 0.715; earlier.endSeconds = 1.715;

@@ -4315,10 +4315,10 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert(QStringLiteral("leftEnd"), item.leftEndSeconds);
                 record.insert(QStringLiteral("rightStart"), item.rightStartSeconds);
                 record.insert(QStringLiteral("rightEnd"), item.rightEndSeconds);
-                const auto leftClip = pfcore::parallelClipRange(item.leftStartSeconds, item.leftEndSeconds,
+                const auto leftClip = pfcore::parallelSceneClipRange(item.leftStartSeconds, item.leftEndSeconds,
                     item.leftSceneStartSeconds, item.leftSceneEndSeconds,
                     summaries.value(QString::fromStdString(item.leftSourceId)).toMap().value("frameRate",sourceFps).toDouble());
-                const auto rightClip = pfcore::parallelClipRange(item.rightStartSeconds, item.rightEndSeconds,
+                const auto rightClip = pfcore::parallelSceneClipRange(item.rightStartSeconds, item.rightEndSeconds,
                     item.rightSceneStartSeconds, item.rightSceneEndSeconds,
                     summaries.value(QString::fromStdString(item.rightSourceId)).toMap().value("frameRate",sourceFps).toDouble());
                 record.insert(QStringLiteral("leftClipStart"), leftClip.start);
