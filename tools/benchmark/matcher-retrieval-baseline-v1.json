@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "scope": "Two recorded windows from one previously reviewed cross-source walking pair; matcher replay only",
+  "fixture": "tests/fixtures/soldier-cross-source-walking.json",
+  "fixtureSha256": "7e272f469fe253d09758db369b4832fed812c1ae825afbd0d9bbce299bb94d65",
+  "reviewEvidence": "Each recorded window contains reviewScope describing original-video review at 5 FPS; see also CrossSourceBodyIdentityGapNeedsStrongMotionCorroboration in tests/core/test_motion_matcher.cpp. Original footage and review contact sheets are not bundled.",
+  "reviewLimitations": "This positive pair was used in matcher development. It is not a blind holdout and contains no reviewed negatives or competing candidates. Source video hashes were not recorded in the fixture.",
+  "candidates": [
+    {"id": "soldier-gen-v-walking", "index": 0, "positiveIds": ["soldier-boys-s03-walking"], "negativeIds": []},
+    {"id": "soldier-boys-s03-walking", "index": 1, "positiveIds": ["soldier-gen-v-walking"], "negativeIds": []}
+  ]
+}

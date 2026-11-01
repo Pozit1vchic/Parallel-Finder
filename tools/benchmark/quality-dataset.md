@@ -44,6 +44,44 @@ Keep timing comparisons on the same machine, model, settings and warm/cold
 state. The replay clock measures classification alone, without decoding,
 identity inference or scene-family organization. Report these stages separately.
 
+## Minimal recorded retrieval baseline, 2026-11-01
+
+`matcher-retrieval-baseline-v1.json` freezes the existing reviewed positive
+pair of Soldier Boy walking toward the camera in Gen V and The Boys S03. The
+two inputs are recorded pose, face and body observations, not generated poses;
+the annotations were already used during matcher development. Their fixture
+records a prior 5 FPS original-video review, but the original videos, review
+contact sheets and their source hashes are not currently available here. The
+labels therefore cannot be independently rechecked on this machine yet.
+
+Run with the freshly built probe on PATH configured for its runtime DLLs:
+
+```
+python tools/benchmark/run_matcher_labelled_baseline.py --probe build/ucrt64-release/tools/pf_matcher_probe.exe --output build/matcher-retrieval-baseline-v1.json
+```
+
+The script pins the input fixture hash, runs actual `--all` retrieval with
+the probe's fast-profile defaults, maps its returned ranking to the two
+previously judged query directions, and records the probe/reference hashes.
+On the current machine it returned the single pair in both directions:
+Recall@1 = 1, Precision@1 = 1, MRR = 1. These are **two directions of one
+positive pair**, with no alternatives or negative cases; they cannot measure
+discrimination, generalization, or release quality. P@5 and P@10 are omitted
+because each query has only one candidate. Model observations are replayed;
+decoding, inference, target selection, full result organization and video
+coverage are not measured. The run's probe SHA-256 was
+`2352b712ff5da02e334011a46320ec72b734c2a66a5ba5beff2ecbd68b130f45`;
+rebuilds will change it.
+
+The existing `matcher-quality-v1.json` and `dean-reference.json` retain
+additional positive/negative annotations, but the associated original videos,
+chronological review sheets and full window reports are missing on this
+machine. Their short or policy-excluded examples must not be silently counted
+as complete retrieval queries. A meaningful next baseline needs independently
+reviewed candidate sets with positives and hard negatives per query, source
+hashes and exact temporal boundaries, full rankings, and a separate holdout
+covering view changes, occlusion, clothing changes and unrelated people.
+
 ## Explicit target / repeated-edit diagnostics
 
 Set `PF_MODEL_ROOT` to the directory containing the same identity models for
