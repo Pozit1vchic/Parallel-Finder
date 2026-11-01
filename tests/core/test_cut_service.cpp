@@ -56,6 +56,11 @@ TEST(ParallelClip, ExportDoesNotInventMissingOrInconsistentShotBounds)
     const auto invalid=pfcore::parallelSceneClipRange(10,12,11,13);
     EXPECT_DOUBLE_EQ(invalid.start,10);
     EXPECT_NEAR(invalid.end,12+.5/24.,1e-12);
+    const auto endsInsideMatch=pfcore::parallelSceneClipRange(10,12,9,11);
+    EXPECT_DOUBLE_EQ(endsInsideMatch.start,10);
+    EXPECT_NEAR(endsInsideMatch.end,12+.5/24.,1e-12);
+    const auto endsOnLastFrame=pfcore::parallelSceneClipRange(10,12,9,12);
+    EXPECT_NEAR(endsOnLastFrame.end,12+.5/24.,1e-12);
 }
 
 TEST(ParallelClip, IncludesLastSupportedFrameWithoutAddingSceneContext)
@@ -2029,6 +2034,10 @@ TEST(ExportQueue, OrganizedFamiliesProduceThreePhysicalClipsForFourSideRequests)
         job.outputPath=directory.filePath(QString::fromUtf8("результат_%1.mov").arg(jobs.size())).toStdWString();
         job.canonicalSceneId=left?match.leftSceneFamily:match.rightSceneFamily;
         job.startSeconds=clip.range.start;job.endSeconds=clip.range.end;job.mode=pfservices::CutMode::ExactLossless;
+        // The organizer may choose a representative whose match covers only
+        // part of the shot; the encoded export must still include the shot.
+        EXPECT_DOUBLE_EQ(job.startSeconds,0);
+        EXPECT_DOUBLE_EQ(job.endSeconds,info.durationSeconds);
         jobs.push_back(std::move(job));
     }
     const auto batch=pfservices::runExportQueue(jobs);ASSERT_FALSE(batch.cancelled);ASSERT_EQ(batch.completed.size(),4);
@@ -2040,6 +2049,7 @@ TEST(ExportQueue, OrganizedFamiliesProduceThreePhysicalClipsForFourSideRequests)
         std::size_t count=0;while(decoded.readNext(frame,false))++count;
         const auto expected=std::count_if(times.begin(),times.end(),[&](double t){return t+1e-6>=jobs[i].startSeconds&&t<jobs[i].endSeconds-1e-6;});
         EXPECT_EQ(count,static_cast<std::size_t>(expected));
+        EXPECT_EQ(count,times.size());
     }
     EXPECT_EQ(outputs.size(),3);EXPECT_EQ(batch.completed[0].outputPath,batch.completed[2].outputPath);
     EXPECT_TRUE(batch.completed[2].reused);

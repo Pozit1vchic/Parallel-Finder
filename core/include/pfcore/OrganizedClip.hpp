@@ -21,11 +21,11 @@ inline OrganizedClip organizedClip(const MotionMatch& match,bool left,double fra
     if(family && !family->canonicalId.empty() && family->sourceId==source
         &&family->canonicalId==familyId
         &&std::isfinite(family->start)&&std::isfinite(family->end)&&family->start>=0&&family->end>family->start)
-        return {parallelClipRange(family->start,family->end,family->sceneStart,family->sceneEnd,framesPerSecond),family->sceneEnd};
-    if(family)return {parallelClipRange(start,end,sceneStart,sceneEnd,framesPerSecond),sceneEnd};
+        return {parallelSceneClipRange(family->start,family->end,family->sceneStart,family->sceneEnd,framesPerSecond),family->sceneEnd};
+    if(family)return {parallelSceneClipRange(start,end,sceneStart,sceneEnd,framesPerSecond),sceneEnd};
     const double canonicalStart=left?match.leftCanonicalStart:match.rightCanonicalStart;
     const double canonicalEnd=left?match.leftCanonicalEnd:match.rightCanonicalEnd;
-    return {parallelClipRange(canonicalStart>=0?canonicalStart:start,canonicalEnd>=0?canonicalEnd:end,
+    return {parallelSceneClipRange(canonicalStart>=0?canonicalStart:start,canonicalEnd>=0?canonicalEnd:end,
         sceneStart,sceneEnd,framesPerSecond),sceneEnd};
 }
 }

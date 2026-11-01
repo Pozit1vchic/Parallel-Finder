@@ -47,7 +47,9 @@ inline ParallelClipRange parallelClipRange(double matchStart, double matchEnd,
     const double frameBoundaryMargin=frameDuration*.5;
     const double duration = matchEnd>matchStart
         ? matchEnd-matchStart+frameBoundaryMargin:frameBoundaryMargin;
-    const double upper = std::isfinite(sceneEnd) && sceneEnd > matchStart
+    // A scene end at or before the last matched frame is inconsistent with
+    // an exclusive shot boundary. Do not let it cut supported frames off.
+    const double upper = std::isfinite(sceneEnd) && sceneEnd > matchEnd
         ? sceneEnd : std::max(matchEnd, matchStart + duration);
     const double start = std::max(matchStart, lower);
     return {start, std::min(start + duration, upper)};
