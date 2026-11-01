@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scope": "Independently reviewed visible people in the supplied Butcher montage. Coordinates use the 1280x544 inference frame. Four examples are a regression check, not a population benchmark.",
+  "scope": "Independently reviewed visible people in the supplied Butcher montage. Coordinates use the 1280x544 inference frame. Six examples are a regression check, not a population benchmark.",
   "sourceBasename": "butcher_parallel_notsorted.mov",
   "controls": [
     {
@@ -13,6 +13,18 @@
       "id": "butcher-middle-and-final",
       "left": {"time": 373.8925, "point": [750, 200]},
       "right": {"time": 777.0224, "point": [600, 150]},
+      "sameIdentity": true
+    },
+    {
+      "id": "butcher-in-dark-conversation",
+      "left": {"time": 1.1888, "point": [950, 250]},
+      "right": {"time": 332.5388983, "point": [300, 200]},
+      "sameIdentity": true
+    },
+    {
+      "id": "butcher-in-dark-profile",
+      "left": {"time": 1.1888, "point": [950, 250]},
+      "right": {"time": 509.7147893, "point": [600, 200]},
       "sameIdentity": true
     },
     {
