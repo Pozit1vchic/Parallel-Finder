@@ -157,7 +157,9 @@ MovementClassification MovementClassifier::classify(const MotionWindow& window, 
 {
     MotionWindow supported;
     for (const auto& frame : window.frames)
-        if (frame.timestampSeconds >= start - 1e-6 && frame.timestampSeconds <= end + 1e-6)
+        // Matched video ranges are half-open; the frame at end belongs to the
+        // next clip and must not supply its direction or gesture evidence.
+        if (frame.timestampSeconds >= start - 1e-6 && frame.timestampSeconds < end - 1e-6)
             supported.frames.push_back(frame);
     return classifyOne(supported);
 }

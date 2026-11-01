@@ -106,6 +106,21 @@ TEST(MovementClassifier, ClassifiesOnlyTheMatchedTimeRange)
     EXPECT_EQ(classifier.classify(window, 3, 4).direction, pfcore::MovementDirection::Unknown);
 }
 
+TEST(MovementClassifier, ExclusiveEndDoesNotBorrowDirectionFromFollowingShot)
+{
+    auto window = moving("a", 0, 0);
+    for (auto& frame : window.frames) {
+        frame.keypoints.insert(frame.keypoints.end(), {{3, 8}, {7, 8}, {3, 10}, {7, 10}, {3, 12}, {7, 12}});
+    }
+    auto nextShot = window.frames.back();
+    nextShot.timestampSeconds = 1.0;
+    for (auto& point : nextShot.keypoints) point.x += 100;
+    window.frames.back() = nextShot;
+    const pfcore::MovementClassifier classifier;
+    EXPECT_EQ(classifier.classify(window, 0, 1).direction, pfcore::MovementDirection::Static);
+    EXPECT_EQ(classifier.classifyForGrouping(window, 0, 1).direction, pfcore::MovementDirection::Static);
+}
+
 TEST(MotionRanker, AddsLabelsAndStableScore)
 {
     const auto left = moving("a", 20.0, 0.0);
