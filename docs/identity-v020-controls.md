@@ -22,6 +22,13 @@ On the user's much longer `butcher_parallel_notsorted.mov`, the same fast-profil
 
 Eleven visibly reviewed Butcher pairs are recorded in `butcher-identity-controls.json`: six same-person pairs and five different-person pairs. On the saved tracks four same-person pairs join, two split, two different-person pairs remain separate, and three cross-view pairs of different men are incorrectly joined. This tiny control set does not validate the other appearances or resolve the coverage gap. The false join of A-Train and Mother's Milk in candidate 24 is a release-blocking error; a second clear Mother's Milk view tests against merely detaching one bad track.
 
+`butcher-independent-identities.json` adds nine separately reviewed pairs for
+other people in the same montage: Starlight, Frenchie, Kimiko, Hughie, the
+older man and Butcher. The v16 frozen-track replay joins all five labelled
+same-person pairs and separates all four different-person pairs. These
+examples protect against solving the reported bridge by fragmenting unrelated
+identities; they are not a representative accuracy estimate.
+
 The subsequent v16 continuity change links one additional, independently reviewed Butcher profile across a nearby cut: five same-person pairs join and one splits; the three incorrect joins remain. On a fresh v16 run of the Kyle video, the application and frozen-track replay agreed on all 23 candidate IDs, track counts, durations and preview times, with the same 9 joined positive, 10 separated negative and 3 split positive controls. A fresh v16 run on the full Butcher video produced 491 candidates, 480 unresolved, and its candidate IDs and Butcher track count (487) matched the replay of its saved tracks. The 11 Butcher controls gave 5 joined positive, 2 separated negative, 3 incorrect joins and 1 split positive. The first comparison accidentally used a stale probe; after rebuilding the current probe, its output agreed with the application. This remains a small control set and does not establish general accuracy.
 
 An offline experiment withheld face embeddings when the detected eyes were

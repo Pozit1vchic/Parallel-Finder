@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "scope": "Additional independently reviewed Butcher montage people and different-person pairs; 1280x544 inference coordinates. This is a small regression set, not a population benchmark.",
+  "sourceBasename": "butcher_parallel_notsorted.mov",
+  "controls": [
+    {"id":"starlight-across-shots","left":{"time":13.388475,"point":[857,321]},"right":{"time":42.709323,"point":[688,410]},"sameIdentity":true},
+    {"id":"frenchie-across-shots","left":{"time":18.727139,"point":[291,272]},"right":{"time":84.688605,"point":[280,302]},"sameIdentity":true},
+    {"id":"kimiko-across-shots","left":{"time":84.688605,"point":[974,310]},"right":{"time":622.368335,"point":[95,200]},"sameIdentity":true},
+    {"id":"hughie-across-shots","left":{"time":30.697366,"point":[1081,277]},"right":{"time":417.227096,"point":[931,275]},"sameIdentity":true},
+    {"id":"older-man-across-shots","left":{"time":388.886495,"point":[209,281]},"right":{"time":760.213965,"point":[251,293]},"sameIdentity":true},
+    {"id":"starlight-and-frenchie","left":{"time":13.388475,"point":[857,321]},"right":{"time":18.727139,"point":[291,272]},"sameIdentity":false},
+    {"id":"train-and-frenchie","left":{"time":15.890974,"point":[984,408]},"right":{"time":18.727139,"point":[291,272]},"sameIdentity":false},
+    {"id":"butcher-and-hughie","left":{"time":1.188833,"point":[947,288]},"right":{"time":30.697366,"point":[1081,277]},"sameIdentity":false},
+    {"id":"frenchie-and-kimiko","left":{"time":84.688605,"point":[280,302]},"right":{"time":84.688605,"point":[974,310]},"sameIdentity":false}
+  ]
+}
