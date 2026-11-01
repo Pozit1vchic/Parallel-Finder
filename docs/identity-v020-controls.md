@@ -32,3 +32,17 @@ of Mother's Milk; Kyle's selected controls did not change. This was not adopted:
 a fixed pixel rule is resolution-dependent, the remaining false join is still
 critical, and the lost same-person link is independently confirmed. The result
 suggests face sampling quality matters but does not validate that cutoff.
+
+The problematic seed contains track 24 (A-Train, 15.22–16.39 s) and track 60
+(Mother's Milk, 29.86–30.70 s), joined through track 182 (Mother's Milk,
+84.69–85.69 s). Mean face prototypes score approximately 0.435 for 24–60,
+0.600 for 24–182 and 0.677 for 60–182; consequently transitive linking can
+join both people. Another clear Mother's Milk view, track 814 around 547 s,
+is also placed in that group. Eye spans in the 1280-wide inference frames are
+approximately 32 px for track 24, 18 px for track 60, 15 px for track 182 and
+49 px for track 814. These are observations from one montage, not calibrated
+model probabilities. Track 1058 (another Mother's Milk view) is especially
+ambiguous: its face prototype scores 0.479 against track 24 and 0.440 against
+track 814, despite a 0.625 match with track 60. A safe fix needs to prevent
+the bridge without promoting weak isolated matches or fragmenting the same
+person; simply changing one similarity threshold has not met those conditions.
