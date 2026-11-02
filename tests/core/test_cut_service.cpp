@@ -882,6 +882,48 @@ TEST(CutService, ExactFractionalBoundariesKeepEveryFrameInsideTheInterval)
     EXPECT_TRUE(combined.info().hasAudio); // silent sources receive bounded silence
 }
 
+TEST(CutService, OptInKyleRealShortShotPreservesBothBoundaries)
+{
+    const QString source=qEnvironmentVariable("PF_TEST_KYLE_SOURCE");
+    if(source.isEmpty()) GTEST_SKIP() << "Opt-in visually reviewed Kyle source";
+    const auto ffmpeg=QStandardPaths::findExecutable("ffmpeg");
+    ASSERT_FALSE(ffmpeg.isEmpty());
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
+    // These two native cut timestamps were independently reviewed in
+    // docs/kyle-cut-review-10-30.md; the selected match lies inside the shot.
+    constexpr double start=10.946354166666666, end=12.9546875;
+    const auto clip=pfcore::parallelSceneClipRange(11.2,12.0,start,end,60);
+    EXPECT_DOUBLE_EQ(clip.start,start); EXPECT_DOUBLE_EQ(clip.end,end);
+    pfservices::CutRequest request;
+    request.inputPath=std::filesystem::path(source.toStdWString());
+    request.outputPath=std::filesystem::path(directory.filePath("kyle-shot.mp4").toStdWString());
+    request.startSeconds=clip.start; request.endSeconds=clip.end;
+    const auto result=pfservices::CutService(ffmpeg.toStdString()).cut(request);
+    ASSERT_TRUE(result.success) << result.error;
+    pfcore::VideoDecoder input; input.open(source.toUtf8().toStdString()); input.seek(start-.1);
+    pfcore::DecodedFrame frame, first, last;
+    int expected=0;
+    while(input.readNext(frame)) {
+        if(frame.timestampSeconds>=end-1e-7) break;
+        if(frame.timestampSeconds<start-1e-7) continue;
+        if(expected++==0) first=frame;
+        last=frame;
+    }
+    ASSERT_GT(expected,1);
+    pfcore::VideoDecoder output; output.open(request.outputPath.string());
+    pfcore::DecodedFrame decoded, outFirst, outLast;
+    int actual=0;
+    while(output.readNext(decoded)) { if(actual++==0)outFirst=decoded; outLast=decoded; }
+    ASSERT_EQ(actual,expected);
+    const auto difference=[](const auto& a,const auto& b) {
+        if(a.width!=b.width || a.height!=b.height || a.rgba.size()!=b.rgba.size() || a.rgba.empty()) return 255.0;
+        double total=0;for(std::size_t i=0;i<a.rgba.size();++i) total+=std::abs(int(a.rgba[i])-int(b.rgba[i]));
+        return total/a.rgba.size();
+    };
+    EXPECT_LT(difference(first,outFirst),12.0);
+    EXPECT_LT(difference(last,outLast),12.0);
+}
+
 TEST(CutService, ExactLosslessPreservesDecodedPixelsAndSamples)
 {
     const auto ffmpeg=QStandardPaths::findExecutable("ffmpeg"); ASSERT_FALSE(ffmpeg.isEmpty());
