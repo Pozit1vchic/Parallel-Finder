@@ -894,6 +894,29 @@ TEST(MotionMatcher, OversizedDtwBandMeansFullAlignmentWithoutUnsignedOverflow)
     EXPECT_DOUBLE_EQ(actual.rightEndSeconds,expected.rightEndSeconds);
 }
 
+TEST(MotionMatcher, CrossFileGapAppliesToAlignedStarts)
+{
+    auto left=gestureWindow("a",0,false), right=gestureWindow("b",10,false);
+    const auto different=gestureWindow("a",0,true);
+    for(int i=0;i<8;++i) left.frames[i].keypoints=different.frames[i].keypoints;
+    pfcore::MotionMatcherParams p;
+    p.similarityThreshold=.1;p.candidateThreshold=0;p.crossFileGapSec=9.9;
+    const auto accepted=pfcore::MotionMatcher(p).compare(left,right);
+    ASSERT_GE(accepted.similarity,p.similarityThreshold);
+    ASSERT_GT(accepted.leftStartSeconds,left.frames.front().timestampSeconds);
+    ASSERT_LT(std::abs(accepted.leftStartSeconds-accepted.rightStartSeconds),10);
+    ASSERT_FALSE(pfcore::MotionMatcher(p).findAllPairs({left,right}).empty());
+    p.crossFileGapSec=10;
+    for(const bool reverse:{false,true}) {
+        const auto& a=reverse?right:left;
+        const auto& b=reverse?left:right;
+        const auto rejected=pfcore::MotionMatcher(p).compare(a,b);
+        EXPECT_EQ(rejected.rejection,pfcore::MotionRejection::SourceGap);
+        EXPECT_DOUBLE_EQ(rejected.similarity,0);
+        EXPECT_TRUE(pfcore::MotionMatcher(p).findAllPairs({a,b}).empty());
+    }
+}
+
 TEST(MotionMatcher, CrossFileGapIsApplied)
 {
     pfcore::MotionMatcherParams params;

@@ -2196,8 +2196,9 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     }
     // Temporal alignment can move the representative starts closer together.
     // Enforce the same floor on the final pair, not only on input windows.
-    if (left.sourceId == right.sourceId
-        && std::abs(result.leftStartSeconds - result.rightStartSeconds) < params.sameSourceGapFloorSec)
+    const double alignedGap = std::abs(result.leftStartSeconds - result.rightStartSeconds);
+    if ((left.sourceId == right.sourceId && alignedGap < params.sameSourceGapFloorSec)
+        || (left.sourceId != right.sourceId && alignedGap < params.crossFileGapSec))
         return reject(MotionRejection::SourceGap);
     const double leftDuration = result.leftEndSeconds - result.leftStartSeconds;
     const double rightDuration = result.rightEndSeconds - result.rightStartSeconds;
