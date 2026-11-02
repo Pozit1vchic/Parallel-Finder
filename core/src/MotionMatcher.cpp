@@ -3451,7 +3451,10 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         return returningHeadView(std::min(x,y),std::max(x,y));
     };
     const auto strongestFirst = [](const auto& a, const auto& b) {
-        if (std::abs(a.similarity - b.similarity) > 1e-12) return a.similarity > b.similarity;
+        // Sorting requires a transitive ordering. Treating values within an
+        // epsilon as ties is not transitive and can make the selected pairs
+        // depend on input order (or violate std::sort's requirements).
+        if (a.similarity != b.similarity) return a.similarity > b.similarity;
         if (a.leftIndex != b.leftIndex) return a.leftIndex < b.leftIndex;
         return a.rightIndex < b.rightIndex;
     };
@@ -3468,7 +3471,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             const bool directA = a.unmirroredSimilarity >= params_.similarityThreshold;
             const bool directB = b.unmirroredSimilarity >= params_.similarityThreshold;
             if (directA != directB) return directA;
-            if (directA && std::abs(a.unmirroredSimilarity - b.unmirroredSimilarity) > 1e-12)
+            if (directA && a.unmirroredSimilarity != b.unmirroredSimilarity)
                 return a.unmirroredSimilarity > b.unmirroredSimilarity;
         }
         return strongestFirst(a, b);
@@ -3716,7 +3719,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         const bool directA = a->unmirroredSimilarity >= params_.similarityThreshold;
         const bool directB = b->unmirroredSimilarity >= params_.similarityThreshold;
         if (directA != directB) return directA;
-        if (directA && std::abs(a->unmirroredSimilarity - b->unmirroredSimilarity) > 1e-12)
+        if (directA && a->unmirroredSimilarity != b->unmirroredSimilarity)
             return a->unmirroredSimilarity > b->unmirroredSimilarity;
         return strongestFirst(*a, *b);
     });
