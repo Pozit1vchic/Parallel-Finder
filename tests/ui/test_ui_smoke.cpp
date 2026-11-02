@@ -1520,9 +1520,14 @@ void UiSmokeTests::sourcesLiveInsideDropAreaAboveActions()
     QTest::qWait(50);
     QVERIFY(list->mapToScene(QPointF(0, list->height())).y() < clear->mapToScene(QPointF()).y());
     QVERIFY(!remove->isEnabled());
-    for(const int count:{5,30,1}) {
+    for(const int count:{5,9,30,1}) {
         QStringList files;for(int i=0;i<count;++i)files<<QString("D:/source-%1.mp4").arg(i);
         sources->setProperty("sourceFiles",files);
+        // The list must not overlap actions even while its height animates.
+        for(int frame=0;frame<10;++frame) {
+            QTest::qWait(25);
+            QVERIFY(drop->mapToScene(QPointF(0,drop->height())).y() <= add->mapToScene(QPointF()).y()+0.5);
+        }
         QTRY_VERIFY_WITH_TIMEOUT(drop->mapToScene(QPointF(0,drop->height())).y() <= add->mapToScene(QPointF()).y(),1500);
         QVERIFY(list->mapToScene(QPointF(0,list->height())).y()<add->mapToScene(QPointF()).y());
     }

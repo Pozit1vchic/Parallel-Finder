@@ -104,8 +104,9 @@ Rectangle {
                 id: rootDrop
                 objectName: "sourceDropArea"
                 Layout.fillWidth: true
-                width: parent.width; height: root.sourceFiles.length > 0 ? Math.min(160, Math.max(78, root.sourceFiles.length * 32 + 16)) : 102
-                Behavior on height { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
+                implicitHeight: root.sourceFiles.length > 0 ? Math.min(160, Math.max(78, root.sourceFiles.length * 32 + 16)) : 102
+                Layout.preferredHeight: implicitHeight
+                Behavior on implicitHeight { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
                 Accessible.name: L10n.t("sources.dropTitle")
                 onDropped: if (drop.hasUrls) root.filesRequested(drop.urls)
                 Rectangle { anchors.fill: parent; radius: Theme.radiusButton; color: parent.containsDrag ? Theme.accentMuted : Theme.well
