@@ -179,10 +179,20 @@ void UpdateTests::signedReleaseArchiveInstalls(){
     if(directory.isEmpty())QSKIP("Run after packaging with PF_UPDATE_PACKAGE_DIRECTORY");
     QString error;const auto manifest=pfupdate::verifyManifest(read(directory+"/update.json"),read(directory+"/update.json.sig"),pfupdate::trustedPublicKey(),error);
     QVERIFY2(manifest.has_value(),qPrintable(error));QTemporaryDir temporary;QVERIFY(temporary.isValid());
-    const auto root=temporary.path()+"/installation";write(root+"/ParallelFinder.exe","previous-build");
+    const auto root=temporary.path()+"/installation";
+    const auto previousArchive=qEnvironmentVariable("PF_UPDATE_PREVIOUS_ARCHIVE");
+    if(previousArchive.isEmpty())write(root+"/ParallelFinder.exe","previous-build");
+    else {
+        QDir().mkpath(root);
+        QProcess extract;extract.start("tar",{"-xf",previousArchive,"-C",root,"--strip-components=1"});
+        QVERIFY2(extract.waitForFinished(180000) && extract.exitStatus()==QProcess::NormalExit && extract.exitCode()==0,extract.readAllStandardError().constData());
+        QVERIFY(QFileInfo::exists(root+"/ParallelFinder.exe"));
+        write(root+"/user-file.txt","portable-user-file");
+    }
     pfupdate::UpdateTransaction transaction(root);pfupdate::InstallHooks hooks;
     hooks.healthCheck=[](const QString& exe,QString& e){QProcess process;process.setWorkingDirectory(QFileInfo(exe).absolutePath());process.start(exe,{"--pf-update-healthcheck"});if(!process.waitForStarted(10000) || !process.waitForFinished(30000) || process.exitStatus()!=QProcess::NormalExit || process.exitCode()!=0){process.kill();process.waitForFinished();e="Real packaged application health check failed";return false;}return true;};
     QVERIFY2(transaction.install(directory+'/'+manifest->asset,*manifest,hooks,error),qPrintable(error));
+    if(!previousArchive.isEmpty())QCOMPARE(read(root+"/user-file.txt"),QByteArray("portable-user-file"));
     QVERIFY(!QFileInfo::exists(transaction.journalPath()));
     for(const auto& f:manifest->files)if(f.path=="ParallelFinder.exe")QCOMPARE(digest(read(root+'/'+f.path)),f.sha256);
 }
