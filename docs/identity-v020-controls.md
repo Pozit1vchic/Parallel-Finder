@@ -8,9 +8,19 @@ prevent an otherwise supported join. All 22 CharacterCandidates tests pass.
 Frozen-track replays of Kyle (74 observed tracks, 23 groups) and Butcher
 (1,164 observed tracks, 491 groups) retained the same group assignments.
 This does not recover the known missing links. The cache key is bumped to v17;
-existing character-analysis artifacts need reprocessing, and a fresh full
-application run has not yet been checked. This change is not in the already
+existing character-analysis artifacts need reprocessing; a fresh full search
+after target selection has not yet been checked. This change is not in the already
 built `0.2.0-d2f9492d` packages.
+
+A subsequent v17 application inspection on the supplied Kyle video used the
+same local YOLO26m model under its `yolo26x-pose.onnx` filename alias and the
+same OSNet model described below. The fresh run reached the character picker
+and produced 23 groups; a repeated run produced the same IDs and track counts,
+with `complete_cache_hit=1`, `decoded=0`, and `pose_samples=0`. Both inspection
+runs intentionally stop at selection and consequently report exit code 1;
+they are not full searches or exports. Preview and representative records
+were not byte-identical, so this evidence makes no claim about their equality.
+Logs and candidate files are under `build/kyle-v17-{fresh,warm}-*`.
 
 Release remains blocked: these controls are a small, manually inspected sample, not a measure of whole-video accuracy. In particular, three known same-person pairs are still split.
 
