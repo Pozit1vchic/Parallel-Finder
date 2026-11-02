@@ -55,7 +55,9 @@ SceneFamilyComparison compareSceneFamilyOccurrences(const SceneOccurrence& a,con
     }
     const double gap=std::max(a.start,b.start)-std::min(a.end,b.end);
     if (overlap+1e-9<.60 && !(gap>=0 && gap<=.12))return reject(SceneFamilyReason::DistantOccurrence);
-    const auto distance=a.headOnly&&b.headOnly?sceneHeadDistance(a.descriptor,b.descriptor):scenePoseDistance(a.descriptor,b.descriptor);
+    // Mixed-scope comparisons need evidence both occurrences actually share.
+    // A head-only match does not establish the body pose as its motion.
+    const auto distance=a.headOnly||b.headOnly?sceneHeadDistance(a.descriptor,b.descriptor):scenePoseDistance(a.descriptor,b.descriptor);
     if (!distance||!std::isfinite(*distance))return reject(SceneFamilyReason::MissingPose);
     result.poseDistance=*distance;
     if (*distance>(overlap>=.60?.16:.08))return reject(SceneFamilyReason::DifferentPose);

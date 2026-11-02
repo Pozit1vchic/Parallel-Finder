@@ -207,3 +207,17 @@ TEST(SceneFamily, PairedContinuityIncludesRightLaneAndPreservesCancellation) {
     for(auto& pair:swapped)std::swap(pair[0],pair[1]);
     EXPECT_EQ(pfcore::pairedContinuityOrder(swapped),(std::vector<std::size_t>{0,2,1}));
 }
+
+TEST(SceneFamily, MixedHeadAndBodyRequireSharedHeadEvidence) {
+    auto body=occurrence(10,13),head=occurrence(10.2,13.2);
+    head.headOnly=true;
+    // Body keypoints alone cannot establish the head-only occurrence.
+    EXPECT_EQ(pfcore::compareSceneFamilyOccurrences(body,head).reason,pfcore::SceneFamilyReason::MissingPose);
+    EXPECT_EQ(pfcore::buildSceneFamilies(std::vector{body,head}).families.size(),2);
+    body.descriptor.head.rotation=head.descriptor.head.rotation=std::array<double,9>{1,0,0,0,1,0,0,0,1};
+    EXPECT_EQ(pfcore::buildSceneFamilies(std::vector{body,head}).families.size(),1);
+    head.descriptor.head.rotation=std::array<double,9>{-1,0,0,0,1,0,0,0,-1};
+    EXPECT_EQ(pfcore::buildSceneFamilies(std::vector{body,head}).families.size(),2);
+    // Independently proven copied footage remains admissible across modes.
+    EXPECT_EQ(pfcore::buildSceneFamilies(std::vector{body,head},{},[](const auto&,const auto&){return true;}).families.size(),1);
+}
