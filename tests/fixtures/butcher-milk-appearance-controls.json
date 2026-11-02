@@ -1,0 +1,1087 @@
+{
+  "schema": 1,
+  "scope": "Reviewed appearances of Mother's Milk across seasons of one montage, including his changed appearance in season 4. Anchored pairs are correlated; this is not a population benchmark. Track IDs in case names belong to the frozen run.",
+  "sourceBasename": "butcher_parallel_notsorted.mov",
+  "controls": [
+    {
+      "id": "milk-later-season-24-114",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 57.202924000495415,
+        "point": [
+          685.21,
+          217.04
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-later-season-24-416",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 276.2121156669127,
+        "point": [
+          860.08,
+          297.99
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-later-season-24-797",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 535.532078333534,
+        "point": [
+          947.39,
+          256.98
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-later-season-24-1017",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 636.3613956663014,
+        "point": [
+          1037.29,
+          394.82
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-later-season-24-1026",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 639.1975410000006,
+        "point": [
+          694.16,
+          222.2
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-later-season-24-1029",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 642.2005400000206,
+        "point": [
+          580.42,
+          251.0
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-later-season-24-1208",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 743.5306369997014,
+        "point": [
+          405.5,
+          252.13
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-106",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 52.36475833380689,
+        "point": [
+          431.45,
+          222.52
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-156",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 73.86539733344418,
+        "point": [
+          688.0,
+          300.41
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-164",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 77.20202233315551,
+        "point": [
+          1029.11,
+          182.36
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-170",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 79.87135466650854,
+        "point": [
+          1078.98,
+          200.62
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-182",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 85.18910466707685,
+        "point": [
+          477.77,
+          196.36
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-208",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 99.20305900020026,
+        "point": [
+          1083.56,
+          297.72
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-451",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 305.72059066634563,
+        "point": [
+          1143.22,
+          194.59
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-523",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 347.6997719995754,
+        "point": [
+          475.34,
+          213.95
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-667",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 470.38404599960165,
+        "point": [
+          509.84,
+          273.11
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-725",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 498.89156166701025,
+        "point": [
+          159.4,
+          238.06
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-733",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 503.87566533289794,
+        "point": [
+          708.67,
+          257.31
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-776",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 521.0593716664075,
+        "point": [
+          1105.7,
+          239.86
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-814",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 547.3562860004948,
+        "point": [
+          150.69,
+          324.58
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-828",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 556.2192233337563,
+        "point": [
+          1045.81,
+          179.25
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-860",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 577.5321146662491,
+        "point": [
+          426.69,
+          223.16
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-944",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 617.717877666464,
+        "point": [
+          777.57,
+          256.8
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-958",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 620.3872099998171,
+        "point": [
+          812.96,
+          318.46
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-1000",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 629.6881249995628,
+        "point": [
+          214.42,
+          243.48
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-1058",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 658.8629126670146,
+        "point": [
+          630.69,
+          259.23
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-1073",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 662.0327246663797,
+        "point": [
+          1065.64,
+          207.54
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-1090",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 671.3753480004598,
+        "point": [
+          1070.88,
+          217.91
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-1093",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 672.6891603332969,
+        "point": [
+          1037.49,
+          209.68
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-1121",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 691.2284466663015,
+        "point": [
+          1019.66,
+          145.1
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-1167",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 717.1918340000138,
+        "point": [
+          1021.37,
+          335.1
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-1227",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 760.8604433336575,
+        "point": [
+          326.03,
+          316.93
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-60-1236",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "right": {
+        "time": 764.2179629998468,
+        "point": [
+          356.47,
+          241.16
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-60",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 30.363699333808835,
+        "point": [
+          267.72,
+          291.56
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-106",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 52.36475833380689,
+        "point": [
+          431.45,
+          222.52
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-156",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 73.86539733344418,
+        "point": [
+          688.0,
+          300.41
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-164",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 77.20202233315551,
+        "point": [
+          1029.11,
+          182.36
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-170",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 79.87135466650854,
+        "point": [
+          1078.98,
+          200.62
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-182",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 85.18910466707685,
+        "point": [
+          477.77,
+          196.36
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-208",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 99.20305900020026,
+        "point": [
+          1083.56,
+          297.72
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-451",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 305.72059066634563,
+        "point": [
+          1143.22,
+          194.59
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-523",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 347.6997719995754,
+        "point": [
+          475.34,
+          213.95
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-667",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 470.38404599960165,
+        "point": [
+          509.84,
+          273.11
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-725",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 498.89156166701025,
+        "point": [
+          159.4,
+          238.06
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-733",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 503.87566533289794,
+        "point": [
+          708.67,
+          257.31
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-776",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 521.0593716664075,
+        "point": [
+          1105.7,
+          239.86
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-814",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 547.3562860004948,
+        "point": [
+          150.69,
+          324.58
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-828",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 556.2192233337563,
+        "point": [
+          1045.81,
+          179.25
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-860",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 577.5321146662491,
+        "point": [
+          426.69,
+          223.16
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-944",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 617.717877666464,
+        "point": [
+          777.57,
+          256.8
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-958",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 620.3872099998171,
+        "point": [
+          812.96,
+          318.46
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-1000",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 629.6881249995628,
+        "point": [
+          214.42,
+          243.48
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-1058",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 658.8629126670146,
+        "point": [
+          630.69,
+          259.23
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-1073",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 662.0327246663797,
+        "point": [
+          1065.64,
+          207.54
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-1090",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 671.3753480004598,
+        "point": [
+          1070.88,
+          217.91
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-1093",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 672.6891603332969,
+        "point": [
+          1037.49,
+          209.68
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-1121",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 691.2284466663015,
+        "point": [
+          1019.66,
+          145.1
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-1167",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 717.1918340000138,
+        "point": [
+          1021.37,
+          335.1
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-1227",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 760.8604433336575,
+        "point": [
+          326.03,
+          316.93
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-cross-season-24-1236",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.91,
+          356.52
+        ]
+      },
+      "right": {
+        "time": 764.2179629998468,
+        "point": [
+          356.47,
+          241.16
+        ]
+      },
+      "sameIdentity": true
+    }
+  ]
+}

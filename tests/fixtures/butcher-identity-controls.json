@@ -5,92 +5,272 @@
   "controls": [
     {
       "id": "butcher-opening-and-middle",
-      "left": {"time": 1.1888, "point": [950, 250]},
-      "right": {"time": 373.8925, "point": [750, 200]},
+      "left": {
+        "time": 1.1888,
+        "point": [
+          950,
+          250
+        ]
+      },
+      "right": {
+        "time": 373.8925,
+        "point": [
+          750,
+          200
+        ]
+      },
       "sameIdentity": true
     },
     {
       "id": "butcher-middle-and-final",
-      "left": {"time": 373.8925, "point": [750, 200]},
-      "right": {"time": 777.0224, "point": [600, 150]},
+      "left": {
+        "time": 373.8925,
+        "point": [
+          750,
+          200
+        ]
+      },
+      "right": {
+        "time": 777.0224,
+        "point": [
+          600,
+          150
+        ]
+      },
       "sameIdentity": true
     },
     {
       "id": "butcher-in-dark-conversation",
-      "left": {"time": 1.1888, "point": [950, 250]},
-      "right": {"time": 332.5388983, "point": [300, 200]},
+      "left": {
+        "time": 1.1888,
+        "point": [
+          950,
+          250
+        ]
+      },
+      "right": {
+        "time": 332.5388983,
+        "point": [
+          300,
+          200
+        ]
+      },
       "sameIdentity": true
     },
     {
       "id": "butcher-in-dark-profile",
-      "left": {"time": 1.1888, "point": [950, 250]},
-      "right": {"time": 509.7147893, "point": [600, 200]},
+      "left": {
+        "time": 1.1888,
+        "point": [
+          950,
+          250
+        ]
+      },
+      "right": {
+        "time": 509.7147893,
+        "point": [
+          600,
+          200
+        ]
+      },
       "sameIdentity": true
     },
     {
       "id": "butcher-and-seated-man",
-      "left": {"time": 15.891, "point": [430, 200]},
-      "right": {"time": 15.891, "point": [950, 400]},
+      "left": {
+        "time": 15.891,
+        "point": [
+          430,
+          200
+        ]
+      },
+      "right": {
+        "time": 15.891,
+        "point": [
+          950,
+          400
+        ]
+      },
       "sameIdentity": false
     },
     {
       "id": "butcher-and-young-man-share-shot",
-      "left": {"time": 30.6974, "point": [600, 200]},
-      "right": {"time": 30.6974, "point": [1100, 200]},
+      "left": {
+        "time": 30.6974,
+        "point": [
+          600,
+          200
+        ]
+      },
+      "right": {
+        "time": 30.6974,
+        "point": [
+          1100,
+          200
+        ]
+      },
       "sameIdentity": false
     },
     {
-      "id": "different-men-train-and-mothers-milk",
-      "left": {"time": 15.891, "point": [950, 400]},
-      "right": {"time": 658.8629127, "point": [630, 280]},
-      "sameIdentity": false
-    },
-    {
-      "id": "same-train-in-two-scenes",
-      "left": {"time": 15.891, "point": [950, 400]},
-      "right": {"time": 641.8669, "point": [575, 300]},
+      "id": "milk-later-season-and-seated-view",
+      "left": {
+        "time": 15.891,
+        "point": [
+          950,
+          400
+        ]
+      },
+      "right": {
+        "time": 658.8629127,
+        "point": [
+          630,
+          280
+        ]
+      },
       "sameIdentity": true
     },
     {
-      "id": "different-men-train-later-and-mothers-milk",
-      "left": {"time": 641.8669, "point": [575, 300]},
-      "right": {"time": 658.8629127, "point": [630, 280]},
-      "sameIdentity": false
+      "id": "milk-later-season-in-two-scenes",
+      "left": {
+        "time": 15.891,
+        "point": [
+          950,
+          400
+        ]
+      },
+      "right": {
+        "time": 641.8669,
+        "point": [
+          575,
+          300
+        ]
+      },
+      "sameIdentity": true
     },
     {
-      "id": "different-men-train-and-mothers-milk-closeup",
-      "left": {"time": 15.891, "point": [950, 400]},
-      "right": {"time": 547.5231193, "point": [150, 350]},
-      "sameIdentity": false
+      "id": "milk-later-season-and-seated",
+      "left": {
+        "time": 641.8669,
+        "point": [
+          575,
+          300
+        ]
+      },
+      "right": {
+        "time": 658.8629127,
+        "point": [
+          630,
+          280
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-later-season-and-closeup",
+      "left": {
+        "time": 15.891,
+        "point": [
+          950,
+          400
+        ]
+      },
+      "right": {
+        "time": 547.5231193,
+        "point": [
+          150,
+          350
+        ]
+      },
+      "sameIdentity": true
     },
     {
       "id": "mothers-milk-closeup-and-seated",
-      "left": {"time": 547.5231193, "point": [150, 350]},
-      "right": {"time": 658.8629127, "point": [630, 280]},
+      "left": {
+        "time": 547.5231193,
+        "point": [
+          150,
+          350
+        ]
+      },
+      "right": {
+        "time": 658.8629127,
+        "point": [
+          630,
+          280
+        ]
+      },
       "sameIdentity": true
     },
     {
-      "id": "train-and-mothers-milk-standing",
-      "left": {"time": 15.891, "point": [950, 400]},
-      "right": {"time": 30.3636993, "point": [268, 362]},
-      "sameIdentity": false
+      "id": "milk-later-season-and-standing",
+      "left": {
+        "time": 15.891,
+        "point": [
+          950,
+          400
+        ]
+      },
+      "right": {
+        "time": 30.3636993,
+        "point": [
+          268,
+          362
+        ]
+      },
+      "sameIdentity": true
     },
     {
-      "id": "train-and-mothers-milk-forest",
-      "left": {"time": 15.891, "point": [950, 400]},
-      "right": {"time": 85.1891047, "point": [478, 271]},
-      "sameIdentity": false
+      "id": "milk-later-season-and-forest",
+      "left": {
+        "time": 15.891,
+        "point": [
+          950,
+          400
+        ]
+      },
+      "right": {
+        "time": 85.1891047,
+        "point": [
+          478,
+          271
+        ]
+      },
+      "sameIdentity": true
     },
     {
       "id": "mothers-milk-closeup-and-standing",
-      "left": {"time": 547.5231193, "point": [150, 350]},
-      "right": {"time": 30.3636993, "point": [268, 362]},
+      "left": {
+        "time": 547.5231193,
+        "point": [
+          150,
+          350
+        ]
+      },
+      "right": {
+        "time": 30.3636993,
+        "point": [
+          268,
+          362
+        ]
+      },
       "sameIdentity": true
     },
     {
       "id": "mothers-milk-closeup-and-forest",
-      "left": {"time": 547.5231193, "point": [150, 350]},
-      "right": {"time": 85.1891047, "point": [478, 271]},
+      "left": {
+        "time": 547.5231193,
+        "point": [
+          150,
+          350
+        ]
+      },
+      "right": {
+        "time": 85.1891047,
+        "point": [
+          478,
+          271
+        ]
+      },
       "sameIdentity": true
     }
   ]

@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "scope": "Visually reviewed Butcher montage faces, 1280x544 inference frame; targeted transitive bridge controls, not a population benchmark.",
+  "scope": "Reviewed appearances of Mother's Milk, including changed appearance in a later season. Correlated pairs from one montage, not a population benchmark.",
   "sourceBasename": "butcher_parallel_notsorted.mov",
   "controls": [
     {
-      "id": "atrain-vs-milk-first",
+      "id": "milk-later-season-vs-first",
       "left": {
         "time": 15.890974333660964,
         "point": [
@@ -19,10 +19,10 @@
           225
         ]
       },
-      "sameIdentity": false
+      "sameIdentity": true
     },
     {
-      "id": "atrain-vs-milk-bridge",
+      "id": "milk-later-season-vs-bridge",
       "left": {
         "time": 15.890974333660964,
         "point": [
@@ -37,10 +37,10 @@
           117
         ]
       },
-      "sameIdentity": false
+      "sameIdentity": true
     },
     {
-      "id": "atrain-later-vs-milk-first",
+      "id": "milk-later-season-vs-first",
       "left": {
         "time": 642.2005400000206,
         "point": [
@@ -55,10 +55,10 @@
           225
         ]
       },
-      "sameIdentity": false
+      "sameIdentity": true
     },
     {
-      "id": "atrain-later-vs-milk-bridge",
+      "id": "milk-later-season-vs-bridge",
       "left": {
         "time": 642.2005400000206,
         "point": [
@@ -73,7 +73,7 @@
           117
         ]
       },
-      "sameIdentity": false
+      "sameIdentity": true
     },
     {
       "id": "milk-first-vs-bridge",
