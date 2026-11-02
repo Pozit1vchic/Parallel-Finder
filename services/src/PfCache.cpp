@@ -37,6 +37,15 @@ std::string fileStem(const std::string& key)
     return digest.toStdString() + ".pfc";
 }
 
+std::string normalizeSource(std::string value)
+{
+#ifdef _WIN32
+    std::replace(value.begin(), value.end(), '\\', '/');
+    value = QString::fromUtf8(value).toCaseFolded().toStdString();
+#endif
+    return value;
+}
+
 } // namespace
 
 PfCache::PfCache(std::filesystem::path root, std::size_t limitBytes)
@@ -215,17 +224,23 @@ bool PfCache::erase(const std::string& key, std::string& error)
 
 std::string PfCache::sourceGeneration(const std::string& source) const
 {
-    const auto key = "source-generation-v1|" + source;
-    auto path = fileFor(key);
-    path.replace_extension(".generation");
-    std::vector<std::uint8_t> payload;
-    if (!readEntry(path, key, payload)) return {};
-    return std::string(payload.begin(), payload.end());
+    const auto readGeneration = [&](const std::string& name) {
+        const auto key = "source-generation-v1|" + name;
+        auto path = fileFor(key);
+        path.replace_extension(".generation");
+        std::vector<std::uint8_t> payload;
+        if (!readEntry(path, key, payload)) return std::string{};
+        return std::string(payload.begin(), payload.end());
+    };
+    const auto normalized = normalizeSource(source);
+    const auto current = readGeneration(normalized);
+    // Preserve existing exact-spelling generations until the next reset.
+    return !current.empty() || normalized == source ? current : readGeneration(source);
 }
 
 bool PfCache::resetSource(const std::string& source, std::string& error)
 {
-    const auto key = "source-generation-v1|" + source;
+    const auto key = "source-generation-v1|" + normalizeSource(source);
     auto path = fileFor(key);
     path.replace_extension(".generation");
     const auto generation = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
@@ -262,14 +277,7 @@ std::vector<std::string> PfCache::keysForSource(const std::string& source,std::s
         if(error && outputError)*outputError="inspect cache: "+error.message();
         return {};
     }
-    const auto normalize=[](std::string value) {
-        std::replace(value.begin(),value.end(),'\\','/');
-#ifdef _WIN32
-        value=QString::fromUtf8(value).toCaseFolded().toStdString();
-#endif
-        return value;
-    };
-    const auto normalized=normalize(source);
+    const auto normalized=normalizeSource(source);
     for(const auto& entry:std::filesystem::directory_iterator(root_,error)) {
         if(error)break;
         if(entry.is_symlink(error) || !entry.is_regular_file(error))continue;
@@ -284,10 +292,10 @@ std::vector<std::string> PfCache::keysForSource(const std::string& source,std::s
             // Use the same key bound as the writer: valid long observation
             // keys must remain discoverable when the source is reset.
             if(!stored.starts_with("source-owner-v1|") || payloadSize>kMaxCacheKeyBytes)continue;
-            std::string owner(payloadSize,'\0');if(stream.read(owner.data(),owner.size()) && normalize(owner)==normalized)
+            std::string owner(payloadSize,'\0');if(stream.read(owner.data(),owner.size()) && normalizeSource(owner)==normalized)
                 keys.insert(stored.substr(16));
         }else {
-            const auto comparable=normalize(stored);
+            const auto comparable=normalizeSource(stored);
             // Legacy primary observations and preview keys retain the path.
             if(comparable.find("|source="+normalized+"|")!=std::string::npos
                 || (comparable.starts_with("preview-v1|") && comparable.find("|"+normalized+"|")!=std::string::npos))

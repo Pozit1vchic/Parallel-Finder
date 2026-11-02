@@ -109,6 +109,12 @@ TEST(PfCache, ResetPhysicallyDeletesOnlyTheSelectedVideoIncludingOpaqueDerivedKe
         source
 #endif
     );EXPECT_FALSE(generation.empty());
+#ifdef _WIN32
+    // A reset through another spelling of the same Windows path must rotate
+    // the namespace used by the normal spelling too, even if an in-flight
+    // analysis subsequently writes an entry from the previous generation.
+    EXPECT_EQ(cache.sourceGeneration(source), generation);
+#endif
     ASSERT_TRUE(cache.putForSource(source,"new-observations",payload,error));
     ASSERT_TRUE(cache.resetSource(source,error));
     EXPECT_FALSE(cache.get("new-observations"));
