@@ -902,7 +902,13 @@ TEST(MotionMatcher, CrossFileGapIsApplied)
     params.crossFileGapSec = 10.0;
     params.maxUniqueResults = 10;
     pfcore::MotionMatcher matcher(params);
+    const auto rejected = matcher.compare(window("a", 0.0), window("b", 4.0));
+    EXPECT_EQ(rejected.rejection, pfcore::MotionRejection::SourceGap);
+    EXPECT_DOUBLE_EQ(rejected.similarity, 0.0);
     EXPECT_TRUE(matcher.findAllPairs({window("a", 0.0), window("b", 4.0)}).empty());
+    EXPECT_GE(matcher.compare(window("a", 0.0), window("b", 10.0)).similarity, params.similarityThreshold);
+    EXPECT_FALSE(matcher.findAllPairs({window("a", 0.0), window("b", 10.0)}).empty());
+    EXPECT_GE(matcher.compare(window("a", 0.0), window("b", 12.0)).similarity, params.similarityThreshold);
     EXPECT_FALSE(matcher.findAllPairs({window("a", 0.0), window("b", 12.0)}).empty());
 }
 

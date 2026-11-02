@@ -2037,6 +2037,11 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     // can supply evidence, but must not silently bypass this gate.
     if ((crossTrack || params.requireAppearance) && !identityCandidate(identity))
         return reject(MotionRejection::Identity);
+    // Apply the configured cross-file gap to direct comparisons as well as
+    // indexed searches, so diagnostics and retrieval use the same policy.
+    if (left.sourceId != right.sourceId && !left.frames.empty() && !right.frames.empty()
+        && std::abs(result.leftStartSeconds - result.rightStartSeconds) < params.crossFileGapSec)
+        return reject(MotionRejection::SourceGap);
     if (left.sourceId == right.sourceId
         && std::abs(result.leftStartSeconds - result.rightStartSeconds)
             < (separateVerifiedShots(left, right, params, &identity)
