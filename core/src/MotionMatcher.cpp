@@ -3794,27 +3794,26 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             if (!compatible && !reverseCompatible) return false;
             const double leftDelta = std::abs(candidate.leftStartSeconds - kept.leftStartSeconds);
             const double rightDelta = std::abs(candidate.rightStartSeconds - kept.rightStartSeconds);
-            const auto overlapRatio = [](double firstStart, double firstEnd,
+            const auto enoughOverlap = [&](double firstStart, double firstEnd,
                                          double secondStart, double secondEnd) {
                 const double overlap = std::max(0.0, std::min(firstEnd, secondEnd)
                     - std::max(firstStart, secondStart));
                 const double shorter = std::min(std::max(0.0, firstEnd - firstStart),
                                                 std::max(0.0, secondEnd - secondStart));
-                return shorter <= 1e-9 ? 0.0 : overlap / shorter;
+                return overlap > 0.0 && shorter > 1e-9
+                    && overlap / shorter >= params_.nmsOverlapThreshold;
             };
-            const bool overlapping = overlapRatio(candidate.leftStartSeconds,
+            const bool overlapping = enoughOverlap(candidate.leftStartSeconds,
                                                   candidate.leftEndSeconds,
                                                   kept.leftStartSeconds,
                                                   kept.leftEndSeconds)
-                >= params_.nmsOverlapThreshold
-                && overlapRatio(candidate.rightStartSeconds, candidate.rightEndSeconds,
-                                kept.rightStartSeconds, kept.rightEndSeconds)
-                    >= params_.nmsOverlapThreshold;
+                && enoughOverlap(candidate.rightStartSeconds, candidate.rightEndSeconds,
+                                 kept.rightStartSeconds, kept.rightEndSeconds);
             if (swappedOrientation) {
-                const bool reverseOverlap = overlapRatio(candidate.leftStartSeconds, candidate.leftEndSeconds,
-                    kept.rightStartSeconds, kept.rightEndSeconds) >= params_.nmsOverlapThreshold
-                    && overlapRatio(candidate.rightStartSeconds, candidate.rightEndSeconds,
-                        kept.leftStartSeconds, kept.leftEndSeconds) >= params_.nmsOverlapThreshold;
+                const bool reverseOverlap = enoughOverlap(candidate.leftStartSeconds, candidate.leftEndSeconds,
+                    kept.rightStartSeconds, kept.rightEndSeconds)
+                    && enoughOverlap(candidate.rightStartSeconds, candidate.rightEndSeconds,
+                        kept.leftStartSeconds, kept.leftEndSeconds);
                 const bool reverseNear = std::abs(candidate.leftStartSeconds - kept.rightStartSeconds) <= params_.duplicateWindowSec
                     && std::abs(candidate.rightStartSeconds - kept.leftStartSeconds) <= params_.duplicateWindowSec;
                 const bool reverseScene = windows[candidate.leftIndex].hasSceneIndex

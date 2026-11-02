@@ -1466,6 +1466,27 @@ TEST(MotionMatcher, ReversedSourcePairsAreTheSameParallel)
     EXPECT_EQ(matches.size(), 1u);
 }
 
+TEST(MotionMatcher, ZeroOverlapThresholdDoesNotCollapseDisjointParallels)
+{
+    // Zero means any positive overlap, not that two disjoint intervals overlap.
+    auto a = gestureWindow("a", 0, false);
+    auto b = gestureWindow("b", 20, false);
+    auto nextA = gestureWindow("a", 10, false);
+    auto nextB = gestureWindow("b", 30, false);
+    pfcore::MotionMatcherParams params;
+    params.nmsOverlapThreshold = 0;
+    params.maxUniqueResults = 100;
+    params.maxResultsPerShot = 0;
+    const std::vector<pfcore::MotionWindow> windows{a, b, nextA, nextB};
+    const auto matches = pfcore::MotionMatcher(params).findAllPairs(windows);
+    EXPECT_EQ(std::count_if(matches.begin(), matches.end(), [&](const auto& match) {
+        return windows[match.leftIndex].sourceId != windows[match.rightIndex].sourceId;
+    }), 4);
+    // Overlapping copies are still suppressed, including reversed source order.
+    const auto duplicated = pfcore::MotionMatcher(params).findAllPairs({a, b, b, a});
+    EXPECT_EQ(duplicated.size(), 1u);
+}
+
 TEST(MotionMatcher, ContextualDuplicateSuppressionIsOrientationIndependent)
 {
     auto a = gestureWindow("a", 0, false);
