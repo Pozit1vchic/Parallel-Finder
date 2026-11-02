@@ -1,0 +1,205 @@
+{
+  "schema": 1,
+  "scope": "Independently reviewed recognizable Butcher views and distinct people from a contact sheet of the user-provided montage, 1280x544 inference coordinates. Correlated selected pairs, not a population benchmark. Track IDs apply to the local frozen run.",
+  "sourceBasename": "butcher_parallel_notsorted.mov",
+  "controls": [
+    {
+      "id": "track-175-vs-782",
+      "left": {
+        "time": 81.72735466636439,
+        "point": [
+          533.2,
+          349.1
+        ]
+      },
+      "right": {
+        "time": 526.2102883336423,
+        "point": [
+          652.9,
+          294.6
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "track-175-vs-881",
+      "left": {
+        "time": 81.72735466636439,
+        "point": [
+          533.2,
+          349.1
+        ]
+      },
+      "right": {
+        "time": 586.8747583333164,
+        "point": [
+          1087.8,
+          292.6
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "track-175-vs-1120",
+      "left": {
+        "time": 81.72735466636439,
+        "point": [
+          533.2,
+          349.1
+        ]
+      },
+      "right": {
+        "time": 691.0616133329679,
+        "point": [
+          395.4,
+          272.6
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "track-175-vs-1242",
+      "left": {
+        "time": 81.72735466636439,
+        "point": [
+          533.2,
+          349.1
+        ]
+      },
+      "right": {
+        "time": 766.7204623331941,
+        "point": [
+          714.4,
+          272.6
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "track-718-vs-782",
+      "left": {
+        "time": 492.7187709996114,
+        "point": [
+          1084.8,
+          322.8
+        ]
+      },
+      "right": {
+        "time": 526.2102883336423,
+        "point": [
+          652.9,
+          294.6
+        ]
+      },
+      "sameIdentity": false
+    },
+    {
+      "id": "track-718-vs-881",
+      "left": {
+        "time": 492.7187709996114,
+        "point": [
+          1084.8,
+          322.8
+        ]
+      },
+      "right": {
+        "time": 586.8747583333164,
+        "point": [
+          1087.8,
+          292.6
+        ]
+      },
+      "sameIdentity": false
+    },
+    {
+      "id": "track-718-vs-1120",
+      "left": {
+        "time": 492.7187709996114,
+        "point": [
+          1084.8,
+          322.8
+        ]
+      },
+      "right": {
+        "time": 691.0616133329679,
+        "point": [
+          395.4,
+          272.6
+        ]
+      },
+      "sameIdentity": false
+    },
+    {
+      "id": "track-718-vs-1242",
+      "left": {
+        "time": 492.7187709996114,
+        "point": [
+          1084.8,
+          322.8
+        ]
+      },
+      "right": {
+        "time": 766.7204623331941,
+        "point": [
+          714.4,
+          272.6
+        ]
+      },
+      "sameIdentity": false
+    },
+    {
+      "id": "track-24-vs-782",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.9,
+          407.8
+        ]
+      },
+      "right": {
+        "time": 526.2102883336423,
+        "point": [
+          652.9,
+          294.6
+        ]
+      },
+      "sameIdentity": false
+    },
+    {
+      "id": "track-59-vs-782",
+      "left": {
+        "time": 30.363699333808835,
+        "point": [
+          1074.7,
+          273.1
+        ]
+      },
+      "right": {
+        "time": 526.2102883336423,
+        "point": [
+          652.9,
+          294.6
+        ]
+      },
+      "sameIdentity": false
+    },
+    {
+      "id": "track-24-vs-59",
+      "left": {
+        "time": 15.890974333660964,
+        "point": [
+          983.9,
+          407.8
+        ]
+      },
+      "right": {
+        "time": 30.363699333808835,
+        "point": [
+          1074.7,
+          273.1
+        ]
+      },
+      "sameIdentity": false
+    }
+  ]
+}

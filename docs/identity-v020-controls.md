@@ -86,3 +86,16 @@ across different shots, overlapping people, missing detections or split appearan
 prior experimental collision involving track 1131 and Butcher's main group also evades
 this direct check because the simultaneously visible Butcher track 1130 is itself split
 off from that group. Zero findings is therefore not proof of correct identification.
+
+## Recognizable additional Butcher pair controls
+
+The local contact sheet `build/bodypair-late-review.jpg` also contains four recognizable
+Butcher views (tracks 782, 881, 1120 and 1242) and a separate dark-clothed man
+(track 718); tracks 24 and 59 show Mother's Milk and Hughie. The selected fixture
+`butcher-visible-pair-controls.json` records four same-person comparisons of track 175
+with those Butcher views and seven different-person comparisons. The v16 frozen replay
+splits all four positive pairs and separates all seven negatives. The source frames were
+visually reviewed; the saved points contain no pixels or embeddings. These examples share
+anchors and were chosen from an existing experiment sheet, so the counts cannot be
+interpreted as population-level recall or precision. They make concrete that fixing the
+previous collision alone would not establish complete appearance grouping.
