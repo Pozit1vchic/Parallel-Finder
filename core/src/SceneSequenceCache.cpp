@@ -23,6 +23,26 @@ template<class T> bool read(std::span<const std::uint8_t> bytes,std::size_t& off
     if constexpr(std::endian::native==std::endian::big)std::reverse(data.begin(),data.end());
     value=std::bit_cast<T>(data);return true;
 }
+template<class T> void appendArray(std::vector<std::uint8_t>& bytes,const std::vector<T>& values) {
+    if constexpr(std::endian::native==std::endian::little) {
+        if(values.empty())return;
+        const auto* first=reinterpret_cast<const std::uint8_t*>(values.data());
+        bytes.insert(bytes.end(),first,first+values.size()*sizeof(T));
+    } else {
+        for(const auto value:values)append(bytes,value);
+    }
+}
+template<class T> bool readArray(std::span<const std::uint8_t> bytes,std::size_t& offset,std::vector<T>& values) {
+    if constexpr(std::endian::native==std::endian::little) {
+        if(offset>bytes.size() || values.size()>(bytes.size()-offset)/sizeof(T))return false;
+        const auto size=values.size()*sizeof(T);
+        if(size)std::memcpy(values.data(),bytes.data()+offset,size);
+        offset+=size;
+    } else {
+        for(auto& value:values)if(!read(bytes,offset,value))return false;
+    }
+    return true;
+}
 bool valid(const CachedSceneSequence& s) {
     return std::isfinite(s.start) && std::isfinite(s.end) && s.start>=0 && s.end>=s.start
         && (s.pixels.empty() || (s.times.size()>=3 && s.pixels.size()%432==0))
@@ -44,8 +64,8 @@ std::vector<std::uint8_t> encodeSceneSequences(std::span<const CachedSceneSequen
     bytes.reserve(size);append(bytes,magic);append(bytes,static_cast<std::uint64_t>(scenes.size()));
     for(const auto& s:scenes) {
         append(bytes,s.scene);append(bytes,s.start);append(bytes,s.end);append(bytes,static_cast<std::uint64_t>(s.times.size()));
-        for(const auto p:s.pixels)append(bytes,p);
-        for(const auto t:s.times)append(bytes,t);
+        appendArray(bytes,s.pixels);
+        appendArray(bytes,s.times);
     }
     return bytes;
 }
@@ -61,8 +81,7 @@ std::optional<std::vector<CachedSceneSequence>> decodeSceneSequences(std::span<c
         if(!read(bytes,offset,s.scene) || !read(bytes,offset,s.start) || !read(bytes,offset,s.end)
             || !read(bytes,offset,frames) || frames>(bytes.size()-offset)/(432*sizeof(float)+sizeof(double)))return {};
         s.pixels.resize(frames*432);s.times.resize(frames);
-        for(auto& p:s.pixels)if(!read(bytes,offset,p))return {};
-        for(auto& t:s.times)if(!read(bytes,offset,t))return {};
+        if(!readArray(bytes,offset,s.pixels) || !readArray(bytes,offset,s.times))return {};
         if(!valid(s) || !ids.insert(s.scene).second)return {};
         scenes.push_back(std::move(s));
     }

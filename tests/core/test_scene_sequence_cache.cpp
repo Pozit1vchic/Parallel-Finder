@@ -2,6 +2,7 @@
 #include <pfcore/SceneSequenceCache.hpp>
 #include <limits>
 #include <stdexcept>
+#include <bit>
 
 TEST(SceneSequenceCache, ExactRoundTripIncludesEmptyShotsAndTiming) {
     pfcore::CachedSceneSequence a{42,1,2,std::vector<float>(1296,.123456789F),{1.05,1.3,1.55}};
@@ -41,5 +42,18 @@ TEST(SceneSequenceCache, RejectsForgedRecordCountBeforeReservingVectors) {
     constexpr std::uint64_t count=100001;
     for(std::size_t i=0;i<8;++i)bytes[8+i]=static_cast<std::uint8_t>(count>>(8*i));
     bytes.resize(16+count*32);
+    EXPECT_FALSE(pfcore::decodeSceneSequences(bytes));
+}
+
+TEST(SceneSequenceCache, PayloadUsesLittleEndianAndRejectsNonfinitePixels) {
+    pfcore::CachedSceneSequence scene{1,0,2,std::vector<float>(1296,.5F),{.25,.5,1.}};
+    auto bytes=pfcore::encodeSceneSequences(std::vector{scene});
+    // Header (16) and record metadata (32), then float32 payload.
+    EXPECT_EQ((std::vector<std::uint8_t>{bytes[48],bytes[49],bytes[50],bytes[51]}),
+              (std::vector<std::uint8_t>{0,0,0,0x3f}));
+    const auto timeOffset=48+1296*sizeof(float);
+    const auto timeBits=std::bit_cast<std::uint64_t>(.25);
+    for(std::size_t i=0;i<8;++i)EXPECT_EQ(bytes[timeOffset+i],(timeBits>>(8*i))&255);
+    bytes[48]=0;bytes[49]=0;bytes[50]=0xc0;bytes[51]=0x7f;
     EXPECT_FALSE(pfcore::decodeSceneSequences(bytes));
 }
