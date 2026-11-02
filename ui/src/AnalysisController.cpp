@@ -1901,6 +1901,7 @@ bool AnalysisController::exportResults(const QString& format,
                                     double end,
                                     double sceneEnd,
                                     double sceneStart,
+                                    double supportedEnd,
                                     const QString& side) {
                 pfservices::CutRequest request;
                 request.inputPath = std::filesystem::path(QString::fromStdString(source).toStdWString());
@@ -1931,7 +1932,7 @@ bool AnalysisController::exportResults(const QString& format,
                         .arg(labelPrefix, ordinal, selectedTransitionTypes.at(static_cast<qsizetype>(index)), side);
                 }
                 const auto jobIndex = jobs.size();
-                request.prepare = [&, source, sceneEnd, sceneStart, refineEdge, refineStart, jobIndex](pfservices::CutRequest& request) {
+                request.prepare = [&, source, sceneEnd, sceneStart, supportedEnd, refineEdge, refineStart, jobIndex](pfservices::CutRequest& request) {
                     QMetaObject::invokeMethod(this, [this] {
                         exportStage_ = QStringLiteral("preparing");
                         emit exportProgressChanged();
@@ -1956,7 +1957,7 @@ bool AnalysisController::exportResults(const QString& format,
                     if (refineStart) request.startSeconds = std::min(request.startSeconds, refinedBoundary(sceneStart));
                     if (refineEdge) {
                         const double edge = refinedBoundary(sceneEnd);
-                        if (edge > request.startSeconds) request.endSeconds = std::min(request.endSeconds, edge);
+                        if (edge > request.startSeconds) request.endSeconds = pfcore::refinedSceneClipEnd(request.endSeconds, edge, supportedEnd);
                     }
                     QMetaObject::invokeMethod(this, [this] {
                         exportStage_ = QStringLiteral("encoding");
@@ -1977,8 +1978,8 @@ bool AnalysisController::exportResults(const QString& format,
             };
             const auto leftClip=pfcore::organizedClip(match,true,selectedFrameRates[index][0],manuallyAdjusted[index]);
             const auto rightClip=pfcore::organizedClip(match,false,selectedFrameRates[index][1],manuallyAdjusted[index]);
-            if (match.leftEnabled) enqueue(match.leftSourceId,leftClip.range.start,leftClip.range.end,leftClip.sceneEnd,leftClip.sceneStart,QStringLiteral("A"));
-            if (match.rightEnabled) enqueue(match.rightSourceId,rightClip.range.start,rightClip.range.end,rightClip.sceneEnd,rightClip.sceneStart,QStringLiteral("B"));
+            if (match.leftEnabled) enqueue(match.leftSourceId,leftClip.range.start,leftClip.range.end,leftClip.sceneEnd,leftClip.sceneStart,leftClip.supportedEnd,QStringLiteral("A"));
+            if (match.rightEnabled) enqueue(match.rightSourceId,rightClip.range.start,rightClip.range.end,rightClip.sceneEnd,rightClip.sceneStart,rightClip.supportedEnd,QStringLiteral("B"));
         }
         if (mergeChronological) {
             const auto output = std::filesystem::path(QDir(folder).filePath(

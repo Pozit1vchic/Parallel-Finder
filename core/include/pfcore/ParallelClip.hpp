@@ -25,7 +25,16 @@ inline bool sceneBoundaryMayNeedRefinement(double clipStart, double clipEnd,
     return std::isfinite(clipStart) && std::isfinite(clipEnd) && std::isfinite(sceneEnd)
         && std::isfinite(toleranceSeconds) && toleranceSeconds >= 0.0
         && clipEnd > clipStart && sceneEnd > clipStart
-        && sceneEnd <= clipEnd + toleranceSeconds;
+        && std::abs(sceneEnd - clipEnd) <= toleranceSeconds;
+}
+
+// A native cut can disagree with the sampled scene boundary. Never use it to
+// discard a frame that was part of the match itself.
+inline double refinedSceneClipEnd(double clipEnd, double refinedBoundary, double supportedEnd)
+{
+    if (!std::isfinite(clipEnd) || !std::isfinite(refinedBoundary)
+        || !std::isfinite(supportedEnd) || refinedBoundary < supportedEnd) return clipEnd;
+    return std::min(clipEnd, refinedBoundary);
 }
 
 // Refine only an automatic clip that actually begins at its sampled shot

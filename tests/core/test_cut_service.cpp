@@ -122,6 +122,16 @@ TEST(ParallelClip, EarlyTrackEndDoesNotReplaceTheShotBoundary)
     EXPECT_TRUE(pfcore::sceneBoundaryMayNeedRefinement(10.5, 11.8, 12.0));
 }
 
+TEST(ParallelClip, InconsistentOrRefinedSceneEndCannotCutSupportedFrames)
+{
+    EXPECT_FALSE(pfcore::sceneBoundaryMayNeedRefinement(9, 12.02, 10));
+    EXPECT_TRUE(pfcore::sceneBoundaryMayNeedRefinement(9, 12.02, 12));
+    const auto supported = pfcore::parallelClipRange(10, 12, -1, -1, 24);
+    EXPECT_DOUBLE_EQ(pfcore::refinedSceneClipEnd(13, 11.9, supported.end), 13);
+    EXPECT_DOUBLE_EQ(pfcore::refinedSceneClipEnd(13, 12.5, supported.end), 12.5);
+    EXPECT_DOUBLE_EQ(pfcore::refinedSceneClipEnd(13, std::numeric_limits<double>::quiet_NaN(), supported.end), 13);
+}
+
 TEST(ParallelClip, StaticMatchAndUnknownSceneStillHaveBoundedContext)
 {
     const auto clip = pfcore::parallelClipRange(10, 10, -1, -1);
