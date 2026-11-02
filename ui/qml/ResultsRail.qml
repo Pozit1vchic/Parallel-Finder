@@ -464,8 +464,18 @@ Rectangle {
             return ka[0]-kb[0] || ka[1]-kb[1] || ka[2]-kb[2] || timeValue(a)-timeValue(b) || Number(a.id)-Number(b.id)
         }
         if (sortCriterion === "best") return (strongB-Number(b.redundancyPenalty || 0))-(strongA-Number(a.redundancyPenalty || 0)) || Number(a.id)-Number(b.id)
-        if (sortCriterion === "continuity") return Number(a.continuityRank || 0)-Number(b.continuityRank || 0) || timeValue(a)-timeValue(b) || Number(a.id)-Number(b.id)
-        if (sortCriterion === "pose") return Number(b.poseSimilarity || 0)-Number(a.poseSimilarity || 0) || strongB-strongA || Number(a.id)-Number(b.id)
+        if (sortCriterion === "continuity") {
+            const rankedA=Number.isFinite(a.continuityRank) && a.continuityRank >= 0
+            const rankedB=Number.isFinite(b.continuityRank) && b.continuityRank >= 0
+            if (rankedA !== rankedB) return rankedA ? -1 : 1
+            return (rankedA ? a.continuityRank-b.continuityRank : 0) || timeValue(a)-timeValue(b) || Number(a.id)-Number(b.id)
+        }
+        if (sortCriterion === "pose") {
+            const knownA=Number.isFinite(a.poseSimilarity) && a.poseSimilarity >= 0
+            const knownB=Number.isFinite(b.poseSimilarity) && b.poseSimilarity >= 0
+            if (knownA !== knownB) return knownA ? -1 : 1
+            return (knownA ? b.poseSimilarity-a.poseSimilarity : 0) || strongB-strongA || Number(a.id)-Number(b.id)
+        }
         if (sortCriterion === "identity") return Number(b.faceVerified ? 2 : b.identityVerified ? 1 : 0)-Number(a.faceVerified ? 2 : a.identityVerified ? 1 : 0) || strongB-strongA || Number(a.id)-Number(b.id)
         if (sortCriterion === "evidence") return Number(b.evidenceQuality || 0)-Number(a.evidenceQuality || 0) || strongB-strongA || Number(a.id)-Number(b.id)
         if (sortCriterion === "longest" || sortCriterion === "shortest") {

@@ -1671,6 +1671,19 @@ void UiSmokeTests::movementClassesAndExportOrder()
     QCOMPARE(mixedOrdered[0].toMap().value("id").toInt(),1);
     QCOMPARE(mixedOrdered[3].toMap().value("id").toInt(),4);
     QCOMPARE(mixedOrdered[4].toMap().value("id").toInt(),3);
+    // Missing ranks are not rank zero; missing pose scores are not measured zero.
+    const QVariantList incompleteSortRows{
+        QVariantMap{{"id",0},{"classification","sitting"},{"leftStart",0},{"bestMatchScore",1.0}},
+        QVariantMap{{"id",1},{"classification","sitting"},{"leftStart",1},{"continuityRank",0},{"poseSimilarity",0.0},{"bestMatchScore",.1}},
+        QVariantMap{{"id",2},{"classification","sitting"},{"leftStart",2},{"continuityRank",1},{"poseSimilarity",.2},{"bestMatchScore",.2}},
+        QVariantMap{{"id",3},{"classification","sitting"},{"leftStart",3},{"poseSimilarity",-1.0},{"bestMatchScore",.9}}};
+    rail->setProperty("results",incompleteSortRows);rail->setProperty("sortCriterion","continuity");QTest::qWait(100);
+    const auto byContinuity=values(rail->property("visibleResults")).toList();
+    for(int i=0;i<4;++i)QCOMPARE(byContinuity[i].toMap().value("id").toInt(),(QList<int>{1,2,0,3})[i]);
+    rail->setProperty("sortCriterion","pose");QTest::qWait(100);
+    const auto byPose=values(rail->property("visibleResults")).toList();
+    for(int i=0;i<4;++i)QCOMPARE(byPose[i].toMap().value("id").toInt(),(QList<int>{2,1,0,3})[i]);
+    rail->setProperty("sortCriterion","classification");
     auto evidenceRows=continuityRows;
     auto weak=evidenceRows[0].toMap();weak.insert("matchTier","possible");weak.insert("continuityRank",0);evidenceRows[0]=weak;
     auto strong=evidenceRows[1].toMap();strong.insert("matchTier","strong");strong.insert("continuityRank",2);evidenceRows[1]=strong;
