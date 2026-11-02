@@ -1774,9 +1774,16 @@ HandFaceSignatures prepareHandFaceSignatures(const std::vector<NormalizedPose>& 
     if(poses.size()!=window.frames.size() || poses.size()<5) return result;
     for(std::size_t side=0;side<2;++side) {
         const auto wrist=side==0?9U:10U;
-        std::array<double,2> sum{};std::size_t count=0;
+        std::array<double,2> sum{};std::size_t count=0, samples=0;
         double first=0,last=0,sumSquared=0,maxGap=0;
+        double previousTime=-std::numeric_limits<double>::infinity();
         for(std::size_t i=0;i<poses.size();++i) {
+            const double time=window.frames[i].timestampSeconds;
+            // Repeated or out-of-order frames cannot manufacture independent
+            // evidence, either in the support ratio or the pose statistics.
+            if(!std::isfinite(time) || time<=previousTime)continue;
+            previousTime=time;
+            ++samples;
             const auto& p=poses[i];
             if(p.size()!=17 || !validPoint(p[0]) || !validPoint(p[5])
                 || !validPoint(p[6]) || !validPoint(p[wrist]))continue;
@@ -1785,13 +1792,11 @@ HandFaceSignatures prepareHandFaceSignatures(const std::vector<NormalizedPose>& 
             const double x=(p[wrist].first-p[0].first)/scale;
             const double y=(p[wrist].second-p[0].second)/scale;
             if(!std::isfinite(x+y) || std::hypot(x,y)>.80)continue;
-            const double time=window.frames[i].timestampSeconds;
-            if(!std::isfinite(time))continue;
             if(!count)first=time;
             else maxGap=std::max(maxGap,time-last);
             last=time;sum[0]+=x;sum[1]+=y;sumSquared+=x*x+y*y;++count;
         }
-        if(count>=5 && count*5>=poses.size()*4 && last-first>=1.25 && maxGap<=.5) {
+        if(count>=5 && count*5>=samples*4 && last-first>=1.25 && maxGap<=.5) {
             const std::array<double,2> mean{sum[0]/count,sum[1]/count};
             const double variance=std::max(0.,sumSquared/count-mean[0]*mean[0]-mean[1]*mean[1]);
             if(variance<=.18*.18)result[side]=mean;

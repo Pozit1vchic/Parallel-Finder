@@ -147,6 +147,15 @@ TEST(MotionMatcher, SustainedPartialHandPoseNeedsTemporalAndIdentitySupport)
         points[10].x+=(i%2 ? .30 : -.30)*shoulder;
     }
     EXPECT_LT(matcher.compare(windows[0],movingHand).similarity,.86);
+    auto repeatedPose=windows[1];
+    for (std::size_t i=1;i+1<repeatedPose.frames.size();++i)
+        repeatedPose.frames[i].keypoints[10].confidence=0;
+    const auto repeatedFrame=repeatedPose.frames.front();
+    repeatedPose.frames.insert(repeatedPose.frames.begin()+1,50,repeatedFrame);
+    EXPECT_LT(matcher.compare(windows[0],repeatedPose).similarity,.86);
+    auto validWithRepeatedFrame=windows[1];
+    validWithRepeatedFrame.frames.insert(validWithRepeatedFrame.frames.begin()+1,50,repeatedFrame);
+    EXPECT_GE(matcher.compare(windows[0],validWithRepeatedFrame).similarity,.86);
     auto other=windows[1];other.appearanceEmbedding={0,1};
     EXPECT_EQ(matcher.compare(windows[0],other).similarity,0);
 }
