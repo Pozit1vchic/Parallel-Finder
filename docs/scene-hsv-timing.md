@@ -22,3 +22,26 @@ all 16,777,216 possible 8-bit RGB triples, with zero differences. On one
 602–642 ms before and 213–218 ms after, with identical output hashes. The
 source video is not redistributed. GPU, disk, seek, UI and export performance
 are outside these measurements.
+
+## Avoid impossible fade comparisons
+
+The fade pass previously converted and compared both compact images on every
+eligible low-motion frame, even before a fade could satisfy the minimum of
+three observations or the minimum aggregate brightness change. These two
+existing predicates can be checked first, without changing the conditions for
+emitting a boundary or altering accumulated state. The fade and cut tests
+remain unchanged and pass.
+
+With release optimization and the production detector, 480 frames sampled at
+4 fps from seconds 300–420 of the Butcher video (scaled to 320x180) were
+processed ten times in memory. Alternating before/after runs measured
+258.4/139.4 ms and 264.1/134.2 ms. All 74 detected boundaries and scores
+produced the same bitwise aggregate hash, 617779512827091184. The 48-frame
+30–42-second control also retained all six boundaries and scores, with
+275/127 ms and 275/129 ms over 100 iterations. This only measures the
+in-memory detector, not video decoding or the complete application; no overall
+speedup is inferred. The source and intermediate raw frames are local and are
+not distributed.
+
+After this change, the focused `*Scene*:*Cut*` regression run passed 104
+checks; five explicitly optional real-source/NVIDIA checks were skipped.

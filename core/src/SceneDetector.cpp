@@ -628,6 +628,9 @@ std::vector<SceneBoundary> SceneDetector::detectWithProgress(std::span<const Sce
         softAccumulated += deltas[i];
         const std::size_t length = i - softStart + 1;
         const double brightnessChange = std::abs(brightness[i] - brightness[softStart]);
+        // Pixel-wide comparison can only affect a boundary once both cheap
+        // prerequisites hold. Most steady shots never reach this point.
+        if (length < 3 || brightnessChange < threshold_ * 0.7) continue;
         // Summing small deltas alone splits a continuous talking head or
         // moving camera into fake shots. A fade needs an actual sustained
         // whole-frame brightness change, not accumulated local motion.
@@ -643,9 +646,8 @@ std::vector<SceneBoundary> SceneDetector::detectWithProgress(std::span<const Sce
             if (std::abs(change) >= threshold_ * .3
                 && (change > 0 ? 1.0 : -1.0) == softDirection) ++changing;
         }
-        const bool enoughChange = brightnessChange >= threshold_ * 0.7
-            && eligible && changing * 5 >= eligible * 3;
-        if (length >= 3 && enoughChange) {
+        const bool enoughChange = eligible && changing * 5 >= eligible * 3;
+        if (enoughChange) {
             const std::size_t boundaryIndex = softStart + length / 2;
             const bool tooCloseToExisting = std::any_of(boundaries.begin(), boundaries.end(),
                 [&](const SceneBoundary& boundary) {
