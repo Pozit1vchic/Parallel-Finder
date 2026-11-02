@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "scope": "Visually reviewed different people in successive rear/side views in the supplied Butcher montage; inference coordinates 1280x544. This single pair is a regression control, not a population benchmark.",
+  "sourceBasename": "butcher_parallel_notsorted.mov",
+  "controls": [
+    {
+      "id": "woman-back-vs-man-side",
+      "left": {
+        "time": 722.196832000053,
+        "box": [17.18023681640625, 14.07684326171875, 492.2724304199219, 527.9813232421875]
+      },
+      "right": {
+        "time": 722.5513523328946,
+        "box": [4.49969482421875, 7.4952392578125, 557.1704711914062, 533.768310546875]
+      },
+      "sameIdentity": false
+    }
+  ]
+}
