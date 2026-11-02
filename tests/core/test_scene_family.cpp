@@ -58,9 +58,9 @@ TEST(SceneFamily, CanonicalExportUsesItsOwnShotAndManualBoundsRemainExact) {
     family->sourceId="film";family->canonicalId="family";family->start=10;family->end=12;
     family->sceneStart=9;family->sceneEnd=12.005;match.leftFamilyEvidence=family;
     auto clip=pfcore::organizedClip(match,true,50);
-    EXPECT_DOUBLE_EQ(clip.range.start,9);EXPECT_DOUBLE_EQ(clip.range.end,12.005);EXPECT_DOUBLE_EQ(clip.sceneEnd,12.005);
+    EXPECT_DOUBLE_EQ(clip.range.start,9);EXPECT_DOUBLE_EQ(clip.range.end,12.005);EXPECT_DOUBLE_EQ(clip.sceneEnd,12.005);EXPECT_DOUBLE_EQ(clip.sceneStart,9);
     clip=pfcore::organizedClip(match,true,50,true);
-    EXPECT_DOUBLE_EQ(clip.range.start,50);EXPECT_DOUBLE_EQ(clip.range.end,52);
+    EXPECT_DOUBLE_EQ(clip.range.start,50);EXPECT_DOUBLE_EQ(clip.range.end,52);EXPECT_DOUBLE_EQ(clip.sceneStart,50);
     family->sourceId="another-film";clip=pfcore::organizedClip(match,true,50);
     EXPECT_DOUBLE_EQ(clip.range.start,50);EXPECT_DOUBLE_EQ(clip.range.end,53);
     match.leftFamilyEvidence.reset();match.leftCanonicalStart=-1;match.leftCanonicalEnd=-1;

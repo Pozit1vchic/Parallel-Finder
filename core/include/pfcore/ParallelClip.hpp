@@ -28,6 +28,14 @@ inline bool sceneBoundaryMayNeedRefinement(double clipStart, double clipEnd,
         && sceneEnd <= clipEnd + toleranceSeconds;
 }
 
+// Refine only an automatic clip that actually begins at its sampled shot
+// boundary. A padded long-shot clip and manual edits must retain their start.
+inline bool sceneStartMayNeedRefinement(double clipStart, double sceneStart)
+{
+    return std::isfinite(clipStart) && std::isfinite(sceneStart)
+        && sceneStart > 0.0 && std::abs(clipStart-sceneStart) < 1e-6;
+}
+
 // Matcher endpoints are timestamps of the first and last supported frames,
 // while the exporter treats end as an exclusive boundary. Extend to the middle
 // of the final frame's nominal display interval: this keeps that frame without

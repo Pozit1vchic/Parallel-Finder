@@ -1900,6 +1900,7 @@ bool AnalysisController::exportResults(const QString& format,
                                     double start,
                                     double end,
                                     double sceneEnd,
+                                    double sceneStart,
                                     const QString& side) {
                 pfservices::CutRequest request;
                 request.inputPath = std::filesystem::path(QString::fromStdString(source).toStdWString());
@@ -1917,6 +1918,8 @@ bool AnalysisController::exportResults(const QString& format,
                 request.endSeconds = end;
                 const bool refineEdge = !manuallyAdjusted[index] && mode != pfservices::CutMode::Fast
                     && pfcore::sceneBoundaryMayNeedRefinement(start, end, sceneEnd);
+                const bool refineStart = !manuallyAdjusted[index] && mode != pfservices::CutMode::Fast
+                    && pfcore::sceneStartMayNeedRefinement(start, sceneStart);
                 request.mode = mode;
                 request.quality = encodingQuality;
                 request.videoBitrateKbps = videoBitrateKbps;
@@ -1928,14 +1931,14 @@ bool AnalysisController::exportResults(const QString& format,
                         .arg(labelPrefix, ordinal, selectedTransitionTypes.at(static_cast<qsizetype>(index)), side);
                 }
                 const auto jobIndex = jobs.size();
-                request.prepare = [&, source, sceneEnd, refineEdge, jobIndex](pfservices::CutRequest& request) {
+                request.prepare = [&, source, sceneEnd, sceneStart, refineEdge, refineStart, jobIndex](pfservices::CutRequest& request) {
                     QMetaObject::invokeMethod(this, [this] {
                         exportStage_ = QStringLiteral("preparing");
                         emit exportProgressChanged();
                     }, Qt::QueuedConnection);
-                    if (refineEdge) {
-                        const auto key = source + "|" + std::to_string(std::llround(sceneEnd * 1000000));
-                        const auto [position, inserted] = refinedEnds.try_emplace(key, sceneEnd);
+                    const auto refinedBoundary = [&](double boundary) {
+                        const auto key = source + "|" + std::to_string(std::llround(boundary * 1000000));
+                        const auto [position, inserted] = refinedEnds.try_emplace(key, boundary);
                         if (inserted && !stop.stop_requested()) {
                             try {
                                 auto& decoder = edgeDecoders[source];
@@ -1944,12 +1947,16 @@ bool AnalysisController::exportResults(const QString& format,
                                     pfcore::VideoDecodeOptions options; options.threads = 2;
                                     decoder->open(source, options);
                                 }
-                                if (const auto edge = pfcore::SceneDetector(sceneThreshold).refineHardCut(*decoder, sceneEnd, stop))
+                                if (const auto edge = pfcore::SceneDetector(sceneThreshold).refineHardCut(*decoder, boundary, stop))
                                     position->second = *edge;
                             } catch (...) { /* retain the known edge on an unreadable preview */ }
                         }
-                        if (position->second > request.startSeconds)
-                            request.endSeconds = std::min(request.endSeconds, position->second);
+                        return position->second;
+                    };
+                    if (refineStart) request.startSeconds = std::min(request.startSeconds, refinedBoundary(sceneStart));
+                    if (refineEdge) {
+                        const double edge = refinedBoundary(sceneEnd);
+                        if (edge > request.startSeconds) request.endSeconds = std::min(request.endSeconds, edge);
                     }
                     QMetaObject::invokeMethod(this, [this] {
                         exportStage_ = QStringLiteral("encoding");
@@ -1970,8 +1977,8 @@ bool AnalysisController::exportResults(const QString& format,
             };
             const auto leftClip=pfcore::organizedClip(match,true,selectedFrameRates[index][0],manuallyAdjusted[index]);
             const auto rightClip=pfcore::organizedClip(match,false,selectedFrameRates[index][1],manuallyAdjusted[index]);
-            if (match.leftEnabled) enqueue(match.leftSourceId,leftClip.range.start,leftClip.range.end,leftClip.sceneEnd,QStringLiteral("A"));
-            if (match.rightEnabled) enqueue(match.rightSourceId,rightClip.range.start,rightClip.range.end,rightClip.sceneEnd,QStringLiteral("B"));
+            if (match.leftEnabled) enqueue(match.leftSourceId,leftClip.range.start,leftClip.range.end,leftClip.sceneEnd,leftClip.sceneStart,QStringLiteral("A"));
+            if (match.rightEnabled) enqueue(match.rightSourceId,rightClip.range.start,rightClip.range.end,rightClip.sceneEnd,rightClip.sceneStart,QStringLiteral("B"));
         }
         if (mergeChronological) {
             const auto output = std::filesystem::path(QDir(folder).filePath(

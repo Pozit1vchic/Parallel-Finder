@@ -35,6 +35,15 @@ TEST(ParallelClip, ExportUsesTheCompleteShortShotAroundTheMatch)
     EXPECT_DOUBLE_EQ(result.end,13);
 }
 
+TEST(ParallelClip, StartRefinementOnlyAppliesAtKnownShotBoundary)
+{
+    EXPECT_TRUE(pfcore::sceneStartMayNeedRefinement(10,10));
+    EXPECT_FALSE(pfcore::sceneStartMayNeedRefinement(10.5,10));
+    EXPECT_FALSE(pfcore::sceneStartMayNeedRefinement(0,0));
+    EXPECT_FALSE(pfcore::sceneStartMayNeedRefinement(10,-1));
+    EXPECT_FALSE(pfcore::sceneStartMayNeedRefinement(std::numeric_limits<double>::quiet_NaN(),10));
+}
+
 TEST(ParallelClip, ExportKeepsLongShotsBoundedAndNeverTruncatesTheMatch)
 {
     const auto normal=pfcore::parallelSceneClipRange(10,12,0,60);
@@ -361,6 +370,23 @@ TEST(SceneBoundaryExport, RefinesLateSparseBoundaryAndExcludesTheNextShot)
         EXPECT_GT(frame.rgba[0], frame.rgba[2]); // no blue frame from following shot
     }
     EXPECT_EQ(count, 23);
+
+    // A late sampled start used to discard the first blue frame. Applying the
+    // same native boundary to an automatic short shot restores it.
+    const auto shot = pfcore::parallelSceneClipRange(1.1,1.4,1.0,1.9,24.0);
+    ASSERT_TRUE(pfcore::sceneStartMayNeedRefinement(shot.start,1.0));
+    request.outputPath = std::filesystem::path(directory.filePath("blue-complete.mp4").toStdWString());
+    request.startSeconds = *boundary;
+    request.endSeconds = shot.end;
+    ASSERT_TRUE(pfservices::CutService(ffmpeg.toStdString()).cut(request).success);
+    pfcore::VideoDecoder blue; blue.open(request.outputPath.string());
+    count=0;
+    while (blue.readNext(frame)) {
+        ++count;
+        ASSERT_FALSE(frame.rgba.empty());
+        EXPECT_GT(frame.rgba[2],frame.rgba[0]);
+    }
+    EXPECT_EQ(count,23); // frames 23 through 45, including the shot's first
 }
 
 TEST(SceneBoundaryExport, ChoosesNearestCutInsteadOfStrongerEarlierCut)
