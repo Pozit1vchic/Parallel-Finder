@@ -1668,20 +1668,27 @@ bool hasDistinctTemporalSamples(const MotionWindow& window,
         ? MotionMatcherParams::minimumStaticSamples : std::size_t{6};
     if (descriptors.size() < minimumSamples || window.frames.size() < minimumSamples) return false;
     std::size_t usable = 0;
+    double firstTimestamp = 0.0;
     double previousTimestamp = -std::numeric_limits<double>::infinity();
     for (std::size_t index = 0; index < descriptors.size()
          && index < window.frames.size(); ++index) {
         if (descriptors[index].empty()) continue;
         const double timestamp = window.frames[index].timestampSeconds;
         if (!std::isfinite(timestamp) || timestamp <= previousTimestamp) continue;
+        if (usable == 0) firstTimestamp = timestamp;
         previousTimestamp = timestamp;
         ++usable;
     }
+    // Missing endpoint poses do not extend the interval over which the pose
+    // was actually observed. In particular they must not turn a brief glimpse
+    // into a sustained static match.
+    const double supportedSpan = usable > 1 ? previousTimestamp - firstTimestamp : 0.0;
     if (window.staticFrameSet)
         return usable >= minimumSamples
-            && duration(window) + 1e-9 >= MotionMatcherParams::minimumStaticSpanSeconds;
+            && supportedSpan + 1e-9 >= std::max(MotionMatcherParams::minimumStaticSpanSeconds,
+                                                params.minimumResultDurationSec);
     return usable >= params.minTemporalFrames
-        || (usable >= 6 && duration(window) + 1e-9
+        || (usable >= 6 && supportedSpan + 1e-9
             >= std::max(params.minTemporalDurationSec, params.minMotionSpanSec));
 }
 

@@ -1792,6 +1792,41 @@ TEST(MotionMatcher, StaticShotRequiresOneSecondOfTemporalSupport)
     EXPECT_TRUE(matcher.findAllPairs({left, right}).empty());
 }
 
+TEST(MotionMatcher, MissingEndpointPosesCannotExtendStaticTemporalEvidence)
+{
+    auto left = deanAimingPoseFixture()[0];
+    auto right = left;
+    right.sourceId = "another source";
+    for (auto* shot : {&left, &right}) {
+        shot->staticFrameSet = true;
+        const auto valid = shot->frames.front();
+        shot->frames.clear();
+        auto missing = valid;
+        missing.timestampSeconds = 0;
+        missing.keypoints.clear();
+        shot->frames.push_back(missing);
+        for (int i = 0; i < 8; ++i) {
+            auto frame = valid;
+            frame.timestampSeconds = 0.2 + i * 0.05;
+            shot->frames.push_back(frame);
+        }
+        missing.timestampSeconds = 1.5;
+        shot->frames.push_back(missing);
+    }
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.minimumResultDurationSec = 1.0;
+    const pfcore::MotionMatcher matcher(params);
+    EXPECT_EQ(matcher.compare(left, right).rejection, pfcore::MotionRejection::TemporalSupport);
+    EXPECT_TRUE(matcher.findAllPairs({left, right}).empty());
+    for (auto* shot : {&left, &right}) {
+        for (std::size_t i = 1; i + 1 < shot->frames.size(); ++i)
+            shot->frames[i].timestampSeconds = 0.1 + (i - 1) * 0.18;
+    }
+    EXPECT_GT(matcher.compare(left, right).similarity, params.similarityThreshold);
+    EXPECT_EQ(matcher.findAllPairs({left, right}).size(), 1U);
+}
+
 TEST(PoseSupport, RepeatSearchSlicesObservedFramesWithoutCrossingGaps)
 {
     auto w = deanAimingPoseFixture()[0];
