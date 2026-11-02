@@ -4,12 +4,13 @@ Goal: finish the **whole** supplied specification, not just the character picker
 This document is a work queue, not a completion certificate. An active goal stays
 active until the missing and unverified items below have authoritative evidence.
 
-Current release decision: **blocked** by the reported identity errors on the Kyle
-Crane source. The two women shown in the 2026-11-01 screenshots are different
-people; visual similarity is not ground truth for merging them. A release
-candidate must demonstrate both recovery of repeated appearances of the same
-person and separation of different people on independently reviewed examples.
-The existing packages are packaging evidence, not approval to publish.
+Current release decision: the user requested a quicker release with known
+limitations rather than waiting for ideal recognition. Local package
+`0.2.0-d2f9492d` was built and checked; it has not been published. Its notes
+must disclose that repeated appearances can remain separate and different
+people can still be confused. The broader specification remains unfinished.
+The two women shown in the 2026-11-01 screenshots are different people;
+visual similarity is not ground truth for merging them.
 
 Source: the user attachment `Вставленный текст.txt`, SHA-256
 `cc205bdefaa244e56e56b00961d681468367e20c7248fdb792250c5f9c621da2`.
@@ -103,7 +104,7 @@ test does not establish general recognition accuracy or release readiness.
 | N01 | Target + series + result + restart-cache + bad-network + failed-install + Unicode + UI end-to-end flows | See A/D/E/F/G and packaging gaps. Cannot infer all flows from one montage or green unit tests. | Partial |
 | O01 | Final 14-part report with exact commits/version/remote status/limits | Existing reports cover completed phases. A final completion report is premature until this audit closes. | Pending final gate |
 
-## Identity release gate: reviewed evidence required
+## Full identity requirement: reviewed evidence still required
 
 The user supplied `D:/Торрент/KyleCrane_Parallel_NikolayOM.mp4` and screenshots
 showing that apparent similarity between female characters caused a mistaken
@@ -121,8 +122,8 @@ unresolved tracks. A broad positive merge threshold alone cannot establish the
 requirement, and assigning everything to unresolved does not satisfy recovery.
 Confirm the results against a fresh analysis and a restart/cache reuse; preserve
 raw diagnostics and note the exact model files and revision. Extend the labels
-before claiming accuracy beyond the reviewed source. The v0.2.0 packages remain
-blocked until the user-reported cases and relevant automated regressions pass.
+before claiming accuracy beyond the reviewed source. The current limited
+release does not establish completion of this requirement.
 
 ## Dependency-ordered remaining queue
 
