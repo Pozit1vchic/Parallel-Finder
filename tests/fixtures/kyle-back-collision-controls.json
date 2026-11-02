@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "scope": "Additional visual review of profile/back views and different people in the supplied Kyle montage, inference coordinates 1280x720. Correlated pairs, not a population benchmark. Track IDs are local to the frozen run.",
+  "sourceBasename": "KyleCrane_Parallel_NikolayOM.mp4",
+  "controls": [
+    {
+      "id": "track-6-vs-38",
+      "left": {
+        "time": 5.188020833333333,
+        "point": [
+          992.3,
+          212.4
+        ]
+      },
+      "right": {
+        "time": 31.529687499999998,
+        "point": [
+          139.9,
+          219.5
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "track-6-vs-41",
+      "left": {
+        "time": 5.188020833333333,
+        "point": [
+          992.3,
+          212.4
+        ]
+      },
+      "right": {
+        "time": 34.36302083333333,
+        "point": [
+          1040.2,
+          217.7
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "track-6-vs-47",
+      "left": {
+        "time": 5.188020833333333,
+        "point": [
+          992.3,
+          212.4
+        ]
+      },
+      "right": {
+        "time": 37.5296875,
+        "point": [
+          237.5,
+          217.1
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "track-15-vs-47",
+      "left": {
+        "time": 13.688020833333333,
+        "point": [
+          261.7,
+          226.4
+        ]
+      },
+      "right": {
+        "time": 37.5296875,
+        "point": [
+          237.5,
+          217.1
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "track-47-vs-69",
+      "left": {
+        "time": 37.5296875,
+        "point": [
+          237.5,
+          217.1
+        ]
+      },
+      "right": {
+        "time": 56.5296875,
+        "point": [
+          911.3,
+          274.4
+        ]
+      },
+      "sameIdentity": false
+    },
+    {
+      "id": "track-75-vs-69",
+      "left": {
+        "time": 59.196354166666666,
+        "point": [
+          1080.4,
+          256.9
+        ]
+      },
+      "right": {
+        "time": 56.5296875,
+        "point": [
+          911.3,
+          274.4
+        ]
+      },
+      "sameIdentity": false
+    }
+  ]
+}
