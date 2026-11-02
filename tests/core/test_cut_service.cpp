@@ -1113,6 +1113,19 @@ TEST(MontageExport, LabelsEachTransitionInTheCombinedVideo)
         {first, second}, signedPath.toStdWString(), {}, {}, ffmpeg.toStdString(), true);
     ASSERT_TRUE(signedMontage.success) << signedMontage.error;
 
+    // The same scene may participate in two parallels. Each requested label
+    // must survive instead of the second segment disappearing as a duplicate.
+    auto sameRangeDifferentLabel = first;
+    sameRangeDifferentLabel.transitionSignature = second.transitionSignature;
+    const auto repeatedPath = directory.filePath("repeated-signed.mp4");
+    const auto repeated = pfservices::exportChronologicalMontage(
+        {first, sameRangeDifferentLabel}, repeatedPath.toStdWString(), {}, {}, ffmpeg.toStdString(), true);
+    ASSERT_TRUE(repeated.success) << repeated.error;
+    const auto repeatedHashes = signatureBandHashes(repeatedPath);
+    ASSERT_EQ(repeatedHashes.size(), 24);
+    EXPECT_NE(repeatedHashes[6], repeatedHashes[18])
+        << "each copy must retain its own transition label";
+
     first.transitionSignature.clear();
     second.transitionSignature.clear();
     const auto unsignedPath = directory.filePath("unsigned.mp4");

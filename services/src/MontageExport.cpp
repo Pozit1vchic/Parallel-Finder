@@ -65,8 +65,10 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         return std::tie(a.startSeconds, a.inputPath, a.endSeconds)
             < std::tie(b.startSeconds, b.inputPath, b.endSeconds);
     });
-    std::set<std::tuple<std::filesystem::path, double, double>> seen;
-    std::erase_if(clips, [&](const auto& clip) { return !seen.emplace(clip.inputPath, clip.startSeconds, clip.endSeconds).second; });
+    // A repeated range can represent different transitions when it carries a
+    // different label. Discarding it would silently omit that transition.
+    std::set<std::tuple<std::filesystem::path, double, double, QString>> seen;
+    std::erase_if(clips, [&](const auto& clip) { return !seen.emplace(clip.inputPath, clip.startSeconds, clip.endSeconds, clip.transitionSignature).second; });
     const QString destination = QString::fromStdWString(output.wstring());
     const QString parent = QFileInfo(destination).absolutePath();
     if (!QDir().mkpath(parent)) { result.error = "cannot create montage folder"; return result; }
