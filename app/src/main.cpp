@@ -121,6 +121,7 @@ int main(int argc, char* argv[])
     startupTimer.start();
     bool providerProbe = false;
     bool diagnostic = false;
+    bool updateHealthCheck = false;
     for (int i = 1; i < argc; ++i) {
         providerProbe |= std::strcmp(argv[i], "--pf-provider-probe") == 0
             || std::strcmp(argv[i], "--pf-backend-probe") == 0;
@@ -129,8 +130,14 @@ int main(int argc, char* argv[])
             || std::strcmp(argv[i], "--pf-ui-smoke") == 0;
         diagnostic |= std::strcmp(argv[i], "--pf-update-healthcheck") == 0
             || std::strcmp(argv[i], "--pf-startup-profile") == 0;
+        updateHealthCheck |= std::strcmp(argv[i], "--pf-update-healthcheck") == 0;
     }
 #if defined(Q_OS_WIN)
+    // The packaged update check validates the actual Windows renderer. An
+    // inherited offscreen setting can reference a plugin we do not ship and
+    // make Qt display a blocking fatal-error dialog before its event loop.
+    if (updateHealthCheck)
+        qputenv("QT_QPA_PLATFORM", "windows");
     if (providerProbe)
         SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     // Gate desktop launches before initializing Qt GUI or any GPU runtime.
