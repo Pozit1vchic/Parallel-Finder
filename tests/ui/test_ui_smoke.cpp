@@ -1517,6 +1517,9 @@ void UiSmokeTests::sourcesLiveInsideDropAreaAboveActions()
     auto* add=sources->findChild<QQuickItem*>("addSourcesButton");
     QVERIFY(list && drop && remove && clear && add);
     QCOMPARE(list->parentItem(), drop);
+    // Exercise the smallest supported window as well as the animated list.
+    window->resize(1100, 700);
+    QTest::qWait(50);
     QTest::qWait(50);
     QVERIFY(list->mapToScene(QPointF(0, list->height())).y() < clear->mapToScene(QPointF()).y());
     QVERIFY(!remove->isEnabled());
