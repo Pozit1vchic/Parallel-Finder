@@ -4322,16 +4322,17 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 record.insert(QStringLiteral("leftEnd"), item.leftEndSeconds);
                 record.insert(QStringLiteral("rightStart"), item.rightStartSeconds);
                 record.insert(QStringLiteral("rightEnd"), item.rightEndSeconds);
-                const auto leftClip = pfcore::parallelSceneClipRange(item.leftStartSeconds, item.leftEndSeconds,
-                    item.leftSceneStartSeconds, item.leftSceneEndSeconds,
+                // Show the same representative range that organized export
+                // will use. A family can choose a different occurrence from
+                // the one that originally produced this match.
+                const auto leftClip = pfcore::organizedClip(item, true,
                     summaries.value(QString::fromStdString(item.leftSourceId)).toMap().value("frameRate",sourceFps).toDouble());
-                const auto rightClip = pfcore::parallelSceneClipRange(item.rightStartSeconds, item.rightEndSeconds,
-                    item.rightSceneStartSeconds, item.rightSceneEndSeconds,
+                const auto rightClip = pfcore::organizedClip(item, false,
                     summaries.value(QString::fromStdString(item.rightSourceId)).toMap().value("frameRate",sourceFps).toDouble());
-                record.insert(QStringLiteral("leftClipStart"), leftClip.start);
-                record.insert(QStringLiteral("leftClipEnd"), leftClip.end);
-                record.insert(QStringLiteral("rightClipStart"), rightClip.start);
-                record.insert(QStringLiteral("rightClipEnd"), rightClip.end);
+                record.insert(QStringLiteral("leftClipStart"), leftClip.range.start);
+                record.insert(QStringLiteral("leftClipEnd"), leftClip.range.end);
+                record.insert(QStringLiteral("rightClipStart"), rightClip.range.start);
+                record.insert(QStringLiteral("rightClipEnd"), rightClip.range.end);
                 record.insert(QStringLiteral("leftSceneStart"), item.leftSceneStartSeconds);
                 record.insert(QStringLiteral("leftSceneEnd"), item.leftSceneEndSeconds);
                 record.insert(QStringLiteral("rightSceneStart"), item.rightSceneStartSeconds);
