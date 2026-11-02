@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "scope": "Manually reviewed Butcher appearances and simultaneous different-person collision in the supplied montage; positive pairs share an anchor and do not estimate video-wide accuracy. Frame pixels and embeddings are excluded.",
+  "sourceBasename": "butcher_parallel_notsorted.mov",
+  "controls": [
+    {
+      "id": "butcher-full-body-to-phone",
+      "left": {
+        "time": 81.72735466636439,
+        "point": [
+          533.1656494140625,
+          349.1177673339844
+        ]
+      },
+      "right": {
+        "time": 526.2102883336423,
+        "point": [
+          652.9407958984375,
+          294.6097869873047
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "butcher-full-body-to-coat",
+      "left": {
+        "time": 81.72735466636439,
+        "point": [
+          533.1656494140625,
+          349.1177673339844
+        ]
+      },
+      "right": {
+        "time": 586.8747583333164,
+        "point": [
+          1087.8102416992188,
+          292.607177734375
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "butcher-full-body-to-side",
+      "left": {
+        "time": 81.72735466636439,
+        "point": [
+          533.1656494140625,
+          349.1177673339844
+        ]
+      },
+      "right": {
+        "time": 724.3656646667331,
+        "point": [
+          709.6177368164062,
+          286.2012023925781
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "butcher-vs-foreground-at-697",
+      "left": {
+        "time": 81.72735466636439,
+        "point": [
+          533.1656494140625,
+          349.1177673339844
+        ]
+      },
+      "right": {
+        "time": 697.025882000032,
+        "point": [
+          309.3436584472656,
+          266.7963409423828
+        ]
+      },
+      "sameIdentity": false
+    }
+  ]
+}
