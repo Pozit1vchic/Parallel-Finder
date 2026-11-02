@@ -935,6 +935,26 @@ TEST(MotionMatcher, CrossFileGapIsApplied)
     EXPECT_FALSE(matcher.findAllPairs({window("a", 0.0), window("b", 12.0)}).empty());
 }
 
+TEST(MotionMatcher, CrossFileGapUsesAlignedStartsEvenWhenWindowStartsAreTooClose)
+{
+    auto left=gestureWindow("a",0,false), right=gestureWindow("b",9.95,false);
+    const auto different=gestureWindow("b",9.95,true);
+    for(int i=0;i<8;++i) right.frames[i].keypoints=different.frames[i].keypoints;
+    pfcore::MotionMatcherParams p;
+    p.similarityThreshold=.1;p.candidateThreshold=0;p.crossFileGapSec=10;
+    for(const bool reverse:{false,true}) {
+        const auto& a=reverse?right:left;
+        const auto& b=reverse?left:right;
+        auto unchecked=p;unchecked.crossFileGapSec=0;
+        const auto diagnostic=pfcore::MotionMatcher(unchecked).compare(a,b);
+        SCOPED_TRACE(::testing::Message() << "starts " << diagnostic.leftStartSeconds << "/" << diagnostic.rightStartSeconds << " score " << diagnostic.similarity);
+        const auto match=pfcore::MotionMatcher(p).compare(a,b);
+        ASSERT_GE(match.similarity,p.similarityThreshold);
+        EXPECT_GE(std::abs(match.leftStartSeconds-match.rightStartSeconds),p.crossFileGapSec);
+        EXPECT_FALSE(pfcore::MotionMatcher(p).findAllPairs({a,b}).empty());
+    }
+}
+
 TEST(MotionMatcher, RejectsInvalidTemporalParameters)
 {
     pfcore::MotionMatcher matcher;

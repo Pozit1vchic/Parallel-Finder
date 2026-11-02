@@ -2040,7 +2040,10 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     // Apply the configured cross-file gap to direct comparisons as well as
     // indexed searches, so diagnostics and retrieval use the same policy.
     if (left.sourceId != right.sourceId && !left.frames.empty() && !right.frames.empty()
-        && std::abs(result.leftStartSeconds - result.rightStartSeconds) < params.crossFileGapSec)
+        && (left.staticFrameSet || right.staticFrameSet
+            ? std::abs(result.leftStartSeconds - result.rightStartSeconds)
+            : std::max(std::abs(result.leftStartSeconds - result.rightEndSeconds),
+                       std::abs(result.leftEndSeconds - result.rightStartSeconds))) < params.crossFileGapSec)
         return reject(MotionRejection::SourceGap);
     if (left.sourceId == right.sourceId
         && std::abs(result.leftStartSeconds - result.rightStartSeconds)
@@ -3141,7 +3144,13 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                : std::max({params_.sameSourceGapFloorSec, params_.sameFileGapSec,
                            params_.minRepeatGapSec}))
             : params_.crossFileGapSec;
-        if (gap < requiredGap) continue;
+        // Dynamic alignment can move either start forward. Reject only when
+        // no pair of timestamps inside the two windows can satisfy the gap.
+        const double possibleGap = !sameSource && !windows[i].staticFrameSet && !windows[j].staticFrameSet
+            ? std::max(std::abs(leftStart - windows[j].frames.back().timestampSeconds),
+                       std::abs(windows[i].frames.back().timestampSeconds - rightStart))
+            : gap;
+        if (possibleGap < requiredGap) continue;
         ++gapPassed;
         // The index is a retrieval stage, not the score shown to the user.
         // Keep its recall broad, then let DTW plus the continuous temporal
