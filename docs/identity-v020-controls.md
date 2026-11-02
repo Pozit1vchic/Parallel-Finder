@@ -1,5 +1,17 @@
 # Character identity controls for v0.2.0
 
+After the local 0.2.0 package was built, a separate development change made a
+co-visible, face-backed person count as an ambiguity competitor for body-only
+recovery. A synthetic control previously merged the fragment into the wrong
+person and now keeps them separate; a dissimilar co-visible person does not
+prevent an otherwise supported join. All 22 CharacterCandidates tests pass.
+Frozen-track replays of Kyle (74 observed tracks, 23 groups) and Butcher
+(1,164 observed tracks, 491 groups) retained the same group assignments.
+This does not recover the known missing links. The cache key is bumped to v17;
+existing character-analysis artifacts need reprocessing, and a fresh full
+application run has not yet been checked. This change is not in the already
+built `0.2.0-d2f9492d` packages.
+
 Release remains blocked: these controls are a small, manually inspected sample, not a measure of whole-video accuracy. In particular, three known same-person pairs are still split.
 
 The source was `KyleCrane_Parallel_NikolayOM.mp4`, supplied by the user. The woman driving around 17.03 seconds and the older woman in the dark room around 59.03 seconds are different people. The two labeled negative controls for them must remain separate. The fixtures also contain visually reviewed examples of repeated appearances and other people; they store timestamps and locations, not video frames or embeddings.

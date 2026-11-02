@@ -2633,7 +2633,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 }
                 const auto generation = sourceGenerations[path.toStdString()];
                 if (!generation.empty()) cacheKey += "|generation=" + generation;
-                if (interactiveTargets) cacheKey += "|all-characters-v16-face-continuity";
+                if (interactiveTargets) cacheKey += "|all-characters-v17-covisible-ambiguity";
                 if (interactiveTargets) characterArtifactKeys[path.toStdString()]=cacheKey;
                 sequenceCacheKeys[path.toStdString()]=cacheKey;
                 bool cacheEntryFound=false;

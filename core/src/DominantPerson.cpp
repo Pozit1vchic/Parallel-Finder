@@ -810,13 +810,18 @@ static void recoverUniqueBodyTracks(std::vector<std::vector<std::size_t>>& compo
         if(control.cancelled && control.cancelled())return;
         const auto& source=evidence[i];
         if(components[i].size()!=1 || source.faces || source.body.size()<3)continue;
-        double best=-1,second=-1;std::size_t bestIndex=components.size();
+        double best=-1,second=-1,covisibleCompetitor=-1;std::size_t bestIndex=components.size();
         for(std::size_t j=0;j<components.size();++j) {
             if((j%32)==0 && control.cancelled && control.cancelled())return;
-            if(i==j || evidence[j].faces<3 || evidence[j].body.size()<3 || concurrent(i,j))continue;
+            if(i==j || evidence[j].faces<3 || evidence[j].body.size()<3)continue;
             const double score=embeddingScore(source.prototype,evidence[j].prototype);
+            // A different person visible in the same frame cannot be the
+            // anchor, but their similar appearance still makes the source
+            // descriptor ambiguous (for example when their boxes overlap).
+            if(concurrent(i,j)) {covisibleCompetitor=std::max(covisibleCompetitor,score);continue;}
             if(score>best){second=best;best=score;bestIndex=j;}else second=std::max(second,score);
         }
+        second=std::max(second,covisibleCompetitor);
         if(bestIndex==components.size() || second<0 || best<.82 || best-second<.08)continue;
         const auto& reference=evidence[bestIndex];std::size_t supported=0;
         for(auto sample:source.body) {

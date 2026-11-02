@@ -197,6 +197,25 @@ TEST(CharacterCandidates, BodyOnlyTrackNeedsAnUnambiguousFaceBackedCandidate)
     EXPECT_EQ(pfcore::characterCandidates({reference,other,back}).size(),3);
 }
 
+TEST(CharacterCandidates, CovisibleSimilarPersonRemainsBodyAmbiguityEvidence)
+{
+    auto reference=track(1,0,{1,0},4);
+    auto competitor=track(2,5,{0,1},4);
+    auto back=track(3,5,{},4);
+    auto distractor=track(4,10,{0,0,1},4);
+    for(auto& o:reference.observations) {o.appearanceEmbedding={1,0};o.box={0,0,100,200};}
+    for(auto& o:competitor.observations) {o.appearanceEmbedding={.84F,.5425864F};o.box={200,0,300,200};}
+    for(auto& o:back.observations) {o.appearanceEmbedding={.84F,.5425864F};o.box={0,0,100,200};}
+    for(auto& o:distractor.observations) {o.appearanceEmbedding={0,1};o.box={0,0,100,200};}
+    const auto candidates=pfcore::characterCandidates({reference,competitor,back,distractor});
+    EXPECT_EQ(candidates.size(),4);
+    for(auto& o:competitor.observations)o.appearanceEmbedding={0,1};
+    const auto unambiguous=pfcore::characterCandidates({reference,competitor,back,distractor});
+    const auto matched=std::find_if(unambiguous.begin(),unambiguous.end(),[](const auto& c){return c.id==1;});
+    ASSERT_NE(matched,unambiguous.end());
+    EXPECT_EQ(matched->trackIds,(std::vector<std::size_t>{1,3}));
+}
+
 TEST(CharacterCandidates, OccludedDuplicateNeedsHeadTorsoAndBodyAgreement)
 {
     auto wide=track(1,0,{},4),partial=track(2,0,{},4);
