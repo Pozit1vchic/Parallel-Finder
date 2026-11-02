@@ -18,8 +18,10 @@ same OSNet model described below. The fresh run reached the character picker
 and produced 23 groups; a repeated run produced the same IDs and track counts,
 with `complete_cache_hit=1`, `decoded=0`, and `pose_samples=0`. Both inspection
 runs intentionally stop at selection and consequently report exit code 1;
-they are not full searches or exports. Preview and representative records
-were not byte-identical, so this evidence makes no claim about their equality.
+they are not full searches or exports. All candidate records including preview
+times and boxes match after excluding their `url` fields: the URLs point to
+different session-owned files, so the raw JSON is not identical. Image bytes
+were not compared.
 Logs and candidate files are under `build/kyle-v17-{fresh,warm}-*`.
 
 Release remains blocked: these controls are a small, manually inspected sample, not a measure of whole-video accuracy. In particular, three known same-person pairs are still split.
