@@ -3809,7 +3809,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                                                   kept.leftEndSeconds)
                 && enoughOverlap(candidate.rightStartSeconds, candidate.rightEndSeconds,
                                  kept.rightStartSeconds, kept.rightEndSeconds);
-            if (swappedOrientation) {
+            if (reverseCompatible) {
                 const bool reverseOverlap = enoughOverlap(candidate.leftStartSeconds, candidate.leftEndSeconds,
                     kept.rightStartSeconds, kept.rightEndSeconds)
                     && enoughOverlap(candidate.rightStartSeconds, candidate.rightEndSeconds,
@@ -3824,7 +3824,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 if (reverseOverlap || reverseNear || reverseScene) return true;
             }
             // Without aligned source IDs, direct timestamps are not comparable.
-            if (!sameOrientation) return false;
+            if (!compatible) return false;
             const bool sameTrackAndScene = windows[candidate.leftIndex].trackId != 0
                 && windows[candidate.leftIndex].trackId == windows[kept.leftIndex].trackId
                 && windows[candidate.rightIndex].trackId != 0

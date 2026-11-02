@@ -1527,6 +1527,35 @@ TEST(MotionMatcher, SameScenePairKeepsDifferentVerifiedPeople)
     }
 }
 
+TEST(MotionMatcher, ReverseOverlapRequiresReverseIdentityCompatibility)
+{
+    auto a = gestureWindow("source", 0, false);
+    auto b = gestureWindow("source", 10, false);
+    auto c = gestureWindow("source", 10, false);
+    auto d = gestureWindow("source", 0, false);
+    a.faceEmbedding = c.faceEmbedding = {1.0F, 0.0F};
+    b.faceEmbedding = d.faceEmbedding = {0.0F, 1.0F};
+    a.faceConfidence = b.faceConfidence = c.faceConfidence = d.faceConfidence = 1.0;
+    pfcore::MotionMatcherParams params;
+    params.requireAppearance = false;
+    params.appearanceWeight = 0;
+    params.maxResultsPerShot = 0;
+    // Both people appear in both time ranges. Comparing a person in one
+    // range to the other is permitted when identity matching is disabled;
+    // the reversed time intervals alone cannot make those two pairs equal.
+    const auto matcher = pfcore::MotionMatcher(params);
+    const auto matches = matcher.findAllPairs({a, b, c, d});
+    std::set<std::pair<std::size_t, std::size_t>> pairs;
+    for (const auto& match : matches)
+        pairs.emplace(std::min(match.leftIndex, match.rightIndex),
+                      std::max(match.leftIndex, match.rightIndex));
+    EXPECT_EQ(pairs, (std::set<std::pair<std::size_t, std::size_t>>{
+        {0, 1}, {0, 2}, {1, 3}, {2, 3}}));
+    const auto reversed = matcher.findAllPairs({d, c, b, a});
+    EXPECT_EQ(reversed.size(), 4u);
+    EXPECT_EQ(matcher.findAllPairs({a, b, b, a}).size(), 1u);
+}
+
 TEST(MotionMatcher, Retains120IndependentVerifiedParallels)
 {
     std::vector<pfcore::MotionWindow> windows;
