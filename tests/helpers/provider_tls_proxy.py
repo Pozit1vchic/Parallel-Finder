@@ -41,9 +41,10 @@ with socket.socket() as listener:
                         body = b"range not satisfiable"
                         response = b"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */7\r\n"
                     else:
-                        body = b"incorrect" if mode == "wrong-length" else b"correct"
+                        body = b"incorrect" if mode == "wrong-length" else b"corrupt" if mode == "wrong-hash" else b"co" if mode == "truncated" else b"correct"
                         response = b"HTTP/1.1 200 OK\r\n"
-                    secure.sendall(response + b"Content-Length: " + str(len(body)).encode()
+                    length = 7 if mode == "truncated" else len(body)
+                    secure.sendall(response + b"Content-Length: " + str(length).encode()
                                    + b"\r\nConnection: close\r\n\r\n" + body)
             except (ssl.SSLError, ConnectionError):
                 if mode != "untrusted":

@@ -11,6 +11,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QTemporaryFile>
 #include <QTimer>
 #include <QUrl>
 
@@ -19,6 +20,7 @@
 #include <algorithm>
 #include <cctype>
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -416,6 +418,12 @@ bool ModelStore::download(const ModelAsset& asset,
         return true;
     }
 
+    // If a server ignores Range, receive its complete replacement separately.
+    // The existing prefix remains usable until the replacement is verified
+    // and published, including on cancellation or an incorrect hash.
+    std::unique_ptr<QTemporaryFile> replacement;
+    QFile* output = &part;
+
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("ParallelFinder/0.1"));
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
@@ -470,7 +478,9 @@ bool ModelStore::download(const ModelAsset& asset,
             error="downloaded model size mismatch";reply->abort();return;
         }
         if (offset > 0 && status == 200) {
-            if(!part.resize(0)) {error="PROVIDER_PART_RESET_FAILED";reply->abort();return;}
+            replacement = std::make_unique<QTemporaryFile>(part.fileName()+QStringLiteral(".replacement.XXXXXX"));
+            if(!replacement->open()) {error="PROVIDER_PART_RESET_FAILED";reply->abort();return;}
+            output = replacement.get();
             offset = 0;
         }
         if(status==206 && !detail::validContentRange(reply->rawHeader("Content-Range"),offset,asset.sizeBytes,total)) {
@@ -494,7 +504,7 @@ bool ModelStore::download(const ModelAsset& asset,
             return;
         }
         const QByteArray data = reply->readAll();
-        const qint64 currentSize = part.size();
+        const qint64 currentSize = output->size();
         if (currentSize < 0 || !detail::withinDownloadLimit(static_cast<std::uint64_t>(currentSize),
                 static_cast<std::uint64_t>(data.size()),asset.sizeBytes,kMaxDownloadBytes)) {
             error = asset.sizeBytes ? "downloaded model size mismatch"
@@ -502,8 +512,8 @@ bool ModelStore::download(const ModelAsset& asset,
             reply->abort();
             return;
         }
-        if (part.write(data) != data.size()) {
-            error = "write partial model: " + part.errorString().toStdString();
+        if (output->write(data) != data.size()) {
+            error = "write partial model: " + output->errorString().toStdString();
             reply->abort();
         }
     });
@@ -545,7 +555,7 @@ bool ModelStore::download(const ModelAsset& asset,
         return false;
     }
     const QByteArray tail = reply->readAll();
-    if (part.size() < 0 || !detail::withinDownloadLimit(static_cast<std::uint64_t>(part.size()),
+    if (output->size() < 0 || !detail::withinDownloadLimit(static_cast<std::uint64_t>(output->size()),
             static_cast<std::uint64_t>(tail.size()),asset.sizeBytes,kMaxDownloadBytes)) {
         error = asset.sizeBytes ? "downloaded model size mismatch"
                                 : "model download exceeds the maximum supported size";
@@ -553,17 +563,27 @@ bool ModelStore::download(const ModelAsset& asset,
         part.close();
         return false;
     }
-    if (!tail.isEmpty() && part.write(tail) != tail.size()) {
-        error = "write partial model: " + part.errorString().toStdString();
+    if (!tail.isEmpty() && output->write(tail) != tail.size()) {
+        error = "write partial model: " + output->errorString().toStdString();
         reply->deleteLater();
         part.close();
         return false;
     }
     reply->deleteLater();
-    part.flush();
+    output->flush();
+    if(replacement) replacement->close();
     part.close();
 
-    const auto actualSize = std::filesystem::file_size(partPath, filesystemError);
+    const bool hasReplacement=bool(replacement);
+    const auto completedPath = hasReplacement ? std::filesystem::path(replacement->fileName().toStdWString()) : partPath;
+    // On Windows QTemporaryFile retains its native handle even after close;
+    // release it before publication and own cleanup for all remaining exits.
+    if(replacement) { replacement->setAutoRemove(false); replacement.reset(); }
+    struct ReplacementCleanup {
+        std::filesystem::path path;
+        ~ReplacementCleanup() { if(!path.empty()) { std::error_code ignored; std::filesystem::remove(path,ignored); } }
+    } cleanup{hasReplacement ? completedPath : std::filesystem::path{}};
+    const auto actualSize = std::filesystem::file_size(completedPath, filesystemError);
     if (filesystemError || (asset.sizeBytes != 0 && actualSize != asset.sizeBytes)) {
         // A server may return a valid 206 containing only part of the requested
         // range. Preserve those bytes and allow the caller to resume at EOF.
@@ -572,18 +592,19 @@ bool ModelStore::download(const ModelAsset& asset,
         else error = "downloaded model size mismatch";
         return false;
     }
-    if (!verifySha256(partPath, asset.sha256, error)) {
-        if(error.starts_with("model SHA-256 mismatch"))std::filesystem::remove(partPath,filesystemError);
+    if (!verifySha256(completedPath, asset.sha256, error)) {
+        if(!hasReplacement && error.starts_with("model SHA-256 mismatch"))std::filesystem::remove(partPath,filesystemError);
         return false;
     }
     // rename replaces a regular destination atomically on the same filesystem.
     // Removing it first loses the previous verified model if publication fails.
     filesystemError.clear();
-    std::filesystem::rename(partPath, destination, filesystemError);
+    std::filesystem::rename(completedPath, destination, filesystemError);
     if (filesystemError) {
         error = "install downloaded model: " + filesystemError.message();
         return false;
     }
+    if(hasReplacement) std::filesystem::remove(partPath,filesystemError);
     return true;
 }
 
