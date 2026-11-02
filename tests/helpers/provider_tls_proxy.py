@@ -37,6 +37,9 @@ with socket.socket() as listener:
                         body = b"re" if index == 0 else b"ct"
                         content_range = b"bytes 3-4/7" if index == 0 else b"bytes 5-6/7"
                         response = b"HTTP/1.1 206 Partial Content\r\nContent-Range: " + content_range + b"\r\n"
+                    elif mode == "range-416":
+                        body = b"range not satisfiable"
+                        response = b"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */7\r\n"
                     else:
                         body = b"incorrect" if mode == "wrong-length" else b"correct"
                         response = b"HTTP/1.1 200 OK\r\n"

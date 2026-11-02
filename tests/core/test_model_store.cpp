@@ -228,7 +228,7 @@ TEST(ModelStore, RealTlsRangeIgnoredResponseValidatesSizeBeforeResettingPartial)
     asset.filename="chunk";asset.sizeBytes=7;
     asset.sha256=QCryptographicHash::hash(QByteArray("correct"),QCryptographicHash::Sha256).toHex().toStdString();
     asset.downloadUrl="https://github.com/test/chunk";
-    for(const auto* mode : {"untrusted", "wrong-length", "correct"}) {
+    for(const auto* mode : {"untrusted", "wrong-length", "range-416", "correct"}) {
         SCOPED_TRACE(mode);
         const auto destination=std::filesystem::path(directory.filePath(QString::fromLatin1(mode)).toStdWString());
         auto partial=destination;partial+=".part";
@@ -257,6 +257,7 @@ TEST(ModelStore, RealTlsRangeIgnoredResponseValidatesSizeBeforeResettingPartial)
         } else {
             EXPECT_FALSE(success);
             if(QByteArray(mode)=="wrong-length") EXPECT_EQ(error,"downloaded model size mismatch");
+            if(QByteArray(mode)=="range-416") EXPECT_EQ(error,"model download: HTTP 416");
             QFile saved(QString::fromStdWString(partial.wstring()));ASSERT_TRUE(saved.open(QIODevice::ReadOnly));
             EXPECT_EQ(saved.readAll(),"cor");
         }
