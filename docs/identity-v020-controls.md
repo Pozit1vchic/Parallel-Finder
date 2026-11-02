@@ -56,3 +56,21 @@ A further research-only veto of tracks with repeated visible eyes and nose kept 
 ## Additional review of the deferred body-gallery veto
 
 A second visual review confirmed that the frontal-keypoint veto variant also creates a definite false merge. At 697.03 s, track 1131 is the person in shadow on the left, and track 1130 is Butcher clearly visible on the right at the same time. The variant attaches track 1131 to Butcher's group while leaving 1130 separate. This is not merely a question of an unrecognizable face: the two people are visible together. `butcher-body-gallery-positive-controls.json` records this different-person control together with three reviewed Butcher views which the baseline misses and the variant joins. On these four correlated controls, the baseline gives three split positives and one separated negative; the experimental variant gives three joined positives and one joined negative. This small, selected sample measures neither overall precision nor recall. It establishes that the veto variant must also remain experimental. Track 1189, a foreground back view at 734.68 s, remains independently unidentified.
+
+## Simultaneous detections audit
+
+`python tools/benchmark/audit_identity_covisions.py build/butcher-v16-frozen-current.json`
+reported no same-identity track pairs whose boxes overlap by less than 10% of the smaller
+box on an exactly shared observation time (within one microsecond). To check that the
+audit detects a real counterexample, assigning the reviewed tracks 1130 and 1131 above
+the same synthetic identity produces one finding with eight shared observations from
+696.36 to 697.53 seconds. That synthetic edit is solely a check of the audit and is not
+the actual application result. Run `python -m unittest discover -s tools/benchmark -p
+test_audit_identity_covisions.py` for its automated edge-case checks.
+
+This identifies only conspicuously separate detector boxes inside one assigned identity;
+detector duplicates can still require manual review. It cannot detect identities merged
+across different shots, overlapping people, missing detections or split appearances. The
+prior experimental collision involving track 1131 and Butcher's main group also evades
+this direct check because the simultaneously visible Butcher track 1130 is itself split
+off from that group. Zero findings is therefore not proof of correct identification.
