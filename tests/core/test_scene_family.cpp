@@ -208,6 +208,22 @@ TEST(SceneFamily, PairedContinuityIncludesRightLaneAndPreservesCancellation) {
     EXPECT_EQ(pfcore::pairedContinuityOrder(swapped),(std::vector<std::size_t>{0,2,1}));
 }
 
+TEST(SceneFamily, ContinuityTimeBoundKeepsPoseCostsAndStableTies) {
+    // A temporally closer frame need not be the best when its pose differs.
+    auto first=occurrence(0,1),close=occurrence(.1,1.1),far=occurrence(.2,1.2);
+    close.descriptor.normalizedSkeleton.fill(2.);
+    EXPECT_EQ(pfcore::continuityOrder(std::vector{first,close,far}),
+              (std::vector<std::size_t>{0,2,1}));
+    using Pair=std::array<pfcore::SceneOccurrence,2>;
+    // Equal costs preserve the order of the sorted occurrence keys.
+    const std::vector<Pair> ties{Pair{first,first},Pair{far,far},Pair{far,far}};
+    EXPECT_EQ(pfcore::pairedContinuityOrder(ties),(std::vector<std::size_t>{0,1,2}));
+    // A different source has a fixed large cost, regardless of timestamps.
+    auto other=far;other.descriptor.sourceId="other";
+    EXPECT_EQ(pfcore::continuityOrder(std::vector{first,other,far}),
+              (std::vector<std::size_t>{0,2,1}));
+}
+
 TEST(SceneFamily, MixedHeadAndBodyRequireSharedHeadEvidence) {
     auto body=occurrence(10,13),head=occurrence(10.2,13.2);
     head.headOnly=true;

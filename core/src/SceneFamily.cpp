@@ -88,6 +88,13 @@ double transitionCost(const SceneOccurrence& a,const SceneOccurrence& b) {
     if(x.posture!=y.posture)cost+=1;
     return cost;
 }
+// Every additional term in transitionCost is nonnegative. This bound lets us
+// avoid calculating skeleton distances for candidates that cannot improve the
+// current best, while preserving the existing strict tie-breaking behavior.
+double transitionLowerBound(const SceneOccurrence& a,const SceneOccurrence& b) {
+    if(a.descriptor.sourceId!=b.descriptor.sourceId)return 1e9;
+    return std::abs(a.start-b.start)*.15;
+}
 }
 SceneFamilySet buildSceneFamilies(std::span<const SceneOccurrence> occurrences,const std::function<bool()>& cancelled,
     const std::function<bool(const SceneOccurrence&,const SceneOccurrence&)>& copiedFootage) {
@@ -163,6 +170,7 @@ std::vector<std::size_t> continuityOrder(std::span<const SceneOccurrence> occurr
         std::size_t checked=0;
         if(!result.empty())for(auto it=remaining.begin();it!=remaining.end();++it) {
             if((checked++%64)==0&&cancelled&&cancelled())return {};
+            if(transitionLowerBound(occurrences[result.back()],occurrences[*it])>=bestCost)continue;
             const double cost=transitionCost(occurrences[result.back()],occurrences[*it]);
             if(cost<bestCost) {bestCost=cost;best=it;}
         }
@@ -186,6 +194,7 @@ std::vector<std::size_t> pairedContinuityOrder(std::span<const std::array<SceneO
         if(!result.empty())for(auto it=remaining.begin();it!=remaining.end();++it) {
             if((checked++%64)==0&&cancelled&&cancelled())return {};
             const auto& previous=occurrences[result.back()];const auto& next=occurrences[*it];
+            if(transitionLowerBound(previous[0],next[0])+transitionLowerBound(previous[1],next[1])>=bestCost)continue;
             const double cost=transitionCost(previous[0],next[0])+transitionCost(previous[1],next[1]);
             if(cost<bestCost) {bestCost=cost;best=it;}
         }
