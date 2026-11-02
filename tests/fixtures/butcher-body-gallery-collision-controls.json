@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "scope": "Visually reviewed different people in the supplied Butcher montage, inference coordinates 1280x544. This single negative is a regression control, not a population benchmark.",
+  "sourceBasename": "butcher_parallel_notsorted.mov",
+  "controls": [
+    {
+      "id": "butcher-vs-dark-clothed-man",
+      "left": {"time": 81.72735466636439, "point": [533.1656494140625, 349.1177673339844]},
+      "right": {"time": 492.7187709996114, "point": [1084.7902526855469, 322.78224182128906]},
+      "sameIdentity": false
+    }
+  ]
+}
