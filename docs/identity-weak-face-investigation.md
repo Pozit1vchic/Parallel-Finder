@@ -93,6 +93,32 @@ These fixtures overlap and are not a general precision estimate. Several
 newly associated views are dark or occluded and require independent review;
 the small reduction does not resolve the user's duplicate-identity problem.
 
+## Two-observation audit and portrait counterexample
+
+The v3 diagnostic capture also records weak vectors that did not pass the
+three-observation rule. `tools/benchmark/replay_weak_face_candidates.py`
+replays these remaining vectors into a separate local track file, which can
+then be evaluated using `pf_character_probe --frozen-tracks`. This is an
+offline research tool; it does not change application behavior.
+
+Requiring two observations with cosine at least 0.70 promoted 22 additional
+observations across 11 tracks, but did not change the 484 groups / 473
+unresolved produced by the three-observation experiment plus overlapping-head
+recovery. Lowering that consistency threshold to 0.50 promoted 83 additional
+observations across 24 tracks and produced 482 groups / 470 unresolved.
+Selected identity controls still passed their previous outcomes, but this is
+not sufficient evidence to enable the rule: it also split three tracks from
+the previous 490-track lead component into another component.
+
+Visual review found that tracks 143, 325 and 1086 are all detections of the
+same framed portrait, rather than a person physically present in the scene.
+The weaker replay joins the third portrait occurrence to the first two. Those
+three observations are now listed as printed images in
+`tests/fixtures/butcher-printed-person-controls.json`. This is an explicit
+counterexample to treating improved face grouping as improved person detection.
+These settings stay disabled; two observations alone and the lower consistency
+threshold do not solve the hundreds of unresolved appearances.
+
 The local artifacts are `build/butcher-weak-face-v2-tracks.json`,
 `build/butcher-weak-face-v2-replay.json`, `build/butcher-weak-face-v2-stderr.txt`
 and `build/weak-face-context.jpg`. They contain derived video/face data and

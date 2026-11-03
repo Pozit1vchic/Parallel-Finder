@@ -2,7 +2,7 @@
   "schema": 1,
   "source": "butcher_parallel_notsorted.mov",
   "sourceSha256": "6c7ed560ed6e337e2a0d183f52c29d2bb6db6e95cf13f598ad105526e6dc5830",
-  "annotation": "Visually reviewed source frame at 441.04 s: the woman printed on the pink advertising poster is not a person physically in the scene; Butcher on the left is. Track IDs and boxes refer to the frozen v16 pose/tracker output, not stable identifiers across runs. The poster has camera-relative motion and a high pose-detector score. This single scene cannot validate a general filter. Two additional still-standing people at 479.5 s are live characters. Their normalized face-landmark dispersion is smaller than the poster track despite their physical presence.",
+  "annotation": "Visually reviewed source frame at 441.04 s: the woman printed on the pink advertising poster is not a person physically in the scene; Butcher on the left is. Track IDs and boxes refer to the frozen v16 pose/tracker output, not stable identifiers across runs. The poster has camera-relative motion and a high pose-detector score. This single scene cannot validate a general filter. Two additional still-standing people at 479.5 s are live characters. Their normalized face-landmark dispersion is smaller than the poster track despite their physical presence. Additional tracks 143, 325 and 1086 show the same framed historical portrait, visually reviewed on the v18 experimental run. They are not live people; lower face thresholds can make the portrait cluster more confidently.",
   "frameWidth": 1280,
   "frameHeight": 544,
   "controls": [
@@ -57,6 +57,45 @@
       ],
       "expected": "person",
       "detectorConfidence": 0.9429494142532349
+    },
+    {
+      "id": "framed-portrait-143",
+      "track": "143",
+      "time": 67.85939933340414,
+      "box": [
+        805.8256225585938,
+        7.1510009765625,
+        957.60791015625,
+        209.64959716796875
+      ],
+      "expected": "printed-image",
+      "detectorConfidence": 0.8224800229072571
+    },
+    {
+      "id": "framed-portrait-325",
+      "track": "325",
+      "time": 185.3927153335656,
+      "box": [
+        977.1553955078125,
+        6.022369384765625,
+        1214.701171875,
+        331.44781494140625
+      ],
+      "expected": "printed-image",
+      "detectorConfidence": 0.8411116003990173
+    },
+    {
+      "id": "framed-portrait-1086",
+      "track": "1086",
+      "time": 668.0387030000878,
+      "box": [
+        22.762451171875,
+        420.49200439453125,
+        151.9559326171875,
+        537.8723754882812
+      ],
+      "expected": "printed-image",
+      "detectorConfidence": 0.4974970817565918
     }
   ]
 }

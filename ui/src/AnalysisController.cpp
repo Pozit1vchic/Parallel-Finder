@@ -2664,7 +2664,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 const auto generation = sourceGenerations[path.toStdString()];
                 if (!generation.empty()) cacheKey += "|generation=" + generation;
                 if (interactiveTargets) cacheKey += "|all-characters-v18-overlapping-heads";
-                if (auditWeakFaces) cacheKey += "|experimental-weak-face-v2";
+                if (auditWeakFaces) cacheKey += "|experimental-weak-face-v3";
                 if (interactiveTargets) characterArtifactKeys[path.toStdString()]=cacheKey;
                 sequenceCacheKeys[path.toStdString()]=cacheKey;
                 bool cacheEntryFound=false;
@@ -3327,6 +3327,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                                 {"box", QJsonArray{observation.box.left, observation.box.top,
                                                     observation.box.right, observation.box.bottom}},
                                 {"points", points}, {"face", vectorJson(observation.faceEmbedding)},
+                                {"weakFace", auditWeakFaces ? vectorJson(observation.weakFaceEmbedding) : QJsonArray{}},
                                 {"body", vectorJson(observation.appearanceEmbedding)}});
                         }
                         QJsonArray runs;
