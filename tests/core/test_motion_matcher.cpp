@@ -737,6 +737,24 @@ TEST(MotionMatcher, SimilarElbowAnglesDoNotConfuseFoldedArmsWithAiming)
             EXPECT_LT(matcher.compare(aiming, folded).similarity, params.similarityThreshold);
 }
 
+TEST(MotionMatcher, RecordedStandingAndReclinedArmPositionsAreNotTheSamePose)
+{
+    const auto poses = recordedPoseFixture("butcher-standing-reclined-pose.json", true);
+    ASSERT_EQ(poses.size(), 3U);
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames = true;
+    params.requireAppearance = true;
+    params.mirrorInvariant = true;
+    const pfcore::MotionMatcher matcher(params);
+    EXPECT_LT(matcher.compare(poses[0], poses[1]).similarity, params.similarityThreshold);
+    EXPECT_LT(matcher.compare(poses[1], poses[2]).similarity, params.similarityThreshold);
+    for (const auto& pose : poses) {
+        auto repeat = pose;
+        repeat.sourceId += "-repeat";
+        EXPECT_GE(matcher.compare(pose, repeat).similarity, params.similarityThreshold);
+    }
+}
+
 TEST(MotionMatcher, ArticulatedStaticPoseSurvivesChangedViewAndOcclusion)
 {
     const auto poses = deanAimingPoseFixture();

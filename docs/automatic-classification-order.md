@@ -27,6 +27,17 @@ removed the former but selected the latter again. A stricter veto also rejected
 existing changed-view positive controls. Neither veto is shipped: broader
 evidence is needed to reject these mismatches without losing valid parallels.
 
+The matcher now checks sustained wrist-height asymmetry relative to the
+shoulder axis before accepting an articulation-based static match. It uses
+only measured shoulders and wrists; missing wrists do not create a veto.
+Replaying the three reviewed standing/reclining windows now returns neither
+known mismatched pair, while a self-repeat of each recorded pose and the
+existing changed-view aiming controls pass. The isolated phone-pose positive
+and sunglasses negative also retain their previous outcomes. Across 2,054
+saved windows, selection changed from 132 to 129 pairs (four removed and one
+newly selected); their full trajectories have not been independently labelled.
+This is not an overall accuracy claim or a complete fix for posture mismatch.
+
 The default result list now preserves independently measured specific posture.
 Two confirmed sitting intervals form `sitting`; two lying intervals form `lying`.
 A sitting/lying disagreement becomes `posture_mismatch`, with an explicit conflict

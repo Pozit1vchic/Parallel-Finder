@@ -1347,6 +1347,7 @@ struct ArticulationFrame {
     std::array<std::array<double,3>,4> features{};
     std::array<bool,4> observed{};
     std::array<double,2> bilateral{};
+    double wristAsymmetry = std::numeric_limits<double>::quiet_NaN();
 };
 
 std::vector<ArticulationFrame> prepareArticulation(const std::vector<NormalizedPose>& poses,
@@ -1393,6 +1394,17 @@ std::vector<ArticulationFrame> prepareArticulation(const std::vector<NormalizedP
         auto& out=result[frame];
         for(std::size_t chain=0;chain<4;++chain)
             out.observed[chain]=features(poses[frame],chains[chain],out.features[chain]);
+        // Compare the wrist separation perpendicular to the shoulder line.
+        // This remains measurable with an occluded elbow and is unchanged by
+        // translation, scale, rotation, or swapping the left/right labels.
+        const auto& raw = poses[frame];
+        if (raw.size()==17 && validPoint(raw[5]) && validPoint(raw[6])
+            && validPoint(raw[9]) && validPoint(raw[10])) {
+            const double sx=raw[6].first-raw[5].first, sy=raw[6].second-raw[5].second;
+            const double wx=raw[10].first-raw[9].first, wy=raw[10].second-raw[9].second;
+            const double width2=sx*sx+sy*sy;
+            if(width2>1e-9) out.wristAsymmetry=std::abs(sx*wy-sy*wx)/width2;
+        }
         for(std::size_t chain=0;chain<2;++chain) {
             out.bilateral[chain]=std::numeric_limits<double>::quiet_NaN();
             if(frame>=context.size())continue;
@@ -1416,9 +1428,14 @@ double articulationSimilarity(const std::vector<ArticulationFrame>& left,
     if(left.empty() || right.empty())return 0.0;
     const std::size_t samples = std::min<std::size_t>(8, std::min(left.size(), right.size()));
     std::vector<double> agreements;
+    std::size_t wristComparisons=0, wristContradictions=0;
     for (std::size_t sample = 0; sample < samples; ++sample) {
         const auto& a = left[sample * (left.size()-1) / std::max<std::size_t>(1, samples-1)];
         const auto& b = right[sample * (right.size()-1) / std::max<std::size_t>(1, samples-1)];
+        if (std::isfinite(a.wristAsymmetry) && std::isfinite(b.wristAsymmetry)) {
+            ++wristComparisons;
+            if (std::abs(a.wristAsymmetry-b.wristAsymmetry)>.40) ++wristContradictions;
+        }
         double worst = 0.0;
         std::size_t observed = 0;
         for (std::size_t chain=0;chain<4;++chain) {
@@ -1452,6 +1469,8 @@ double articulationSimilarity(const std::vector<ArticulationFrame>& left,
     // A lucky single-frame detection is not sustained pose evidence.
     if (agreements.size() < MotionMatcherParams::minimumStaticSamples
         || agreements.size() * 4 < samples * 3) return 0.0;
+    if (wristComparisons >= MotionMatcherParams::minimumStaticSamples
+        && wristContradictions*4 >= wristComparisons*3) return 0.0;
     // Use the lower quartile, not a best frame or an average dominated by
     // one confidently mislocalized wrist. At least 75% must support it.
     std::sort(agreements.begin(), agreements.end());
