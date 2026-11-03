@@ -260,6 +260,16 @@ private slots:
         QVERIFY(analysis->analysisCompleted());
         QCOMPARE(analysis->summaryForSource(source).value("targetCharacterId").toString(),second);
         QCOMPARE(analysis->summaryForSource(episode).value("targetCharacterId").toString(),first);
+        // A saved character choice must not force a target in all-people mode.
+        // This mode also works when optional face/ReID models are unavailable.
+        qunsetenv("PF_ALLOW_UNVERIFIED_TARGETS");
+        analysis->analyzeAllPeople({source,episode});
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
+        QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
+        QVERIFY(!analysis->awaitingTarget());
+        QVERIFY(analysis->summaryForSource(source).value("targetCharacterId").toString().isEmpty());
+        QVERIFY(analysis->summaryForSource(episode).value("targetCharacterId").toString().isEmpty());
+        qputenv("PF_ALLOW_UNVERIFIED_TARGETS","1");
         analysis->analyzeFiles({source,episode});
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
         QVERIFY(analysis->analysisCompleted());

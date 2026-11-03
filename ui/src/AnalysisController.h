@@ -188,6 +188,7 @@ public:
     Q_INVOKABLE void inspectFiles(const QStringList& paths);
     Q_INVOKABLE QStringList filesInFolder(const QString& folder) const;
     Q_INVOKABLE void analyzeFiles(const QStringList& paths);
+    Q_INVOKABLE void analyzeAllPeople(const QStringList& paths);
     Q_INVOKABLE void stopAnalysis();
     Q_INVOKABLE QVariantList undoResultEdit();
     Q_INVOKABLE void setResultReview(const QVariantList& ids, const QString& field, bool value);
@@ -222,6 +223,7 @@ signals:
     void exportProgressChanged();
 
 private:
+    void startAnalysis(const QStringList& paths, bool allPeople);
     friend class ::UiSmokeTests;
     std::atomic_bool idleCacheCleanupRunning_{false};
     std::jthread idleCacheCleanup_;
@@ -297,6 +299,7 @@ private:
     QString modelDownloadingName_;
     int modelCatalogRevision_ = 0;
     QStringList deferredAnalyzePaths_;
+    bool deferredAllPeople_ = false;
     std::optional<QStringList> pendingInspectionPaths_;
     std::shared_ptr<std::atomic_bool> inspectionCancel_;
     QString cachePath_;

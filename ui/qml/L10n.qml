@@ -115,6 +115,7 @@ QtObject {
             "character.select": "Выбрать",
             "character.scenes": "Появления",
             "character.continue": "Продолжить анализ",
+            "character.allPeople": "Параллели без выбора персонажа",
             "character.change": "Сменить персонажа",
             "character.time": "%1 с",
 
@@ -652,6 +653,7 @@ QtObject {
             "character.select": "Select",
             "character.scenes": "View scenes",
             "character.continue": "Continue analysis",
+            "character.allPeople": "Parallels without choosing a character",
             "character.change": "Change character",
             "character.time": "%1 s",
 

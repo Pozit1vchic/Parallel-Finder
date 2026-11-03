@@ -2139,6 +2139,7 @@ void AnalysisController::inspectFiles(const QStringList& paths)
     if (exportBusy_ || reviewBusy_) return;
     const QStringList normalized = normalizedPaths(paths);
     deferredAnalyzePaths_.clear();
+    deferredAllPeople_ = false;
     results_.clear();
     discardReviewPreviewsAsync();
     emit resultCategoriesChanged();
@@ -2220,9 +2221,11 @@ void AnalysisController::inspectFiles(const QStringList& paths)
                                       : QStringLiteral("Не удалось открыть файл: ") + error);
             if (error.isEmpty() && !deferredAnalyzePaths_.isEmpty()) {
                 const QStringList queuedPaths = deferredAnalyzePaths_;
+                const bool allPeople = deferredAllPeople_;
                 deferredAnalyzePaths_.clear();
-                QMetaObject::invokeMethod(this, [this, queuedPaths] {
-                    analyzeFiles(queuedPaths);
+                deferredAllPeople_ = false;
+                QMetaObject::invokeMethod(this, [this, queuedPaths, allPeople] {
+                    startAnalysis(queuedPaths, allPeople);
                 }, Qt::QueuedConnection);
             }
         }, Qt::QueuedConnection);
@@ -2265,6 +2268,16 @@ void AnalysisController::reselectTargetCharacter(const QString& source)
 
 void AnalysisController::analyzeFiles(const QStringList& paths)
 {
+    startAnalysis(paths, false);
+}
+
+void AnalysisController::analyzeAllPeople(const QStringList& paths)
+{
+    startAnalysis(paths, true);
+}
+
+void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
+{
     if (reviewBusy_ || exportBusy_) return;
     QStringList normalized = normalizedPaths(paths);
     // Candidate tie breaks and overlap aliases use window indices. Keep the
@@ -2278,7 +2291,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         return;
     }
     if (busy_) {
-        if (!normalized.isEmpty()) deferredAnalyzePaths_ = normalized;
+        if (!normalized.isEmpty()) { deferredAnalyzePaths_ = normalized; deferredAllPeople_ = allPeople; }
         return;
     }
     if (modelDownloading_) {
@@ -2369,7 +2382,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
     QThread* thread = QThread::create([this, cancel, paths = normalized, similarityThreshold, candidateThreshold, repeatGap,
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
                                         maxUniqueResults, timeWeight, providerChoice,
-                                        qualityProfile, analysisMode, runControls, expandedSearch, normalizeSize, mirrorPoses, previewToken, forceTargetSource, targetChoice] {
+                                        qualityProfile, analysisMode, runControls, expandedSearch, normalizeSize, mirrorPoses, previewToken, forceTargetSource, targetChoice, allPeople] {
         try {
         const bool interactiveTargets = !QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
             || qEnvironmentVariableIsSet("PF_SMOKE_TARGET_ID");
@@ -2444,7 +2457,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         const auto reidModel = findBodyReIdModel(!interactiveTargets);
         const auto faceDetectorPath = findLocalModelFile(QStringLiteral("face_detection_yunet_2023mar.onnx"));
         const auto faceRecognizerPath = findLocalModelFile(QStringLiteral("face_recognition_sface_2021dec.onnx"));
-        const bool requireIdentityModels=interactiveTargets&&qEnvironmentVariable("PF_ALLOW_UNVERIFIED_TARGETS")!="1";
+        const bool requireIdentityModels=interactiveTargets && !allPeople && qEnvironmentVariable("PF_ALLOW_UNVERIFIED_TARGETS")!="1";
         const auto identityModelsError="Не удалось подготовить распознавание персонажей. Установи полный комплект приложения с моделями персонажей.";
         // Missing prerequisites should fail before source probing, cache scans
         // or expensive ONNX session preparation, not after an apparent hang.
@@ -3574,7 +3587,7 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 break;
             }
         }
-        if (interactiveTargets && error.isEmpty() && !isCancelled()) {
+        if (interactiveTargets && !allPeople && error.isEmpty() && !isCancelled()) {
             std::optional<pfcore::CharacterCandidate> batchTarget;
             std::map<std::string,std::set<std::size_t>> selectedTracks;
             std::vector<std::string> targetSourceOrder;
@@ -3752,14 +3765,38 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
                 targetCandidates_.clear(); targetSelectionSource_.clear(); emit targetSelectionChanged();
             },Qt::QueuedConnection);
         }
+        if (interactiveTargets && allPeople && error.isEmpty() && !isCancelled()) {
+            using ShotKey = std::pair<std::string, std::size_t>;
+            std::map<ShotKey, std::pair<std::vector<float>, std::vector<double>>> shotSequences;
+            for (auto& window : windows) if (!window.sceneSequence.empty())
+                shotSequences.try_emplace({window.sourceId, window.sceneIndex},
+                    std::move(window.sceneSequence), std::move(window.sceneSequenceTimes));
+            std::vector<pfcore::MotionWindow> admitted;
+            QStringList admittedA, admittedB;
+            for (std::size_t i = 0; i < windows.size(); ++i) {
+                if (analysisMode != QStringLiteral("combined")
+                    && (analysisMode == QStringLiteral("static")) != windows[i].staticFrameSet) continue;
+                if (auto shot = shotSequences.find({windows[i].sourceId, windows[i].sceneIndex}); shot != shotSequences.end()) {
+                    windows[i].sceneSequence = std::move(shot->second.first);
+                    windows[i].sceneSequenceTimes = std::move(shot->second.second);
+                    shotSequences.erase(shot);
+                }
+                admitted.push_back(std::move(windows[i]));
+                admittedA.push_back(previewA[static_cast<qsizetype>(i)]);
+                admittedB.push_back(previewB[static_cast<qsizetype>(i)]);
+            }
+            windows = std::move(admitted); previewA = std::move(admittedA); previewB = std::move(admittedB);
+        }
         markCancelled();
         if (error.isEmpty() && windows.size() >= 2 && !isCancelled()) {
-            reportPreparation(QStringLiteral("Проверяем общего персонажа в видео"));
+            reportPreparation(allPeople ? QStringLiteral("Сравниваем всех персонажей")
+                                        : QStringLiteral("Проверяем общего персонажа в видео"));
             pfcore::DominantVideoSelectionControl sourceIdentityControl;
             sourceIdentityControl.auditShotRecovery=QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
                 && !qEnvironmentVariable("PF_BENCHMARK_CACHE_ROOT").isEmpty()
                 && qEnvironmentVariable("PF_AUDIT_SOURCE_SHOT_RECOVERY")==QStringLiteral("1");
-            auto sharedIdentity = pfcore::selectDominantVideoWindows(windows,sourceIdentityControl);
+            auto sharedIdentity = allPeople ? pfcore::DominantVideoSelection{}
+                : pfcore::selectDominantVideoWindows(windows,sourceIdentityControl);
             if (interactiveTargets) {
                 sharedIdentity.sources.clear();
                 for (const auto& [source, candidates] : sourceCandidates) sharedIdentity.sources.push_back(source);
@@ -3911,7 +3948,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
             params.staticArticulationSimilarityThreshold = std::clamp(similarityThreshold + 0.08, 0.82, 0.96);
             // Same-person evidence is mandatory; missing identity data must
             // never silently admit a different actor into the results.
-            params.requireAppearance = true;
+            params.requireAppearance = !allPeople;
+            params.requireSameTrackWithinSource = !allPeople;
             // OSNet is the identity gate, not a cosmetic label. The compact
             // export used by the desktop build loses roughly 10–15 points of
             // cosine similarity across cuts, lighting and profile views. A

@@ -47,6 +47,17 @@ TEST(MotionMatcher, MeasuredTorsoScaleRetainsPoseAcrossForeshortenedShoulders)
     auto other=profile;other.faceEmbedding={0,1};
     EXPECT_DOUBLE_EQ(matcher.compare(front,other).similarity,0);
     EXPECT_EQ(matcher.compare(front,other).rejection, pfcore::MotionRejection::Identity);
+    // The all-people search must retrieve different identities even within
+    // one video; ordinary selected-character search must still reject them.
+    auto allPeople = params;
+    allPeople.requireAppearance = false;
+    allPeople.requireSameTrackWithinSource = false;
+    front.trackId = 1; other.trackId = 2; other.sourceId = front.sourceId;
+    const pfcore::MotionMatcher unrestricted(allPeople);
+    EXPECT_EQ(matcher.compare(front,other).rejection, pfcore::MotionRejection::Identity);
+    EXPECT_GE(unrestricted.compare(front,other).similarity, .7);
+    EXPECT_EQ(unrestricted.findAllPairs({front,other}).size(), 1U);
+    front.trackId = 0;
     auto crossing = profile;
     crossing.hasSceneIndex = true;
     crossing.sceneStartSeconds = 10;

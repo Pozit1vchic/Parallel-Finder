@@ -2298,7 +2298,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         calibrated = 0.949;
     }
     result.similarity = std::clamp(calibrated, 0.0, 0.994);
-    if (identity.motionCandidate && !identity.verified) {
+    if ((crossTrack || params.requireAppearance) && identity.motionCandidate && !identity.verified) {
         // Profile/back views can lower appearance and anatomy similarity while
         // the same person's body descriptor and aligned motion remain strong.
         // Close only this narrow identity gap; still require agreement from
