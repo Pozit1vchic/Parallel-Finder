@@ -1,6 +1,7 @@
 #include <pfcore/DominantPerson.hpp>
 #include <pfcore/FaceAssociation.hpp>
 #include <gtest/gtest.h>
+#include <limits>
 
 namespace {
 pfcore::PersonTrack track(std::size_t id, double start, std::vector<float> face, int count = 4)
@@ -237,6 +238,38 @@ TEST(CharacterCandidates, OccludedDuplicateNeedsHeadTorsoAndBodyAgreement)
     partial.observations[2].keypoints[6].x-=180;
     for(auto& observation:partial.observations)observation.appearanceEmbedding={0,1};
     EXPECT_EQ(pfcore::characterCandidates({wide,partial}).size(),2);
+}
+
+TEST(CharacterCandidates, DuplicateHeadCanJoinAnExistingMultiTrackIdentity)
+{
+    auto anchor=track(1,0,{1,0},4), earlier=track(2,3,{1,0},4), duplicate=track(3,0,{},4);
+    for (auto* person : {&anchor,&earlier,&duplicate}) for (auto& observation : person->observations) {
+        observation.box={0,0,100,200}; observation.appearanceEmbedding={1,0};
+        observation.keypoints.resize(17);
+        for (int i=0;i<5;++i) observation.keypoints[i]={30.+i*5,30.+i*3,.95};
+    }
+    auto result=pfcore::characterCandidates({anchor,earlier,duplicate});
+    ASSERT_EQ(result.size(),1U);
+    EXPECT_EQ(result.front().trackIds,(std::vector<std::size_t>{1,2,3}));
+    auto hidden=duplicate;
+    for (auto& observation:hidden.observations)
+        for (int i=1;i<5;++i) observation.keypoints[i].confidence=0;
+    EXPECT_EQ(pfcore::characterCandidates({anchor,earlier,hidden}).size(),2U);
+    auto nonfinite=duplicate;
+    for (auto& observation:nonfinite.observations)
+        for (int i=1;i<5;++i) observation.keypoints[i].confidence=std::numeric_limits<double>::quiet_NaN();
+    EXPECT_EQ(pfcore::characterCandidates({anchor,earlier,nonfinite}).size(),2U);
+    auto brief=duplicate;
+    brief.observations.resize(2);
+    EXPECT_EQ(pfcore::characterCandidates({anchor,earlier,brief}).size(),2U);
+    auto conflictingFace=duplicate;
+    for (auto& observation:conflictingFace.observations) observation.faceEmbedding={0,1};
+    EXPECT_EQ(pfcore::characterCandidates({anchor,earlier,conflictingFace}).size(),2U);
+    for (auto& observation:duplicate.observations)
+        for (int i=0;i<5;++i) observation.keypoints[i].x+=30;
+    result=pfcore::characterCandidates({anchor,earlier,duplicate});
+    ASSERT_EQ(result.size(),2U);
+    EXPECT_EQ(result.front().trackIds,(std::vector<std::size_t>{1,2}));
 }
 
 TEST(CharacterCandidates, ContinuityAcrossCutNeedsTheSameObservedCompanion)

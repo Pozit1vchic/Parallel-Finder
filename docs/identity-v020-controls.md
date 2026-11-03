@@ -124,3 +124,30 @@ visually reviewed; the saved points contain no pixels or embeddings. These examp
 anchors and were chosen from an existing experiment sheet, so the counts cannot be
 interpreted as population-level recall or precision. They make concrete that fixing the
 previous collision alone would not establish complete appearance grouping.
+
+## Overlapping detector duplicates
+
+The saved Butcher observations contain two simultaneous detections of the
+same head at 759.21–760.05 s (tracks 1224 and 1226). Their boxes overlap at
+0.98 IoU and their body-prototype cosine is 0.998. The original candidate
+grouping had already put track 1224 into Butcher's large group but left 1226
+unresolved. The recovery pass now permits a singleton track to join an existing
+multi-track identity only after at least three simultaneous, closely matching
+head detections across 0.3 seconds, nearly identical boxes, strong body
+agreement, no contradictory face, and no conflicting simultaneous member.
+Competing components veto the association.
+
+On the frozen v16 observations this joins 1226 to 1224 and changes 491 groups
+to 490 (480 unresolved to 479). The selected Butcher controls are unchanged;
+the disjoint-box co-visibility audit finds no new conflict. With the optional
+weak-face experiment, the same duplicate joins and changes 485 groups to 484.
+Unit controls verify duplicate recovery into an existing identity and keep a
+shifted head separate. This is one confirmed duplicate, not a solution to the
+hundreds of other unresolved appearances. The character cache key changes to
+v18 so an older cached grouping is not silently reused.
+
+A fresh CUDA application run with the v18 key completed the full video in
+184.2 seconds without the experimental weak-face option. Its captured tracks,
+replayed with the current grouping code, also produce 490 groups / 479
+unresolved and put tracks 1224 and 1226 together. The run used the all-people
+workflow; it does not independently validate the character-picker display.

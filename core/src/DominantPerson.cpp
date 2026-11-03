@@ -1029,6 +1029,70 @@ static void recoverCompanionContinuity(std::vector<std::vector<std::size_t>>& co
     std::erase_if(components,[](const auto& c){return c.empty();});
 }
 
+// Detector duplicates may land in separate tracks, including after one of
+// them has already joined a large identity component. Only merge when the
+// same head and almost identical boxes recur in several simultaneous frames.
+static void recoverOverlappingHeadDuplicates(std::vector<std::vector<std::size_t>>& components,
+    const std::vector<PersonTrack>& tracks, const std::vector<std::size_t>& indices,
+    const DominantSelectionControl& control)
+{
+    const auto sameHead = [](const PersonDetection& a, const PersonDetection& b) {
+        if (a.box.iou(b.box) < .90) return false;
+        const double scale = std::sqrt(std::min(a.box.area(),b.box.area()));
+        if (!(scale > 0) || !std::isfinite(scale)) return false;
+        double sum=0, maximum=0; std::size_t count=0;
+        for (std::size_t i=0; i<std::min<std::size_t>({5,a.keypoints.size(),b.keypoints.size()}); ++i) {
+            const auto& x=a.keypoints[i]; const auto& y=b.keypoints[i];
+            if (!std::isfinite(x.confidence) || !std::isfinite(y.confidence)
+                || x.confidence<.8 || y.confidence<.8 || !std::isfinite(x.x+x.y+y.x+y.y)) continue;
+            const double distance=std::hypot(x.x-y.x,x.y-y.y)/scale;
+            sum+=distance; maximum=std::max(maximum,distance); ++count;
+        }
+        return count>=3 && sum/count<=.012 && maximum<=.025;
+    };
+    for (std::size_t i=0; i<components.size(); ++i) {
+        if (control.cancelled && control.cancelled()) return;
+        if (components[i].size()!=1) continue;
+        const auto& source=tracks[indices[components[i].front()]];
+        if (source.observations.size()<3) continue;
+        const auto sourceSummary=summarizeObservations(source.observations);
+        std::size_t accepted=components.size(); bool ambiguous=false;
+        for (std::size_t j=0; j<components.size(); ++j) {
+            if (j==i || components[j].empty()) continue;
+            if ((j%32)==0 && control.cancelled && control.cancelled()) return;
+            bool matched=false, conflict=false;
+            for (const auto member : components[j]) {
+                const auto& target=tracks[indices[member]];
+                if (target.observations.empty() || target.observations.back().timestampSeconds < source.observations.front().timestampSeconds
+                    || target.observations.front().timestampSeconds > source.observations.back().timestampSeconds) continue;
+                std::size_t a=0,b=0,count=0; double first=0,last=0;
+                bool disagreement=false;
+                while (a<source.observations.size() && b<target.observations.size()) {
+                    const auto& x=source.observations[a]; const auto& y=target.observations[b];
+                    if (std::abs(x.timestampSeconds-y.timestampSeconds)<=1e-6) {
+                        if (!sameHead(x,y) || (!x.faceEmbedding.empty() && !y.faceEmbedding.empty()
+                            && embeddingScore(x.faceEmbedding,y.faceEmbedding)<.363)) disagreement=true;
+                        else { if (!count) first=x.timestampSeconds; last=x.timestampSeconds; ++count; }
+                        ++a; ++b;
+                    } else if (x.timestampSeconds<y.timestampSeconds) ++a; else ++b;
+                }
+                if (disagreement) { conflict=true; break; }
+                if (count>=3 && last-first>=.3
+                    && embeddingScore(sourceSummary.body,summarizeObservations(target.observations).body)>=.95)
+                    matched=true;
+            }
+            if (!matched || conflict) continue;
+            if (accepted!=components.size()) { ambiguous=true; break; }
+            accepted=j;
+        }
+        if (!ambiguous && accepted!=components.size()) {
+            components[accepted].push_back(components[i].front());
+            components[i].clear();
+        }
+    }
+    std::erase_if(components,[](const auto& c){return c.empty();});
+}
+
 std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrack>& tracks,
     const DominantSelectionControl& control)
 {
@@ -1056,6 +1120,7 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
     // Recheck newly assembled galleries without losing contradictions between
     // their original face-backed tracks.
     recoverCharacterViews(components,tracks,indices,control);
+    recoverOverlappingHeadDuplicates(components,tracks,indices,control);
     std::vector<CharacterCandidate> result;
     const auto addPrototype = [](std::vector<float>& sum, const std::vector<float>& value) {
         double norm = 0;
