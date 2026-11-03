@@ -2,7 +2,7 @@
   "schema": 1,
   "source": "butcher_parallel_notsorted.mov",
   "sourceSha256": "6c7ed560ed6e337e2a0d183f52c29d2bb6db6e95cf13f598ad105526e6dc5830",
-  "annotation": "Visually reviewed source frame at 441.04 s: the woman printed on the pink advertising poster is not a person physically in the scene; Butcher on the left is. Track IDs and boxes refer to the frozen v16 pose/tracker output, not stable identifiers across runs. The poster has camera-relative motion and a high pose-detector score. This single scene cannot validate a general filter. Two additional still-standing people at 479.5 s are live characters. Their normalized face-landmark dispersion is smaller than the poster track despite their physical presence. Additional tracks 143, 325 and 1086 show the same framed historical portrait, visually reviewed on the v18 experimental run. They are not live people; lower face thresholds can make the portrait cluster more confidently. Additional real Butcher controls are present in the same three shots as the framed portrait.",
+  "annotation": "Visually reviewed source frame at 441.04 s: the woman printed on the pink advertising poster is not a person physically in the scene; Butcher on the left is. Track IDs and boxes refer to the frozen v16 pose/tracker output, not stable identifiers across runs. The poster has camera-relative motion and a high pose-detector score. This single scene cannot validate a general filter. Two additional still-standing people at 479.5 s are live characters. Their normalized face-landmark dispersion is smaller than the poster track despite their physical presence. Additional tracks 143, 325 and 1086 show the same framed historical portrait, visually reviewed on the v18 experimental run. They are not live people; lower face thresholds can make the portrait cluster more confidently. Additional real Butcher controls are present in the same three shots as the framed portrait. Tracks 58 and 777 are live people that scored like printed images in a CLIP audit; 58 is Butcher standing in front of framed paintings.",
   "frameWidth": 1280,
   "frameHeight": 544,
   "controls": [
@@ -135,6 +135,32 @@
       ],
       "expected": "person",
       "detectorConfidence": 0.9351081252098083
+    },
+    {
+      "id": "live-person-clip-counterexample-58",
+      "track": "58",
+      "time": 30.363699333808835,
+      "box": [
+        498.67767333984375,
+        101.15576171875,
+        747.4046020507812,
+        532.20361328125
+      ],
+      "expected": "person",
+      "detectorConfidence": 0.9406042695045471
+    },
+    {
+      "id": "live-person-clip-counterexample-777",
+      "track": "777",
+      "time": 521.0593716664075,
+      "box": [
+        595.885498046875,
+        151.3299560546875,
+        899.9671020507812,
+        531.7066650390625
+      ],
+      "expected": "person",
+      "detectorConfidence": 0.9268741607666016
     }
   ]
 }
