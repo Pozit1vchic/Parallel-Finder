@@ -1,5 +1,23 @@
 # Automatic classification and ordering
 
+## Shared observed landmarks for movement
+
+Movement direction and gesture normalization now compare the same landmarks
+that are finite and confident at both endpoints. Unobserved limbs no longer
+extend the body bounds or shift the centroid when their confidence changes.
+Fewer than three common landmarks or a degenerate common extent produces
+unknown rather than a confident movement label. These are geometric controls;
+they do not distinguish camera movement from a person's actual movement.
+
+The focused classifier, ranker and matcher run passed 182 tests with one
+optional benchmark skipped. The recorded Butcher wrist controls still pass.
+On the 2,054 saved Butcher windows, the matcher replay selected 132 pairs
+instead of 127: 15 pairs appeared and 10 disappeared compared with the earlier
+saved replay. The previously reviewed phone-pose pair remained present and the
+chosen glasses-transition control remained excluded. The changed pairs have
+not been independently reviewed, so these counts do not establish improved
+overall recall or precision; the complete application has not been rerun.
+
 The default result list now preserves independently measured specific posture.
 Two confirmed sitting intervals form `sitting`; two lying intervals form `lying`.
 A sitting/lying disagreement becomes `posture_mismatch`, with an explicit conflict

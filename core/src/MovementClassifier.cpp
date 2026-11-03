@@ -12,42 +12,13 @@ struct Point {
     double y = 0.0;
 };
 
-Point centroid(const PoseFrame& frame)
-{
-    if (frame.keypoints.empty()) return {};
-    Point result;
-    double weight = 0.0;
-    for (const auto& point : frame.keypoints) {
-        const double confidence = std::max(0.0, point.confidence);
-        result.x += point.x * confidence;
-        result.y += point.y * confidence;
-        weight += confidence;
-    }
-    if (weight <= 1e-9) weight = static_cast<double>(frame.keypoints.size());
-    return {result.x / weight, result.y / weight};
-}
-
-double bodyScale(const PoseFrame& frame)
-{
-    if (frame.keypoints.empty()) return 1.0;
-    double left = std::numeric_limits<double>::infinity();
-    double top = std::numeric_limits<double>::infinity();
-    double right = -std::numeric_limits<double>::infinity();
-    double bottom = -std::numeric_limits<double>::infinity();
-    for (const auto& point : frame.keypoints) {
-        left = std::min(left, point.x); top = std::min(top, point.y);
-        right = std::max(right, point.x); bottom = std::max(bottom, point.y);
-    }
-    return std::max(1e-9, std::hypot(right - left, bottom - top));
-}
-
 double keypointDelta(const PoseFrame& first, const PoseFrame& last, std::size_t index,
-                     bool yAxis)
+                     bool yAxis, double scale)
 {
     if (index >= first.keypoints.size() || index >= last.keypoints.size()) return 0.0;
     const auto& a = first.keypoints[index];
     const auto& b = last.keypoints[index];
-    return (yAxis ? b.y - a.y : b.x - a.x) / std::max(bodyScale(first), bodyScale(last));
+    return (yAxis ? b.y - a.y : b.x - a.x) / scale;
 }
 
 bool observedAtBothEnds(const PoseFrame& first, const PoseFrame& last, std::size_t index)
@@ -63,12 +34,34 @@ bool observedAtBothEnds(const PoseFrame& first, const PoseFrame& last, std::size
 MovementClassification classifyEndpoints(const PoseFrame& first, const PoseFrame& last)
 {
     MovementClassification result;
-    const Point a = centroid(first), b = centroid(last);
-    const double scale = std::max(bodyScale(first), bodyScale(last));
+    // Compare the same observed landmarks at both ends. A missing limb must
+    // not shift the centroid or stretch the body box as its confidence fades.
+    Point a, b;
+    constexpr double infinity = std::numeric_limits<double>::infinity();
+    double leftA=infinity, topA=infinity, rightA=-infinity, bottomA=-infinity;
+    double leftB=infinity, topB=infinity, rightB=-infinity, bottomB=-infinity;
+    double weight=0;
+    std::size_t count=0;
+    for (std::size_t i=0; i<std::min(first.keypoints.size(),last.keypoints.size()); ++i) {
+        if (!observedAtBothEnds(first,last,i)) continue;
+        const auto& x=first.keypoints[i]; const auto& y=last.keypoints[i];
+        const double w=std::min(x.confidence,y.confidence);
+        a.x+=x.x*w; a.y+=x.y*w; b.x+=y.x*w; b.y+=y.y*w; weight+=w; ++count;
+        leftA=std::min(leftA,x.x); rightA=std::max(rightA,x.x);
+        topA=std::min(topA,x.y); bottomA=std::max(bottomA,x.y);
+        leftB=std::min(leftB,y.x); rightB=std::max(rightB,y.x);
+        topB=std::min(topB,y.y); bottomB=std::max(bottomB,y.y);
+    }
+    if (count < 3 || weight <= 0) return result;
+    a.x/=weight; a.y/=weight; b.x/=weight; b.y/=weight;
+    const double scaleA=std::hypot(rightA-leftA,bottomA-topA);
+    const double scaleB=std::hypot(rightB-leftB,bottomB-topB);
+    const double scale=std::max(scaleA,scaleB);
+    if (!std::isfinite(scale) || scale < 1e-9) return result;
     const double dx = (b.x - a.x) / scale;
     const double dy = (b.y - a.y) / scale;
     const double displacement = std::hypot(dx, dy);
-    const double scaleChange = (bodyScale(last) - bodyScale(first)) / scale;
+    const double scaleChange = (scaleB - scaleA) / scale;
 
     if (std::abs(scaleChange) >= 0.12) {
         result.direction = scaleChange > 0.0 ? MovementDirection::TowardCamera
@@ -91,14 +84,14 @@ MovementClassification classifyEndpoints(const PoseFrame& first, const PoseFrame
     const bool leftWrist = observedAtBothEnds(first, last, 9);
     const bool rightWrist = observedAtBothEnds(first, last, 10);
     const int wristCount = int(leftWrist) + int(rightWrist);
-    const double leftWristY = leftWrist ? keypointDelta(first, last, 9, true) : 0.0;
-    const double rightWristY = rightWrist ? keypointDelta(first, last, 10, true) : 0.0;
+    const double leftWristY = leftWrist ? keypointDelta(first, last, 9, true, scale) : 0.0;
+    const double rightWristY = rightWrist ? keypointDelta(first, last, 10, true, scale) : 0.0;
     const double wristLift = wristCount ? -(leftWristY + rightWristY) / wristCount : 0.0;
-    const double wristSpread = (leftWrist ? std::abs(keypointDelta(first, last, 9, false)) : 0.0)
-        + (rightWrist ? std::abs(keypointDelta(first, last, 10, false)) : 0.0);
+    const double wristSpread = (leftWrist ? std::abs(keypointDelta(first, last, 9, false, scale)) : 0.0)
+        + (rightWrist ? std::abs(keypointDelta(first, last, 10, false, scale)) : 0.0);
     const bool shoulders = observedAtBothEnds(first, last, 5) && observedAtBothEnds(first, last, 6);
-    const double shoulderTurn = shoulders ? std::abs(keypointDelta(first, last, 5, false)
-                                         - keypointDelta(first, last, 6, false)) : 0.0;
+    const double shoulderTurn = shoulders ? std::abs(keypointDelta(first, last, 5, false, scale)
+                                         - keypointDelta(first, last, 6, false, scale)) : 0.0;
     if (wristCount && wristLift > 0.10) {
         result.gesture = GestureClass::Raise;
         result.gestureConfidence = std::clamp(wristLift / 0.30, 0.0, 1.0);

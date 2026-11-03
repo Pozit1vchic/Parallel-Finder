@@ -88,6 +88,32 @@ TEST(MovementClassifier, InvisibleIntermediateWristsDoNotInventExcursion)
     EXPECT_EQ(result.direction, pfcore::MovementDirection::Static);
 }
 
+TEST(MovementClassifier, LostLandmarksDoNotInventDirectionOrCameraMovement)
+{
+    auto window = moving("still", 0, 0);
+    // An occluded wrist's unreliable position must neither stretch the box
+    // nor shift the centroid when it disappears at the other endpoint.
+    for (auto& frame : window.frames) {
+        frame.keypoints[9].confidence = 0.01;
+        frame.keypoints[9].x = 10000;
+    }
+    window.frames.back().keypoints[10].confidence = 0.01;
+    window.frames.back().keypoints[10].x = -10000;
+    const auto result = pfcore::MovementClassifier().classify(window);
+    EXPECT_EQ(result.direction, pfcore::MovementDirection::Static);
+}
+
+TEST(MovementClassifier, InsufficientSharedLandmarksDoNotClaimStaticMotion)
+{
+    auto window = moving("unknown", 0, 0);
+    for (auto& frame : window.frames)
+        for (std::size_t i = 2; i < frame.keypoints.size(); ++i)
+            frame.keypoints[i].confidence = 0.01;
+    const auto result = pfcore::MovementClassifier().classify(window);
+    EXPECT_EQ(result.direction, pfcore::MovementDirection::Unknown);
+    EXPECT_EQ(result.gesture, pfcore::GestureClass::Unknown);
+}
+
 TEST(MovementClassifier, CachedCombinationPreservesAllClassificationEvidence)
 {
     const pfcore::MovementClassifier classifier;
