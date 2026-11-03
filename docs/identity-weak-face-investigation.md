@@ -69,3 +69,33 @@ Local probe inputs, outputs, contact sheet and the modified track replay are
 under `build/research-identity/`; they contain derived face data and video
 frames and are intentionally not committed. The supplied source video and
 those local artifacts are required to reproduce these particular measurements.
+
+## Full-video experimental recovery
+
+An explicitly opt-in `PF_AUDIT_WEAK_FACES=1` prototype samples the original
+0.85 detector first, and retries unsuccessful crops at 0.65. Face ownership
+is checked against all persons in the frame; a weak crop cannot erase an
+already accepted strong face. Weak embeddings are withheld from tracking and
+used only after shot retracking if at least three observations span at least
+0.3 seconds, each pair agrees by cosine 0.70, and none conflicts with an
+existing strong face in that track. The experimental cache key is separate.
+This code remains disabled by default.
+
+On the complete 12-minute Butcher source, a cold CUDA run yielded 96 recovered
+observations. All 9,573 saved person observations resolved against the prior
+run by timestamp and box; 5,669 observations already had a strong face and
+none lost it. Frozen-track replay changed candidate counts from 491 to 485,
+and unresolved counts from 480 to 474. The previously reviewed Butcher
+profile/back pair now joins; the reviewed blurred different person stays
+separate. Existing applicable selected Butcher identity fixtures show no new
+false positives; four other previously known visible-person misses remain.
+These fixtures overlap and are not a general precision estimate. Several
+newly associated views are dark or occluded and require independent review;
+the small reduction does not resolve the user's duplicate-identity problem.
+
+The local artifacts are `build/butcher-weak-face-v2-tracks.json`,
+`build/butcher-weak-face-v2-replay.json`, `build/butcher-weak-face-v2-stderr.txt`
+and `build/weak-face-context.jpg`. They contain derived video/face data and
+are not committed. Sixty-four focused identity/face tests pass. The prototype
+must remain opt-in until broader same/different-person controls, ambiguous
+competing detections, poster/reflection cases and end-to-end cost are checked.

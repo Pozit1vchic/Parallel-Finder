@@ -206,6 +206,41 @@ void DominantPersonTracker::reset()
     sceneTrackStart_ = 0;
 }
 
+std::size_t DominantPersonTracker::recoverConsistentWeakFaces()
+{
+    std::size_t recovered = 0;
+    for (auto& track : tracks_) {
+        std::vector<std::size_t> samples;
+        for (std::size_t i = 0; i < track.observations.size(); ++i) {
+            const auto& observation = track.observations[i];
+            if (observation.weakFaceEmbedding.empty() || !std::isfinite(observation.timestampSeconds)) continue;
+            if (!samples.empty() && observation.timestampSeconds
+                    - track.observations[samples.back()].timestampSeconds < .15) continue;
+            samples.push_back(i);
+        }
+        if (samples.size() < 3 || track.observations[samples.back()].timestampSeconds
+                - track.observations[samples.front()].timestampSeconds < .3) continue;
+        bool consistent = true;
+        for (std::size_t i = 0; consistent && i < samples.size(); ++i) {
+            const auto& face = track.observations[samples[i]].weakFaceEmbedding;
+            for (std::size_t j = i+1; j < samples.size(); ++j)
+                if (embeddingScore(face,track.observations[samples[j]].weakFaceEmbedding) < .70) {
+                    consistent = false; break;
+                }
+            for (const auto& observation : track.observations)
+                if (!observation.faceEmbedding.empty() && embeddingScore(face,observation.faceEmbedding) < .50) {
+                    consistent = false; break;
+                }
+        }
+        if (!consistent) continue;
+        for (const auto i : samples) {
+            track.observations[i].faceEmbedding = std::move(track.observations[i].weakFaceEmbedding);
+            ++recovered;
+        }
+    }
+    return recovered;
+}
+
 void DominantPersonTracker::retrackScenes(const std::vector<double>& boundaries)
 {
     // Validate before moving observations: a malformed boundary list must not

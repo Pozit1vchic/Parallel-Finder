@@ -33,6 +33,8 @@ struct PersonDetection {
     std::vector<float> appearanceEmbedding;
     double appearanceConfidence = 0.0;
     std::vector<float> faceEmbedding;
+    // Experimental low-confidence face; never used for tracking directly.
+    std::vector<float> weakFaceEmbedding;
 };
 
 struct PersonTrack {
@@ -60,6 +62,7 @@ public:
     // Geometry may link observations only within one shot; identity grouping
     // across shots is performed separately using appearance evidence.
     void retrackScenes(const std::vector<double>& boundaries);
+    std::size_t recoverConsistentWeakFaces();
     const std::vector<PersonTrack>& tracks() const noexcept { return tracks_; }
     std::optional<PersonTrack> dominant() const;
 

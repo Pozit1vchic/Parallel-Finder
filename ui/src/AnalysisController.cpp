@@ -2386,6 +2386,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
         try {
         const bool interactiveTargets = !QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
             || qEnvironmentVariableIsSet("PF_SMOKE_TARGET_ID");
+        const bool auditWeakFaces = interactiveTargets && qEnvironmentVariable("PF_AUDIT_WEAK_FACES") == QStringLiteral("1");
         std::map<std::string,std::vector<pfcore::CharacterCandidate>> sourceCandidates;
         std::map<std::string,std::string> characterArtifactKeys;
         int files = 0;
@@ -2663,6 +2664,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 const auto generation = sourceGenerations[path.toStdString()];
                 if (!generation.empty()) cacheKey += "|generation=" + generation;
                 if (interactiveTargets) cacheKey += "|all-characters-v17-covisible-ambiguity";
+                if (auditWeakFaces) cacheKey += "|experimental-weak-face-v2";
                 if (interactiveTargets) characterArtifactKeys[path.toStdString()]=cacheKey;
                 sequenceCacheKeys[path.toStdString()]=cacheKey;
                 bool cacheEntryFound=false;
@@ -2816,6 +2818,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     poseDetections += static_cast<int>(detections.size());
                     std::vector<pfcore::PersonDetection> frameDetections;
                     std::vector<pfcore::ObservedFaceLandmarks> observedFaces(detections.size());
+                    std::vector<bool> weakFaces(detections.size(), false);
                     frameDetections.reserve(detections.size());
                     const bool sampleAppearance = (reid || face)
                         && sample.timestamp + 1e-9 >= nextReIdTimestamp;
@@ -2850,9 +2853,14 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                                 const auto stageStart = stageNow();
                                 pfgpu::FaceRecognitionDiagnostics diagnostic;
                                 const bool captureFace = !faceCropAuditDir.isEmpty() && faceCropAudit.size() < 128;
-                                frameDetections.back().faceEmbedding = face->infer({sample.width, sample.height,
-                                    sample.pixels(), detection.left, detection.top, detection.right, detection.bottom},
+                                const pfgpu::ReIdImage faceImage{sample.width, sample.height,
+                                    sample.pixels(), detection.left, detection.top, detection.right, detection.bottom};
+                                frameDetections.back().faceEmbedding = face->infer(faceImage,
                                     &diagnostic, .85, interactiveTargets?&expectedNose:nullptr, interactiveTargets || forwardFaceAlignmentAudit);
+                                if (auditWeakFaces && frameDetections.back().faceEmbedding.empty())
+                                    frameDetections.back().faceEmbedding = face->infer(faceImage,
+                                        &diagnostic, .65, &expectedNose, true);
+                                weakFaces[frameDetections.size()-1] = auditWeakFaces && diagnostic.accepted && diagnostic.detectorScore < .85;
                                 observedFaces[frameDetections.size()-1]={diagnostic.accepted,diagnostic.landmarks};
                                 faceNs += stageNow() - stageStart;
                                 if (captureFace && diagnostic.accepted) {
@@ -2897,7 +2905,20 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                             reidDetectionIndices.push_back(frameDetections.size() - 1U);
                         }
                     }
+                    if (auditWeakFaces) for (std::size_t i=0; i<frameDetections.size(); ++i)
+                        if (weakFaces[i]) frameDetections[i].weakFaceEmbedding = std::move(frameDetections[i].faceEmbedding);
                     if(interactiveTargets)pfcore::enforceUniqueFaceOwnership(frameDetections,observedFaces);
+                    if (auditWeakFaces) {
+                        // A weak competing crop may be rejected, but it must
+                        // not erase a face accepted by the original detector.
+                        auto combined = frameDetections;
+                        for (std::size_t i=0; i<combined.size(); ++i)
+                            if (weakFaces[i]) combined[i].faceEmbedding = combined[i].weakFaceEmbedding;
+                        pfcore::enforceUniqueFaceOwnership(combined,observedFaces);
+                        for (std::size_t i=0; i<combined.size(); ++i)
+                            if (weakFaces[i] && combined[i].faceEmbedding.empty())
+                                frameDetections[i].weakFaceEmbedding.clear();
+                    }
                     if (sampleAppearance && reid && !reidImages.empty()) {
                         try {
                             const auto stageStart = stageNow();
@@ -3195,6 +3216,10 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     tracker.retrackScenes(cuts);
                     rc16Tracker.retrackScenes(cuts);
                     trackerNs += stageNow() - trackingStart;
+                }
+                if (!cacheHit && auditWeakFaces) {
+                    const auto recovered = tracker.recoverConsistentWeakFaces();
+                    std::fprintf(stderr,"PF_EXPERIMENT_WEAK_FACE recovered_observations=%zu\n",recovered);
                 }
                 reportPreparation(QStringLiteral("Выбираем основного персонажа"));
                 pfcore::DominantSelectionControl identityControl;identityControl.cancelled=isCancelled;

@@ -29,6 +29,35 @@ TEST(DominantPerson, IoUAssociatesTheSamePersonAcrossFrames)
     ASSERT_EQ(tracker.tracks().front().observations.size(), 2U);
 }
 
+TEST(DominantPerson, WeakFacesNeedMultipleConsistentSpacedObservations)
+{
+    const auto makeTracker=[](bool contradictory, bool tooClose) {
+        pfcore::PersonTracker tracker;
+        for (int i=0;i<3;++i) {
+            const double t=i*(tooClose ? .1 : .2);
+            auto detection=person(t,0,.9);
+            detection.weakFaceEmbedding=contradictory && i==2 ? std::vector<float>{0,1} : std::vector<float>{1,0};
+            tracker.update(t,.1,{detection});
+        }
+        return tracker;
+    };
+    auto consistent=makeTracker(false,false);
+    EXPECT_EQ(consistent.recoverConsistentWeakFaces(),3U);
+    for (const auto& observation:consistent.tracks()[0].observations) EXPECT_FALSE(observation.faceEmbedding.empty());
+    auto contradictory=makeTracker(true,false);
+    EXPECT_EQ(contradictory.recoverConsistentWeakFaces(),0U);
+    auto close=makeTracker(false,true);
+    EXPECT_EQ(close.recoverConsistentWeakFaces(),0U);
+    pfcore::PersonTracker withStrongConflict;
+    for (int i=0; i<3; ++i) {
+        auto detection=person(i*.2,0,.9);
+        detection.weakFaceEmbedding={1,0};
+        if (i==1) detection.faceEmbedding={0,1};
+        withStrongConflict.update(i*.2,.1,{detection});
+    }
+    EXPECT_EQ(withStrongConflict.recoverConsistentWeakFaces(),0U);
+}
+
 TEST(DominantPerson, ContinuousTurnToBackKeepsMeasuredIdentityWhileFaceIsHidden)
 {
     pfcore::PersonTracker tracker;
