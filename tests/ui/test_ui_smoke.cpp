@@ -65,6 +65,7 @@ private slots:
     }
     void addingFilesDoesNotWaitForPreviewDeletion();
     void firstAddingRealVideosKeepsUiResponsive();
+    void nativeSourceDialogKeepsUiResponsive();
     void mainQmlLoadsFromResources();
     void manualSortAndComposeDialogs();
     void realSoldierDefaultDiscoveryColdAndWarm();
@@ -3440,6 +3441,28 @@ void UiSmokeTests::firstAddingRealVideosKeepsUiResponsive()
     QCOMPARE(analysis->fileCount(), paths.size());
     QVERIFY2(addMs < 1000, "Adding source files blocked the UI thread");
     analysis->inspectFiles({});
+}
+
+void UiSmokeTests::nativeSourceDialogKeepsUiResponsive()
+{
+    if (!qEnvironmentVariableIsSet("PF_TEST_NATIVE_SOURCE_DIALOG")) QSKIP("Opt-in native dialog test");
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    auto* window = loadWindow(engine);
+    QVERIFY(window);
+    auto* dialog = window->findChild<QObject*>("sourceFileDialog");
+    QVERIFY(dialog);
+    int ticks = 0;
+    QTimer heartbeat;
+    heartbeat.setInterval(20);
+    connect(&heartbeat, &QTimer::timeout, &heartbeat, [&] { ++ticks; });
+    heartbeat.start();
+    QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
+    QTRY_VERIFY_WITH_TIMEOUT(dialog->property("visible").toBool(), 10000);
+    QTest::qWait(1000);
+    qInfo() << "NATIVE_DIALOG_HEARTBEAT ticks=" << ticks;
+    QVERIFY2(ticks >= 10, "UI event loop stalled while native source dialog was open");
+    QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
 }
 
 int main(int argc, char** argv)
