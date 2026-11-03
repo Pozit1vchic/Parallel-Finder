@@ -2110,18 +2110,38 @@ QVariantMap AnalysisController::summaryForSource(const QString& path) const
     return sourceSummaries_.value(localPathFromInput(path)).toMap();
 }
 
+void AnalysisController::discardReviewPreviewsAsync()
+{
+    // Removing a session can involve thousands of preview files. Do not do
+    // filesystem cleanup on the GUI thread while adding or reanalysing video.
+    auto previews = std::move(reviewPreviewDirectories_);
+    auto originals = std::move(reviewOriginalDirectories_);
+    auto draft = std::move(reviewDraftDirectory_);
+    auto analysis = std::move(analysisPreviewDirectory_);
+    auto undo = std::move(reviewUndo_);
+    reviewPreviewDirectories_.clear();
+    reviewOriginalDirectories_.clear();
+    reviewUndo_.clear();
+    if (previews.empty() && originals.empty() && !draft && !analysis && undo.empty()) return;
+    workerThreads_.start(QThread::create([previews = std::move(previews), originals = std::move(originals),
+                                         draft = std::move(draft), analysis = std::move(analysis),
+                                         undo = std::move(undo)]() mutable {
+        undo.clear();
+        previews.clear();
+        originals.clear();
+        draft.reset();
+        analysis.reset();
+    }));
+}
+
 void AnalysisController::inspectFiles(const QStringList& paths)
 {
     if (exportBusy_ || reviewBusy_) return;
     const QStringList normalized = normalizedPaths(paths);
     deferredAnalyzePaths_.clear();
     results_.clear();
-    reviewUndo_.clear();
+    discardReviewPreviewsAsync();
     emit resultCategoriesChanged();
-    reviewPreviewDirectories_.clear();
-    reviewOriginalDirectories_.clear();
-    reviewDraftDirectory_.reset();
-    analysisPreviewDirectory_.reset();
     matches_.clear();
     resultPoseEvidence_.clear();videoActionContext_.reset();
     fileCount_ = 0;
@@ -2291,12 +2311,8 @@ void AnalysisController::analyzeFiles(const QStringList& paths)
         return;
     }
     results_.clear();
-    reviewUndo_.clear();
+    discardReviewPreviewsAsync();
     emit resultCategoriesChanged();
-    reviewPreviewDirectories_.clear();
-    reviewOriginalDirectories_.clear();
-    reviewDraftDirectory_.reset();
-    analysisPreviewDirectory_.reset();
     matches_.clear();
     resultPoseEvidence_.clear();videoActionContext_.reset();
     matchCount_ = 0;

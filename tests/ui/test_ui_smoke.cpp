@@ -26,6 +26,7 @@
 #include <QClipboard>
 #include <QTemporaryDir>
 #include <pfservices/SettingsStore.hpp>
+#include <pfservices/RuntimeScratch.hpp>
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QProcess>
@@ -62,6 +63,8 @@ private slots:
         pfui::AppInfo::instance()->initializeBackendsAsync();
         QTRY_VERIFY_WITH_TIMEOUT(!pfui::AppInfo::instance()->backendInitializing(), 30000);
     }
+    void addingFilesDoesNotWaitForPreviewDeletion();
+    void firstAddingRealVideosKeepsUiResponsive();
     void mainQmlLoadsFromResources();
     void manualSortAndComposeDialogs();
     void realSoldierDefaultDiscoveryColdAndWarm();
@@ -3390,6 +3393,53 @@ void UiSmokeTests::directMlDownloadIntegration()
     const auto root = QString::fromStdString(pfservices::SettingsStore::defaultDirectory());
     QVERIFY(QFileInfo::exists(root + "/providers/dml/onnxruntime.dll"));
     QVERIFY(QFileInfo::exists(root + "/providers/dml/DirectML.dll"));
+}
+
+void UiSmokeTests::addingFilesDoesNotWaitForPreviewDeletion()
+{
+    auto* analysis = pfui::AnalysisController::instance();
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    auto deleted = std::make_shared<std::atomic_bool>(false);
+    analysis->analysisPreviewDirectory_ = std::shared_ptr<pfservices::RuntimeScratch>(
+        new pfservices::RuntimeScratch(root.path()), [deleted](auto* scratch) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            delete scratch;
+            deleted->store(true);
+        });
+    QElapsedTimer timer;
+    timer.start();
+    analysis->inspectFiles({});
+    QVERIFY2(timer.elapsed() < 350, "Discarding previews blocked the caller");
+    QTRY_VERIFY_WITH_TIMEOUT(deleted->load(), 5000);
+}
+
+void UiSmokeTests::firstAddingRealVideosKeepsUiResponsive()
+{
+    const auto paths = qEnvironmentVariable("PF_TEST_SOURCE_VIDEOS").split('|', Qt::SkipEmptyParts);
+    if (paths.isEmpty()) QSKIP("Set PF_TEST_SOURCE_VIDEOS to exercise actual files");
+    for (const auto& path : paths) QVERIFY(QFileInfo::exists(path));
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    auto* window = loadWindow(engine);
+    QVERIFY(window);
+    auto* analysis = pfui::AnalysisController::instance();
+    analysis->inspectFiles({});
+    QElapsedTimer elapsed;
+    elapsed.start();
+    QVERIFY(QMetaObject::invokeMethod(window, "addFiles", Q_ARG(QVariant, paths)));
+    const qint64 addMs = elapsed.elapsed();
+    int ticks = 0;
+    QTimer heartbeat;
+    heartbeat.setInterval(10);
+    connect(&heartbeat, &QTimer::timeout, &heartbeat, [&] { ++ticks; });
+    heartbeat.start();
+    QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(), 60000);
+    qInfo() << "FIRST_ADD_TIMING count=" << paths.size() << "sync_ms=" << addMs
+            << "total_ms=" << elapsed.elapsed() << "heartbeat_ticks=" << ticks;
+    QCOMPARE(analysis->fileCount(), paths.size());
+    QVERIFY2(addMs < 1000, "Adding source files blocked the UI thread");
+    analysis->inspectFiles({});
 }
 
 int main(int argc, char** argv)

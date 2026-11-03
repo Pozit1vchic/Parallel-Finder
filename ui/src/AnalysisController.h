@@ -14,6 +14,7 @@
 #include <map>
 
 class QTemporaryDir;
+class UiSmokeTests;
 namespace pfservices { class RuntimeScratch; }
 
 #include "pfcore/MotionMatcher.hpp"
@@ -221,6 +222,7 @@ signals:
     void exportProgressChanged();
 
 private:
+    friend class ::UiSmokeTests;
     std::atomic_bool idleCacheCleanupRunning_{false};
     std::jthread idleCacheCleanup_;
     std::jthread reviewWorker_;
@@ -246,6 +248,7 @@ private:
     void saveSettings() const;
     void setProgress(double value, const QString& stage, qlonglong processed, qlonglong total);
     bool resumePendingInspection();
+    void discardReviewPreviewsAsync();
     int fileCount_ = 0;
     qlonglong frameCount_ = 0;
     double durationSeconds_ = 0.0;
