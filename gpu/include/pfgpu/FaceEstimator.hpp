@@ -37,5 +37,7 @@ private:
         bool forwardAlignmentAudit = false);
     std::string detector_, recognizer_;
     Provider provider_;
+    std::optional<SessionSpec> detectorSpec_;
+    std::string detectorSpecKey_;
 };
 }

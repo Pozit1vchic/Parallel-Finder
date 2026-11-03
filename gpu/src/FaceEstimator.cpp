@@ -134,8 +134,17 @@ std::vector<float> FaceEstimator::inferImage(const ReIdImage& image, FaceRecogni
     if (width < 32 || height < 32) return {};
     const auto detector = processSessionCache().getOrCreate(ModelRef::fromPath(detector_), {provider_,0,"face-detector",1});
     if (!detector.ok) throw std::runtime_error(detector.error);
-    const auto spec = describeSession(detector.handle);
-    if (!spec.ok || spec.input.shape.size() != 4)
+    // Model metadata does not change between frames. Querying every output
+    // tensor here is costly when several people are sampled in each frame.
+    // Re-read it if the session cache supplies a different model session.
+    if (!detectorSpec_ || detectorSpecKey_ != detector.handle.cacheKey) {
+        auto spec = describeSession(detector.handle);
+        if (!spec.ok) throw std::runtime_error(spec.error);
+        detectorSpec_ = std::move(spec);
+        detectorSpecKey_ = detector.handle.cacheKey;
+    }
+    const auto& spec = *detectorSpec_;
+    if (spec.input.shape.size() != 4)
         throw std::runtime_error("YuNet input must be NCHW");
     const int size = spec.input.shape[2] > 0 ? static_cast<int>(spec.input.shape[2]) : 320;
     if (size < 32 || size > 1024 || size % 32 != 0
