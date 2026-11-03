@@ -2,7 +2,7 @@
   "schema": 1,
   "source": "butcher_parallel_notsorted.mov",
   "sourceSha256": "6c7ed560ed6e337e2a0d183f52c29d2bb6db6e95cf13f598ad105526e6dc5830",
-  "annotation": "Visually reviewed source frame at 441.04 s: the woman printed on the pink advertising poster is not a person physically in the scene; Butcher on the left is. Track IDs and boxes refer to the frozen v16 pose/tracker output, not stable identifiers across runs. The poster has camera-relative motion and a high pose-detector score. This single scene cannot validate a general filter. Two additional still-standing people at 479.5 s are live characters. Their normalized face-landmark dispersion is smaller than the poster track despite their physical presence. Additional tracks 143, 325 and 1086 show the same framed historical portrait, visually reviewed on the v18 experimental run. They are not live people; lower face thresholds can make the portrait cluster more confidently.",
+  "annotation": "Visually reviewed source frame at 441.04 s: the woman printed on the pink advertising poster is not a person physically in the scene; Butcher on the left is. Track IDs and boxes refer to the frozen v16 pose/tracker output, not stable identifiers across runs. The poster has camera-relative motion and a high pose-detector score. This single scene cannot validate a general filter. Two additional still-standing people at 479.5 s are live characters. Their normalized face-landmark dispersion is smaller than the poster track despite their physical presence. Additional tracks 143, 325 and 1086 show the same framed historical portrait, visually reviewed on the v18 experimental run. They are not live people; lower face thresholds can make the portrait cluster more confidently. Additional real Butcher controls are present in the same three shots as the framed portrait.",
   "frameWidth": 1280,
   "frameHeight": 544,
   "controls": [
@@ -96,6 +96,45 @@
       ],
       "expected": "printed-image",
       "detectorConfidence": 0.4974970817565918
+    },
+    {
+      "id": "live-person-beside-portrait-142",
+      "track": "142",
+      "time": 67.85939933340414,
+      "box": [
+        303.97265625,
+        77.73272705078125,
+        493.45098876953125,
+        531.009765625
+      ],
+      "expected": "person",
+      "detectorConfidence": 0.9327473044395447
+    },
+    {
+      "id": "live-person-beside-portrait-324",
+      "track": "324",
+      "time": 185.3927153335656,
+      "box": [
+        545.3134765625,
+        8.987518310546875,
+        1218.8978271484375,
+        532.469482421875
+      ],
+      "expected": "person",
+      "detectorConfidence": 0.9157164096832275
+    },
+    {
+      "id": "live-person-beside-portrait-1084",
+      "track": "1084",
+      "time": 668.0387030000878,
+      "box": [
+        265.9681091308594,
+        44.7413330078125,
+        710.3114013671875,
+        530.1737060546875
+      ],
+      "expected": "person",
+      "detectorConfidence": 0.9351081252098083
     }
   ]
 }

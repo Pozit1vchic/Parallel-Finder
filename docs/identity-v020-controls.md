@@ -13,6 +13,28 @@ detector confidence threshold would therefore risk removing real people.
 Reflections and screens add additional moving cases and are not solved by these
 controls. No image-surface filter was enabled on the basis of this evidence.
 
+A research-only rectangular-frame cue was evaluated on the labelled Butcher
+frames using `tools/benchmark/audit_printed_frame_cue.py`. It looks for visible
+line segments on both sides and along the bottom of a detection, not for a
+person's motion. On these ten selected controls it fired for one of four
+printed-image detections and none of six live-person controls. It missed the
+poster and two other views of the framed portrait, where edges were cropped,
+oblique or obscured. It also fired zero times in a separately sampled set of
+40 face-backed detections from the existing lead group; those 40 have not all
+been independently labelled, so they are not a measured false-positive rate.
+The narrow cue is not used in the application: a live person in front of a
+frame can satisfy it, and one still frame cannot establish which surface the
+person belongs to. The reproducible command is:
+
+```powershell
+python tools/benchmark/audit_printed_frame_cue.py `
+  --video 'D:/Videos/butcher_parallel_notsorted.mov' `
+  --controls tests/fixtures/butcher-printed-person-controls.json `
+  --ffmpeg 'D:/msys2/ucrt64/bin/ffmpeg.exe'
+```
+
+It requires local OpenCV and NumPy; no new runtime dependency is shipped.
+
 After the local 0.2.0 package was built, a separate development change made a
 co-visible, face-backed person count as an ambiguity competitor for body-only
 recovery. A synthetic control previously merged the fragment into the wrong
