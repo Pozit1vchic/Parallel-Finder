@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "scope": "Three visually reviewed appearances from the supplied Butcher montage, using 1280x544 inference coordinates. A selected local control, not an accuracy benchmark. Track IDs apply only to the saved v16 observations.",
+  "sourceBasename": "butcher_parallel_notsorted.mov",
+  "controls": [
+    {
+      "id": "butcher-profile-and-back-in-mirror-scene",
+      "left": {"time": 526.2102883336423, "point": [652.94, 294.61]},
+      "right": {"time": 563.2053463336514, "point": [383.37, 273.81]},
+      "sameIdentity": true
+    },
+    {
+      "id": "butcher-profile-and-blurred-other-person",
+      "left": {"time": 526.2102883336423, "point": [652.94, 294.61]},
+      "right": {"time": 214.2130416671719, "point": [402.17, 441.90]},
+      "sameIdentity": false
+    }
+  ]
+}
