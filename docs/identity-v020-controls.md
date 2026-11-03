@@ -1,5 +1,18 @@
 # Character identity controls for v0.2.0
 
+## Printed people and reflections remain unresolved
+
+The pose detector can report pictures as people. The reviewed source frame at
+441.04 seconds of the supplied Butcher video contains both Butcher and a woman
+on a poster; both were detected, with confidence 0.96 and 0.90 respectively.
+`tests/fixtures/butcher-printed-person-controls.json` records these two examples
+and two real, nearly motionless people at 479.56 seconds. The latter have less
+normalized landmark variation than the printed figure, whose apparent motion
+comes from camera movement. Suppressing tracks based on stillness or a higher
+detector confidence threshold would therefore risk removing real people.
+Reflections and screens add additional moving cases and are not solved by these
+controls. No image-surface filter was enabled on the basis of this evidence.
+
 After the local 0.2.0 package was built, a separate development change made a
 co-visible, face-backed person count as an ambiguity competitor for body-only
 recovery. A synthetic control previously merged the fragment into the wrong

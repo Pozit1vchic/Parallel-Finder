@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "source": "butcher_parallel_notsorted.mov",
+  "sourceSha256": "6c7ed560ed6e337e2a0d183f52c29d2bb6db6e95cf13f598ad105526e6dc5830",
+  "annotation": "Visually reviewed source frame at 441.04 s: the woman printed on the pink advertising poster is not a person physically in the scene; Butcher on the left is. Track IDs and boxes refer to the frozen v16 pose/tracker output, not stable identifiers across runs. The poster has camera-relative motion and a high pose-detector score. This single scene cannot validate a general filter. Two additional still-standing people at 479.5 s are live characters. Their normalized face-landmark dispersion is smaller than the poster track despite their physical presence.",
+  "frameWidth": 1280,
+  "frameHeight": 544,
+  "controls": [
+    {
+      "id": "butcher-person-near-poster",
+      "track": "634",
+      "time": 441.04240366684695,
+      "box": [
+        70.500732421875,
+        58.7193603515625,
+        753.1280517578125,
+        535.09130859375
+      ],
+      "expected": "person",
+      "detectorConfidence": 0.9551578760147095
+    },
+    {
+      "id": "woman-printed-on-poster",
+      "track": "635",
+      "time": 441.04240366684695,
+      "box": [
+        816.9129638671875,
+        125.95028686523438,
+        1105.4755859375,
+        531.0216674804688
+      ],
+      "expected": "printed-image",
+      "detectorConfidence": 0.9040582180023193
+    },
+    {
+      "id": "still-live-person-678",
+      "track": "678",
+      "time": 479.5598563333356,
+      "box": [
+        88.29838562011719,
+        23.5128173828125,
+        277.71099853515625,
+        532.0098876953125
+      ],
+      "expected": "person",
+      "detectorConfidence": 0.9318234920501709
+    },
+    {
+      "id": "still-live-person-679",
+      "track": "679",
+      "time": 479.5598563333356,
+      "box": [
+        335.66546630859375,
+        39.410247802734375,
+        505.67291259765625,
+        506.89703369140625
+      ],
+      "expected": "person",
+      "detectorConfidence": 0.9429494142532349
+    }
+  ]
+}
