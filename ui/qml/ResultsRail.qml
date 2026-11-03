@@ -454,6 +454,20 @@ Rectangle {
         return Number(item.leftStart || 0)
     }
 
+    function matchedDuration(item) {
+        function sideDuration(side) {
+            if (item[side + "Removed"]) return null
+            const start = item[side + "Start"], end = item[side + "End"]
+            if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return undefined
+            return end - start
+        }
+        const left = sideDuration("left"), right = sideDuration("right")
+        if (left === undefined || right === undefined || (left === null && right === null)) return undefined
+        if (left === null) return right
+        if (right === null) return left
+        return Math.min(left, right)
+    }
+
     function compareValues(a, b) {
         let delta = 0
         const strongA=Number(a.bestMatchScore !== undefined ? a.bestMatchScore : root.movementSimilarity(a))
@@ -477,9 +491,17 @@ Rectangle {
             return (knownA ? b.poseSimilarity-a.poseSimilarity : 0) || strongB-strongA || Number(a.id)-Number(b.id)
         }
         if (sortCriterion === "identity") return Number(b.faceVerified ? 2 : b.identityVerified ? 1 : 0)-Number(a.faceVerified ? 2 : a.identityVerified ? 1 : 0) || strongB-strongA || Number(a.id)-Number(b.id)
-        if (sortCriterion === "evidence") return Number(b.evidenceQuality || 0)-Number(a.evidenceQuality || 0) || strongB-strongA || Number(a.id)-Number(b.id)
+        if (sortCriterion === "evidence") {
+            const knownA=Number.isFinite(a.evidenceQuality) && a.evidenceQuality>=0
+            const knownB=Number.isFinite(b.evidenceQuality) && b.evidenceQuality>=0
+            if (knownA !== knownB) return knownA ? -1 : 1
+            return (knownA ? b.evidenceQuality-a.evidenceQuality : 0) || strongB-strongA || Number(a.id)-Number(b.id)
+        }
         if (sortCriterion === "longest" || sortCriterion === "shortest") {
-            const da=Number(a.leftEnd || 0)-Number(a.leftStart || 0),db=Number(b.leftEnd || 0)-Number(b.leftStart || 0)
+            const da=matchedDuration(a), db=matchedDuration(b)
+            const knownA=Number.isFinite(da), knownB=Number.isFinite(db)
+            if (knownA !== knownB) return knownA ? -1 : 1
+            if (!knownA) return strongB-strongA || Number(a.id)-Number(b.id)
             return (da-db)*(sortCriterion === "longest" ? -1 : 1) || strongB-strongA || Number(a.id)-Number(b.id)
         }
         if (sortCriterion === "source") return String(a.leftSource || "").localeCompare(String(b.leftSource || "")) || timeValue(a)-timeValue(b) || Number(a.id)-Number(b.id)
@@ -496,7 +518,8 @@ Rectangle {
                 const evidenceDelta=evidenceTier(a)-evidenceTier(b)
                 if (evidenceDelta) return evidenceDelta
                 // Preserve pair continuity; imported rows without ranks use quality.
-                const rankedA=Number.isFinite(a.continuityRank), rankedB=Number.isFinite(b.continuityRank)
+                const rankedA=Number.isFinite(a.continuityRank) && a.continuityRank>=0
+                const rankedB=Number.isFinite(b.continuityRank) && b.continuityRank>=0
                 if (rankedA !== rankedB) return rankedA ? -1 : 1
                 if (rankedA && rankedB)
                     return a.continuityRank-b.continuityRank || strongB-strongA || Number(a.id)-Number(b.id)

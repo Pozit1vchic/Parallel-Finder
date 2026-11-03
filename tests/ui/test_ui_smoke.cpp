@@ -1701,7 +1701,42 @@ void UiSmokeTests::movementClassesAndExportOrder()
     rail->setProperty("sortCriterion","pose");QTest::qWait(100);
     const auto byPose=values(rail->property("visibleResults")).toList();
     for(int i=0;i<4;++i)QCOMPARE(byPose[i].toMap().value("id").toInt(),(QList<int>{2,1,0,3})[i]);
+    // Duration follows both retained sides, like the actual match. Removed
+    // sides and missing measurements cannot create a zero-length result.
+    const QVariantList pairedDurationRows{
+        QVariantMap{{"id",0},{"classification","sitting"},{"leftStart",0.},{"leftEnd",6.},{"rightStart",10.},{"rightEnd",11.},{"evidenceQuality",0.},{"bestMatchScore",.5}},
+        QVariantMap{{"id",1},{"classification","sitting"},{"leftStart",0.},{"leftEnd",3.},{"rightStart",10.},{"rightEnd",13.},{"evidenceQuality",.8},{"bestMatchScore",.5}},
+        QVariantMap{{"id",2},{"classification","sitting"},{"leftRemoved",true},{"leftStart",0.},{"leftEnd",9.},{"rightStart",10.},{"rightEnd",12.},{"bestMatchScore",.5}},
+        QVariantMap{{"id",3},{"classification","sitting"},{"leftStart",0.},{"leftEnd",9.},{"evidenceQuality",-1.},{"bestMatchScore",.5}}};
+    rail->setProperty("results",pairedDurationRows);
+    rail->setProperty("sortCriterion","shortest");QTest::qWait(100);
+    const auto shortest=values(rail->property("visibleResults")).toList();
+    for(int i=0;i<4;++i)QCOMPARE(shortest[i].toMap().value("id").toInt(),(QList<int>{0,2,1,3})[i]);
+    rail->setProperty("sortCriterion","longest");QTest::qWait(100);
+    const auto longest=values(rail->property("visibleResults")).toList();
+    for(int i=0;i<4;++i)QCOMPARE(longest[i].toMap().value("id").toInt(),(QList<int>{1,2,0,3})[i]);
+    // Recorded Butcher result timings: pair 2's left side is shorter, but
+    // pair 3's right side makes it the shorter actual matched interval.
+    const QVariantList realPairDurations{
+        QVariantMap{{"id",2},{"leftStart",145.91611499996108},{"leftEnd",147.04223999996222},
+                    {"rightStart",196.38279599985066},{"rightEnd",198.05112933318566}},
+        QVariantMap{{"id",3},{"leftStart",312.2061929999251},{"leftEnd",313.8745263332601},
+                    {"rightStart",314.8546513331151},{"rightEnd",315.8556513331161}}};
+    rail->setProperty("results",realPairDurations);rail->setProperty("sortCriterion","shortest");QTest::qWait(100);
+    const auto realShortest=values(rail->property("visibleResults")).toList();
+    QCOMPARE(realShortest.size(),2);
+    QCOMPARE(realShortest[0].toMap().value("id").toInt(),3);
+    rail->setProperty("results",pairedDurationRows);
+    rail->setProperty("sortCriterion","evidence");QTest::qWait(100);
+    const auto evidence=values(rail->property("visibleResults")).toList();
+    for(int i=0;i<4;++i)QCOMPARE(evidence[i].toMap().value("id").toInt(),(QList<int>{1,0,2,3})[i]);
     rail->setProperty("sortCriterion","classification");
+    QVariantList invalidRankRows{
+        QVariantMap{{"id",0},{"classification","sitting"},{"continuityRank",-1},{"bestMatchScore",1.}},
+        QVariantMap{{"id",1},{"classification","sitting"},{"continuityRank",0},{"bestMatchScore",.5}}};
+    rail->setProperty("results",invalidRankRows);QTest::qWait(100);
+    const auto invalidRankOrder=values(rail->property("visibleResults")).toList();
+    QCOMPARE(invalidRankOrder[0].toMap().value("id").toInt(),1);
     auto evidenceRows=continuityRows;
     auto weak=evidenceRows[0].toMap();weak.insert("matchTier","possible");weak.insert("continuityRank",0);evidenceRows[0]=weak;
     auto strong=evidenceRows[1].toMap();strong.insert("matchTier","strong");strong.insert("continuityRank",2);evidenceRows[1]=strong;

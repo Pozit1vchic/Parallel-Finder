@@ -1,5 +1,25 @@
 # Automatic classification and ordering
 
+## Pair duration and missing evidence in the result list
+
+The longest/shortest sort now uses the shorter matched interval when both
+sides remain, matching `MotionMatch::durationSeconds`; if one side was
+removed it uses the retained interval. A missing, non-finite or inverted
+range is unknown and sorts after measured durations in either direction.
+The duration here is the supported match interval, not a claim about the
+duration after scene-boundary expansion during export.
+
+Previously, only the left interval was used. Two captured Butcher results
+show the consequence: result 2 has matching intervals of approximately
+1.13 / 1.67 seconds, while result 3 has 1.67 / 1.00 seconds. Shortest-first
+must put result 3 before result 2. The UI regression uses those captured
+times, plus removed-side, missing-side and both sorting directions. Evidence
+quality sorting also distinguishes measured zero from missing values, and
+negative continuity ranks no longer outrank valid ranks in classification
+sorting. Focused UI checks for sorting, scoped evidence, removed sides and
+export order pass. This corrects ordering of existing evidence; it does not
+prove that the underlying matches are correct.
+
 ## Shared observed landmarks for movement
 
 Movement direction and gesture normalization now compare the same landmarks
