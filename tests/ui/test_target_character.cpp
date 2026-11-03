@@ -14,6 +14,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QSaveFile>
+#include <QElapsedTimer>
 #include <QScopeGuard>
 #include <mutex>
 #include <condition_variable>
@@ -24,6 +25,34 @@
 class TargetCharacterTests : public QObject {
     Q_OBJECT
 private slots:
+    void realVideoAllPeopleSearch() {
+        const auto source=qEnvironmentVariable("PF_TEST_REAL_CHARACTER_VIDEO");
+        const auto model=qEnvironmentVariable("PF_MODEL_PATH");
+        const auto cache=qEnvironmentVariable("PF_TEST_REAL_CHARACTER_CACHE");
+        if(source.isEmpty() || model.isEmpty() || cache.isEmpty()) QSKIP("Opt-in real all-people search");
+        QVERIFY(QFileInfo::exists(source)); QVERIFY(QFileInfo::exists(model));
+        pfservices::Settings settings; settings.modelPath=model.toStdString(); settings.provider="cuda";
+        settings.modelChoice=QFileInfo(model).fileName().toStdString(); settings.qualityProfile="fast";
+        settings.cachePath=cache.toStdString(); settings.processingThreads=2;
+        std::string error; QVERIFY2(pfservices::SettingsStore().save(settings,error),error.c_str());
+        pfui::AppInfo::registerQmlTypes(); auto* info=pfui::AppInfo::instance(); info->initializeBackendsAsync();
+        QTRY_VERIFY_WITH_TIMEOUT(!info->backendInitializing(),30000);
+        auto* analysis=pfui::AnalysisController::instance(); analysis->setProviderChoice("cuda");
+        analysis->setAnalysisMode("combined");
+        QElapsedTimer timer; timer.start();
+        analysis->analyzeAllPeople({source});
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy() || analysis->awaitingTarget(),600000);
+        QVERIFY2(!analysis->awaitingTarget(),"All-people search unexpectedly requested a character");
+        QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
+        qInfo() << "ALL_PEOPLE_REAL elapsed_ms=" << timer.elapsed() << "analyzed_frames=" << analysis->analyzedFrames()
+                << "matches=" << analysis->matchCount() << "status=" << analysis->status();
+        const auto report=qEnvironmentVariable("PF_TEST_REAL_CHARACTER_REPORT");
+        if(!report.isEmpty()) {
+            QSaveFile file(report); QVERIFY(file.open(QIODevice::WriteOnly));
+            const auto data=QJsonDocument::fromVariant(analysis->results()).toJson(QJsonDocument::Compact);
+            QCOMPARE(file.write(data),data.size()); QVERIFY(file.commit());
+        }
+    }
     void realSeriesIncrementalRestart() {
         const auto manifestPath=qEnvironmentVariable("PF_TEST_REAL_SERIES_MANIFEST");
         if(manifestPath.isEmpty())QSKIP("Opt-in real-source series/restart regression");
