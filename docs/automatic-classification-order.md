@@ -18,6 +18,15 @@ chosen glasses-transition control remained excluded. The changed pairs have
 not been independently reviewed, so these counts do not establish improved
 overall recall or precision; the complete application has not been rerun.
 
+Reviewing frames around 490.25–491.4, 593.6–594.9 and 654.4–655.6 seconds
+exposed a false body-pose result in both replays: the first scene shows Butcher
+standing with a bottle, the second reclining with a phone, and the third
+standing with a bottle. The newer replay pairs the first two; the earlier
+replay pairs the second and third. An experimental articulation-score veto
+removed the former but selected the latter again. A stricter veto also rejected
+existing changed-view positive controls. Neither veto is shipped: broader
+evidence is needed to reject these mismatches without losing valid parallels.
+
 The default result list now preserves independently measured specific posture.
 Two confirmed sitting intervals form `sitting`; two lying intervals form `lying`.
 A sitting/lying disagreement becomes `posture_mismatch`, with an explicit conflict
