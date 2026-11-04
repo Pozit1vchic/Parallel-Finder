@@ -43,7 +43,14 @@ void enforceUniqueFaceOwnership(std::vector<PersonDetection>& people,std::span<c
     for(std::size_t i=0;i<people.size();++i) {
         if(visited[i]||!valid(i))continue;
         std::vector<std::size_t> group{i};visited[i]=true;
-        for(std::size_t j=i+1;j<people.size();++j)if(!visited[j]&&same(i,j)) {group.push_back(j);visited[j]=true;}
+        // Duplicate landmarks can form a chain: A matches B and B matches C,
+        // even if A and C differ slightly too much to match directly. Resolve
+        // the whole connected group before clearing any embeddings; otherwise
+        // the same face may be assigned to more than one person depending on
+        // the detection order.
+        for(std::size_t member=0;member<group.size();++member)
+            for(std::size_t j=0;j<people.size();++j)
+                if(!visited[j]&&same(group[member],j)) {group.push_back(j);visited[j]=true;}
         if(group.size()<2)continue;
         std::stable_sort(group.begin(),group.end(),[&](auto a,auto b){return score(a)<score(b);});
         const double best=score(group[0]),runner=score(group[1]);

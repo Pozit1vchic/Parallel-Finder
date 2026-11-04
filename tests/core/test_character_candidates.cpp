@@ -105,6 +105,24 @@ TEST(CharacterCandidates, AnUncontestedFaceStillRequiresAgreementWithTheObserved
     EXPECT_FALSE(people[0].faceEmbedding.empty());
 }
 
+TEST(CharacterCandidates, ChainedDuplicateFacesCannotHaveMultipleOwnersInAnyOrder) {
+    const pfcore::ObservedFaceLandmarks face{true,{100,100,140,100,120,120,105,140,135,140}};
+    auto middle=face,last=face;
+    for(std::size_t i=0;i<10;i+=2) { middle.points[i]+=6; last.points[i]+=12; }
+    pfcore::PersonDetection person;person.faceEmbedding={1,0};
+    person.keypoints={{120,120,1},{100,100,1},{140,100,1}};
+    std::vector<pfcore::ObservedFaceLandmarks> landmarks{face,middle,last};
+    std::vector<int> order{0,1,2};
+    do {
+        std::vector<pfcore::PersonDetection> people(3,person);
+        std::vector<pfcore::ObservedFaceLandmarks> ordered;
+        for(const auto i:order) ordered.push_back(landmarks[i]);
+        pfcore::enforceUniqueFaceOwnership(people,ordered);
+        EXPECT_EQ(std::count_if(people.begin(),people.end(),[](const auto& p){return !p.faceEmbedding.empty();}),1);
+        EXPECT_FALSE(people[std::find(order.begin(),order.end(),0)-order.begin()].faceEmbedding.empty());
+    } while(std::next_permutation(order.begin(),order.end()));
+}
+
 TEST(CharacterCandidates, IdentitySwitchCannotCreateAFalseCoVisibilityVetoForTheSameLead) {
     pfcore::PersonTracker tracker(.30,1.,true,.65);
     pfcore::PersonDetection lead;lead.box={0,0,100,200};lead.confidence=.95;
