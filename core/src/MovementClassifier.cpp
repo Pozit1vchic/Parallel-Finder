@@ -119,31 +119,33 @@ MovementClassification classifyOne(const MotionWindow& window)
 {
     if (window.frames.size() < 2) return {};
     auto result = classifyEndpoints(window.frames.front(), window.frames.back());
-    if (result.direction != MovementDirection::Static || result.gesture != GestureClass::Static)
+    const bool checkDirection = result.direction == MovementDirection::Static;
+    const bool checkGesture = result.gesture == GestureClass::Static;
+    if (!checkDirection && !checkGesture)
         return result;
 
     // Equal endpoints do not imply a static trajectory (raise/lower, nod,
     // out-and-back). Require a sustained excursion rather than one outlier.
     // The temporal matcher remains responsible for matching both trajectories.
-    std::size_t consecutive = 0;
+    std::size_t directionConsecutive = 0, gestureConsecutive = 0;
     for (std::size_t i = 1; i + 1 < window.frames.size(); ++i) {
         const auto excursion = classifyEndpoints(window.frames.front(), window.frames[i]);
         const bool directionMoving = excursion.direction != MovementDirection::Static
             && excursion.direction != MovementDirection::Unknown;
         const bool gestureMoving = excursion.gesture != GestureClass::Static
             && excursion.gesture != GestureClass::Unknown;
-        const bool moving = directionMoving || gestureMoving;
-        consecutive = moving ? consecutive + 1 : 0;
-        if (consecutive < 2) continue;
-        if (directionMoving) {
+        directionConsecutive = directionMoving ? directionConsecutive + 1 : 0;
+        gestureConsecutive = gestureMoving ? gestureConsecutive + 1 : 0;
+        if (checkDirection && directionConsecutive >= 2) {
             result.direction = MovementDirection::Mixed;
             result.directionConfidence = excursion.directionConfidence;
         }
-        if (gestureMoving) {
+        if (checkGesture && gestureConsecutive >= 2) {
             result.gesture = GestureClass::Mixed;
             result.gestureConfidence = excursion.gestureConfidence;
         }
-        return result;
+        if ((!checkDirection || result.direction != MovementDirection::Static)
+            && (!checkGesture || result.gesture != GestureClass::Static)) break;
     }
     return result;
 }

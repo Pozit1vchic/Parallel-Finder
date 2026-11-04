@@ -88,6 +88,31 @@ TEST(MovementClassifier, InvisibleIntermediateWristsDoNotInventExcursion)
     EXPECT_EQ(result.direction, pfcore::MovementDirection::Static);
 }
 
+TEST(MovementClassifier, OutAndBackDirectionIsNotHiddenByOccludedWrists)
+{
+    auto window = moving("out-and-back", 0, 0);
+    for (auto& frame : window.frames) {
+        frame.keypoints[9].confidence = 0;
+        frame.keypoints[10].confidence = 0;
+    }
+    for (std::size_t i : {std::size_t{2},std::size_t{3}})
+        for (auto& point : window.frames[i].keypoints) point.x += 15;
+    const auto result = pfcore::MovementClassifier().classify(window);
+    EXPECT_EQ(result.direction, pfcore::MovementDirection::Mixed);
+    EXPECT_EQ(result.gesture, pfcore::GestureClass::Unknown);
+}
+
+TEST(MovementClassifier, SeparateOneFrameExcursionsDoNotCombineIntoSustainedMotion)
+{
+    auto window = moving("transient", 0, 0);
+    for (auto& point : window.frames[2].keypoints) point.x += 15;
+    window.frames[3].keypoints[5].x += 3;
+    window.frames[3].keypoints[6].x -= 3;
+    const auto result = pfcore::MovementClassifier().classify(window);
+    EXPECT_EQ(result.direction, pfcore::MovementDirection::Static);
+    EXPECT_EQ(result.gesture, pfcore::GestureClass::Static);
+}
+
 TEST(MovementClassifier, LostLandmarksDoNotInventDirectionOrCameraMovement)
 {
     auto window = moving("still", 0, 0);
