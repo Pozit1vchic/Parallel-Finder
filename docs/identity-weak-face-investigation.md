@@ -148,6 +148,32 @@ the whole group is safe to merge. The experimental rule remains disabled.
 Source-frame review sheets are local `build/weak-merges-review-v2.jpg` and
 `build/weak-conflict-review.jpg`; they are not committed.
 
+## Local face-and-body corroboration experiment
+
+Diagnostic stage tracing on the weak-face v2 frozen observations shows that
+the repeated car views are already in different groups after initial seeding.
+One group has a single face; the other contains over 4,000 observations. In
+the subsequent gallery pass, the pooled body cosine is 0.737–0.739, below the
+0.78 gate. The three best sampled gallery-face scores are below the separate
+0.65/0.55 rule as well; the bounded whole-group gallery can omit the particular
+repeat track whose individual face and body evidence agree.
+
+A local-only variant considered a single-face group against individual tracks
+of the other group. It required three independent faces from one track, the
+existing 0.65/0.55 top-face thresholds and 0.90 body cosine, while retaining
+the existing component conflict checks. On the weak-face v2 replay it joined
+the split repeated car views: 484 groups became 483 and unresolved groups 473
+became 472. All four selected weak-recovery positives then joined; the selected
+different-person controls remained separate. This experiment examined only one
+source with added weak faces and does not establish general precision. On the
+normal v19 Butcher and v16 Kyle frozen observations, component membership did
+not change. The option was not added to the application: independently reviewed
+negatives, other videos, print/reflection cases, and performance must be checked
+before deciding whether local corroboration is safe. The experimental diff and
+replays are local build artifacts (`weak-local-face-body-experiment.patch`,
+`weak-local-face-body-experiment.json` and the corresponding Butcher/Kyle
+replays), not production behavior.
+
 ## Fresh capture after chained face-ownership fix
 
 The production v19 character-selection path was run cold on the complete
