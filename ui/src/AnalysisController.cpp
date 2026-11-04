@@ -3655,24 +3655,36 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     QVariantList rows;
                     QElapsedTimer previewClock;previewClock.start();
                     struct CharacterPreview {
-                        std::size_t candidate,appearance;double time;QString url;
+                        std::size_t candidate,appearance,frame;
+                    };
+                    struct CharacterPreviewFrame {
+                        double time;QString url;
                         std::shared_future<QString> encoded;
                     };
                     std::vector<CharacterPreview> requests;
+                    std::vector<CharacterPreviewFrame> frames;
                     std::vector<std::string> keys;
+                    std::map<double,std::size_t> frameByTime;
                     for(std::size_t i=0;i<candidates.size();++i)for(std::size_t j=0;j<candidates[i].appearances.size();++j) {
-                        requests.push_back({i,j,candidates[i].appearances[j].timestampSeconds,{},{}});
-                        keys.push_back(characterArtifactKeys[source]+"|character-preview-v2-clean-frame|"+std::to_string(candidates[i].id)+"|"+std::to_string(j));
+                        const auto time=candidates[i].appearances[j].timestampSeconds;
+                        auto [entry,inserted]=frameByTime.try_emplace(time,frames.size());
+                        if(inserted) {
+                            frames.push_back({time,{},{}});
+                            // Preserve the existing key of the first request so
+                            // previously cached previews remain reusable.
+                            keys.push_back(characterArtifactKeys[source]+"|character-preview-v2-clean-frame|"+std::to_string(candidates[i].id)+"|"+std::to_string(j));
+                        }
+                        requests.push_back({i,j,entry->second});
                     }
                     const auto cached=pfservices::materializeCachedPreviews(analysisCache.get(),keys,previewSessionPath(),isCancelled,4);
-                    std::vector<std::size_t> order(requests.size());std::iota(order.begin(),order.end(),0);
-                    std::stable_sort(order.begin(),order.end(),[&](auto a,auto b){return requests[a].time<requests[b].time;});
+                    std::vector<std::size_t> order(frames.size());std::iota(order.begin(),order.end(),0);
+                    std::stable_sort(order.begin(),order.end(),[&](auto a,auto b){return frames[a].time<frames[b].time;});
                     pfcore::VideoDecoder previewDecoder;
                     std::unique_ptr<pfservices::PreviewWriter> writer;
                     double previous=-100;std::size_t cacheHits=0,prepared=0;
                     for(auto index:order) {
                         if(isCancelled())break;
-                        auto& request=requests[index];
+                        auto& request=frames[index];
                         if(!cached[index].isEmpty()) {request.url=cached[index];++cacheHits;continue;}
                         try {
                             if(!previewDecoder.isOpen()) {
@@ -3692,17 +3704,18 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                                 },previous<0 || request.time-previous>1.5 || request.time<=previous);
                             previous=request.time;
                         } catch(const std::exception& exception) {qWarning()<<"TARGET_PREVIEW_FAILED"<<exception.what();}
-                        if(++prepared%20==0)QMetaObject::invokeMethod(this,[this,prepared,total=requests.size()] {
+                        if(++prepared%20==0)QMetaObject::invokeMethod(this,[this,prepared,total=frames.size()] {
                             setProgress(.85,QStringLiteral("Подготавливаем появления персонажей · %1 / %2").arg(prepared).arg(total),analyzedFrames_,frameCount_);
                         },Qt::QueuedConnection);
                     }
                     if(writer)writer->finish();
-                    for(auto& request:requests)if(request.encoded.valid())request.url=request.encoded.get();
-                    if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))std::fprintf(stderr,"PF_CHARACTER_PREVIEWS requested=%zu cached=%zu elapsed_ms=%lld\n",requests.size(),cacheHits,static_cast<long long>(previewClock.elapsed()));
+                    for(auto& frame:frames)if(frame.encoded.valid())frame.url=frame.encoded.get();
+                    if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))std::fprintf(stderr,"PF_CHARACTER_PREVIEWS requested=%zu unique=%zu cached=%zu elapsed_ms=%lld\n",requests.size(),frames.size(),cacheHits,static_cast<long long>(previewClock.elapsed()));
                     std::vector<QVariantList> candidatePreviews(candidates.size());
                     for(const auto& request:requests) {
                         const auto& box=candidates[request.candidate].appearances[request.appearance].box;
-                        candidatePreviews[request.candidate].push_back(QVariantMap{{"url",request.url},{"time",request.time},
+                        const auto& frame=frames[request.frame];
+                        candidatePreviews[request.candidate].push_back(QVariantMap{{"url",frame.url},{"time",frame.time},
                             {"box",QVariantMap{{"left",box.left},{"top",box.top},{"right",box.right},{"bottom",box.bottom}}}});
                     }
                     int identityNumber=0,unresolvedNumber=0;

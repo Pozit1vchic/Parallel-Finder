@@ -146,3 +146,13 @@ one run, not an end-to-end performance comparison. The preview cost is a
 candidate for further investigation. Local capture, tracks and replay are in
 `build/butcher-v19-candidates.json`, `build/butcher-v19-tracks.json`, and
 `build/butcher-v19-replay.json`; they are not committed.
+
+The preview path now deduplicates exact source timestamps while retaining each
+appearance's own time, bounding box, and candidate. On the same saved Butcher
+character artifact, 2,167 requests map to 1,437 frames. With the character
+artifact cached but all preview entries absent, the optimized stage took
+22.0 seconds once; all preview files existed and requests with the same time
+shared the same URL. Candidate and appearance metadata matched the previous
+capture. The earlier 47.0-second measurement followed cold video analysis,
+so these separate runs are not a controlled speedup measurement. A warm run
+reused all 1,437 existing representative preview entries in 2.7 seconds.

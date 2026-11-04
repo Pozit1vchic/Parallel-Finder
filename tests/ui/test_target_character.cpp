@@ -19,6 +19,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <map>
 #include <QtTest/QTest>
 #include "../helpers/onnx_two_people.hpp"
 
@@ -43,6 +44,16 @@ private slots:
         analysis->setAnalysisMode("combined");analysis->analyzeFiles({source});
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),600000);
         QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
+        std::map<double,QString> frameUrls;
+        for(const auto& candidate:analysis->targetCandidates())
+            for(const auto& value:candidate.toMap().value("previews").toList()) {
+                const auto preview=value.toMap();
+                const auto url=preview.value("url").toString();
+                QVERIFY2(!url.isEmpty(),"A character appearance has no preview");
+                QVERIFY(QFileInfo::exists(QUrl(url).toLocalFile()));
+                const auto [found,inserted]=frameUrls.emplace(preview.value("time").toDouble(),url);
+                if(!inserted)QCOMPARE(url,found->second);
+            }
         QSaveFile file(report);QVERIFY(file.open(QIODevice::WriteOnly));
         const auto bytes=QJsonDocument::fromVariant(analysis->targetCandidates()).toJson(QJsonDocument::Compact);
         QCOMPARE(file.write(bytes),bytes.size());QVERIFY(file.commit());
