@@ -29,6 +29,8 @@ TEST(RepeatedSceneIdentity, RequiresDistinctTimedFramesAndPosition) {
     EXPECT_TRUE(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b}).empty());
     a=window(1,0,0);
     EXPECT_TRUE(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,window(2,1,10)},[]{return true;}).empty());
+    int polls=0;
+    EXPECT_TRUE(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,window(2,1,10)},[&]{return ++polls==1;}).empty());
 }
 TEST(RepeatedSceneIdentity, VetoesFaceConflictCovisibilityAndAmbiguity) {
     auto a=window(1,0,0),b=window(2,1,10);
@@ -60,6 +62,28 @@ TEST(RepeatedSceneIdentity, ReframedSceneNeedsThreeMovingPrecisePoses) {
     EXPECT_TRUE(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b}).empty());
     b=window(2,1,10,2);std::fill(b.sceneSequence.begin(),b.sceneSequence.end(),.16F);
     EXPECT_TRUE(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b}).empty());
+}
+TEST(RepeatedSceneIdentity, CoarseFilterPreservesPixelThresholdAndUnboundedInputs) {
+    auto a=window(1,0,0),b=window(2,1,10);
+    for(std::size_t i=0;i<a.sceneSequence.size();++i) {
+        a.sceneSequence[i]=.2F+static_cast<float>(i/432)*.02F;
+        b.sceneSequence[i]=a.sceneSequence[i]+.079F;
+    }
+    EXPECT_EQ(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b}).size(),1);
+    for(std::size_t i=0;i<b.sceneSequence.size();++i)b.sceneSequence[i]=a.sceneSequence[i]+.081F;
+    EXPECT_TRUE(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b}).empty());
+    // Sums cannot distinguish swapped pixels: the exact check must still run.
+    for(std::size_t i=0;i<a.sceneSequence.size();++i) {
+        a.sceneSequence[i]=static_cast<float>(i%2)*.8F+static_cast<float>(i/432)*.02F;
+        b.sceneSequence[i]=static_cast<float>((i+1)%2)*.8F+static_cast<float>(i/432)*.02F;
+    }
+    EXPECT_TRUE(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b}).empty());
+    // Out-of-range inputs follow the old exact path, including large floats.
+    for(std::size_t i=0;i<a.sceneSequence.size();++i) {
+        a.sceneSequence[i]=5.F+static_cast<float>(i/432)*.02F;
+        b.sceneSequence[i]=a.sceneSequence[i]+.06F;
+    }
+    EXPECT_EQ(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b}).size(),1);
 }
 TEST(RepeatedSceneIdentity, MergeKeepsStableIdTracksAndPreviewOrder) {
     auto people=candidates();people[0].observationCount=4;people[0].presenceSeconds=1;

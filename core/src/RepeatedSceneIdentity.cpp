@@ -46,7 +46,36 @@ const PoseFrame* closest(const std::vector<const PoseFrame*>& frames,double time
     return best;
 }
 struct Track {std::size_t id=0,owner=0;const MotionWindow* body=nullptr;std::vector<const PoseFrame*> frames;};
-struct Scene {const MotionWindow* sequence=nullptr;std::map<std::size_t,Track> tracks;};
+struct Triplet {std::array<double,36> sums{};bool valid=false,bounded=false;};
+struct Scene {const MotionWindow* sequence=nullptr;std::map<std::size_t,Track> tracks;std::vector<Triplet> triplets;};
+std::vector<Triplet> prepareTriplets(const MotionWindow& window,const std::function<bool()>& cancelled) {
+    const auto count=window.sceneSequenceTimes.size();
+    std::vector<std::array<double,36>> frames(count);
+    std::vector<bool> finite(count,true);
+    std::vector<bool> bounded(count,true);
+    for(std::size_t f=0;f<count;++f) {
+        if((f%64)==0 && cancelled && cancelled())return {};
+        for(std::size_t pixel=0;pixel<144;++pixel)for(std::size_t channel=0;channel<3;++channel) {
+            const auto value=window.sceneSequence[f*432+pixel*3+channel];
+            if(!std::isfinite(value)) {finite[f]=false;continue;}
+            if(value<0 || value>1)bounded[f]=false;
+            const auto block=(pixel/16/3)*4+(pixel%16/4);
+            frames[f][block*3+channel]+=value;
+        }
+    }
+    std::vector<Triplet> result(count>=3 ? count-2 : 0);
+    for(std::size_t i=0;i<result.size();++i) {
+        const auto first=window.sceneSequenceTimes[i+1]-window.sceneSequenceTimes[i];
+        const auto second=window.sceneSequenceTimes[i+2]-window.sceneSequenceTimes[i+1];
+        auto& triplet=result[i];
+        triplet.valid=finite[i] && finite[i+1] && finite[i+2] && std::isfinite(first) && std::isfinite(second)
+            && first>=.1 && first<=.4 && second>=.1 && second<=.4 && first+second>=.3;
+        triplet.bounded=bounded[i] && bounded[i+1] && bounded[i+2];
+        if(triplet.valid)for(std::size_t j=0;j<triplet.sums.size();++j)
+            triplet.sums[j]=frames[i][j]+frames[i+1][j]+frames[i+2][j];
+    }
+    return result;
+}
 }
 
 std::vector<RepeatedSceneIdentityLink> auditRepeatedSceneIdentityLinks(
@@ -66,6 +95,11 @@ std::vector<RepeatedSceneIdentityLink> auditRepeatedSceneIdentityLinks(
         if(!track.body && cosine(w.appearanceEmbedding,w.appearanceEmbedding)>.99)track.body=&w;
         for(const auto& frame:w.frames)track.frames.push_back(&frame);
     }
+    for(auto& [key,scene]:scenes)if(scene.sequence) {
+        scene.triplets=prepareTriplets(*scene.sequence,cancelled);
+        const auto frameCount=scene.sequence->sceneSequenceTimes.size();
+        if((cancelled && cancelled()) || scene.triplets.size()!=(frameCount>=3 ? frameCount-2 : 0))return {};
+    }
     std::map<std::pair<std::size_t,std::size_t>,RepeatedSceneIdentityLink> links;
     for(auto a=scenes.begin();a!=scenes.end();++a) {
         if(cancelled && cancelled())return {};
@@ -79,13 +113,14 @@ std::vector<RepeatedSceneIdentityLink> auditRepeatedSceneIdentityLinks(
             for(std::size_t i=0;i+2<x.sceneSequenceTimes.size();++i) {
             if((i%8)==0 && cancelled && cancelled())return {};
             for(std::size_t j=0;j+2<y.sceneSequenceTimes.size();++j) {
-                const auto validTimes=[](const auto& times,std::size_t at) {
-                    const auto first=times[at+1]-times[at],second=times[at+2]-times[at+1];
-                    return std::isfinite(first) && std::isfinite(second)
-                        && first>=.1 && first<=.4 && second>=.1 && second<=.4
-                        && first+second>=.3;
-                };
-                if(!validTimes(x.sceneSequenceTimes,i) || !validTimes(y.sceneSequenceTimes,j))continue;
+                const auto& cx=a->second.triplets[i];const auto& cy=b->second.triplets[j];
+                if(!cx.valid || !cy.valid)continue;
+                // By the triangle inequality, the sum of absolute differences
+                // between block sums cannot exceed the full pixel L1 error.
+                // Reject only pairs which already exceed its existing limit.
+                double lowerBound=0;
+                for(std::size_t k=0;k<cx.sums.size();++k)lowerBound+=std::abs(cx.sums[k]-cy.sums[k]);
+                if(cx.bounded && cy.bounded && lowerBound>.08*(3*432)+.001)continue;
                 double error=0,variationX=0,variationY=0;
                 for(std::size_t k=0;k<3*432;++k) {
                     const auto p=x.sceneSequence[i*432+k],q=y.sceneSequence[j*432+k];

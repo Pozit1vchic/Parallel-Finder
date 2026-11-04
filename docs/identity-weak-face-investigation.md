@@ -442,6 +442,22 @@ stronger body gate and the existing pose, timing, face, simultaneous-person
 and ambiguous-link vetoes. It does not address pictures, mirrors or the still
 large number of split identities.
 
+Repeated-scene recovery now precomputes coarse sums for each three-frame
+sequence. A pair is skipped only when the difference between those sums is
+already larger than the existing full-pixel error limit; accepted pairs still
+undergo the original exact comparison and all identity checks. Out-of-range
+pixel values use the full comparison, and a small numerical margin protects
+threshold-adjacent cases.
+
+Three alternating runs on the saved Butcher windows measured 1,077.4 ms median
+before and 291.9 ms after for this recovery stage. All three links and their
+scores were identical across runs. A separate synthetic set produced the same
+20 links before and after, including threshold-adjacent and out-of-range
+values. The actual cached selector produced identical candidate metadata (apart
+from temporary URLs), retained the 20-entry limit, and passed merged-selection
+and saved-choice checks. These measurements cover one stage on one machine,
+not full video analysis or general recognition accuracy.
+
 Reproduce the scene-window audit with the local saved artifacts and a Python
 environment containing NumPy:
 
