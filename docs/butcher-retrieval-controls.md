@@ -139,6 +139,22 @@ miss real movement. The sampled sheets are local in
 selected pairs and serialized match records remained identical in the replay;
 191 focused tests passed, with one optional performance test skipped.
 
+The later elbow fallback addresses the visually inspected arm-folding window
+2862 (654.21–655.88 s), where both wrists start below the 0.45 confidence
+threshold but both elbows and shoulders remain well observed. With at least
+two spaced intermediate confirmations and similar relative elbow movement on
+both arms, the legacy endpoint classifier now emits `mixed` rather than
+`unknown`; it does not identify arm folding specifically. A single endpoint
+outlier and duplicate timestamps do not establish that motion, and the reviewed
+low-confidence background-wrist case remains free of a false raise.
+
+On the saved 3,376-window Butcher replay, exactly two overlapping windows of
+that scene changed from unknown to mixed. All 128 selected pairs and their
+serialized records stayed identical. The recorded example is
+`tests/fixtures/butcher-folded-arms-2862.json`; 192 focused tests passed and
+one optional performance test was skipped. This is one real gesture example,
+not evidence of general gesture accuracy.
+
 A subsequent fresh application process reused the v16 analysis cache and ran
 the complete target-selected search on the source video. Its 127 cards include
 the forest/shop pair as a body-pose result (score 0.889); the reviewed glasses

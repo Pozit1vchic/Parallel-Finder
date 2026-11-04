@@ -131,6 +131,32 @@ TEST(MovementClassifier, RecordedWeakBackgroundWristDoesNotInventRaise)
     EXPECT_NE(pfcore::MovementClassifier().classify(window).gesture,pfcore::GestureClass::Raise);
 }
 
+TEST(MovementClassifier, RecordedCoveredHandsCanUseSustainedElbowMovement)
+{
+    QFile file(QString::fromUtf8(PF_TEST_FIXTURE_DIR)+"/butcher-folded-arms-2862.json");
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const auto row=QJsonDocument::fromJson(file.readAll()).object();
+    pfcore::MotionWindow window;
+    for(const auto value:row["frames"].toArray()) {
+        const auto frame=value.toObject();pfcore::PoseFrame observation;
+        observation.timestampSeconds=frame["time"].toDouble();
+        for(const auto point:frame["points"].toArray()) {
+            const auto p=point.toArray();observation.keypoints.push_back({p[0].toDouble(),p[1].toDouble(),p[2].toDouble()});
+        }
+        window.frames.push_back(std::move(observation));
+    }
+    EXPECT_EQ(pfcore::MovementClassifier().classify(window).gesture,pfcore::GestureClass::Mixed);
+    // A single endpoint jump is not sustained support.
+    auto outlier=window;
+    for(std::size_t i=1;i+1<outlier.frames.size();++i)
+        for(const auto joint:{5,6,7,8})outlier.frames[i].keypoints[joint]=outlier.frames.front().keypoints[joint];
+    EXPECT_EQ(pfcore::MovementClassifier().classify(outlier).gesture,pfcore::GestureClass::Unknown);
+    auto repeated=window;
+    for(std::size_t i=1;i+1<repeated.frames.size();++i)
+        repeated.frames[i].timestampSeconds=repeated.frames.front().timestampSeconds+.2;
+    EXPECT_EQ(pfcore::MovementClassifier().classify(repeated).gesture,pfcore::GestureClass::Unknown);
+}
+
 TEST(MovementClassifier, InvisibleIntermediateWristsDoNotInventExcursion)
 {
     auto window = moving("still", 0, 0);

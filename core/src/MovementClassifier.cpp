@@ -137,6 +137,51 @@ MovementClassification classifyOne(const MotionWindow& window)
 {
     if (window.frames.size() < 2) return {};
     auto result = classifyEndpoints(window.frames.front(), window.frames.back());
+    // If both hands are occluded, sustained, corroborating movement of both
+    // elbows relative to the shoulders can establish an unspecified arm
+    // action. It cannot establish the particular gesture or hand direction.
+    if (result.gesture == GestureClass::Unknown && window.frames.size() >= 5) {
+        const auto& first=window.frames.front();const auto& last=window.frames.back();
+        if (!observedAtBothEnds(first,last,9,.45) && !observedAtBothEnds(first,last,10,.45)
+            && observedAtBothEnds(first,last,5,.8) && observedAtBothEnds(first,last,6,.8)
+            && observedAtBothEnds(first,last,7,.8) && observedAtBothEnds(first,last,8,.8)
+            && std::isfinite(first.timestampSeconds) && std::isfinite(last.timestampSeconds)
+            && last.timestampSeconds-first.timestampSeconds>=.3) {
+            double left=INFINITY,right=-INFINITY,top=INFINITY,bottom=-INFINITY;
+            for(std::size_t i=0;i<std::min(first.keypoints.size(),last.keypoints.size());++i)
+                if(observedAtBothEnds(first,last,i))for(const auto* frame:{&first,&last}) {
+                    const auto& point=frame->keypoints[i];left=std::min(left,point.x);right=std::max(right,point.x);
+                    top=std::min(top,point.y);bottom=std::max(bottom,point.y);
+                }
+            const double scale=std::hypot(right-left,bottom-top);
+            const auto relative=[&](const PoseFrame& frame,std::size_t elbow,std::size_t shoulder) {
+                return ((frame.keypoints[elbow].y-frame.keypoints[shoulder].y)
+                    -(first.keypoints[elbow].y-first.keypoints[shoulder].y))/scale;
+            };
+            if(std::isfinite(scale) && scale>1e-9) {
+                const double a=relative(last,7,5),b=relative(last,8,6);
+                if(std::abs(a)>=.12 && std::abs(b)>=.12 && a*b>0.) {
+                    std::size_t supported=0;
+                    double previousSupport=first.timestampSeconds;
+                    for(std::size_t i=1;i+1<window.frames.size();++i) {
+                        const auto& frame=window.frames[i];
+                        if(!std::isfinite(frame.timestampSeconds) || frame.timestampSeconds-previousSupport<.1-1e-9
+                            || frame.timestampSeconds>=last.timestampSeconds)continue;
+                        if(!observedAtBothEnds(first,frame,5,.8) || !observedAtBothEnds(first,frame,6,.8)
+                            || !observedAtBothEnds(first,frame,7,.8) || !observedAtBothEnds(first,frame,8,.8))continue;
+                        const double x=relative(frame,7,5),y=relative(frame,8,6);
+                        if(x*a>0 && y*b>0 && std::abs(x)>=.06 && std::abs(y)>=.06) {
+                            ++supported;previousSupport=frame.timestampSeconds;
+                        }
+                    }
+                    if(supported>=2) {
+                        result.gesture=GestureClass::Mixed;
+                        result.gestureConfidence=std::clamp(std::min(std::abs(a),std::abs(b))/.3,0.,1.);
+                    }
+                }
+            }
+        }
+    }
     const bool checkDirection = result.direction == MovementDirection::Static;
     const bool checkGesture = result.gesture == GestureClass::Static;
     if (!checkDirection && !checkGesture)
