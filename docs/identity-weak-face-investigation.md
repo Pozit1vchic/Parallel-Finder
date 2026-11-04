@@ -368,6 +368,24 @@ are not independent: the other pair remains split. The two selected different
 women remain separate. No population-wide error rate, portrait or mirror
 filtering is established by this example.
 
+A third repeated-shot control, the same blonde woman in the shop, now joins
+tracks 107 and 861. For this less similar image sequence the rule requires
+three independently timed, closer pose matches and visible variation in both
+shots, along with body agreement and the existing conflict checks. The three
+selected same-person repeated-shot controls now join and the selected different
+women remain separate; nine other applicable Butcher control sets retain their
+previous outcomes. This is a small, correlated collection, not a general
+accuracy or false-merge rate. The disjoint simultaneous-person audit reports
+zero conflicts but cannot detect all wrong merges.
+
+The cached application capture showed three merges and retained the maximum
+of 20 visible unresolved entries. Selecting candidate 107 admitted only tracks
+107 and 861; a subsequent run with the old saved ID 861 selected the same
+group. Both searches completed with zero matches. On the saved full-video
+windows, one diagnostic run of repeated-scene recovery took 778 ms; this is
+not a controlled end-to-end performance comparison. Other unresolved people,
+and detections of images or mirrors, remain uncorrected.
+
 Character preview keys now use the exact source timestamp rather than a
 candidate ID and appearance index. Group recovery and chronological display
 sorting can change those indices without changing the cached analysis, so an

@@ -106,6 +106,12 @@ private slots:
         const auto windows=qEnvironmentVariable("PF_TEST_REAL_MERGED_WINDOWS");
         if(source.isEmpty() || model.isEmpty() || cache.isEmpty() || windows.isEmpty())
             QSKIP("Opt-in merged-character real-video search");
+        const auto target=qEnvironmentVariable("PF_TEST_MERGED_TARGET_ID","189");
+        const auto oldTarget=qEnvironmentVariable("PF_TEST_MERGED_OLD_ID","940").toUtf8();
+        QSet<qint64> expectedTracks;
+        for(const auto& id:qEnvironmentVariable("PF_TEST_MERGED_TRACKS","189,940,1062").split(',')) {
+            bool ok=false;const auto track=id.toLongLong(&ok);QVERIFY(ok);expectedTracks.insert(track);
+        }
         pfservices::Settings settings;settings.modelPath=model.toStdString();settings.provider="cuda";
         settings.modelChoice=QFileInfo(model).fileName().toStdString();settings.qualityProfile="fast";
         settings.cachePath=cache.toStdString();settings.processingThreads=2;
@@ -121,25 +127,25 @@ private slots:
         bool found=false;
         for(const auto& row:analysis->targetCandidates()) {
             const auto candidate=row.toMap();
-            if(candidate.value("id").toString()=="189") {found=true;QCOMPARE(candidate.value("tracks").toInt(),3);}
+            if(candidate.value("id").toString()==target) {found=true;QCOMPARE(candidate.value("tracks").toInt(),static_cast<int>(expectedTracks.size()));}
         }
-        QVERIFY(found);QVERIFY(analysis->selectTargetCharacter("189"));
+        QVERIFY(found);QVERIFY(analysis->selectTargetCharacter(target));
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),600000);
         QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
         QFile file(windows);QVERIFY(file.open(QIODevice::ReadOnly));
         const auto captured=QJsonDocument::fromJson(file.readAll()).array();
         QSet<qint64> tracks;
         for(const auto& row:captured)tracks.insert(row.toObject().value("track").toInteger());
-        QVERIFY(tracks.contains(189));QVERIFY(tracks.contains(940));QVERIFY(tracks.contains(1062));
-        QCOMPARE(tracks.size(),3);
-        // Simulate an explicit selection saved before track 940 was merged.
+        QCOMPARE(tracks,expectedTracks);
+        // Simulate an explicit selection saved before the candidate was merged.
         // A warm rerun must map the old candidate ID to the merged candidate.
         pfservices::PfCache savedCache(std::filesystem::path(cache.toStdWString()));
         std::string selectionKey;
         for(const auto& key:savedCache.keysForSource(source.toStdString()))
             if(key.ends_with("|selected-target-v2"))selectionKey=key;
         QVERIFY(!selectionKey.empty());
-        QVERIFY2(savedCache.putForSource(source.toStdString(),selectionKey,{'9','4','0'},error),error.c_str());
+        QVERIFY2(savedCache.putForSource(source.toStdString(),selectionKey,
+            {oldTarget.begin(),oldTarget.end()},error),error.c_str());
         analysis->analyzeFiles({source});
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy() || analysis->awaitingTarget(),600000);
         QVERIFY2(!analysis->awaitingTarget(),"An earlier candidate ID was not mapped to the merged identity");
@@ -147,8 +153,7 @@ private slots:
         QFile again(windows);QVERIFY(again.open(QIODevice::ReadOnly));
         const auto repeated=QJsonDocument::fromJson(again.readAll()).array();tracks.clear();
         for(const auto& row:repeated)tracks.insert(row.toObject().value("track").toInteger());
-        QVERIFY(tracks.contains(189));QVERIFY(tracks.contains(940));QVERIFY(tracks.contains(1062));
-        QCOMPARE(tracks.size(),3);
+        QCOMPARE(tracks,expectedTracks);
     }
     void realSeriesIncrementalRestart() {
         const auto manifestPath=qEnvironmentVariable("PF_TEST_REAL_SERIES_MANIFEST");

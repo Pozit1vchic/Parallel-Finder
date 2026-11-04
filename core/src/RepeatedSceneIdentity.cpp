@@ -91,27 +91,29 @@ std::vector<RepeatedSceneIdentityLink> auditRepeatedSceneIdentityLinks(
                     const auto p=x.sceneSequence[i*432+k],q=y.sceneSequence[j*432+k];
                     if(!std::isfinite(p) || !std::isfinite(q)){error=INFINITY;break;}
                     error+=std::abs(p-q);
-                    if(error>=.05*(3*432))break;
+                    if(error>=.08*(3*432))break;
                     if(k>=432) {
                         variationX+=std::abs(p-x.sceneSequence[i*432+k-432]);
                         variationY+=std::abs(q-y.sceneSequence[j*432+k-432]);
                     }
                 }
                 error/=3*432;
-                if(error>=.05 || variationX/(2*432)<.004 || variationY/(2*432)<.004)continue;
+                const double requiredVariation=error<.05 ? .004 : .01;
+                if(error>=.08 || variationX/(2*432)<requiredVariation || variationY/(2*432)<requiredVariation)continue;
                 for(const auto& [unusedA,ta]:a->second.tracks)for(const auto& [unusedB,tb]:b->second.tracks) {
                     if(ta.owner==tb.owner || !ta.body || !tb.body)continue;
                     const auto body=cosine(ta.body->appearanceEmbedding,tb.body->appearanceEmbedding);
-                    if(body<(error<.025 ? .85 : .90))continue;
+                    if(body<(error>=.025 && error<.05 ? .90 : .85))continue;
                     std::set<double> leftTimes,rightTimes;
                     for(std::size_t k=0;k<3;++k) {
                         const auto* fa=closest(ta.frames,x.sceneSequenceTimes[i+k]);
                         const auto* fb=closest(tb.frames,y.sceneSequenceTimes[j+k]);
-                        if(fa && fb && poseDistance(*fa,*fb)<.25) {
+                        if(fa && fb && poseDistance(*fa,*fb)<(error<.05 ? .25 : .15)) {
                             leftTimes.insert(fa->timestampSeconds);rightTimes.insert(fb->timestampSeconds);
                         }
                     }
-                    if(leftTimes.size()<2 || rightTimes.size()<2)continue;
+                    const std::size_t requiredPoses=error<.05 ? 2 : 3;
+                    if(leftTimes.size()<requiredPoses || rightTimes.size()<requiredPoses)continue;
                     const auto key=std::minmax(ta.owner,tb.owner);
                     RepeatedSceneIdentityLink link{ta.owner,tb.owner,ta.id,tb.id,error,body};
                     auto [found,inserted]=links.try_emplace({key.first,key.second},link);

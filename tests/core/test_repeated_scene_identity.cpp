@@ -48,6 +48,19 @@ TEST(RepeatedSceneIdentity, LessExactFramesNeedStrongerBodyAgreement) {
     b.appearanceEmbedding={.91F,.4146082F};
     EXPECT_EQ(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b}).size(),1);
 }
+TEST(RepeatedSceneIdentity, ReframedSceneNeedsThreeMovingPrecisePoses) {
+    auto a=window(1,0,0),b=window(2,1,10,2);
+    for(std::size_t i=0;i<a.sceneSequence.size();++i) {
+        a.sceneSequence[i]=.1F+static_cast<float>(i/432)*.02F;
+        b.sceneSequence[i]=a.sceneSequence[i]+.06F;
+    }
+    b.appearanceEmbedding={.86F,.510294F};
+    EXPECT_EQ(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b}).size(),1);
+    for(auto& point:b.frames.back().keypoints)point.x+=300;
+    EXPECT_TRUE(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b}).empty());
+    b=window(2,1,10,2);std::fill(b.sceneSequence.begin(),b.sceneSequence.end(),.16F);
+    EXPECT_TRUE(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b}).empty());
+}
 TEST(RepeatedSceneIdentity, MergeKeepsStableIdTracksAndPreviewOrder) {
     auto people=candidates();people[0].observationCount=4;people[0].presenceSeconds=1;
     people[0].appearances.push_back({1,0,.5,{0,0,1,1}});
