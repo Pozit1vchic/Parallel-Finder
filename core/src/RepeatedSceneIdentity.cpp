@@ -91,18 +91,18 @@ std::vector<RepeatedSceneIdentityLink> auditRepeatedSceneIdentityLinks(
                     const auto p=x.sceneSequence[i*432+k],q=y.sceneSequence[j*432+k];
                     if(!std::isfinite(p) || !std::isfinite(q)){error=INFINITY;break;}
                     error+=std::abs(p-q);
-                    if(error>=.025*(3*432))break;
+                    if(error>=.05*(3*432))break;
                     if(k>=432) {
                         variationX+=std::abs(p-x.sceneSequence[i*432+k-432]);
                         variationY+=std::abs(q-y.sceneSequence[j*432+k-432]);
                     }
                 }
                 error/=3*432;
-                if(error>=.025 || variationX/(2*432)<.005 || variationY/(2*432)<.005)continue;
+                if(error>=.05 || variationX/(2*432)<.004 || variationY/(2*432)<.004)continue;
                 for(const auto& [unusedA,ta]:a->second.tracks)for(const auto& [unusedB,tb]:b->second.tracks) {
                     if(ta.owner==tb.owner || !ta.body || !tb.body)continue;
                     const auto body=cosine(ta.body->appearanceEmbedding,tb.body->appearanceEmbedding);
-                    if(body<.85)continue;
+                    if(body<(error<.025 ? .85 : .90))continue;
                     std::set<double> leftTimes,rightTimes;
                     for(std::size_t k=0;k<3;++k) {
                         const auto* fa=closest(ta.frames,x.sceneSequenceTimes[i+k]);

@@ -384,6 +384,27 @@ with 93 cache hits. The selector UI test checked that the notice shows both
 saved pre-merge selection still resolved to it. These figures concern this
 source and run only, not a general performance guarantee.
 
+The repeated-scene rule now permits a larger difference between three scene
+samples only with stronger body similarity (at least 0.90 rather than 0.85).
+On the saved Butcher data it adds one visually confirmed same-person link:
+track 184 and track 1010 are two views of the same man in the repeated forest
+shot. The prior room-shot link remains. Replaying both associations changes
+the selected repeated-scene controls from three split positives and one
+separated negative to two joined positives, one split positive and one
+separated negative. Nine other applicable Butcher fixture sets retained their
+previous results; a disjoint same-frame co-visibility audit found no new
+conflicts. These correlated controls and that narrow audit do not establish a
+general error rate.
+
+The application reused the v21 cache, showed both merged groups, and retained
+the 20-entry unresolved display limit. Its character capture, selector notice,
+merged-target search and saved old-ID rerun all passed. The saved-window probe
+took 452 ms once versus 219 ms in the earlier single measurement; these are not
+controlled end-to-end timings. The weaker scene threshold is paired with the
+stronger body gate and the existing pose, timing, face, simultaneous-person
+and ambiguous-link vetoes. It does not address pictures, mirrors or the still
+large number of split identities.
+
 Reproduce the scene-window audit with the local saved artifacts and a Python
 environment containing NumPy:
 

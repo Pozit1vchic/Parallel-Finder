@@ -40,6 +40,14 @@ TEST(RepeatedSceneIdentity, VetoesFaceConflictCovisibilityAndAmbiguity) {
     auto people=candidates();pfcore::CharacterCandidate c;c.id=3;c.trackIds={3};people.push_back(c);
     EXPECT_TRUE(pfcore::auditRepeatedSceneIdentityLinks(people,{a,b,window(3,2,20)}).empty());
 }
+TEST(RepeatedSceneIdentity, LessExactFramesNeedStrongerBodyAgreement) {
+    const auto a=window(1,0,0);auto b=window(2,1,10);
+    for(auto& pixel:b.sceneSequence)pixel+=.04F;
+    b.appearanceEmbedding={.89F,.4559605F};
+    EXPECT_TRUE(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b}).empty());
+    b.appearanceEmbedding={.91F,.4146082F};
+    EXPECT_EQ(pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b}).size(),1);
+}
 TEST(RepeatedSceneIdentity, MergeKeepsStableIdTracksAndPreviewOrder) {
     auto people=candidates();people[0].observationCount=4;people[0].presenceSeconds=1;
     people[0].appearances.push_back({1,0,.5,{0,0,1,1}});

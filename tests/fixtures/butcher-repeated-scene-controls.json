@@ -16,6 +16,12 @@
       "sameIdentity": false
     },
     {
+      "id": "same-man-in-forest-repeat",
+      "left": {"time": 85.18910466707685, "box": [194.82965087890625, 122.08953857421875, 363.0059509277344, 509.16259765625]},
+      "right": {"time": 634.5470833334639, "box": [275.94134521484375, 123.80487060546875, 404.88873291015625, 465.9151611328125]},
+      "sameIdentity": true
+    },
+    {
       "id": "same-blonde-woman-in-store",
       "left": {"time": 52.698425, "point": [150, 300], "timeTolerance": 0.01},
       "right": {"time": 577.532115, "point": [150, 300], "timeTolerance": 0.01},
