@@ -242,3 +242,20 @@ shared the same URL. Candidate and appearance metadata matched the previous
 capture. The earlier 47.0-second measurement followed cold video analysis,
 so these separate runs are not a controlled speedup measurement. A warm run
 reused all 1,437 existing representative preview entries in 2.7 seconds.
+
+## Duplicate timestamps in character evidence
+
+Character-candidate summaries now count at most one valid face and one valid
+body vector per finite timestamp within a track. This prevents repeated records
+from a single frame from reaching the two-observation identity threshold by
+themselves. The character artifact key changes to v20; previously saved
+character selections require reanalysis. The separate dominant-source
+selection policy and its motion cache key are unchanged.
+
+The duplicate-frame regression verifies that three copies have the evidence
+strength of one sample and do not establish a distinct identity. All 64
+character/dominant-person tests passed. Frozen v19 Butcher and v16 Kyle
+observations have no duplicate timestamps within a track; after this change,
+all their candidate records and assignments remain identical. This is a guard
+against fabricated repeated evidence, not a reduction of the 479 unresolved
+Butcher appearances or evidence of broad recognition accuracy.

@@ -173,6 +173,17 @@ TEST(CharacterCandidates, OneMatchingImageOrRepeatedTimestampCannotRecoverIdenti
     EXPECT_EQ(pfcore::characterCandidates({front,profile}).size(),2);
 }
 
+TEST(CharacterCandidates, DuplicateFrameDoesNotIncreaseIdentityEvidence)
+{
+    auto repeated=track(1,0,{1,0},3);
+    for(auto& observation:repeated.observations)observation.timestampSeconds=0.;
+    const auto candidates=pfcore::characterCandidates({repeated});
+    ASSERT_EQ(candidates.size(),1u);
+    EXPECT_DOUBLE_EQ(candidates[0].prototype.faceEvidence,1./3.);
+    EXPECT_DOUBLE_EQ(candidates[0].prototype.bodyEvidence,1./3.);
+    EXPECT_FALSE(candidates[0].distinctIdentity);
+}
+
 TEST(CharacterCandidates, OneFaceNeedsSeveralIndependentReferencesAndBodyAgreement)
 {
     auto reference=track(1,0,{1,0},4);

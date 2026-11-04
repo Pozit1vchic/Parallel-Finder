@@ -121,27 +121,40 @@ bool sameObservedSkeleton(const PersonDetection& a, const PersonDetection& b)
         && sum/shared <= .015 && maximum <= .04;
 }
 
-IdentitySummary summarizeObservations(std::span<const PersonDetection> observations)
+IdentitySummary summarizeObservations(std::span<const PersonDetection> observations, bool uniqueTimestamps = false)
 {
     IdentitySummary summary;
     if (observations.empty()) return summary;
     summary.observationTimes.reserve(observations.size());
     std::size_t bodySamples = 0, faceSamples = 0;
+    std::set<double> bodyTimes, faceTimes;
     const auto add = [](std::vector<float>& sum, std::size_t& samples,
-                        const std::vector<float>& embedding) {
+                        const std::vector<float>& embedding) -> bool {
         if (embedding.empty() || !std::all_of(embedding.begin(), embedding.end(),
-            [](float value) { return std::isfinite(value); })) return;
+            [](float value) { return std::isfinite(value); })) return false;
         if (sum.empty()) sum.assign(embedding.size(), 0.0F);
-        if (sum.size() != embedding.size()) return;
+        if (sum.size() != embedding.size()) return false;
         for (std::size_t i = 0; i < sum.size(); ++i) sum[i] += embedding[i];
         ++samples;
+        return true;
     };
     for (const auto& observation : observations) {
         summary.observationTimes.push_back(observation.timestampSeconds);
         summary.duration += std::max(0.0, observation.frameDurationSeconds);
         summary.area += observation.box.area();
-        add(summary.body, bodySamples, observation.appearanceEmbedding);
-        add(summary.face, faceSamples, observation.faceEmbedding);
+        // Repeated records from a single frame are not independent evidence.
+        // Count each modality only once per finite observation timestamp.
+        if (!uniqueTimestamps) {
+            add(summary.body, bodySamples, observation.appearanceEmbedding);
+            add(summary.face, faceSamples, observation.faceEmbedding);
+        } else if (std::isfinite(observation.timestampSeconds)) {
+            if (!bodyTimes.contains(observation.timestampSeconds)
+                && add(summary.body, bodySamples, observation.appearanceEmbedding))
+                bodyTimes.insert(observation.timestampSeconds);
+            if (!faceTimes.contains(observation.timestampSeconds)
+                && add(summary.face, faceSamples, observation.faceEmbedding))
+                faceTimes.insert(observation.timestampSeconds);
+        }
     }
     summary.area /= static_cast<double>(observations.size());
     summary.bodyEvidence = std::min(1.0, static_cast<double>(bodySamples) / 3.0);
@@ -938,7 +951,7 @@ static void recoverCompanionContinuity(std::vector<std::vector<std::size_t>>& co
         const auto& track=tracks[indices[index]];
         if(track.observations.size()<2 || !std::isfinite(track.observations.front().timestampSeconds)
             || !std::isfinite(track.observations.back().timestampSeconds))continue;
-        auto summary=summarizeObservations(track.observations);
+        auto summary=summarizeObservations(track.observations,true);
         entries.push_back({group,&track,std::move(summary)});
         for(const auto& o:track.observations)if(std::isfinite(o.timestampSeconds)) {
             observations[group].push_back(&o);
@@ -1063,7 +1076,7 @@ static void recoverOverlappingHeadDuplicates(std::vector<std::vector<std::size_t
         if (components[i].size()!=1) continue;
         const auto& source=tracks[indices[components[i].front()]];
         if (source.observations.size()<3) continue;
-        const auto sourceSummary=summarizeObservations(source.observations);
+        const auto sourceSummary=summarizeObservations(source.observations,true);
         std::size_t accepted=components.size(); bool ambiguous=false;
         for (std::size_t j=0; j<components.size(); ++j) {
             if (j==i || components[j].empty()) continue;
@@ -1086,7 +1099,7 @@ static void recoverOverlappingHeadDuplicates(std::vector<std::vector<std::size_t
                 }
                 if (disagreement) { conflict=true; break; }
                 if (count>=3 && last-first>=.3
-                    && embeddingScore(sourceSummary.body,summarizeObservations(target.observations).body)>=.95)
+                    && embeddingScore(sourceSummary.body,summarizeObservations(target.observations,true).body)>=.95)
                     matched=true;
             }
             if (!matched || conflict) continue;
@@ -1109,7 +1122,7 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
     for (std::size_t i = 0; i < tracks.size(); ++i) {
         if (control.cancelled && control.cancelled()) return {};
         if (tracks[i].observations.size() < 2) continue;
-        summaries.push_back(summarizeObservations(tracks[i].observations));
+        summaries.push_back(summarizeObservations(tracks[i].observations,true));
         indices.push_back(i);
     }
     std::vector<std::vector<std::size_t>> components;
