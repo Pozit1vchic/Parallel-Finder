@@ -277,6 +277,27 @@ TEST(MotionRanker, UnknownSideDoesNotMakeAStaticSideAConfirmedStaticPair)
     EXPECT_TRUE(matches.empty());
 }
 
+TEST(MovementGrouping, DirectionAndGestureKeepIndependentMissingEvidence)
+{
+    using D=pfcore::MovementDirection;
+    using G=pfcore::GestureClass;
+    pfcore::MovementClassification left,right;
+    left.direction=right.direction=D::Right;
+    left.directionConfidence=.7;right.directionConfidence=.8;
+    left.gesture=G::Unknown;right.gesture=G::Raise;right.gestureConfidence=.9;
+    auto result=pfcore::MovementClassifier::combineForGrouping(left,right);
+    EXPECT_EQ(result.direction,D::Right);EXPECT_DOUBLE_EQ(result.directionConfidence,.7);
+    EXPECT_EQ(result.gesture,G::Unknown);
+    left.gesture=G::Raise;left.gestureConfidence=.9;
+    right.direction=D::Unknown;right.directionConfidence=0.;
+    result=pfcore::MovementClassifier::combineForGrouping(left,right);
+    EXPECT_EQ(result.direction,D::Unknown);EXPECT_DOUBLE_EQ(result.directionConfidence,0.);
+    EXPECT_EQ(result.gesture,G::Raise);
+    right.direction=D::Left;right.directionConfidence=.8;
+    result=pfcore::MovementClassifier::combineForGrouping(left,right);
+    EXPECT_EQ(result.direction,D::Mixed);EXPECT_EQ(result.gesture,G::Raise);
+}
+
 pfcore::MotionWindow actionFixture(const std::function<void(pfcore::PoseFrame&,double)>& animate={})
 {
     pfcore::MotionWindow w;

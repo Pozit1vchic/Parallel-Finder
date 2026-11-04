@@ -603,11 +603,20 @@ MovementClassification MovementClassifier::classifyForGrouping(const MotionWindo
 
 MovementClassification MovementClassifier::combineForGrouping(const MovementClassification& a,const MovementClassification& b) {
     MovementClassification result;
+    // Direction and gesture are independent observations. An unknown or
+    // unsupported direction must not become a confident disagreement, and
+    // missing gesture evidence must not erase two supported directions.
+    const auto directionKnown=[](const MovementClassification& value) {
+        return value.direction!=MovementDirection::Unknown
+            && std::isfinite(value.directionConfidence) && value.directionConfidence>0.;
+    };
+    if(directionKnown(a) && directionKnown(b)) {
+        result.direction=a.direction==b.direction ? a.direction:MovementDirection::Mixed;
+        result.directionConfidence=std::min(a.directionConfidence,b.directionConfidence);
+    }
     if(a.gesture==GestureClass::Unknown || b.gesture==GestureClass::Unknown
         || !std::isfinite(a.gestureConfidence) || !std::isfinite(b.gestureConfidence)
         || a.gestureConfidence<.65 || b.gestureConfidence<.65)return result;
-    result.direction=a.direction==b.direction ? a.direction:MovementDirection::Mixed;
-    result.directionConfidence=std::min(a.directionConfidence,b.directionConfidence);
     // Preserve the measurement scope even when the actions disagree or both
     // are static. A conflict cannot create evidence of the hidden body.
     result.headOnlyEvidence=a.headOnlyEvidence||b.headOnlyEvidence;
