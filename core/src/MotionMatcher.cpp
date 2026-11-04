@@ -1952,7 +1952,8 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
                             const PreparedWindow& rightPrepared,
                             const MotionMatcherParams& params,
                             std::size_t leftIndex, std::size_t rightIndex, bool mirrorRight = false,
-                            const IdentityEvidence* knownIdentity = nullptr, bool copySourceIds = true)
+                            const IdentityEvidence* knownIdentity = nullptr, bool copySourceIds = true,
+                            bool debugMatcher = std::getenv("PF_DEBUG_MATCHER") != nullptr)
 {
     const auto& a = leftPrepared.descriptors;
     const auto& b = mirrorRight ? rightPrepared.mirroredDescriptors : rightPrepared.descriptors;
@@ -2036,11 +2037,11 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         // hidden, potentially contradictory arm pose in the other shot.
         if ((leftPrepared.closeup || rightPrepared.closeup) && leftPrepared.head && rightPrepared.head) {
             auto headMatch = comparePrepared(leftPrepared.headSource, rightPrepared.headSource,
-                *leftPrepared.head, *rightPrepared.head, params, leftIndex, rightIndex, false, &identity, copySourceIds);
+                *leftPrepared.head, *rightPrepared.head, params, leftIndex, rightIndex, false, &identity, copySourceIds, debugMatcher);
             const double directScore = headMatch.similarity;
             if (params.mirrorInvariant) {
                 const auto mirrored = comparePrepared(leftPrepared.headSource, rightPrepared.headSource,
-                    *leftPrepared.head, *rightPrepared.head, params, leftIndex, rightIndex, true, &identity, copySourceIds);
+                    *leftPrepared.head, *rightPrepared.head, params, leftIndex, rightIndex, true, &identity, copySourceIds, debugMatcher);
                 if (mirrored.similarity > headMatch.similarity) headMatch = mirrored;
             }
             headMatch.headOnlyComparison = true;
@@ -2077,7 +2078,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     if (staticPair && std::min(duration(left), duration(right)) + 1e-9
             < params.minimumResultDurationSec)
         return reject(MotionRejection::TemporalSupport);
-    if (staticPair && std::getenv("PF_DEBUG_MATCHER") != nullptr) {
+    if (staticPair && debugMatcher) {
         auto mask = [](const std::vector<NormalizedPose>& poses) {
             std::uint32_t bits = 0;
             if (!poses.empty()) for (std::size_t i = 0; i < poses.front().size() && i < 32; ++i)
@@ -2113,7 +2114,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         || !leftSupport || !rightSupport
         || !leftDiversity || !rightDiversity;
     if (supportGateFails || (!staticPair && motionGateFails)) {
-        if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
+        if (debugMatcher) {
             std::fprintf(stderr,
                          "PF_DEBUG_MATCHER reject a=%zu b=%zu samples=%d/%d support=%d/%d diversity=%d/%d motion=%.4f/%.4f range=%.4f/%.4f active=%.3f/%.3f run=%d\n",
                          leftIndex, rightIndex, leftSamples ? 1 : 0, rightSamples ? 1 : 0,
@@ -2247,7 +2248,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         result.similarity = 0.0;
         return reject(MotionRejection::SceneContext);
     }
-    if (staticPair && std::getenv("PF_DEBUG_MATCHER") != nullptr) {
+    if (staticPair && debugMatcher) {
         std::fprintf(stderr, "PF_DEBUG_MATCHER static-score a=%zu b=%zu dtw=%.4f anatomy=%.4f\n",
                      leftIndex, rightIndex, dtwScore, anatomyScore);
     }
@@ -2264,7 +2265,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         double poseScore = std::sqrt(dtwScore * anatomyScore);
         const double articulation = identity.verified
             ? articulationSimilarity(leftPrepared.articulationGeometry, rightArticulation) : 0.0;
-        if (std::getenv("PF_DEBUG_MATCHER") != nullptr)
+        if (debugMatcher)
             std::fprintf(stderr, "PF_DEBUG_MATCHER articulation a=%zu b=%zu score=%.4f\n",
                 leftIndex, rightIndex, articulation);
         poseScore = std::max(poseScore, articulation);
@@ -2336,7 +2337,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         result.similarity = std::max(result.similarity, params.similarityThreshold);
         result.appearanceVerified = true;
     }
-    if (std::getenv("PF_DEBUG_MATCHER") != nullptr && result.similarity >= params.similarityThreshold)
+    if (debugMatcher && result.similarity >= params.similarityThreshold)
         std::fprintf(stderr, "PF_DEBUG_MOTION_SCORE a=%zu b=%zu dtw=%.4f temporal=%.4f direction=%.4f anatomy=%.4f active=%.4f score=%.4f\n",
             leftIndex, rightIndex, dtwScore, temporalScore, directionScore, anatomyScore,
             activeBodyAgreement(scoreA, scoreB), result.similarity);
@@ -2522,6 +2523,9 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                                                        const MotionSearchControl& control) const
 {
     const bool profile = std::getenv("PF_DEBUG_ANALYSIS") != nullptr;
+    // The setting cannot change the meaning of a running search. Resolve it
+    // once rather than consulting the process environment for every pair.
+    const bool debugMatcher = std::getenv("PF_DEBUG_MATCHER") != nullptr;
     const auto started = std::chrono::steady_clock::now();
     const auto elapsed = [&] {
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
@@ -2606,7 +2610,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if ((staticWindow && !params_.allowStaticFrames)
             || (!supported(prepared[index])
                 && (!prepared[index].torso || !supported(*prepared[index].torso)))) {
-            if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
+            if (debugMatcher) {
                 std::fprintf(stderr,
                     "PF_DEBUG_MATCHER filtered-window id=%zu t=%.3f frames=%zu reid=%.3f samples=%d diversity=%d delta=%.4f range=%.4f active=%.3f\n",
                     index, windows[index].frames.front().timestampSeconds, windows[index].frames.size(),
@@ -2623,7 +2627,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         if (staticWindow) ++preparedStatic;
         else {
             ++preparedMotion;
-            if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
+            if (debugMatcher) {
                 std::fprintf(stderr,
                              "PF_DEBUG_MATCHER motion-window id=%zu t=%.3f track=%zu scene=%zu reid=%.3f delta=%.4f range=%.4f active=%.3f\n",
                              index,
@@ -3135,7 +3139,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             && differentTrackSegment(windows[i], windows[j])) {
             const bool sameAppearance = lookupEvidence(i,j).verified;
             if (!sameAppearance) {
-                if (std::getenv("PF_DEBUG_MATCHER") != nullptr && !windows[i].staticFrameSet) {
+                if (debugMatcher && !windows[i].staticFrameSet) {
                     std::fprintf(stderr,
                                  "PF_DEBUG_MATCHER reject-motion-identity a=%zu b=%zu t=%.3f/%.3f reid=%.3f/%.3f cosine=%.3f\n",
                                  i, j,
@@ -3271,23 +3275,23 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         const double gap = std::abs(windows[i].frames.front().timestampSeconds
                                      - windows[j].frames.front().timestampSeconds);
         MotionMatch candidate = comparePrepared(windows[i], windows[j], prepared[i], prepared[j],
-                                                params_, i, j, false, &pairIdentity, false);
+                                                params_, i, j, false, &pairIdentity, false, debugMatcher);
         double directScore = candidate.unmirroredSimilarity >= 0
             ? candidate.unmirroredSimilarity : candidate.similarity;
         const bool headMirrorsAlreadyChecked = windows[i].staticFrameSet && candidate.headOnlyComparison
             && (prepared[i].closeup || prepared[j].closeup);
         if (params_.mirrorInvariant && !headMirrorsAlreadyChecked && !prepared[j].mirroredDescriptors.empty()) {
             const MotionMatch mirroredCandidate = comparePrepared(windows[i], windows[j],
-                                                                  prepared[i], prepared[j], params_, i, j, true, &pairIdentity, false);
+                                                                  prepared[i], prepared[j], params_, i, j, true, &pairIdentity, false, debugMatcher);
             if (mirroredCandidate.similarity > candidate.similarity) candidate = mirroredCandidate;
         }
         if(candidate.similarity<params_.similarityThreshold && prepared[i].torso && prepared[j].torso) {
             auto alternative=comparePrepared(windows[i],windows[j],*prepared[i].torso,*prepared[j].torso,
-                params_,i,j,false,&pairIdentity,false);
+                params_,i,j,false,&pairIdentity,false,debugMatcher);
             const double alternativeDirect=alternative.similarity;
             if(params_.mirrorInvariant) {
                 auto mirrored=comparePrepared(windows[i],windows[j],*prepared[i].torso,*prepared[j].torso,
-                    params_,i,j,true,&pairIdentity,false);
+                    params_,i,j,true,&pairIdentity,false,debugMatcher);
                 if(mirrored.similarity>alternative.similarity)alternative=mirrored;
             }
             if(alternative.similarity>candidate.similarity) {
@@ -3300,7 +3304,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         // frozen below; deleting these edges here can change augmenting paths
         // and replace an unrelated, useful body pair.
         if (params_.bodyMotionOnly && !windows[i].staticFrameSet && candidate.headOnlyComparison) continue;
-        if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
+        if (debugMatcher) {
             std::fprintf(stderr, "PF_DEBUG_MATCHER compared a=%zu b=%zu t=%.3f/%.3f static=%d/%d similarity=%.3f dtw=%.3f appearance=%.3f\n",
                          i, j,
                          windows[i].frames.empty() ? -1.0 : windows[i].frames.front().timestampSeconds,
@@ -4153,7 +4157,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         cameraExamples.size(),windowCameraChecks,windowCameraHits,cameraAnswers.size()*sizeof(std::uint64_t),sparseCameraAnswers.size());
     if(profile)std::fprintf(stderr,"PF_DEBUG_CAMERA conflict_prefix_hits=%zu conflict_prefix_checks=%zu conflict_prefix_bytes=%zu\n",
         conflictPrefixHits,conflictPrefixChecks,cameraConflictPrefixes.size()*sizeof(CameraConflictPrefix));
-    if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
+    if (debugMatcher) {
         std::fprintf(stderr,
                      "PF_DEBUG_MATCHER windows=%zu prepared=%zu motion=%zu static=%zu candidates=%zu appearanceCandidates=%zu trackRejected=%zu sceneRejected=%zu staticRejected=%zu gapPassed=%zu coarsePassed=%zu compared=%zu accepted=%zu\n",
                      windows.size(), preparedCount, preparedMotion, preparedStatic, candidateSummary, appearanceCandidatePairs, trackRejected,
