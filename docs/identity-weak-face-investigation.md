@@ -190,6 +190,17 @@ showed higher elapsed times. These are diagnostic observations, not controlled
 performance estimates. The prototype repeatedly summarizes tracks inside nested
 comparisons and needs optimization and controlled A/B timings before use.
 
+Separately from that disabled experiment, the production face-conflict veto now
+stops comparing two tracks as soon as it finds a face pair at or above the
+existing 0.30 threshold. Only existence of such a pair affects this veto; no
+threshold or identity rule changed. On the same computer, three alternating
+before/after frozen-track runs gave median 199.4/169.9 ms for the normal v19
+Butcher capture and 237.1/197.6 ms for the weak-face v2 capture. Candidate
+records and every saved observation assignment were identical in all six runs
+of each capture. These timings cover clustering after loading observations,
+not video decoding, model inference, or end-to-end analysis. Sixty-three
+focused character and dominant-person tests passed.
+
 ## Fresh capture after chained face-ownership fix
 
 The production v19 character-selection path was run cold on the complete

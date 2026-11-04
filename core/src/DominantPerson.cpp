@@ -703,9 +703,17 @@ static void recoverCharacterViews(std::vector<std::vector<std::size_t>>& compone
         for(auto i:originalComponents[a])for(auto j:originalComponents[b]) {
             const auto& left=atomicFaces[i];const auto& right=atomicFaces[j];
             if(left.size()<3 || right.size()<3)continue;
-            double best=-1;
-            for(auto x:left)for(auto y:right)best=std::max(best,embeddingScore(x->faceEmbedding,y->faceEmbedding));
-            if(best<.30){trackConflictCache.emplace(key,true);return true;}
+            // Only the existence of a sufficiently similar pair matters for
+            // this veto. Stop as soon as one is found instead of comparing
+            // every remaining face in both tracks.
+            bool compatible=false;
+            for(auto x:left) {
+                for(auto y:right)if(embeddingScore(x->faceEmbedding,y->faceEmbedding)>=.30) {
+                    compatible=true;break;
+                }
+                if(compatible)break;
+            }
+            if(!compatible){trackConflictCache.emplace(key,true);return true;}
         }
         trackConflictCache.emplace(key,false);
         return false;
