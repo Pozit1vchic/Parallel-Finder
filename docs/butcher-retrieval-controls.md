@@ -122,6 +122,23 @@ selected pairs and serialized match records identical. All 190 focused tests
 passed, with one optional benchmark skipped. Frame sheets remain local in
 `build/wrist-relative-review-a` and `build/wrist-refined-review-b`.
 
+The stronger one-hand rule exposed a false raise in window 1166 (283.05–284.22 s):
+the tracked distant woman's low-confidence wrist moved across an occluded area,
+while the three sampled source frames show no clear arm raise. Wrist labels now
+require confidence 0.45 at both endpoints, versus 0.30 for general landmarks;
+the captured pose is in `tests/fixtures/butcher-occluded-wrist-background.json`.
+The existing real raised-hand fixture still passes.
+
+On the same 3,376 saved windows, 62 endpoint labels changed compared with the
+preceding version: 32 static, 11 lower, 8 raise and 6 wave labels became
+unknown, and five lower labels became turn. These include repeated windows and
+have not all been independently reviewed. In window 2862 the person folds his
+arms while a wrist has low confidence, so the conservative unknown can also
+miss real movement. The sampled sheets are local in
+`build/wrist-refined-review-c` and `build/wrist-confidence-review`. All 128
+selected pairs and serialized match records remained identical in the replay;
+191 focused tests passed, with one optional performance test skipped.
+
 A subsequent fresh application process reused the v16 analysis cache and ran
 the complete target-selected search on the source video. Its 127 cards include
 the forest/shop pair as a body-pose result (score 0.889); the reviewed glasses

@@ -21,12 +21,13 @@ double keypointDelta(const PoseFrame& first, const PoseFrame& last, std::size_t 
     return (yAxis ? b.y - a.y : b.x - a.x) / scale;
 }
 
-bool observedAtBothEnds(const PoseFrame& first, const PoseFrame& last, std::size_t index)
+bool observedAtBothEnds(const PoseFrame& first, const PoseFrame& last, std::size_t index,
+                        double minimumConfidence = .3)
 {
     if (index >= first.keypoints.size() || index >= last.keypoints.size()) return false;
-    const auto valid = [](const auto& point) {
+    const auto valid = [minimumConfidence](const auto& point) {
         return std::isfinite(point.x) && std::isfinite(point.y)
-            && std::isfinite(point.confidence) && point.confidence >= 0.3;
+            && std::isfinite(point.confidence) && point.confidence >= minimumConfidence;
     };
     return valid(first.keypoints[index]) && valid(last.keypoints[index]);
 }
@@ -81,8 +82,11 @@ MovementClassification classifyEndpoints(const PoseFrame& first, const PoseFrame
     // COCO order: left/right shoulder 5/6 and wrist 9/10. These heuristics are
     // deliberately transparent and deterministic; no second classifier model
     // is smuggled into the pose-only v1 pipeline.
-    const bool leftWrist = observedAtBothEnds(first, last, 9);
-    const bool rightWrist = observedAtBothEnds(first, last, 10);
+    // Wrist detections near the general landmark threshold can jump between
+    // foreground objects and occluded hands. Require stronger evidence for
+    // gesture labels than for the broad centroid and direction estimate.
+    const bool leftWrist = observedAtBothEnds(first, last, 9, .45);
+    const bool rightWrist = observedAtBothEnds(first, last, 10, .45);
     const int wristCount = int(leftWrist) + int(rightWrist);
     // Wrist movement must be measured relative to the person. Otherwise a
     // camera pan or whole-body translation can be labelled as raising or
