@@ -134,6 +134,24 @@ prior experimental collision involving track 1131 and Butcher's main group also 
 this direct check because the simultaneously visible Butcher track 1130 is itself split
 off from that group. Zero findings is therefore not proof of correct identification.
 
+## Background-relative motion is not a reliable portrait filter
+
+An offline optical-flow diagnostic compared the motion inside each labelled
+person box with an affine estimate from points outside it. On the 12 existing
+Butcher printed-person controls, ten had enough usable features. The poster
+woman's median residual relative to the box diagonal was 0.0028; one real
+standing person scored 0.0021. A framed portrait scored 0.304, close to a real
+person at 0.307. The background transform was itself poorly supported in
+several shots (for the poster, 22% inliers), so the metric is not a calibrated
+motion estimate. Two other controls had insufficient features. These few
+correlated examples neither estimate rates nor cover mirrors or screens, but
+they disprove suppressing detections using a simple low-motion threshold.
+
+No filter was enabled. `tools/benchmark/audit_printed_motion.py` reproduces the
+measurements with local OpenCV, NumPy and FFmpeg, the v19 captured tracks and
+the original video. It writes numeric diagnostics only; extracted video frames
+are not committed. The local report is `build/printed-motion-v19-audit.json`.
+
 ## Recognizable additional Butcher pair controls
 
 The local contact sheet `build/bodypair-late-review.jpg` also contains four recognizable
