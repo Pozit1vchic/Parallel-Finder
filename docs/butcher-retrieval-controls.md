@@ -73,6 +73,28 @@ tests pass. This comparison is on one saved analysis, not a population recall
 or precision claim; sustained hand-to-face poses can occur for different
 actions, and a broader independent review is still required.
 
+## Direction labels for pose-only results
+
+An offline replay compared the former and current grouping-direction logic on
+128 all-people Butcher results, using saved pose windows and match ranges. The
+saved windows do not contain learned action or head-orientation evidence, so
+this is a partial geometric replay rather than a full UI classification audit.
+The first version of the independent-direction change gave five pose-only
+pairs new left/right/mixed movement labels even though the results compared
+static poses. Reviewing three frames from each side of one of these pairs
+(windows 1357 and 3313) showed why this is misleading: minor camera or body
+displacement can produce a direction despite the pose-only search scope.
+
+Result presentation now marks motion direction unknown for two pose-only
+windows; posture and pose classification remain independent. A UI regression
+test covers drifting pose windows and range edits. With this guard, the same
+partial replay changes 50 formerly labelled pose directions to unknown and
+changes one motion pair from unknown to mixed; its three sampled frames were
+inspected, but do not establish an accurate physical movement label. Local
+contact sheets are in `build/grouping-direction-review-79b` and
+`build/grouping-direction-review-124`. Reproduce the diagnostic with
+`pf_matcher_probe <windows.json> --grouping-directions <results.json>`.
+
 A subsequent fresh application process reused the v16 analysis cache and ran
 the complete target-selected search on the source video. Its 127 cards include
 the forest/shop pair as a body-pose result (score 0.889); the reviewed glasses

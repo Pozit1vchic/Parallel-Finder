@@ -46,7 +46,13 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
                                                   match.leftEndSeconds, match.headOnlyComparison);
     const auto b = classifier.classifyForGrouping(evidence[1], match.rightStartSeconds,
                                                   match.rightEndSeconds, match.headOnlyComparison);
-    const auto movement = pfcore::MovementClassifier::combineForGrouping(a,b);
+    auto movement = pfcore::MovementClassifier::combineForGrouping(a,b);
+    if (evidence[0].staticFrameSet && evidence[1].staticFrameSet) {
+        // These windows were selected for pose, not tracked displacement.
+        // Small motion or camera drift must not become a direction label.
+        movement.direction=pfcore::MovementDirection::Unknown;
+        movement.directionConfidence=0.;
+    }
     match.directionLabel = pfcore::MovementClassifier::directionName(movement.direction);
     match.gestureLabel = pfcore::MovementClassifier::gestureName(movement.gesture);
     row.insert("direction", QString::fromStdString(match.directionLabel));

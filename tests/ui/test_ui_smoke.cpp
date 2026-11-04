@@ -1832,6 +1832,14 @@ void UiSmokeTests::staticPoseDisagreementKeepsBothPoses()
         frame.keypoints[9].y=-2;frame.keypoints[10].y=-2;
     });
     const auto straightLegs=poseWindow({});
+    auto drifting=straightLegs;
+    for(auto& frame:drifting.frames)
+        for(auto& point:frame.keypoints)point.x+=4*frame.timestampSeconds;
+    pfcore::MotionMatch poseMatch;poseMatch.leftEndSeconds=poseMatch.rightEndSeconds=1;
+    QVariantMap poseRow;
+    pfui::classifyResultRange(poseRow,poseMatch,{drifting,drifting});
+    QCOMPARE(poseRow.value("direction").toString(),QString("unknown"));
+    QCOMPARE(QString::fromStdString(poseMatch.directionLabel),QString("unknown"));
     QCOMPARE(classifyPair(armsRaised,straightLegs,false),QString("pose_mismatch/arms_raised+legs_straight"));
     QCOMPARE(classifyPair(straightLegs,armsRaised,false),QString("pose_mismatch/arms_raised+legs_straight"));
     QCOMPARE(classifyPair(straightLegs,straightLegs,false),QString("legs_straight"));

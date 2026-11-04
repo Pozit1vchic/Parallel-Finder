@@ -14,6 +14,7 @@
 #include <QJsonObject>
 #include <iostream>
 #include <chrono>
+#include <cmath>
 #include <set>
 #include <array>
 
@@ -35,7 +36,7 @@ int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
     const auto args = app.arguments();
-    if (args.size() < 3) { std::cerr << "usage: pf_matcher_probe windows.json left-index right-index | --all [params.json] | --batch pairs.json [params.json] | --actions\n"; return 2; }
+    if (args.size() < 3) { std::cerr << "usage: pf_matcher_probe windows.json left-index right-index | --all [params.json] | --batch pairs.json [params.json] | --actions | --grouping-directions results.json\n"; return 2; }
     QFile file(args[1]);
     if (!file.open(QIODevice::ReadOnly)) return 2;
     QJsonParseError error;
@@ -81,6 +82,36 @@ int main(int argc, char** argv)
             w.frames.push_back(std::move(f));
         }
         windows.push_back(std::move(w));
+    }
+    if(args[2]=="--grouping-directions") {
+        if(args.size()!=4)return 2;
+        QFile input(args[3]);if(!input.open(QIODevice::ReadOnly))return 2;
+        const auto doc=QJsonDocument::fromJson(input.readAll(),&error);
+        if(error.error!=QJsonParseError::NoError || !doc.isObject())return 2;
+        const auto pairs=doc.object()["results"].toArray();
+        const pfcore::MovementClassifier classifier;
+        QJsonArray changes;
+        for(qsizetype i=0;i<pairs.size();++i) {
+            const auto p=pairs[i].toObject();
+            const auto left=p["leftIndex"].toInteger(-1),right=p["rightIndex"].toInteger(-1);
+            if(left<0 || right<0 || static_cast<std::size_t>(left)>=windows.size() || static_cast<std::size_t>(right)>=windows.size())return 2;
+            const bool head=p["headOnlyComparison"].toBool();
+            const auto a=classifier.classifyForGrouping(windows[left],p["leftStart"].toDouble(),p["leftEnd"].toDouble(),head);
+            const auto b=classifier.classifyForGrouping(windows[right],p["rightStart"].toDouble(),p["rightEnd"].toDouble(),head);
+            using D=pfcore::MovementDirection;using G=pfcore::GestureClass;
+            const bool actionsKnown=a.gesture!=G::Unknown && b.gesture!=G::Unknown
+                && std::isfinite(a.gestureConfidence) && std::isfinite(b.gestureConfidence)
+                && a.gestureConfidence>=.65 && b.gestureConfidence>=.65;
+            const D old=actionsKnown ? (a.direction==b.direction ? a.direction:D::Mixed):D::Unknown;
+            const auto current=windows[left].staticFrameSet && windows[right].staticFrameSet
+                ? D::Unknown : pfcore::MovementClassifier::combineForGrouping(a,b).direction;
+            if(old!=current)changes.append(QJsonObject{{"index",i},{"leftIndex",left},{"rightIndex",right},
+                {"leftStart",p["leftStart"]},{"rightStart",p["rightStart"]},
+                {"old",pfcore::MovementClassifier::directionName(old)},
+                {"current",pfcore::MovementClassifier::directionName(current)}});
+        }
+        std::cout<<QJsonDocument(QJsonObject{{"pairs",pairs.size()},{"changes",changes}}).toJson(QJsonDocument::Compact).constData()<<'\n';
+        return 0;
     }
 #ifdef PF_ORGANIZATION_PROBE
     if(args[2]=="--copied-scenes" || args[2]=="--scene-neighbours") {
