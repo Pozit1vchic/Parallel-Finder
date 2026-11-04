@@ -88,6 +88,13 @@ Item {
             text: root.showUnresolved ? L10n.t("character.hideUnresolved") : L10n.t("character.showUnresolved").arg(root.unresolvedCount)
             onClicked: root.showUnresolved=!root.showUnresolved
         }
+        Text {
+            objectName: "unresolvedLimitNotice"
+            Layout.fillWidth: true
+            visible: Analysis.hiddenUnresolvedCharacters > 0 && (root.showUnresolved || root.confirmedCount === 0)
+            text: L10n.t("character.unresolvedLimit").arg(root.unresolvedCount).arg(root.unresolvedCount + Analysis.hiddenUnresolvedCharacters)
+            color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap
+        }
         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hairline }
         PfButton {
             objectName: "confirmCharacterButton"; Layout.alignment: Qt.AlignRight; Layout.preferredWidth: Math.min(260,root.width)

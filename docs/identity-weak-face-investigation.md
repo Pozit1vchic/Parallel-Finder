@@ -343,6 +343,47 @@ selected control. Similar backgrounds, clothing and poses can still occur for
 different people; this small sample does not establish a safe merge rule.
 Neither diagnostic changes application grouping.
 
+The application now applies a separate bounded-evidence recovery for this
+case before character selection. It requires three consecutive visually close
+scene samples with variation in both shots, two independently timed matching
+poses, and body similarity. It rejects competing candidate links, inconsistent
+face evidence and conflicting simultaneous people. It works from the existing
+scene-sequence and pose caches and keeps source track IDs. The selection dialog
+sorts appearances by time, and a previously saved candidate ID that is now a
+member of a merged group resolves to the merged candidate.
+
+On the supplied Butcher video with the v21 cache, the actual selector merged
+tracks 189, 940 and 1062 into candidate 189: 490 candidates became 489 and 479
+unresolved became 478. Candidate 940 was removed, candidate 189 changed, and
+all other candidate metadata matched the previous capture apart from numbering
+and session URLs. All 1,437 preview PNGs matched the earlier run byte for byte.
+Selecting the merged row admitted windows from all three tracks; the search
+finished with zero matches on that selection. A rerun with the old saved ID 940
+also selected the merged group without prompting and admitted the same tracks.
+The local scene-link probe took 219 ms once on the saved Butcher windows; this
+is not an end-to-end benchmark or evidence for other videos. Synthetic checks
+cover differing positions, body and face conflicts, co-visible people,
+ambiguous links and cancellation. The two earlier visually reviewed positives
+are not independent: the other pair remains split. The two selected different
+women remain separate. No population-wide error rate, portrait or mirror
+filtering is established by this example.
+
+The selector now displays all confirmed identities and at most 20 unresolved
+appearances, ordered primarily by duration, with any current suggestion kept
+in the displayed set. It reports how many unresolved appearances exist in
+total. Entries beyond the limit cannot be selected manually from this list;
+the complete candidate and track data remain in the analysis cache, and the
+all-people search is unaffected. This is a display limit, not an assertion
+that the hidden entries have been recognized or merged.
+
+The real Butcher selector showed 11 confirmed identities and 20 unresolved
+appearances out of 478. It prepared 107 unique preview frames instead of the
+previous 1,437; a warm mixed-cache run took 857 ms for preview preparation,
+with 93 cache hits. The selector UI test checked that the notice shows both
+20 and 478; the selected merged group still admitted all three tracks and a
+saved pre-merge selection still resolved to it. These figures concern this
+source and run only, not a general performance guarantee.
+
 Reproduce the scene-window audit with the local saved artifacts and a Python
 environment containing NumPy:
 

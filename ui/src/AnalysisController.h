@@ -33,6 +33,7 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(int matchCount READ matchCount NOTIFY summaryChanged)
     Q_PROPERTY(QVariantMap sourceSummaries READ sourceSummaries NOTIFY summaryChanged)
     Q_PROPERTY(QVariantList characterCandidates READ targetCandidates NOTIFY targetSelectionChanged)
+    Q_PROPERTY(int hiddenUnresolvedCharacters READ hiddenUnresolvedCharacters NOTIFY targetSelectionChanged)
     Q_PROPERTY(QString targetSelectionSource READ targetSelectionSource NOTIFY targetSelectionChanged)
     Q_PROPERTY(bool awaitingTarget READ awaitingTarget NOTIFY targetSelectionChanged)
     Q_PROPERTY(QVariantList results READ results NOTIFY resultsChanged)
@@ -92,6 +93,7 @@ public:
     int matchCount() const noexcept { return matchCount_; }
     QVariantMap sourceSummaries() const { return sourceSummaries_; }
     QVariantList targetCandidates() const { return targetCandidates_; }
+    int hiddenUnresolvedCharacters() const { return hiddenUnresolvedCharacters_; }
     QString targetSelectionSource() const { return targetSelectionSource_; }
     bool awaitingTarget() const { return !targetCandidates_.isEmpty() && busy_; }
     Q_INVOKABLE bool selectTargetCharacter(const QString& id);
@@ -259,6 +261,7 @@ private:
     int matchCount_ = 0;
     QVariantMap sourceSummaries_;
     QVariantList targetCandidates_;
+    int hiddenUnresolvedCharacters_ = 0;
     QString targetSelectionSource_;
     QString forceTargetSource_;
     QStringList lastAnalysisPaths_;

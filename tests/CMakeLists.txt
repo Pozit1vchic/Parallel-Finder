@@ -81,6 +81,7 @@ add_executable(pf_tests
     core/test_export_order.cpp
     core/test_dominant_person.cpp
     core/test_character_candidates.cpp
+    core/test_repeated_scene_identity.cpp
     core/test_character_analysis_cache.cpp
     core/test_scene_descriptor.cpp
     core/test_scene_family.cpp

@@ -1,5 +1,6 @@
 #include <pfcore/PathEncoding.hpp>
 #include <pfcore/FaceAssociation.hpp>
+#include <pfcore/RepeatedSceneIdentity.hpp>
 #include <pfservices/CharacterAnalysisCache.hpp>
 #include <pfservices/MotionWindowCache.hpp>
 #include "ExportOrder.h"
@@ -2254,6 +2255,7 @@ bool AnalysisController::selectTargetCharacter(const QString& id)
     if (!valid || !ok || selected == 0 || selected == std::numeric_limits<std::size_t>::max()) return false;
     targetChoice_->store(static_cast<std::size_t>(selected), std::memory_order_release);
     targetCandidates_.clear();
+    hiddenUnresolvedCharacters_=0;
     emit targetSelectionChanged();
     return true;
 }
@@ -2375,7 +2377,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
     QString forceTargetSource = std::exchange(forceTargetSource_, QString{});
     if(QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
         &&qEnvironmentVariableIsSet("PF_SMOKE_TARGET_ID"))forceTargetSource=normalized.first();
-    targetCandidates_.clear(); targetSelectionSource_.clear();
+    targetCandidates_.clear(); hiddenUnresolvedCharacters_=0; targetSelectionSource_.clear();
     const auto targetChoice = targetChoice_ = std::make_shared<std::atomic_size_t>(0);
     emit targetSelectionChanged();
     const QString previewToken = QString::number(QDateTime::currentMSecsSinceEpoch());
@@ -3614,6 +3616,20 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             }
         }
         if (interactiveTargets && !allPeople && error.isEmpty() && !isCancelled()) {
+            for(auto& [source,candidates]:sourceCandidates) {
+                if(isCancelled())break;
+                if(!preparedSequenceSources.contains(source)) {
+                    reportPreparation(QStringLiteral("Проверяем повторные появления"));
+                    ensureSceneSequences(windows,source,sequenceCacheKeys.at(source),analysisCache.get(),
+                        providerChoice==QStringLiteral("cuda") || providerChoice==QStringLiteral("tensorrt"),
+                        isCancelled,nullptr);
+                    if(isCancelled())break;
+                    preparedSequenceSources.insert(source);
+                }
+                const auto merged=pfcore::mergeRepeatedSceneIdentities(candidates,windows,isCancelled,source);
+                if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
+                    std::fprintf(stderr,"PF_REPEATED_SCENE_IDENTITIES source=%s merged=%zu\n",source.c_str(),merged);
+            }
             std::optional<pfcore::CharacterCandidate> batchTarget;
             std::map<std::string,std::set<std::size_t>> selectedTracks;
             std::vector<std::string> targetSourceOrder;
@@ -3625,7 +3641,8 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     if(const auto saved=analysisCache->get(sequenceCacheKeys.at(source)+"|selected-target-v2")) {
                         bool ok=false;
                         const auto id=QByteArray(reinterpret_cast<const char*>(saved->data()),saved->size()).toULongLong(&ok);
-                        if(ok)for(const auto& candidate:candidates)if(candidate.id==id
+                        if(ok)for(const auto& candidate:candidates)if((candidate.id==id
+                            || std::find(candidate.trackIds.begin(),candidate.trackIds.end(),id)!=candidate.trackIds.end())
                             && (!batchTarget || candidate.prototype.faceEvidence>batchTarget->prototype.faceEvidence))batchTarget=candidate;
                     }
                 }
@@ -3642,8 +3659,12 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     if (const auto saved=analysisCache->get(selectionKey)) {
                         bool ok=false;
                         const auto id=QByteArray(reinterpret_cast<const char*>(saved->data()),saved->size()).toULongLong(&ok);
-                        if (ok && std::any_of(candidates.begin(),candidates.end(),[&](const auto& c){return c.id==id;}))
-                            selected=static_cast<std::size_t>(id);
+                        if(ok) {
+                            const auto found=std::find_if(candidates.begin(),candidates.end(),[&](const auto& c) {
+                                return c.id==id || std::find(c.trackIds.begin(),c.trackIds.end(),id)!=c.trackIds.end();
+                            });
+                            if(found!=candidates.end())selected=found->id;
+                        }
                     }
                 }
                 pfcore::TargetSuggestion suggestion;
@@ -3654,6 +3675,12 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 if (!selected) {
                     QVariantList rows;
                     QElapsedTimer previewClock;previewClock.start();
+                    const auto visibleOrder=pfcore::characterSelectionOrder(candidates,20,suggestion.candidateId);
+                    const auto unresolvedTotal=std::count_if(candidates.begin(),candidates.end(),
+                        [](const auto& candidate){return !candidate.distinctIdentity;});
+                    const auto shownUnresolved=std::count_if(visibleOrder.begin(),visibleOrder.end(),
+                        [&](auto index){return !candidates[index].distinctIdentity;});
+                    const auto hiddenUnresolved=static_cast<int>(unresolvedTotal-shownUnresolved);
                     struct CharacterPreview {
                         std::size_t candidate,appearance,frame;
                     };
@@ -3665,7 +3692,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     std::vector<CharacterPreviewFrame> frames;
                     std::vector<std::string> keys;
                     std::map<double,std::size_t> frameByTime;
-                    for(std::size_t i=0;i<candidates.size();++i)for(std::size_t j=0;j<candidates[i].appearances.size();++j) {
+                    for(const auto i:visibleOrder)for(std::size_t j=0;j<candidates[i].appearances.size();++j) {
                         const auto time=candidates[i].appearances[j].timestampSeconds;
                         auto [entry,inserted]=frameByTime.try_emplace(time,frames.size());
                         if(inserted) {
@@ -3720,17 +3747,22 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                             {"box",QVariantMap{{"left",box.left},{"top",box.top},{"right",box.right},{"bottom",box.bottom}}}});
                     }
                     int identityNumber=0,unresolvedNumber=0;
-                    for (std::size_t i=0;i<candidates.size() && !isCancelled();++i) {
-                        const auto& c=candidates[i];const auto& previews=candidatePreviews[i];
+                    for (const auto i:visibleOrder) {
+                        if(isCancelled())break;
+                        const auto& c=candidates[i];auto& previews=candidatePreviews[i];
                         std::size_t representative=0;
                         for(std::size_t j=1;j<c.appearances.size();++j)
                             if(c.appearances[j].quality>c.appearances[representative].quality)representative=j;
+                        const QVariantMap representativePreview=previews.empty()?QVariantMap{}:previews[representative].toMap();
+                        std::stable_sort(previews.begin(),previews.end(),[](const auto& a,const auto& b) {
+                            return a.toMap().value("time").toDouble()<b.toMap().value("time").toDouble();
+                        });
                         const bool unresolved=!c.distinctIdentity;
                         rows.push_back(QVariantMap{{"id",QString::number(c.id)},{"number",unresolved?++unresolvedNumber:++identityNumber},
                             {"unresolved",unresolved},
                             {"presence",c.presenceSeconds},{"observations",static_cast<qulonglong>(c.observationCount)},
                             {"tracks",static_cast<int>(c.trackIds.size())},{"quality",c.evidenceQuality},
-                            {"previews",previews},{"representative",previews.empty()?QVariantMap{}:previews[representative].toMap()},
+                            {"previews",previews},{"representative",representativePreview},
                             {"suggested",suggestion.candidateId && *suggestion.candidateId==c.id}});
                     }
                     std::stable_sort(rows.begin(),rows.end(),[](const auto& a,const auto& b) {
@@ -3745,9 +3777,10 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     }
                     if (isCancelled()) break;
                     targetChoice->store(0,std::memory_order_release);
-                    QMetaObject::invokeMethod(this,[this,cancel,rows,source] {
+                    QMetaObject::invokeMethod(this,[this,cancel,rows,source,hiddenUnresolved] {
                         if (analysisCancel_!=cancel || cancel->load()) return;
-                        targetCandidates_=rows; targetSelectionSource_=QString::fromStdString(source);
+                        targetCandidates_=rows; hiddenUnresolvedCharacters_=hiddenUnresolved;
+                        targetSelectionSource_=QString::fromStdString(source);
                         emit targetSelectionChanged();
                     },Qt::QueuedConnection);
                     // UI remains responsive; Stop and controller destruction wake
@@ -3802,7 +3835,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             windows=std::move(targetWindows); previewA=std::move(targetA); previewB=std::move(targetB);
             QMetaObject::invokeMethod(this,[this,cancel] {
                 if (analysisCancel_!=cancel) return;
-                targetCandidates_.clear(); targetSelectionSource_.clear(); emit targetSelectionChanged();
+                targetCandidates_.clear(); hiddenUnresolvedCharacters_=0; targetSelectionSource_.clear(); emit targetSelectionChanged();
             },Qt::QueuedConnection);
         }
         if (interactiveTargets && allPeople && error.isEmpty() && !isCancelled()) {
@@ -4564,7 +4597,7 @@ void AnalysisController::stopAnalysis()
 {
     if (!busy_ || !analysisCancel_) return;
     analysisCancel_->store(true, std::memory_order_relaxed);
-    targetCandidates_.clear(); emit targetSelectionChanged();
+    targetCandidates_.clear(); hiddenUnresolvedCharacters_=0; emit targetSelectionChanged();
     setStatus(QStringLiteral("Останавливаем анализ…"));
     setProgress(progress_, QStringLiteral("Останавливаем анализ"), processedFrames_, totalFrames_);
 }

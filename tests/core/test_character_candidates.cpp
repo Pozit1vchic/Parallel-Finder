@@ -34,6 +34,22 @@ TEST(CharacterCandidates, RetainsMinorityTargetAndStableTrackIds)
     EXPECT_TRUE(candidates[1].distinctIdentity);
 }
 
+TEST(CharacterCandidates, SelectorLimitsOnlyUnresolvedAndKeepsSuggestedTarget)
+{
+    std::vector<pfcore::CharacterCandidate> people(27);
+    for(std::size_t i=0;i<people.size();++i) {
+        people[i].id=i+1;people[i].presenceSeconds=static_cast<double>(i);
+        people[i].distinctIdentity=i<2;
+    }
+    const auto order=pfcore::characterSelectionOrder(people,20,3);
+    ASSERT_EQ(order.size(),22);EXPECT_TRUE(people[order[0]].distinctIdentity);
+    EXPECT_TRUE(people[order[1]].distinctIdentity);
+    EXPECT_EQ(people[order[2]].id,3); // suggested despite its short presence
+    EXPECT_EQ(std::count_if(order.begin(),order.end(),[&](auto i){return !people[i].distinctIdentity;}),20);
+    EXPECT_EQ(order[3],26); // remaining unresolved entries start with the longest
+    EXPECT_EQ(pfcore::characterSelectionOrder(people,0).size(),2);
+}
+
 TEST(CharacterCandidates, AmbiguousDisconnectedAppearanceIsNotAnotherUniquePerson)
 {
     const auto candidates=pfcore::characterCandidates({track(1,0,{1,0}),track(2,2,{.25F,.9682458F})});

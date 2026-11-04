@@ -1,4 +1,5 @@
 #include <pfcore/MotionMatcher.hpp>
+#include <pfcore/RepeatedSceneIdentity.hpp>
 #include <algorithm>
 #include <pfcore/MotionRanker.hpp>
 #include <pfcore/DominantPerson.hpp>
@@ -125,6 +126,31 @@ int main(int argc, char** argv)
         }
         std::cout<<QJsonDocument(QJsonObject{{"pairs",pairs.size()},{"changes",changes}}).toJson(QJsonDocument::Compact).constData()<<'\n';
         return 0;
+    }
+    if(args[2]=="--repeated-identity-links") {
+        if(args.size()!=4)return 2;
+        QFile input(args[3]);if(!input.open(QIODevice::ReadOnly))return 2;
+        const auto doc=QJsonDocument::fromJson(input.readAll(),&error);
+        if(error.error!=QJsonParseError::NoError || !doc.isObject())return 2;
+        std::vector<pfcore::CharacterCandidate> candidates;
+        for(const auto& row:doc.object()["candidates"].toArray()) {
+            const auto value=row.toObject();bool ok=false;pfcore::CharacterCandidate c;
+            c.id=value["id"].toString().toULongLong(&ok);if(!ok)return 2;
+            for(const auto& track:value["tracks"].toArray()) {
+                const auto id=track.toString().toULongLong(&ok);if(!ok)return 2;c.trackIds.push_back(id);
+            }
+            candidates.push_back(std::move(c));
+        }
+        const auto start=std::chrono::steady_clock::now();
+        const auto links=pfcore::auditRepeatedSceneIdentityLinks(candidates,windows);
+        QJsonArray rows;
+        for(const auto& link:links)rows.append(QJsonObject{{"leftCandidate",static_cast<qint64>(link.leftCandidate)},
+            {"rightCandidate",static_cast<qint64>(link.rightCandidate)},
+            {"leftTrack",static_cast<qint64>(link.leftTrack)},{"rightTrack",static_cast<qint64>(link.rightTrack)},
+            {"sceneError",link.sceneError},{"bodySimilarity",link.bodySimilarity}});
+        std::cout<<QJsonDocument(QJsonObject{{"links",rows},
+            {"elapsedMs",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()}})
+            .toJson(QJsonDocument::Compact).constData()<<'\n';return 0;
     }
 #ifdef PF_ORGANIZATION_PROBE
     if(args[2]=="--copied-scenes" || args[2]=="--scene-neighbours") {

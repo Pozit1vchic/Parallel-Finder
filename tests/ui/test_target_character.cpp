@@ -2,6 +2,7 @@
 #include <AppInfo.h>
 #include <UiRuntime.h>
 #include <pfservices/SettingsStore.hpp>
+#include <pfservices/PfCache.hpp>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
@@ -45,15 +46,26 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),600000);
         QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
         std::map<double,QString> frameUrls;
-        for(const auto& candidate:analysis->targetCandidates())
+        int unresolved=0;
+        for(const auto& candidate:analysis->targetCandidates()) {
+            if(candidate.toMap().value("unresolved").toBool())++unresolved;
+            double previous=-1;
             for(const auto& value:candidate.toMap().value("previews").toList()) {
                 const auto preview=value.toMap();
+                QVERIFY(preview.value("time").toDouble()>=previous);
+                previous=preview.value("time").toDouble();
                 const auto url=preview.value("url").toString();
                 QVERIFY2(!url.isEmpty(),"A character appearance has no preview");
                 QVERIFY(QFileInfo::exists(QUrl(url).toLocalFile()));
                 const auto [found,inserted]=frameUrls.emplace(preview.value("time").toDouble(),url);
                 if(!inserted)QCOMPARE(url,found->second);
             }
+        }
+        QVERIFY(unresolved<=20);
+        if(qEnvironmentVariableIsSet("PF_TEST_EXPECT_HIDDEN_UNRESOLVED")) {
+            QCOMPARE(unresolved,20);
+            QVERIFY(analysis->hiddenUnresolvedCharacters()>0);
+        }
         QSaveFile file(report);QVERIFY(file.open(QIODevice::WriteOnly));
         const auto bytes=QJsonDocument::fromVariant(analysis->targetCandidates()).toJson(QJsonDocument::Compact);
         QCOMPARE(file.write(bytes),bytes.size());QVERIFY(file.commit());
@@ -86,6 +98,57 @@ private slots:
             const auto data=QJsonDocument::fromVariant(analysis->results()).toJson(QJsonDocument::Compact);
             QCOMPARE(file.write(data),data.size()); QVERIFY(file.commit());
         }
+    }
+    void realVideoMergedCharacterSearch() {
+        const auto source=qEnvironmentVariable("PF_TEST_REAL_CHARACTER_VIDEO");
+        const auto model=qEnvironmentVariable("PF_MODEL_PATH");
+        const auto cache=qEnvironmentVariable("PF_TEST_REAL_CHARACTER_CACHE");
+        const auto windows=qEnvironmentVariable("PF_TEST_REAL_MERGED_WINDOWS");
+        if(source.isEmpty() || model.isEmpty() || cache.isEmpty() || windows.isEmpty())
+            QSKIP("Opt-in merged-character real-video search");
+        pfservices::Settings settings;settings.modelPath=model.toStdString();settings.provider="cuda";
+        settings.modelChoice=QFileInfo(model).fileName().toStdString();settings.qualityProfile="fast";
+        settings.cachePath=cache.toStdString();settings.processingThreads=2;
+        std::string error;QVERIFY2(pfservices::SettingsStore().save(settings,error),error.c_str());
+        qputenv("PF_DEBUG_POSES_JSON",windows.toUtf8());
+        const auto cleanup=qScopeGuard([] {qunsetenv("PF_DEBUG_POSES_JSON");});
+        pfui::AppInfo::registerQmlTypes();auto* info=pfui::AppInfo::instance();info->initializeBackendsAsync();
+        QTRY_VERIFY_WITH_TIMEOUT(!info->backendInitializing(),30000);
+        auto* analysis=pfui::AnalysisController::instance();analysis->setProviderChoice("cuda");
+        analysis->setAnalysisMode("combined");analysis->analyzeFiles({source});
+        QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),600000);
+        QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
+        bool found=false;
+        for(const auto& row:analysis->targetCandidates()) {
+            const auto candidate=row.toMap();
+            if(candidate.value("id").toString()=="189") {found=true;QCOMPARE(candidate.value("tracks").toInt(),3);}
+        }
+        QVERIFY(found);QVERIFY(analysis->selectTargetCharacter("189"));
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),600000);
+        QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
+        QFile file(windows);QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto captured=QJsonDocument::fromJson(file.readAll()).array();
+        QSet<qint64> tracks;
+        for(const auto& row:captured)tracks.insert(row.toObject().value("track").toInteger());
+        QVERIFY(tracks.contains(189));QVERIFY(tracks.contains(940));QVERIFY(tracks.contains(1062));
+        QCOMPARE(tracks.size(),3);
+        // Simulate an explicit selection saved before track 940 was merged.
+        // A warm rerun must map the old candidate ID to the merged candidate.
+        pfservices::PfCache savedCache(std::filesystem::path(cache.toStdWString()));
+        std::string selectionKey;
+        for(const auto& key:savedCache.keysForSource(source.toStdString()))
+            if(key.ends_with("|selected-target-v2"))selectionKey=key;
+        QVERIFY(!selectionKey.empty());
+        QVERIFY2(savedCache.putForSource(source.toStdString(),selectionKey,{'9','4','0'},error),error.c_str());
+        analysis->analyzeFiles({source});
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy() || analysis->awaitingTarget(),600000);
+        QVERIFY2(!analysis->awaitingTarget(),"An earlier candidate ID was not mapped to the merged identity");
+        QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
+        QFile again(windows);QVERIFY(again.open(QIODevice::ReadOnly));
+        const auto repeated=QJsonDocument::fromJson(again.readAll()).array();tracks.clear();
+        for(const auto& row:repeated)tracks.insert(row.toObject().value("track").toInteger());
+        QVERIFY(tracks.contains(189));QVERIFY(tracks.contains(940));QVERIFY(tracks.contains(1062));
+        QCOMPARE(tracks.size(),3);
     }
     void realSeriesIncrementalRestart() {
         const auto manifestPath=qEnvironmentVariable("PF_TEST_REAL_SERIES_MANIFEST");
@@ -199,14 +262,23 @@ private slots:
             QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),90000);
         }
         QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
-        int leadGroups=0;QString leadId;
+        double leadPresence=0;QString leadId;
         for(const auto& value:analysis->targetCandidates()) {
             const auto row=value.toMap();
-            if(row.value("presence").toDouble()>60&&row.value("tracks").toInt()>30&&!row.value("unresolved").toBool()) {
-                ++leadGroups;leadId=row.value("id").toString();
+            if(row.value("presence").toDouble()>leadPresence&&row.value("tracks").toInt()>30&&!row.value("unresolved").toBool()) {
+                leadPresence=row.value("presence").toDouble();leadId=row.value("id").toString();
             }
         }
-        QCOMPARE(leadGroups,1);
+        QVERIFY(leadPresence>60);QVERIFY(!leadId.isEmpty());
+        if(qEnvironmentVariableIsSet("PF_TEST_EXPECT_HIDDEN_UNRESOLVED")) {
+            auto* selector=window->findChild<QQuickItem*>("targetCharacterPanel");QVERIFY(selector);
+            selector->setProperty("showUnresolved",true);
+            auto* notice=selector->findChild<QQuickItem*>("unresolvedLimitNotice");QVERIFY(notice);
+            QTRY_VERIFY(notice->isVisible());
+            const auto message=notice->property("text").toString();
+            QVERIFY(message.contains("20"));
+            QVERIFY(message.contains(QString::number(20+analysis->hiddenUnresolvedCharacters())));
+        }
         // The first preparation may be cold after an artifact version change.
         // Verify the zero-inference guarantee on actual cached reselection.
         if(analysis->analyzedFrames()>0 || analysis->poseDetectionCount()>0) {

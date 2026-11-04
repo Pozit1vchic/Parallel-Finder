@@ -141,6 +141,10 @@ struct CharacterCandidate {
 // minimum screen-share gate: a brief target must remain available to select.
 std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrack>& tracks,
     const DominantSelectionControl& control = {});
+// Order confirmed identities first and cap only the unresolved entries shown
+// to the user. The full candidate set remains available to analysis.
+std::vector<std::size_t> characterSelectionOrder(const std::vector<CharacterCandidate>& candidates,
+    std::size_t maximumUnresolved = 20, std::optional<std::size_t> suggestedId = {});
 
 enum class TargetSuggestionReason { StrongFaceAgreement, Ambiguous, InsufficientEvidence, NoMatch };
 struct TargetSuggestion {

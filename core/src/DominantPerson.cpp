@@ -1152,6 +1152,25 @@ static void recoverOverlappingHeadDuplicates(std::vector<std::vector<std::size_t
     std::erase_if(components,[](const auto& c){return c.empty();});
 }
 
+std::vector<std::size_t> characterSelectionOrder(const std::vector<CharacterCandidate>& candidates,
+    std::size_t maximumUnresolved,std::optional<std::size_t> suggestedId)
+{
+    std::vector<std::size_t> order(candidates.size());std::iota(order.begin(),order.end(),0);
+    const auto finite=[](double x) {return std::isfinite(x) ? x : 0.;};
+    std::stable_sort(order.begin(),order.end(),[&](auto a,auto b) {
+        const auto& x=candidates[a];const auto& y=candidates[b];
+        if(x.distinctIdentity!=y.distinctIdentity)return x.distinctIdentity;
+        const bool sx=suggestedId && x.id==*suggestedId,sy=suggestedId && y.id==*suggestedId;
+        if(sx!=sy)return sx;
+        if(finite(x.presenceSeconds)!=finite(y.presenceSeconds))return finite(x.presenceSeconds)>finite(y.presenceSeconds);
+        if(finite(x.evidenceQuality)!=finite(y.evidenceQuality))return finite(x.evidenceQuality)>finite(y.evidenceQuality);
+        return x.id<y.id;
+    });
+    std::size_t unresolved=0;
+    std::erase_if(order,[&](auto index){return !candidates[index].distinctIdentity && unresolved++>=maximumUnresolved;});
+    return order;
+}
+
 std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrack>& tracks,
     const DominantSelectionControl& control)
 {

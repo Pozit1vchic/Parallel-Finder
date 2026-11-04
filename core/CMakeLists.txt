@@ -9,6 +9,7 @@ add_library(pfcore STATIC
     src/MotionMatcher.cpp
     src/MotionIndex.cpp
     src/DominantPerson.cpp
+    src/RepeatedSceneIdentity.cpp
     src/JobManager.cpp
     src/MovementClassifier.cpp
     src/MovementGrouping.cpp
@@ -57,6 +58,8 @@ set(PF_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MotionIndex.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/DominantPerson.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/DominantPerson.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/RepeatedSceneIdentity.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/RepeatedSceneIdentity.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/JobManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/JobManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/pfcore/MovementClassifier.hpp
