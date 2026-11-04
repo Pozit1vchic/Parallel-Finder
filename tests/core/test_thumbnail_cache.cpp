@@ -4,16 +4,31 @@
 #include <pfservices/PreviewImage.hpp>
 #include <pfservices/CachedPreview.hpp>
 #include <pfservices/PreviewWriter.hpp>
+#include "../../ui/src/PreviewRequestOrder.h"
 #include <QTemporaryDir>
 #include <QDir>
 
 #include <stdexcept>
+#include <cmath>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 namespace {
+
+TEST(CharacterPreviewKey, TracksSourceTimeInsteadOfMutableCandidatePosition)
+{
+    const std::string artifact="source-and-analysis";
+    const auto original=pfui::characterPreviewCacheKey(artifact,10.25);
+    // A group merge can place a different timestamp at the same old candidate
+    // and appearance index; it must not reuse the old frame.
+    EXPECT_NE(original,pfui::characterPreviewCacheKey(artifact,11.5));
+    EXPECT_EQ(original,pfui::characterPreviewCacheKey(artifact,10.25));
+    EXPECT_NE(original,pfui::characterPreviewCacheKey("different-source",10.25));
+    EXPECT_NE(original,pfui::characterPreviewCacheKey(artifact,std::nextafter(10.25,11.)));
+    EXPECT_EQ(pfui::characterPreviewCacheKey(artifact,0.),pfui::characterPreviewCacheKey(artifact,-0.));
+}
 
 TEST(CachedPreview, ReusesPixelsAcrossTemporarySessionsAndRecoversCorruptEntries)
 {

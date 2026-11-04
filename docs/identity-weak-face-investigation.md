@@ -368,6 +368,25 @@ are not independent: the other pair remains split. The two selected different
 women remain separate. No population-wide error rate, portrait or mirror
 filtering is established by this example.
 
+Character preview keys now use the exact source timestamp rather than a
+candidate ID and appearance index. Group recovery and chronological display
+sorting can change those indices without changing the cached analysis, so an
+old index key could otherwise name a different frame after a later grouping
+change. Existing analysis remains reusable; only character previews are
+regenerated once under the new key. On the current Butcher selector, all 110
+unique previews matched the corresponding earlier PNGs after reconstructing
+the original pre-sort appearance order, and all candidate metadata matched.
+The next run reused all 110 new preview entries; selection, the 20-entry limit,
+the on-screen total and the merged-target saved-choice regression passed.
+
+The preview-cache research diagnostic now reads timestamp keys by default. It
+does not infer timestamps from older candidate/index keys unless explicitly
+invoked with `--assume-legacy-unmerged`: after a merge and display sorting,
+the displayed index need not be the cached index. The earlier pre-merge v21
+capture was generated before those merges and remains suitable for that
+explicit legacy mode. This corrects the diagnostic's assumptions; it is not
+evidence that the previously displayed application previews were wrong.
+
 The selector now displays all confirmed identities and at most 20 unresolved
 appearances, ordered primarily by duration, with any current suggestion kept
 in the displayed set. It reports how many unresolved appearances exist in

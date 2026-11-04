@@ -3697,9 +3697,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                         auto [entry,inserted]=frameByTime.try_emplace(time,frames.size());
                         if(inserted) {
                             frames.push_back({time,{},{}});
-                            // Preserve the existing key of the first request so
-                            // previously cached previews remain reusable.
-                            keys.push_back(characterArtifactKeys[source]+"|character-preview-v2-clean-frame|"+std::to_string(candidates[i].id)+"|"+std::to_string(j));
+                            keys.push_back(pfui::characterPreviewCacheKey(characterArtifactKeys[source],time));
                         }
                         requests.push_back({i,j,entry->second});
                     }

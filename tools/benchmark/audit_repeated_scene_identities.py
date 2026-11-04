@@ -9,6 +9,7 @@ import argparse
 from collections import defaultdict
 import io
 import json
+import math
 from pathlib import Path
 import re
 import struct
@@ -17,8 +18,9 @@ import numpy as np
 from PIL import Image
 
 
-def cache_frames(cache, candidates):
+def cache_frames(cache, candidates, assume_legacy_unmerged=False):
     keys = {}
+    timed = {}
     for path in cache.glob("*.pfc"):
         with path.open("rb") as stream:
             header = stream.read(24)
@@ -28,6 +30,18 @@ def cache_frames(cache, candidates):
             if magic != b"PFCACHE1" or version != 1 or key_size > 16384:
                 continue
             key = stream.read(key_size).decode("utf-8", errors="replace")
+            timed_match = re.search(r"character-preview-v3-source-time\|(\d+)$", key)
+            if timed_match:
+                bits = int(timed_match[1])
+                if bits > (1 << 64) - 1:
+                    continue
+                time = struct.unpack("<d", struct.pack("<Q", bits))[0]
+                if not math.isfinite(time) or time < 0:
+                    continue
+                if time in timed:
+                    raise ValueError("Cache contains conflicting preview namespaces; use an isolated source cache")
+                timed[time] = (path, payload_size)
+                continue
             match = re.search(r"character-preview-v2-clean-frame\|(\d+)\|(\d+)$", key)
             if match:
                 identity = (int(match[1]), int(match[2]))
@@ -38,7 +52,9 @@ def cache_frames(cache, candidates):
     for candidate in candidates:
         for index, preview in enumerate(candidate["previews"]):
             key = (int(candidate["id"]), index)
-            if key in keys:
+            if preview["time"] in timed:
+                frames[preview["time"]] = timed[preview["time"]]
+            elif assume_legacy_unmerged and key in keys:
                 frames[preview["time"]] = keys[key]
     return frames
 
@@ -67,8 +83,8 @@ def box_iou(a, b):
     return intersection / union if union > 0 else 0
 
 
-def audit(candidates, tracks, assignments, cache):
-    frames = cache_frames(cache, candidates)
+def audit(candidates, tracks, assignments, cache, assume_legacy_unmerged=False):
+    frames = cache_frames(cache, candidates, assume_legacy_unmerged)
     identities = {int(row["track"]): int(row["identity"]) for row in assignments}
     by_time = defaultdict(list)
     for track in tracks:
@@ -129,11 +145,13 @@ def main():
     parser.add_argument("--replay", type=Path, required=True)
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--assume-legacy-unmerged", action="store_true",
+                        help="Interpret v2 candidate/index keys only for a capture known to predate post-processing merges")
     args = parser.parse_args()
     def load(path):
         return json.loads(path.read_text(encoding="utf-8-sig"))
     result = audit(load(args.candidates), load(args.tracks)["tracks"],
-                   load(args.replay)["assignments"], args.cache)
+                   load(args.replay)["assignments"], args.cache, args.assume_legacy_unmerged)
     args.output.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(f"{result['uniqueFrames']} frames; {len(result['candidatePairs'])} pairs to review")
 
