@@ -202,6 +202,40 @@ TEST(CharacterCandidates, OneFaceNeedsSeveralIndependentReferencesAndBodyAgreeme
     EXPECT_EQ(pfcore::characterCandidates({reference,brief}).size(),2);
 }
 
+TEST(CharacterCandidates, ShortReferenceSurvivesDilutedWholePersonGallery)
+{
+    auto reference=track(1,0,{.7F,.7141428F},4);
+    auto longHistory=track(2,3,{.3F,.9539392F},400);
+    auto brief=track(3,110,{},4);
+    for(auto& o:reference.observations)o.appearanceEmbedding={1,0};
+    for(auto& o:longHistory.observations)o.appearanceEmbedding={0,1};
+    for(auto& o:brief.observations)o.appearanceEmbedding={1,0};
+    brief.observations.front().faceEmbedding={1,0};
+    const auto joined=pfcore::characterCandidates({reference,longHistory,brief});
+    ASSERT_EQ(joined.size(),1);
+    EXPECT_EQ(joined.front().trackIds,(std::vector<std::size_t>{1,2,3}));
+
+    // A single lucky face, or mismatching clothing, cannot establish the link.
+    reference.observations[1].faceEmbedding.clear();
+    reference.observations[2].faceEmbedding.clear();
+    EXPECT_EQ(pfcore::characterCandidates({reference,longHistory,brief}).size(),2);
+    reference.observations[1].timestampSeconds=reference.observations[0].timestampSeconds;
+    reference.observations[1].faceEmbedding={.7F,.7141428F};
+    reference.observations[2].timestampSeconds=reference.observations[0].timestampSeconds;
+    reference.observations[2].faceEmbedding={.8F,.6F};
+    EXPECT_EQ(pfcore::characterCandidates({reference,longHistory,brief}).size(),2);
+    reference=track(1,0,{.7F,.7141428F},4);
+    for(auto& o:reference.observations)o.appearanceEmbedding={1,0};
+    for(auto& o:brief.observations)o.appearanceEmbedding={.8F,.6F};
+    EXPECT_EQ(pfcore::characterCandidates({reference,longHistory,brief}).size(),2);
+    for(auto& o:longHistory.observations)o.box={0,0,100,200};
+    for(std::size_t i=0;i<brief.observations.size();++i) {
+        auto& o=brief.observations[i];
+        o.appearanceEmbedding={1,0};o.timestampSeconds=10+i*.25;o.box={200,0,300,200};
+    }
+    EXPECT_EQ(pfcore::characterCandidates({reference,longHistory,brief}).size(),2);
+}
+
 TEST(CharacterCandidates, BodyOnlyTrackNeedsAnUnambiguousFaceBackedCandidate)
 {
     auto reference=track(1,0,{1,0},4);

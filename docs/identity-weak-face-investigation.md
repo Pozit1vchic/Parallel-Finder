@@ -184,12 +184,10 @@ became 472. All eight selected weak-recovery positives then joined; the selected
 different-person controls remained separate. This experiment examined only one
 source with added weak faces and does not establish general precision. On the
 normal v19 Butcher and v16 Kyle frozen observations, component membership did
-not change. The option was not added to the application: independently reviewed
-negatives, other videos, print/reflection cases, and performance must be checked
-before deciding whether local corroboration is safe. The experimental diff and
+not change. This initial option was not added to the application. The experimental diff and
 replays are local build artifacts (`weak-local-face-body-experiment.patch`,
 `weak-local-face-body-experiment.json` and the corresponding Butcher/Kyle
-replays), not production behavior.
+replays); the later implementation and its limitations are described below.
 
 An additional exhaustive diagnostic on individual tracks with exactly one
 stored face and at least three observations, compared with tracks having at
@@ -206,6 +204,40 @@ and 351 ms with the unoptimized prototype; the separate v19 and Kyle runs also
 showed higher elapsed times. These are diagnostic observations, not controlled
 performance estimates. The prototype repeatedly summarizes tracks inside nested
 comparisons and needs optimization and controlled A/B timings before use.
+
+## Track-local corroboration in character grouping
+
+The regular character grouping now also checks individual tracks when a
+one-face component is compared with a larger gallery. It requires a body
+cosine of at least 0.90, one face score of at least 0.65 and a third score of
+at least 0.55 from independently timed faces of that same track. Faces with
+conflicting embeddings at one timestamp are excluded. Existing co-visibility,
+face-conflict and component-level vetoes still apply. Track summaries are
+prepared once instead of repeatedly inside the group-pair loop.
+
+On the saved weak-face v2 observations, the optimized implementation produces
+exactly the same assignments and candidate records as the earlier local
+prototype, including the reviewed repeated car view. Eight selected positive
+controls pass and applicable selected negatives remain separate; those cases
+overlap and do not establish general precision. Weak-face recovery remains
+disabled by default, so this is not evidence that the normal Butcher analysis
+now joins that car pair. On normal v19 Butcher and v16 Kyle saved observations,
+all assignments remain identical to the prior implementation, including the
+selected different women. Three alternating clustering runs measured medians
+of 191.4 ms before and 201.3 ms after on normal Butcher, and 199.1 ms before
+and 209.3 ms after on weak-face observations. These do not measure video
+analysis time. Sixty-five character and dominant-person tests passed, including
+new controls for insufficient face support, body disagreement, and co-visible
+distinct people. The character cache key changes to v21, so older character
+analysis entries are not reused. This does not filter pictures or mirrors.
+
+A fresh CUDA run of the full Butcher video with v21 and weak faces disabled
+reached character selection successfully. It produced 490 candidates, 479
+unresolved, and the same candidate metadata as a fresh v20 run after excluding
+session-specific preview URLs. All 1,437 unique previews existed. This is an
+application-path regression check, not evidence of improved normal-mode recall;
+the major fragmentation problem remains. Local reports are
+`build/butcher-v21-validation.json` and `build/butcher-v21-validation.log`.
 
 The existing Kyle observations add one selected user-provided negative to the
 local-corroboration investigation. The younger woman's track 66 has one stored

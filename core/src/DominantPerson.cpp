@@ -654,12 +654,30 @@ static void recoverCharacterViews(std::vector<std::vector<std::size_t>>& compone
     };
     const auto originalComponents=components;
     std::vector<std::vector<const PersonDetection*>> atomicFaces(indices.size());
+    std::vector<std::vector<const PersonDetection*>> atomicLocalFaces(indices.size());
+    std::vector<std::vector<float>> atomicBodies(indices.size());
     for(std::size_t i=0;i<indices.size();++i) {
         auto& faces=atomicFaces[i];
         for(const auto& o:tracks[indices[i]].observations)
             if(std::isfinite(o.timestampSeconds) && embeddingScore(o.faceEmbedding,o.faceEmbedding)>.99)
                 faces.push_back(&o);
         std::stable_sort(faces.begin(),faces.end(),[](auto a,auto b){return a->timestampSeconds<b->timestampSeconds;});
+        auto& local=atomicLocalFaces[i];
+        for(std::size_t j=0;j<faces.size();) {
+            std::size_t end=j+1;
+            while(end<faces.size() && std::abs(faces[end]->timestampSeconds-faces[j]->timestampSeconds)<1e-6)++end;
+            bool ambiguous=false;
+            for(auto k=j+1;k<end;++k)
+                if(faces[k]->faceEmbedding!=faces[j]->faceEmbedding)ambiguous=true;
+            if(!ambiguous && (local.empty() || faces[j]->timestampSeconds-local.back()->timestampSeconds>=.1-1e-9))
+                local.push_back(faces[j]);
+            j=end;
+        }
+        if(local.size()>64) {
+            auto full=std::move(local);
+            local.clear();
+            for(std::size_t j=0;j<64;++j)local.push_back(full[j*(full.size()-1)/63]);
+        }
         std::vector<const PersonDetection*> distinct;
         for(auto face:faces)if(distinct.empty() || face->timestampSeconds-distinct.back()->timestampSeconds>=.1-1e-9)
             distinct.push_back(face);
@@ -667,6 +685,8 @@ static void recoverCharacterViews(std::vector<std::vector<std::size_t>>& compone
         constexpr std::size_t limit=64;
         for(std::size_t j=0;j<std::min(limit,distinct.size());++j)
             faces.push_back(distinct[distinct.size()<=limit ? j : j*(distinct.size()-1)/(limit-1)]);
+        if(local.size()>=3)
+            atomicBodies[i]=summarizeObservations(tracks[indices[i]].observations,true).body;
     }
     std::vector<Gallery> galleries(components.size());
     for (std::size_t i=0;i<components.size();++i) {
@@ -747,7 +767,25 @@ static void recoverCharacterViews(std::vector<std::vector<std::size_t>>& compone
             if(x.faces.size()==1 || y.faces.size()==1) {
                 const auto& single=x.faces.size()==1 ? x : y;
                 const auto& many=x.faces.size()==1 ? y : x;
-                if(many.faces.size()<3 || body<.78 || single.observations.size()<3)continue;
+                if(single.observations.size()<3)continue;
+                // A bounded whole-person gallery may omit a short matching
+                // view, and its averaged clothing can mix many outfits. Check
+                // a coherent individual track as a second route, requiring
+                // both strong body agreement and three independent faces.
+                const auto manyIndex=x.faces.size()==1 ? b : a;
+                for(const auto index:originalComponents[manyIndex]) {
+                    const auto& faces=atomicLocalFaces[index];
+                    if(faces.size()<3 || embeddingScore(single.body,atomicBodies[index])<.90)continue;
+                    std::vector<double> scores;
+                    for(const auto* face:faces)
+                        scores.push_back(embeddingScore(single.faces.front()->faceEmbedding,face->faceEmbedding));
+                    std::sort(scores.begin(),scores.end(),std::greater<>());
+                    if(scores[0]>=.65 && scores[2]>=.55) {
+                        links.push_back({a,b,(scores[0]+scores[1]+scores[2])/3,false});
+                        break;
+                    }
+                }
+                if(many.faces.size()<3 || body<.78)continue;
                 std::vector<double> scores;
                 for(const auto* other:many.faces)
                     scores.push_back(embeddingScore(single.faces.front()->faceEmbedding,other->faceEmbedding));
