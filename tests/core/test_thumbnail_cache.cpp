@@ -78,7 +78,7 @@ TEST(PreviewWriter, BoundedQueueDrainsAndPreservesEncodedBytesAndCache)
     pfservices::PfCache cache(std::filesystem::path(directory.path().toStdWString()));
     std::vector<std::shared_future<QString>> futures;
     {
-        pfservices::PreviewWriter writer(&cache,1);
+        pfservices::PreviewWriter writer(&cache,1,{},3);
         for (int i = 0; i < 19; ++i) {
             QImage image(128,72,QImage::Format_RGBA8888); image.fill(qRgba(i*11,231-i,i*13,i*7));
             const auto name = QString::number(i)+".png";
@@ -102,6 +102,7 @@ TEST(PreviewWriter, FailedWritesCompleteWithoutDeadlock)
 {
     QTemporaryDir directory;
     EXPECT_THROW(pfservices::PreviewWriter(nullptr,0),std::invalid_argument);
+    EXPECT_THROW(pfservices::PreviewWriter(nullptr,3,{},0),std::invalid_argument);
     pfservices::PreviewWriter writer(nullptr);
     auto empty = writer.submit({},directory.filePath("empty.png"),"empty");
     QImage image(32,32,QImage::Format_RGBA8888); image.fill(Qt::red);
@@ -113,7 +114,7 @@ TEST(PreviewWriter, SourceBatchesFlushTheTailAndRemainResettable)
 {
     QTemporaryDir directory,images;
     pfservices::PfCache cache(std::filesystem::path(directory.path().toStdWString()));
-    pfservices::PreviewWriter writer(&cache,3,"film");
+    pfservices::PreviewWriter writer(&cache,3,"film",3);
     std::vector<std::shared_future<QString>> results;
     for(int i=0;i<35;++i) {
         QImage image(32,32,QImage::Format_RGBA8888);image.fill(Qt::red);

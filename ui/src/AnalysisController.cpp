@@ -3698,7 +3698,8 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                                 [&](const pfcore::DecodedFrame& frame,const QString& name) {
                                     QImage image(frame.rgba.data(),frame.width,frame.height,QImage::Format_RGBA8888);
                                     image=image.copy();
-                                    if(!writer)writer=std::make_unique<pfservices::PreviewWriter>(analysisCache.get(),3,source);
+                                    if(!writer)writer=std::make_unique<pfservices::PreviewWriter>(analysisCache.get(),3,source,
+                                        QThread::idealThreadCount() >= 8 ? 3U : 1U);
                                     request.encoded=writer->submit(std::move(image),previewSessionPath()+"/"+name,keys[index]);
                                     return QString{};
                                 },previous<0 || request.time-previous>1.5 || request.time<=previous);

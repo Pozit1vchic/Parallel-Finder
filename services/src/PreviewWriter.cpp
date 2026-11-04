@@ -19,19 +19,21 @@ struct PreviewWriter::Impl {
     PfCache* cache;
     std::string source;
     std::size_t capacity;
-    std::mutex mutex;
+    std::mutex mutex, cacheMutex;
     std::condition_variable available, space;
     std::deque<Task> tasks;
     bool closed = false;
-    std::jthread worker;
-    Impl(PfCache* value, std::size_t slotCount,std::string owner) : cache(value),source(std::move(owner)), capacity(slotCount)
+    std::vector<std::jthread> workers;
+    Impl(PfCache* value, std::size_t slotCount,std::string owner,std::size_t workerCount) : cache(value),source(std::move(owner)), capacity(slotCount)
     {
-        if (slotCount == 0 || slotCount > 4) throw std::invalid_argument("PreviewWriter: invalid capacity");
-        worker = std::jthread([this] {
+        if (slotCount == 0 || slotCount > 4 || workerCount == 0 || workerCount > 4)
+            throw std::invalid_argument("PreviewWriter: invalid capacity or worker count");
+        const auto run = [this] {
             std::vector<std::pair<std::string,std::vector<std::uint8_t>>> batch;
             std::size_t batchBytes = 0;
             const auto flush=[&] {
                 if(cache&&!batch.empty()) {
+                    std::lock_guard lock(cacheMutex);
                     std::string error;
                     if(source.empty())cache->putBatch(batch,error);
                     else cache->putForSourceBatch(source,batch,error);
@@ -66,16 +68,24 @@ struct PreviewWriter::Impl {
                 task.done.set_value(std::move(url));
             }
             flush();
-        });
+        };
+        try {
+            for (std::size_t i=0;i<workerCount;++i) workers.emplace_back(run);
+        } catch (...) {
+            { std::lock_guard lock(mutex); closed = true; }
+            available.notify_all();
+            for (auto& worker:workers) if (worker.joinable()) worker.join();
+            throw;
+        }
     }
     void finish() noexcept
     {
         { std::lock_guard lock(mutex); closed = true; }
         available.notify_all(); space.notify_all();
-        if (worker.joinable()) worker.join();
+        for (auto& worker:workers) if (worker.joinable()) worker.join();
     }
 };
-PreviewWriter::PreviewWriter(PfCache* cache, std::size_t capacity,std::string source) : impl_(std::make_unique<Impl>(cache, capacity,std::move(source))) {}
+PreviewWriter::PreviewWriter(PfCache* cache, std::size_t capacity,std::string source,std::size_t workers) : impl_(std::make_unique<Impl>(cache, capacity,std::move(source),workers)) {}
 PreviewWriter::~PreviewWriter() { finish(); }
 void PreviewWriter::finish() noexcept { impl_->finish(); }
 std::shared_future<QString> PreviewWriter::submit(QImage image, QString path, std::string key)

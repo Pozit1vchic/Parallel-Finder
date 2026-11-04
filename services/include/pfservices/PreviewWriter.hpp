@@ -6,12 +6,14 @@
 #include <memory>
 
 namespace pfservices {
-// One bounded encoder overlaps PNG/cache writes with the caller's next seek
+// Bounded encoders overlap PNG/cache writes with the caller's next seek
 // and decode. Only owned QImages cross threads; decoder access stays serial.
 // Every returned future is ready before finish()/destruction returns.
+// With multiple workers, submitted paths and cache keys must be distinct.
 class PreviewWriter {
 public:
-    explicit PreviewWriter(PfCache* cache, std::size_t capacity = 3,std::string source = {});
+    explicit PreviewWriter(PfCache* cache, std::size_t capacity = 3,std::string source = {},
+                           std::size_t workers = 1);
     ~PreviewWriter();
     PreviewWriter(const PreviewWriter&) = delete;
     PreviewWriter& operator=(const PreviewWriter&) = delete;

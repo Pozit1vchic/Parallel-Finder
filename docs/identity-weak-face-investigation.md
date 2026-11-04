@@ -260,6 +260,19 @@ capture. The earlier 47.0-second measurement followed cold video analysis,
 so these separate runs are not a controlled speedup measurement. A warm run
 reused all 1,437 existing representative preview entries in 2.7 seconds.
 
+Character preview encoding now uses three bounded workers on machines with at
+least eight logical threads; smaller machines retain one worker. Video decoding
+remains sequential, and cache batches are serialized. In four alternating
+isolated-cache runs of the same cached Butcher character analysis, with no
+preview entries initially present, one worker took 22.059 and 22.152 seconds;
+three workers took 15.149 and 15.013 seconds. Each run prepared the same 1,437
+unique frames for 2,167 appearance requests. All preview PNG payloads matched
+byte for byte and all 490 candidate records matched after excluding their
+session-specific URLs. These timings cover only preparation of uncached
+previews on this computer, not video analysis, warm-cache performance or other
+hardware. The focused preview tests also cover queue draining, failed writes,
+cache ownership and reset with multiple workers.
+
 ## Duplicate timestamps in character evidence
 
 Character-candidate summaries now count at most one valid face and one valid
