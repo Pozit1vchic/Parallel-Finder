@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "scope": "Selected visible people in repeated shots of the supplied Butcher montage. These overlapping examples are for identity regression, not an accuracy estimate. No pixels or embeddings are stored.",
+  "sourceBasename": "butcher_parallel_notsorted.mov",
+  "controls": [
+    {
+      "id": "same-woman-right-side-of-room",
+      "left": {"time": 86.544625, "point": [1160, 280], "timeTolerance": 0.01},
+      "right": {"time": 616.696024, "point": [1155, 280], "timeTolerance": 0.01},
+      "sameIdentity": true
+    },
+    {
+      "id": "different-women-left-and-right-of-room",
+      "left": {"time": 86.544625, "point": [1160, 280], "timeTolerance": 0.01},
+      "right": {"time": 86.544625, "point": [200, 280], "timeTolerance": 0.01},
+      "sameIdentity": false
+    },
+    {
+      "id": "same-blonde-woman-in-store",
+      "left": {"time": 52.698425, "point": [150, 300], "timeTolerance": 0.01},
+      "right": {"time": 577.532115, "point": [150, 300], "timeTolerance": 0.01},
+      "sameIdentity": true
+    }
+  ]
+}

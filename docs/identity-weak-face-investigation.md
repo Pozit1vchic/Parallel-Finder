@@ -321,3 +321,33 @@ observations have no duplicate timestamps within a track; after this change,
 all their candidate records and assignments remain identical. This is a guard
 against fabricated repeated evidence, not a reduction of the 479 unresolved
 Butcher appearances or evidence of broad recognition accuracy.
+
+## Repeated scenes and split identities
+
+`butcher-repeated-scene-controls.json` records two visually reviewed pairs of
+the same person in repeated shots and one pair of different women visible in
+the same shot. The current v21 baseline splits both same-person pairs and keeps
+the different women separate. These are selected examples, not a population
+accuracy measure. The source frames remain local.
+
+Two research diagnostics examine whether existing image evidence could help.
+`audit_repeated_scene_identities.py` reads character preview cache entries;
+`audit_repeated_motion_identities.py` uses the 4 FPS scene sequences and pose
+windows already prepared for the matcher. On the saved Butcher data, each
+diagnostic nominated one split pair: tracks 189 and 940, visibly the same woman
+at the right side of a repeated room shot. The second known same-person pair
+was not nominated by these thresholds. The scene-window diagnostic compares
+three successive thumbnails, requires body similarity and independently timed
+nearby pose landmarks, and does not propose joining the different women in the
+selected control. Similar backgrounds, clothing and poses can still occur for
+different people; this small sample does not establish a safe merge rule.
+Neither diagnostic changes application grouping.
+
+Reproduce the scene-window audit with the local saved artifacts and a Python
+environment containing NumPy:
+
+```powershell
+build/ucrt64-release/tools/pf_matcher_probe.exe build/butcher-all-people-windows-v18.json --scene-neighbours > build/butcher-neighbour-scenes-id.json
+python tools/benchmark/audit_repeated_motion_identities.py --windows build/butcher-all-people-windows-v18.json --replay build/local-face-v19-replay.json --neighbours build/butcher-neighbour-scenes-id.json --output build/repeated-motion-identity-audit.json
+python tools/benchmark/evaluate_identity_controls.py build/local-face-v19-replay.json tests/fixtures/butcher-repeated-scene-controls.json
+```

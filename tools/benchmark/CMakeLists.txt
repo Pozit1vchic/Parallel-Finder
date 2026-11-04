@@ -16,6 +16,7 @@ set_target_properties(pf_decode_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC
 target_link_libraries(pf_decode_probe PRIVATE pf::core)
 
 add_executable(pf_matcher_probe matcher_probe.cpp)
+target_compile_definitions(pf_matcher_probe PRIVATE PF_ORGANIZATION_PROBE)
 add_executable(pf_character_probe character_probe.cpp)
 add_executable(pf_posture_probe posture_probe.cpp)
 add_executable(pf_provider_schedule_probe provider_schedule_probe.cpp)
