@@ -254,6 +254,25 @@ TEST(MotionRanker, RetainsClosedHandGestureButRejectsJitter)
     EXPECT_TRUE(matches.empty()) << "A single detection outlier is not a closed gesture";
 }
 
+TEST(MotionRanker, UnknownSideDoesNotMakeAStaticSideAConfirmedStaticPair)
+{
+    const auto observed=moving("observed",0,0);
+    auto unknown=moving("occluded",0,0);
+    for(auto& frame:unknown.frames)
+        for(auto& point:frame.keypoints)point.confidence=0;
+    pfcore::MotionMatch match;match.leftIndex=0;match.rightIndex=1;
+    match.similarity=.9;match.durationSeconds=1.;
+    std::vector<pfcore::MotionMatch> matches{match};
+    pfcore::MotionRanker::rank(matches,{observed,unknown});
+    ASSERT_EQ(matches.size(),1u);
+    matches={match};
+    pfcore::MotionRanker::rank(matches,{unknown,observed});
+    ASSERT_EQ(matches.size(),1u);
+    matches={match};
+    pfcore::MotionRanker::rank(matches,{observed,observed});
+    EXPECT_TRUE(matches.empty());
+}
+
 pfcore::MotionWindow actionFixture(const std::function<void(pfcore::PoseFrame&,double)>& animate={})
 {
     pfcore::MotionWindow w;

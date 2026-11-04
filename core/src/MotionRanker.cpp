@@ -42,8 +42,14 @@ void MotionRanker::rank(std::vector<MotionMatch>& matches,
             && match.rightIndex < windows.size()
             && windows[match.leftIndex].staticFrameSet
             && windows[match.rightIndex].staticFrameSet;
-        return !explicitStaticAnalysis
-            && match.directionLabel == "static" && match.gestureLabel == "static";
+        if (explicitStaticAnalysis || match.directionLabel != "static" || match.gestureLabel != "static")
+            return false;
+        if (match.leftIndex >= windows.size() || match.rightIndex >= windows.size()) return false;
+        // Combining a known static side with an unknown side keeps the static
+        // label but has zero confidence. That is not evidence that both sides
+        // are static, and must not discard an otherwise valid match.
+        const auto classification=classifier.classify(windows[match.leftIndex],windows[match.rightIndex]);
+        return classification.confirmedStatic();
     }), matches.end());
     std::stable_sort(matches.begin(), matches.end(), [](const MotionMatch& left,
                                                         const MotionMatch& right) {

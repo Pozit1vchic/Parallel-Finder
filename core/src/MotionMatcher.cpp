@@ -3776,8 +3776,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             // MotionRanker removes these results anyway. Apply the identical
             // semantic guard before reserving shots, so rejected jitter cannot
             // hide an independently supported pose or another real gesture.
-            if (classification.direction == MovementDirection::Static
-                && classification.gesture == GestureClass::Static) continue;
+            if (classification.confirmedStatic()) continue;
         }
         auto& typeCount = staticCandidate ? staticResults : motionResults;
         if (std::getenv("PF_DEBUG_SELECTION") != nullptr) {
@@ -3928,8 +3927,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             if (!windows[match.leftIndex].hasSceneIndex || !windows[match.rightIndex].hasSceneIndex) continue;
             if (!windows[match.leftIndex].staticFrameSet) {
                 const auto classification = pairMovement(match);
-                if (classification.direction == MovementDirection::Static
-                    && classification.gesture == GestureClass::Static) continue;
+                if (classification.confirmedStatic()) continue;
             }
             const auto a = shotOf[match.leftIndex], b = shotOf[match.rightIndex];
             if (a == b) continue;
@@ -4009,7 +4007,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
                 || returningBodyView(match)) return;
             if (!windows[match.leftIndex].staticFrameSet) {
                 const auto movement=pairMovement(match);
-                if (movement.direction==MovementDirection::Static && movement.gesture==GestureClass::Static) return;
+                if (movement.confirmedStatic()) return;
             }
             if (portrait(match) && (sameWindowCamera(match.leftIndex,match.rightIndex)
                 || cheapViewConflict(match)

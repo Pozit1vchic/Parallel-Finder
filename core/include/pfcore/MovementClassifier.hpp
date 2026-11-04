@@ -50,6 +50,11 @@ struct MovementClassification {
     // Both sides have supported actions, but share no action facet. This is
     // different from missing evidence and must not become an Unknown bucket.
     bool conflictingActions = false;
+
+    [[nodiscard]] bool confirmedStatic() const noexcept {
+        return direction == MovementDirection::Static && gesture == GestureClass::Static
+            && directionConfidence > 0.0 && gestureConfidence > 0.0;
+    }
 };
 
 class MovementClassifier {
