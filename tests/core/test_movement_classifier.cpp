@@ -53,6 +53,18 @@ TEST(MovementClassifier, LabelsStaticMotion)
     EXPECT_EQ(result.gesture, pfcore::GestureClass::Static);
 }
 
+TEST(MovementClassifier, WholeBodyTranslationDoesNotInventHandGesture)
+{
+    const pfcore::MovementClassifier classifier;
+    for(const auto& window:{moving("up",0,-6),moving("down",0,6),
+                            moving("left",-3,0),moving("right",3,0)}) {
+        const auto result=classifier.classify(window);
+        EXPECT_NE(result.gesture,pfcore::GestureClass::Raise);
+        EXPECT_NE(result.gesture,pfcore::GestureClass::Lower);
+        EXPECT_NE(result.gesture,pfcore::GestureClass::Wave);
+    }
+}
+
 TEST(MovementClassifier, RecordedVisibleAndInvisibleWrists)
 {
     QFile file(QString::fromUtf8(PF_TEST_FIXTURE_DIR)+"/butcher-wrist-visibility.json");

@@ -84,11 +84,14 @@ MovementClassification classifyEndpoints(const PoseFrame& first, const PoseFrame
     const bool leftWrist = observedAtBothEnds(first, last, 9);
     const bool rightWrist = observedAtBothEnds(first, last, 10);
     const int wristCount = int(leftWrist) + int(rightWrist);
-    const double leftWristY = leftWrist ? keypointDelta(first, last, 9, true, scale) : 0.0;
-    const double rightWristY = rightWrist ? keypointDelta(first, last, 10, true, scale) : 0.0;
+    // Wrist movement must be measured relative to the person. Otherwise a
+    // camera pan or whole-body translation can be labelled as raising or
+    // waving a hand even when the pose has not changed.
+    const double leftWristY = leftWrist ? keypointDelta(first, last, 9, true, scale) - dy : 0.0;
+    const double rightWristY = rightWrist ? keypointDelta(first, last, 10, true, scale) - dy : 0.0;
     const double wristLift = wristCount ? -(leftWristY + rightWristY) / wristCount : 0.0;
-    const double wristSpread = (leftWrist ? std::abs(keypointDelta(first, last, 9, false, scale)) : 0.0)
-        + (rightWrist ? std::abs(keypointDelta(first, last, 10, false, scale)) : 0.0);
+    const double wristSpread = (leftWrist ? std::abs(keypointDelta(first, last, 9, false, scale) - dx) : 0.0)
+        + (rightWrist ? std::abs(keypointDelta(first, last, 10, false, scale) - dx) : 0.0);
     const bool shoulders = observedAtBothEnds(first, last, 5) && observedAtBothEnds(first, last, 6);
     const double shoulderTurn = shoulders ? std::abs(keypointDelta(first, last, 5, false, scale)
                                          - keypointDelta(first, last, 6, false, scale)) : 0.0;

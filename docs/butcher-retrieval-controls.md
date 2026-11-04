@@ -95,6 +95,15 @@ contact sheets are in `build/grouping-direction-review-79b` and
 `build/grouping-direction-review-124`. Reproduce the diagnostic with
 `pf_matcher_probe <windows.json> --grouping-directions <results.json>`.
 
+The legacy endpoint movement classifier now subtracts measured whole-person
+centroid displacement before judging wrist lift or spread. Focused tests cover
+uniform horizontal and vertical translation as well as three previously
+reviewed Butcher wrist observations. On the 3,376 saved all-people Butcher
+windows, replay with the captured parameters retained all 128 prior selected
+pairs and identical serialized match records. This is a regression check on one
+capture; it does not establish general gesture accuracy or correct for camera
+motion independently of the person's screen-space displacement.
+
 A subsequent fresh application process reused the v16 analysis cache and ran
 the complete target-selected search on the source video. Its 127 cards include
 the forest/shop pair as a body-pose result (score 0.889); the reviewed glasses
