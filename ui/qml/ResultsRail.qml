@@ -450,8 +450,15 @@ Rectangle {
         return Number(item.sceneSimilarity !== undefined ? item.sceneSimilarity : 0)
     }
 
+    function retainedStart(item) {
+        if (!item.leftRemoved && Number.isFinite(item.leftStart)) return item.leftStart
+        if (!item.rightRemoved && Number.isFinite(item.rightStart)) return item.rightStart
+        return undefined
+    }
+
     function timeValue(item) {
-        return Number(item.leftStart || 0)
+        const start = retainedStart(item)
+        return Number.isFinite(start) ? start : 0
     }
 
     function matchedDuration(item) {
@@ -504,7 +511,14 @@ Rectangle {
             if (!knownA) return strongB-strongA || Number(a.id)-Number(b.id)
             return (da-db)*(sortCriterion === "longest" ? -1 : 1) || strongB-strongA || Number(a.id)-Number(b.id)
         }
-        if (sortCriterion === "source") return String(a.leftSource || "").localeCompare(String(b.leftSource || "")) || timeValue(a)-timeValue(b) || Number(a.id)-Number(b.id)
+        if (sortCriterion === "source") {
+            function retainedSource(item) {
+                return item.leftRemoved ? (item.rightRemoved ? "" : String(item.rightSource || "")) : String(item.leftSource || "")
+            }
+            const sa=retainedSource(a), sb=retainedSource(b)
+            if (!!sa !== !!sb) return sa ? -1 : 1
+            return sa.localeCompare(sb) || timeValue(a)-timeValue(b) || Number(a.id)-Number(b.id)
+        }
         if (sortCriterion === "classification") {
             const ga = String(a.manualGroup || ""), gb = String(b.manualGroup || "")
             if (ga !== gb) return ga && gb ? ga.localeCompare(gb) : ga ? -1 : 1
@@ -527,8 +541,12 @@ Rectangle {
             }
         } else if (sortCriterion === "scene")
             delta = sceneSimilarity(a) - sceneSimilarity(b)
-        else if (sortCriterion === "time")
-            delta = timeValue(a) - timeValue(b)
+        else if (sortCriterion === "time") {
+            const ta=retainedStart(a), tb=retainedStart(b)
+            const knownA=Number.isFinite(ta), knownB=Number.isFinite(tb)
+            if (knownA !== knownB) return knownA ? -1 : 1
+            delta = knownA ? ta - tb : 0
+        }
         else
             delta = movementSimilarity(a) - movementSimilarity(b)
         if (Math.abs(delta) > 1e-9)

@@ -1701,6 +1701,20 @@ void UiSmokeTests::movementClassesAndExportOrder()
     rail->setProperty("sortCriterion","pose");QTest::qWait(100);
     const auto byPose=values(rail->property("visibleResults")).toList();
     for(int i=0;i<4;++i)QCOMPARE(byPose[i].toMap().value("id").toInt(),(QList<int>{2,1,0,3})[i]);
+    const QVariantList retainedSortRows{
+        QVariantMap{{"id",0},{"leftRemoved",true},{"leftStart",1.},{"leftSource","a"},{"rightStart",8.},{"rightSource","z"}},
+        QVariantMap{{"id",1},{"leftStart",3.},{"leftSource","b"},{"rightStart",9.},{"rightSource","c"}},
+        QVariantMap{{"id",2}}};
+    rail->setProperty("results",retainedSortRows);rail->setProperty("sortCriterion","time");rail->setProperty("sortDescending",false);QTest::qWait(100);
+    auto retainedOrder=values(rail->property("visibleResults")).toList();
+    for(int i=0;i<3;++i)QCOMPARE(retainedOrder[i].toMap().value("id").toInt(),(QList<int>{1,0,2})[i]);
+    rail->setProperty("sortDescending",true);QTest::qWait(100);
+    retainedOrder=values(rail->property("visibleResults")).toList();
+    for(int i=0;i<3;++i)QCOMPARE(retainedOrder[i].toMap().value("id").toInt(),(QList<int>{0,1,2})[i]);
+    rail->setProperty("sortCriterion","source");QTest::qWait(100);
+    retainedOrder=values(rail->property("visibleResults")).toList();
+    for(int i=0;i<3;++i)QCOMPARE(retainedOrder[i].toMap().value("id").toInt(),(QList<int>{1,0,2})[i]);
+    rail->setProperty("sortDescending",false);
     // Duration follows both retained sides, like the actual match. Removed
     // sides and missing measurements cannot create a zero-length result.
     const QVariantList pairedDurationRows{
