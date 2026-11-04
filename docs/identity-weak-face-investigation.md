@@ -126,6 +126,23 @@ are not committed. Sixty-four focused identity/face tests pass. The prototype
 must remain opt-in until broader same/different-person controls, ambiguous
 competing detections, poster/reflection cases and end-to-end cost are checked.
 
+## Outlier-tolerant weak-face consensus counterexample
+
+An offline diagnostic tested retaining a mutually consistent subset of at
+least three weak faces spanning 0.3 seconds, requiring at least 75% of the
+available weak observations and the existing 0.70 face agreement / 0.50 strong
+face veto. It promoted 41 observations across eight tracks in the v3 Butcher
+capture. Frozen-track replay stayed at 484 groups / 473 unresolved, but group
+membership changed: the framed portrait track 1086 joined portrait track 143.
+Consequently an unchanged group count does not mean unchanged identities, and
+the proposed consensus is not safe to use as a person filter or to ship.
+
+The research-only `tools/benchmark/replay_weak_face_consensus.py` reproduces
+this diagnostic from the local v3 capture; its output contains face vectors and
+must remain local. Its two focused tests pass. This experiment does not prove
+the remaining changed associations are correct, and no application behavior
+was changed.
+
 ## Review of weak-face group changes
 
 `tests/fixtures/butcher-weak-recovery-review-controls.json` records eight
