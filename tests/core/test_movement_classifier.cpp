@@ -265,9 +265,13 @@ TEST(MotionRanker, UnknownSideDoesNotMakeAStaticSideAConfirmedStaticPair)
     std::vector<pfcore::MotionMatch> matches{match};
     pfcore::MotionRanker::rank(matches,{observed,unknown});
     ASSERT_EQ(matches.size(),1u);
+    EXPECT_EQ(matches.front().directionLabel,"unknown");
+    EXPECT_EQ(matches.front().gestureLabel,"unknown");
     matches={match};
     pfcore::MotionRanker::rank(matches,{unknown,observed});
     ASSERT_EQ(matches.size(),1u);
+    EXPECT_EQ(matches.front().directionLabel,"unknown");
+    EXPECT_EQ(matches.front().gestureLabel,"unknown");
     matches={match};
     pfcore::MotionRanker::rank(matches,{observed,observed});
     EXPECT_TRUE(matches.empty());

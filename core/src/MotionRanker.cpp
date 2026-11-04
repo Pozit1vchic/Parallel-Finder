@@ -24,8 +24,13 @@ void MotionRanker::rank(std::vector<MotionMatch>& matches,
         }
         const auto classification = classifier.classify(windows[match.leftIndex],
                                                          windows[match.rightIndex]);
-        match.directionLabel = MovementClassifier::directionName(classification.direction);
-        match.gestureLabel = MovementClassifier::gestureName(classification.gesture);
+        // A combined label may be inherited from only one side. Zero
+        // confidence means the other side could not support the claim, so
+        // avoid presenting that label as a measured property of the pair.
+        match.directionLabel = classification.directionConfidence > 0.0
+            ? MovementClassifier::directionName(classification.direction) : "unknown";
+        match.gestureLabel = classification.gestureConfidence > 0.0
+            ? MovementClassifier::gestureName(classification.gesture) : "unknown";
         const double durationFactor = std::clamp(match.durationSeconds / 1.0, 0.0, 1.0);
         const double confidenceFactor = 0.8 + 0.2 * std::min(classification.directionConfidence,
                                                                classification.gestureConfidence);

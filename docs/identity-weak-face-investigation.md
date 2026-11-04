@@ -190,6 +190,17 @@ showed higher elapsed times. These are diagnostic observations, not controlled
 performance estimates. The prototype repeatedly summarizes tracks inside nested
 comparisons and needs optimization and controlled A/B timings before use.
 
+The existing Kyle observations add one selected user-provided negative to the
+local-corroboration investigation. The younger woman's track 66 has one stored
+face; comparing it with the different older woman's track 74 gives body cosine
+0.652 and its three highest face scores 0.356, 0.352 and 0.340. These do not
+meet the experimental 0.90 body and 0.65/0.55 face thresholds. A positive
+comparison of track 66 with the younger woman's track 18 also fails these
+thresholds (body 0.730; top faces 0.475, 0.463, 0.449). This one overlapping
+positive/negative selection rejects the negative but does not independently
+support the positive through this specific rule; it does not establish broader
+precision or recall. The normal application already joins that positive pair.
+
 Separately from that disabled experiment, the production face-conflict veto now
 stops comparing two tracks as soon as it finds a face pair at or above the
 existing 0.30 threshold. Only existence of such a pair affects this veto; no
