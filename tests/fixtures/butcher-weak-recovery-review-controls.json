@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scope": "Four visually reviewed pairs selected from the weak-face recovery experiment; pairs share anchors and do not measure general accuracy. No image pixels or embeddings.",
+  "scope": "Eight visually reviewed same-person pairs selected from the weak-face and local corroboration experiments; several share anchors or footage and cannot estimate general accuracy. No image pixels or embeddings.",
   "sourceBasename": "butcher_parallel_notsorted.mov",
   "controls": [
     {
@@ -87,6 +87,94 @@
           38.932464599609375,
           644.1556396484375,
           534.1444702148438
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "butcher-adjacent-closeup",
+      "left": {
+        "time": 269.3928266670065,
+        "box": [
+          84.85052490234375,
+          11.2991943359375,
+          849.862548828125,
+          530.6788330078125
+        ]
+      },
+      "right": {
+        "time": 268.7254933336725,
+        "box": [
+          101.26547241210938,
+          8.74017333984375,
+          860.6949462890625,
+          530.8221435546875
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "woman-adjacent-side-view",
+      "left": {
+        "time": 519.8707049998856,
+        "box": [
+          23.465255737304688,
+          18.4786376953125,
+          373.43731689453125,
+          529.3936157226562
+        ]
+      },
+      "right": {
+        "time": 518.8697049998846,
+        "box": [
+          15.980392456054688,
+          15.83642578125,
+          379.4598388671875,
+          529.6439208984375
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "milk-repeated-outdoor-shot",
+      "left": {
+        "time": 744.0311369997019,
+        "box": [
+          336.19219970703125,
+          171.3226318359375,
+          555.9302978515625,
+          524.9270629882812
+        ]
+      },
+      "right": {
+        "time": 276.2121156669127,
+        "box": [
+          671.2363891601562,
+          197.0045166015625,
+          1048.930419921875,
+          533.6353759765625
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "butcher-overlapping-closeup",
+      "left": {
+        "time": 759.8802983331418,
+        "box": [
+          278.0831298828125,
+          8.1781005859375,
+          1264.6202392578125,
+          528.8969116210938
+        ]
+      },
+      "right": {
+        "time": 759.5466316664748,
+        "box": [
+          284.3746337890625,
+          7.901123046875,
+          1266.5443115234375,
+          526.5326538085938
         ]
       },
       "sameIdentity": true

@@ -128,10 +128,10 @@ competing detections, poster/reflection cases and end-to-end cost are checked.
 
 ## Review of weak-face group changes
 
-`tests/fixtures/butcher-weak-recovery-review-controls.json` records four
+`tests/fixtures/butcher-weak-recovery-review-controls.json` records eight
 selected same-person pairs reviewed from actual source frames. The production
-v19 replay joins one of them and splits three; the opt-in v2 weak-face replay
-joins those three but splits the repeated car scene that production joined.
+v19 replay joins five and splits three; the opt-in v2 weak-face replay joins
+seven but splits the repeated car scene that production joined.
 The latter views at 332.87 and 688.56 seconds are the same scene, so the split
 is a concrete regression even though the total candidate count decreases.
 These cases share anchors and were selected from the experiment; they are not
@@ -163,7 +163,7 @@ of the other group. It required three independent faces from one track, the
 existing 0.65/0.55 top-face thresholds and 0.90 body cosine, while retaining
 the existing component conflict checks. On the weak-face v2 replay it joined
 the split repeated car views: 484 groups became 483 and unresolved groups 473
-became 472. All four selected weak-recovery positives then joined; the selected
+became 472. All eight selected weak-recovery positives then joined; the selected
 different-person controls remained separate. This experiment examined only one
 source with added weak faces and does not establish general precision. On the
 normal v19 Butcher and v16 Kyle frozen observations, component membership did
@@ -173,6 +173,22 @@ before deciding whether local corroboration is safe. The experimental diff and
 replays are local build artifacts (`weak-local-face-body-experiment.patch`,
 `weak-local-face-body-experiment.json` and the corresponding Butcher/Kyle
 replays), not production behavior.
+
+An additional exhaustive diagnostic on individual tracks with exactly one
+stored face and at least three observations, compared with tracks having at
+least three faces, found five pairs meeting the experimental face and body
+thresholds in the weak-face v2 Butcher capture. Their sampled frames show the
+same person in each pair; four pairs are within the same shot, overlapping, or
+repeated footage. No distinct simultaneous pair passed those raw thresholds in
+this one capture, which does not prove cross-scene negatives are safe. Four
+additional positive pairs were added to the fixture above. The diagnostic is
+track-level, whereas production recovery works on assembled components.
+
+An initial single-run frozen replay recorded 256 ms without local corroboration
+and 351 ms with the unoptimized prototype; the separate v19 and Kyle runs also
+showed higher elapsed times. These are diagnostic observations, not controlled
+performance estimates. The prototype repeatedly summarizes tracks inside nested
+comparisons and needs optimization and controlled A/B timings before use.
 
 ## Fresh capture after chained face-ownership fix
 
