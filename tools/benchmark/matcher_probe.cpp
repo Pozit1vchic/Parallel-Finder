@@ -36,7 +36,7 @@ int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
     const auto args = app.arguments();
-    if (args.size() < 3) { std::cerr << "usage: pf_matcher_probe windows.json left-index right-index | --all [params.json] | --batch pairs.json [params.json] | --actions | --grouping-directions results.json\n"; return 2; }
+    if (args.size() < 3) { std::cerr << "usage: pf_matcher_probe windows.json left-index right-index | --all [params.json] | --batch pairs.json [params.json] | --actions | --endpoint-actions | --grouping-directions results.json\n"; return 2; }
     QFile file(args[1]);
     if (!file.open(QIODevice::ReadOnly)) return 2;
     QJsonParseError error;
@@ -82,6 +82,19 @@ int main(int argc, char** argv)
             w.frames.push_back(std::move(f));
         }
         windows.push_back(std::move(w));
+    }
+    if(args[2]=="--endpoint-actions") {
+        const pfcore::MovementClassifier classifier;
+        QJsonArray rows;
+        for(std::size_t i=0;i<windows.size();++i) {
+            const auto result=classifier.classify(windows[i]);
+            rows.append(QJsonObject{{"index",static_cast<qint64>(i)},
+                {"direction",pfcore::MovementClassifier::directionName(result.direction)},
+                {"gesture",pfcore::MovementClassifier::gestureName(result.gesture)},
+                {"directionConfidence",result.directionConfidence},{"gestureConfidence",result.gestureConfidence}});
+        }
+        std::cout<<QJsonDocument(QJsonObject{{"results",rows}}).toJson(QJsonDocument::Compact).constData()<<'\n';
+        return 0;
     }
     if(args[2]=="--grouping-directions") {
         if(args.size()!=4)return 2;

@@ -89,13 +89,24 @@ MovementClassification classifyEndpoints(const PoseFrame& first, const PoseFrame
     // waving a hand even when the pose has not changed.
     const double leftWristY = leftWrist ? keypointDelta(first, last, 9, true, scale) - dy : 0.0;
     const double rightWristY = rightWrist ? keypointDelta(first, last, 10, true, scale) - dy : 0.0;
-    const double wristLift = wristCount ? -(leftWristY + rightWristY) / wristCount : 0.0;
+    const double leftLift = -leftWristY, rightLift = -rightWristY;
+    // A stationary second hand must not halve a real one-handed gesture.
+    // Opposing clear movements are a mixed action rather than an arbitrary
+    // choice of one hand.
+    const bool opposingLift = wristCount == 2
+        && ((leftLift > .10 && rightLift < -.10) || (rightLift > .10 && leftLift < -.10));
+    const double wristLift = wristCount == 2
+        ? (std::abs(leftLift) >= std::abs(rightLift) ? leftLift : rightLift)
+        : leftWrist ? leftLift : rightWrist ? rightLift : 0.0;
     const double wristSpread = (leftWrist ? std::abs(keypointDelta(first, last, 9, false, scale) - dx) : 0.0)
         + (rightWrist ? std::abs(keypointDelta(first, last, 10, false, scale) - dx) : 0.0);
     const bool shoulders = observedAtBothEnds(first, last, 5) && observedAtBothEnds(first, last, 6);
     const double shoulderTurn = shoulders ? std::abs(keypointDelta(first, last, 5, false, scale)
                                          - keypointDelta(first, last, 6, false, scale)) : 0.0;
-    if (wristCount && wristLift > 0.10) {
+    if (opposingLift) {
+        result.gesture = GestureClass::Mixed;
+        result.gestureConfidence = std::clamp(std::min(std::abs(leftLift),std::abs(rightLift)) / 0.30,0.0,1.0);
+    } else if (wristCount && wristLift > 0.10) {
         result.gesture = GestureClass::Raise;
         result.gestureConfidence = std::clamp(wristLift / 0.30, 0.0, 1.0);
     } else if (wristCount && wristLift < -0.10) {

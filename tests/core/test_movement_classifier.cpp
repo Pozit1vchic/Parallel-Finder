@@ -65,6 +65,15 @@ TEST(MovementClassifier, WholeBodyTranslationDoesNotInventHandGesture)
     }
 }
 
+TEST(MovementClassifier, OneHandCanMoveWhileTheOtherRemainsStill)
+{
+    auto window=moving("one-hand",0,0);
+    for(auto& frame:window.frames) frame.keypoints[10].y-=4*frame.timestampSeconds;
+    EXPECT_EQ(pfcore::MovementClassifier().classify(window).gesture,pfcore::GestureClass::Raise);
+    for(auto& frame:window.frames) frame.keypoints[9].y+=4*frame.timestampSeconds;
+    EXPECT_EQ(pfcore::MovementClassifier().classify(window).gesture,pfcore::GestureClass::Mixed);
+}
+
 TEST(MovementClassifier, RecordedVisibleAndInvisibleWrists)
 {
     QFile file(QString::fromUtf8(PF_TEST_FIXTURE_DIR)+"/butcher-wrist-visibility.json");
@@ -86,6 +95,23 @@ TEST(MovementClassifier, RecordedVisibleAndInvisibleWrists)
         EXPECT_EQ(pfcore::MovementClassifier().classify(w).gesture,expected[i]) << row.toObject()["id"].toString().toStdString();
         ++i;
     }
+}
+
+TEST(MovementClassifier, RecordedOneHandRaiseSurvivesBodyCompensation)
+{
+    QFile file(QString::fromUtf8(PF_TEST_FIXTURE_DIR)+"/butcher-one-hand-raise.json");
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const auto row=QJsonDocument::fromJson(file.readAll()).object();
+    pfcore::MotionWindow window;
+    for(const auto value:row["frames"].toArray()) {
+        const auto frame=value.toObject();pfcore::PoseFrame observation;
+        observation.timestampSeconds=frame["time"].toDouble();
+        for(const auto point:frame["points"].toArray()) {
+            const auto p=point.toArray();observation.keypoints.push_back({p[0].toDouble(),p[1].toDouble(),p[2].toDouble()});
+        }
+        window.frames.push_back(std::move(observation));
+    }
+    EXPECT_EQ(pfcore::MovementClassifier().classify(window).gesture,pfcore::GestureClass::Raise);
 }
 
 TEST(MovementClassifier, InvisibleIntermediateWristsDoNotInventExcursion)

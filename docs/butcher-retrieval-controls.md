@@ -104,6 +104,24 @@ pairs and identical serialized match records. This is a regression check on one
 capture; it does not establish general gesture accuracy or correct for camera
 motion independently of the person's screen-space displacement.
 
+### One-handed gesture correction
+
+A before/after endpoint-classifier replay of the 3,376 captured windows showed
+154 changed gesture labels after subtracting whole-body displacement. Three
+sampled frames from window 305 (53.87–55.37 s) show Butcher lifting one hand;
+the earlier two-hand average labelled it `static` after body compensation.
+The classifier now retains the stronger wrist movement when the other hand is
+still, and uses `mixed` when clearly opposing movements are observed. The
+recorded skeleton is retained in `tests/fixtures/butcher-one-hand-raise.json`.
+
+Compared with the prior compensated version, 53 of 3,376 endpoint labels change;
+these windows overlap and are not independent cases. Additional selected frame
+sheets were inspected, but borderline gestures and the other changed labels
+are not all independently reviewed. Replaying the full matcher kept all 128
+selected pairs and serialized match records identical. All 190 focused tests
+passed, with one optional benchmark skipped. Frame sheets remain local in
+`build/wrist-relative-review-a` and `build/wrist-refined-review-b`.
+
 A subsequent fresh application process reused the v16 analysis cache and ran
 the complete target-selected search on the source video. Its 127 cards include
 the forest/shop pair as a body-pose result (score 0.889); the reviewed glasses
