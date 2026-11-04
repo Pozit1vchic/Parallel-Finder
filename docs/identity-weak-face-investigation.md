@@ -125,3 +125,24 @@ and `build/weak-face-context.jpg`. They contain derived video/face data and
 are not committed. Sixty-four focused identity/face tests pass. The prototype
 must remain opt-in until broader same/different-person controls, ambiguous
 competing detections, poster/reflection cases and end-to-end cost are checked.
+
+## Fresh capture after chained face-ownership fix
+
+The production v19 character-selection path was run cold on the complete
+Butcher video with CUDA, using `realVideoCharacterCapture` and isolated settings
+and cache. The diagnostic capture and frozen-track replay contain 1,266 tracks,
+490 candidates and 479 unresolved candidates. The prior v18 frozen replay also
+had 490 candidates and 479 unresolved; this does not prove that every
+assignment is identical. Eight applicable reviewed control sets retained their
+v18 outcomes, including the weak-face control: the known same-person profile
+and back view remain split and the selected different-person pair remains
+separate. These overlapping, selected pairs do not measure general accuracy.
+The change addresses a possible face-ownership conflict, not the general
+fragmentation problem.
+
+The cold capture logged 175.3 seconds in the pipeline and another 47.0 seconds
+for 2,167 uncached candidate previews. These are separate stage timings from
+one run, not an end-to-end performance comparison. The preview cost is a
+candidate for further investigation. Local capture, tracks and replay are in
+`build/butcher-v19-candidates.json`, `build/butcher-v19-tracks.json`, and
+`build/butcher-v19-replay.json`; they are not committed.

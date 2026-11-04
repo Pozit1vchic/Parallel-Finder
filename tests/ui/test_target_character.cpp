@@ -25,6 +25,29 @@
 class TargetCharacterTests : public QObject {
     Q_OBJECT
 private slots:
+    void realVideoCharacterCapture() {
+        const auto source=qEnvironmentVariable("PF_TEST_REAL_CHARACTER_VIDEO");
+        const auto model=qEnvironmentVariable("PF_MODEL_PATH");
+        const auto cache=qEnvironmentVariable("PF_TEST_REAL_CHARACTER_CACHE");
+        const auto report=qEnvironmentVariable("PF_TEST_REAL_CHARACTER_REPORT");
+        if(source.isEmpty()||model.isEmpty()||cache.isEmpty()||report.isEmpty())
+            QSKIP("Opt-in real-video character capture");
+        QVERIFY(QFileInfo::exists(source));QVERIFY(QFileInfo::exists(model));
+        pfservices::Settings settings;settings.modelPath=model.toStdString();settings.provider="cuda";
+        settings.modelChoice=QFileInfo(model).fileName().toStdString();settings.qualityProfile="fast";
+        settings.cachePath=cache.toStdString();settings.processingThreads=2;
+        std::string error;QVERIFY2(pfservices::SettingsStore().save(settings,error),error.c_str());
+        pfui::AppInfo::registerQmlTypes();auto* info=pfui::AppInfo::instance();info->initializeBackendsAsync();
+        QTRY_VERIFY_WITH_TIMEOUT(!info->backendInitializing(),30000);
+        auto* analysis=pfui::AnalysisController::instance();analysis->setProviderChoice("cuda");
+        analysis->setAnalysisMode("combined");analysis->analyzeFiles({source});
+        QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),600000);
+        QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
+        QSaveFile file(report);QVERIFY(file.open(QIODevice::WriteOnly));
+        const auto bytes=QJsonDocument::fromVariant(analysis->targetCandidates()).toJson(QJsonDocument::Compact);
+        QCOMPARE(file.write(bytes),bytes.size());QVERIFY(file.commit());
+        analysis->stopAnalysis();QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),10000);
+    }
     void realVideoAllPeopleSearch() {
         const auto source=qEnvironmentVariable("PF_TEST_REAL_CHARACTER_VIDEO");
         const auto model=qEnvironmentVariable("PF_MODEL_PATH");
