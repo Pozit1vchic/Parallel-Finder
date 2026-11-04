@@ -126,6 +126,28 @@ are not committed. Sixty-four focused identity/face tests pass. The prototype
 must remain opt-in until broader same/different-person controls, ambiguous
 competing detections, poster/reflection cases and end-to-end cost are checked.
 
+## Review of weak-face group changes
+
+`tests/fixtures/butcher-weak-recovery-review-controls.json` records four
+selected same-person pairs reviewed from actual source frames. The production
+v19 replay joins one of them and splits three; the opt-in v2 weak-face replay
+joins those three but splits the repeated car scene that production joined.
+The latter views at 332.87 and 688.56 seconds are the same scene, so the split
+is a concrete regression even though the total candidate count decreases.
+These cases share anchors and were selected from the experiment; they are not
+an independent estimate of accuracy. Other newly linked, dark or obscured views
+are still not independently verified.
+
+The strong face on the first car track has cosine 0.601–0.726 against six
+recovered faces from the repeated view; their body prototypes score 0.927.
+However, its single face scores below 0.363 against the averaged faces of 12
+other tracks in the experimental lead group, including several visibly
+recognizable Butcher views. This demonstrates conflicting evidence, not the
+precise rejection path: the face thresholds alone cannot establish whether
+the whole group is safe to merge. The experimental rule remains disabled.
+Source-frame review sheets are local `build/weak-merges-review-v2.jpg` and
+`build/weak-conflict-review.jpg`; they are not committed.
+
 ## Fresh capture after chained face-ownership fix
 
 The production v19 character-selection path was run cold on the complete

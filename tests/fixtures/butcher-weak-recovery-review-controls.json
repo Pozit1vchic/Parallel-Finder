@@ -1,0 +1,95 @@
+{
+  "schema": 1,
+  "scope": "Four visually reviewed pairs selected from the weak-face recovery experiment; pairs share anchors and do not measure general accuracy. No image pixels or embeddings.",
+  "sourceBasename": "butcher_parallel_notsorted.mov",
+  "controls": [
+    {
+      "id": "butcher-shop-to-dark-car",
+      "left": {
+        "time": 0.8551666666885215,
+        "box": [
+          766.3104248046875,
+          47.1910400390625,
+          1140.08740234375,
+          535.9982299804688
+        ]
+      },
+      "right": {
+        "time": 688.5591139996208,
+        "box": [
+          138.02511596679688,
+          38.932464599609375,
+          644.1556396484375,
+          534.1444702148438
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "butcher-shop-to-closeup",
+      "left": {
+        "time": 0.8551666666885215,
+        "box": [
+          766.3104248046875,
+          47.1910400390625,
+          1140.08740234375,
+          535.9982299804688
+        ]
+      },
+      "right": {
+        "time": 766.7204623331941,
+        "box": [
+          255.53289794921875,
+          15.040557861328125,
+          1173.2386474609375,
+          530.09130859375
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "mothers-milk-jacket-to-shadow",
+      "left": {
+        "time": 15.890974333660964,
+        "box": [
+          852.8316650390625,
+          279.5924072265625,
+          1114.9862060546875,
+          536.0260620117188
+        ]
+      },
+      "right": {
+        "time": 700.3834016662213,
+        "box": [
+          455.30108642578125,
+          165.2845458984375,
+          690.1538696289062,
+          538.828369140625
+        ]
+      },
+      "sameIdentity": true
+    },
+    {
+      "id": "butcher-repeated-car-scene",
+      "left": {
+        "time": 332.87256500026785,
+        "box": [
+          166.09912109375,
+          55.1728515625,
+          628.2536010742188,
+          532.8886108398438
+        ]
+      },
+      "right": {
+        "time": 688.5591139996208,
+        "box": [
+          138.02511596679688,
+          38.932464599609375,
+          644.1556396484375,
+          534.1444702148438
+        ]
+      },
+      "sameIdentity": true
+    }
+  ]
+}
