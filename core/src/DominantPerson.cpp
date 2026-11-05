@@ -1010,6 +1010,22 @@ static void recoverUniqueBodyTracks(std::vector<std::vector<std::size_t>>& compo
         destination.insert(destination.end(),source.begin(),source.end());source.clear();
         attached[proposal.anchor].push_back(proposal.source);
     }
+    struct LocalBodyTrack {
+        bool prepared=false;
+        std::vector<const PersonDetection*> bodies;
+        std::vector<double> norms;
+        double firstFace=INFINITY,lastFace=-INFINITY;
+        std::size_t faces=0;
+    };
+    std::vector<LocalBodyTrack> localTracks(indices.size());
+    const auto squaredNorm=[](const std::vector<float>& values) {
+        double norm=0;for(float value:values)norm+=static_cast<double>(value)*value;return norm;
+    };
+    const auto cachedScore=[](const std::vector<float>& a,double aNorm,const std::vector<float>& b,double bNorm) {
+        if(a.empty() || a.size()!=b.size() || aNorm<=1e-12 || bNorm<=1e-12)return -1.;
+        double dot=0;for(std::size_t k=0;k<a.size();++k)dot+=static_cast<double>(a[k])*b[k];
+        return std::clamp(dot/std::sqrt(aNorm*bNorm),-1.,1.);
+    };
     // A character's aggregate body prototype can mix many outfits. Compare a
     // face-less short track with individual nearby face-backed tracks instead,
     // while considering *all* local tracks as possible lookalike competitors.
@@ -1018,6 +1034,8 @@ static void recoverUniqueBodyTracks(std::vector<std::vector<std::size_t>>& compo
         if(components[i].size()!=1 || evidence[i].faces || evidence[i].body.size()<3)continue;
         const auto& source=tracks[indices[components[i].front()]];
         if(source.observations.empty() || evidence[i].body.back()->timestampSeconds-evidence[i].body.front()->timestampSeconds<.3-1e-9)continue;
+        std::vector<double> sourceNorms;sourceNorms.reserve(evidence[i].body.size());
+        for(const auto* sample:evidence[i].body)sourceNorms.push_back(squaredNorm(sample->appearanceEmbedding));
         std::vector<double> best(components.size(),-1.),eligible(components.size(),-1.);
         for(std::size_t j=0;j<components.size();++j) {
             if((j%32)==0 && control.cancelled && control.cancelled())return;
@@ -1028,20 +1046,25 @@ static void recoverUniqueBodyTracks(std::vector<std::vector<std::size_t>>& compo
                 const double gap=std::max({0.,target.observations.front().timestampSeconds-source.observations.back().timestampSeconds,
                     source.observations.front().timestampSeconds-target.observations.back().timestampSeconds});
                 if(!std::isfinite(gap) || gap>10.)continue;
-                std::vector<const PersonDetection*> bodies;double previous=-INFINITY,firstFace=INFINITY,lastFace=-INFINITY;std::size_t faces=0;
-                for(const auto& o:target.observations)if(std::isfinite(o.timestampSeconds)) {
-                    if(embeddingScore(o.faceEmbedding,o.faceEmbedding)>.99 && o.timestampSeconds-lastFace>=.1-1e-9) {
-                        ++faces;firstFace=std::min(firstFace,o.timestampSeconds);lastFace=o.timestampSeconds;
+                auto& local=localTracks[member];
+                if(!local.prepared) {
+                    double previous=-INFINITY;
+                    for(const auto& o:target.observations)if(std::isfinite(o.timestampSeconds)) {
+                        if(embeddingScore(o.faceEmbedding,o.faceEmbedding)>.99 && o.timestampSeconds-local.lastFace>=.1-1e-9) {
+                            ++local.faces;local.firstFace=std::min(local.firstFace,o.timestampSeconds);local.lastFace=o.timestampSeconds;
+                        }
+                        if(embeddingScore(o.appearanceEmbedding,o.appearanceEmbedding)>.99 && o.timestampSeconds-previous>=.1-1e-9) {
+                            local.bodies.push_back(&o);local.norms.push_back(squaredNorm(o.appearanceEmbedding));previous=o.timestampSeconds;
+                        }
                     }
-                    if(embeddingScore(o.appearanceEmbedding,o.appearanceEmbedding)>.99 && o.timestampSeconds-previous>=.1-1e-9) {
-                        bodies.push_back(&o);previous=o.timestampSeconds;
-                    }
+                    local.prepared=true;
                 }
-                if(bodies.size()<3)continue;
+                if(local.bodies.size()<3)continue;
                 std::vector<double> support;support.reserve(evidence[i].body.size());
-                for(const auto* sample:evidence[i].body) {
-                    std::vector<double> similarities;similarities.reserve(bodies.size());
-                    for(const auto* view:bodies)similarities.push_back(embeddingScore(sample->appearanceEmbedding,view->appearanceEmbedding));
+                for(std::size_t k=0;k<evidence[i].body.size();++k) {
+                    std::vector<double> similarities;similarities.reserve(local.bodies.size());
+                    for(std::size_t n=0;n<local.bodies.size();++n)
+                        similarities.push_back(cachedScore(evidence[i].body[k]->appearanceEmbedding,sourceNorms[k],local.bodies[n]->appearanceEmbedding,local.norms[n]));
                     std::nth_element(similarities.begin(),similarities.begin()+2,similarities.end(),std::greater<>());
                     support.push_back(similarities[2]);
                 }
@@ -1049,7 +1072,7 @@ static void recoverUniqueBodyTracks(std::vector<std::vector<std::size_t>>& compo
                 const double score=support[2];best[j]=std::max(best[j],score);
                 const auto consistent=std::count_if(support.begin(),support.end(),[](double score){return score>=.84;});
                 if(score>=.86 && consistent*5>=static_cast<std::ptrdiff_t>(support.size()*3)
-                   && faces>=3 && lastFace-firstFace>=.3-1e-9)eligible[j]=std::max(eligible[j],score);
+                   && local.faces>=3 && local.lastFace-local.firstFace>=.3-1e-9)eligible[j]=std::max(eligible[j],score);
             }
         }
         std::size_t winner=components.size();double high=-1;

@@ -600,3 +600,22 @@ The full v26 application capture passed on the supplied video: the lead has
 495 tracks instead of 494, and the selector still displays 11 confirmed and
 20 unresolved entries. The core suite passed 623 tests; 28 optional tests
 were skipped for missing assets or integration settings.
+
+## Local body gallery performance
+
+The local gallery search now prepares each nearby target track's valid body
+samples, face support and vector norms once per grouping run. Reusing those
+values avoids recalculating vector lengths for every pair while retaining the
+same dot-product calculation and thresholds. The cache lives only during the
+run; no analysis cache version change is required.
+
+Five alternating frozen-track runs on the supplied Butcher capture measured
+503.75 ms median before and 345.27 ms after for the entire character grouping
+probe (about 31% less). Every candidate and observation assignment was
+identical. Both frozen-track and full retracking replay also matched exactly
+on Butcher, Kyle and a separate weak-face diagnostic capture. These are local
+benchmarks, not end-to-end video processing or general quality measurements.
+The application reused the v26 cache successfully, and visible candidate
+metadata matched the preceding capture apart from session-specific image URLs.
+The core suite passed 623 tests; 28 optional tests were skipped for missing
+assets or integration settings.
