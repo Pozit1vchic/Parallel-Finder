@@ -571,3 +571,32 @@ confirmed plus 20 displayed unresolved entries. The merged group was outside
 the displayed selection, so its association is established by the saved-track
 replay, not directly by that capture. The core suite passed 622 tests; 28
 optional tests were skipped for missing assets or integration settings.
+
+## Nearby face-backed body galleries
+
+Of the 485 saved candidate groups in the previous replay, 425 contain no
+usable face observation. Therefore face-only association cannot resolve most
+of these fragments. A new local recovery compares a face-less track with
+individual nearby face-backed tracks, rather than one averaged appearance for
+a character with multiple outfits. Three time-separated source observations
+must each agree with three time-separated body observations, most source
+samples must be consistent, and the best eligible target must outrank every
+other local candidate, including face-less and co-visible competitors. A
+co-visible conflict with the destination still vetoes attachment.
+
+On the reviewed source, face-less Butcher track 175 joins his nearby
+face-backed track 162 and the existing lead; Frenchie and Mother's Milk visible
+in that shot remain separate. The frozen replay changes 485 groups to 484.
+The selected control file records this one positive and two negatives; it is
+not a general accuracy benchmark. Other applicable Butcher and Kyle identity
+controls showed no regressions; no Kyle assignments changed. Most face-less
+fragments remain unresolved, and this does not detect pictures or mirrors.
+The local comparison increases work during grouping; one unpaired diagnostic
+measurement was about 0.53 s against 0.20 s for the prior saved replay, not an
+end-to-end benchmark. The v26 character cache key requires a fresh analysis;
+old cached data remains intact.
+
+The full v26 application capture passed on the supplied video: the lead has
+495 tracks instead of 494, and the selector still displays 11 confirmed and
+20 unresolved entries. The core suite passed 623 tests; 28 optional tests
+were skipped for missing assets or integration settings.

@@ -1010,6 +1010,58 @@ static void recoverUniqueBodyTracks(std::vector<std::vector<std::size_t>>& compo
         destination.insert(destination.end(),source.begin(),source.end());source.clear();
         attached[proposal.anchor].push_back(proposal.source);
     }
+    // A character's aggregate body prototype can mix many outfits. Compare a
+    // face-less short track with individual nearby face-backed tracks instead,
+    // while considering *all* local tracks as possible lookalike competitors.
+    for(std::size_t i=0;i<components.size();++i) {
+        if(control.cancelled && control.cancelled())return;
+        if(components[i].size()!=1 || evidence[i].faces || evidence[i].body.size()<3)continue;
+        const auto& source=tracks[indices[components[i].front()]];
+        if(source.observations.empty() || evidence[i].body.back()->timestampSeconds-evidence[i].body.front()->timestampSeconds<.3-1e-9)continue;
+        std::vector<double> best(components.size(),-1.),eligible(components.size(),-1.);
+        for(std::size_t j=0;j<components.size();++j) {
+            if((j%32)==0 && control.cancelled && control.cancelled())return;
+            if(j==i || components[j].empty())continue;
+            for(const auto member:components[j]) {
+                const auto& target=tracks[indices[member]];
+                if(target.observations.empty())continue;
+                const double gap=std::max({0.,target.observations.front().timestampSeconds-source.observations.back().timestampSeconds,
+                    source.observations.front().timestampSeconds-target.observations.back().timestampSeconds});
+                if(!std::isfinite(gap) || gap>10.)continue;
+                std::vector<const PersonDetection*> bodies;double previous=-INFINITY,firstFace=INFINITY,lastFace=-INFINITY;std::size_t faces=0;
+                for(const auto& o:target.observations)if(std::isfinite(o.timestampSeconds)) {
+                    if(embeddingScore(o.faceEmbedding,o.faceEmbedding)>.99 && o.timestampSeconds-lastFace>=.1-1e-9) {
+                        ++faces;firstFace=std::min(firstFace,o.timestampSeconds);lastFace=o.timestampSeconds;
+                    }
+                    if(embeddingScore(o.appearanceEmbedding,o.appearanceEmbedding)>.99 && o.timestampSeconds-previous>=.1-1e-9) {
+                        bodies.push_back(&o);previous=o.timestampSeconds;
+                    }
+                }
+                if(bodies.size()<3)continue;
+                std::vector<double> support;support.reserve(evidence[i].body.size());
+                for(const auto* sample:evidence[i].body) {
+                    std::vector<double> similarities;similarities.reserve(bodies.size());
+                    for(const auto* view:bodies)similarities.push_back(embeddingScore(sample->appearanceEmbedding,view->appearanceEmbedding));
+                    std::nth_element(similarities.begin(),similarities.begin()+2,similarities.end(),std::greater<>());
+                    support.push_back(similarities[2]);
+                }
+                std::sort(support.begin(),support.end(),std::greater<>());
+                const double score=support[2];best[j]=std::max(best[j],score);
+                const auto consistent=std::count_if(support.begin(),support.end(),[](double score){return score>=.84;});
+                if(score>=.86 && consistent*5>=static_cast<std::ptrdiff_t>(support.size()*3)
+                   && faces>=3 && lastFace-firstFace>=.3-1e-9)eligible[j]=std::max(eligible[j],score);
+            }
+        }
+        std::size_t winner=components.size();double high=-1;
+        for(std::size_t j=0;j<eligible.size();++j)if(eligible[j]>high){high=eligible[j];winner=j;}
+        double second=-1;
+        for(std::size_t j=0;j<best.size();++j)if(j!=winner)second=std::max(second,best[j]);
+        if(winner==components.size() || high<.86 || second<0 || high-second<.10 || concurrent(i,winner))continue;
+        bool conflict=false;for(auto earlier:attached[winner])if(concurrent(i,earlier))conflict=true;
+        if(conflict)continue;
+        components[winner].insert(components[winner].end(),components[i].begin(),components[i].end());
+        components[i].clear();attached[winner].push_back(i);
+    }
     // Split detections of an occluded person can overlap in time and have too
     // few visible joints for the ordinary duplicate check. Avoid a permanent
     // false separation when the smaller box, head/torso joints and body

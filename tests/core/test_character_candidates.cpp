@@ -300,6 +300,29 @@ TEST(CharacterCandidates, BodyOnlyTrackNeedsAnUnambiguousFaceBackedCandidate)
     EXPECT_EQ(pfcore::characterCandidates({reference,other,back}).size(),3);
 }
 
+TEST(CharacterCandidates, NearbyFaceBackedTrackCanRecoverBodyAcrossOutfitGallery)
+{
+    auto anchor=track(1,0,{1,0},4), history=track(2,20,{1,0},20);
+    auto competitor=track(3,6,{0,1},4), back=track(4,4,{},4);
+    for(auto& o:anchor.observations)o.appearanceEmbedding={1,0,0};
+    for(auto& o:history.observations)o.appearanceEmbedding={0,1,0};
+    for(auto& o:competitor.observations)o.appearanceEmbedding={0,0,1};
+    for(auto& o:back.observations)o.appearanceEmbedding={.88F,.475F,0};
+    auto found=pfcore::characterCandidates({anchor,history,competitor,back});
+    const auto lead=std::find_if(found.begin(),found.end(),[](const auto& c){return c.id==1;});
+    ASSERT_NE(lead,found.end());EXPECT_NE(std::find(lead->trackIds.begin(),lead->trackIds.end(),4),lead->trackIds.end());
+    for(auto& o:competitor.observations)o.appearanceEmbedding={.84F,.54F,0};
+    found=pfcore::characterCandidates({anchor,history,competitor,back});
+    const auto separated=std::find_if(found.begin(),found.end(),[](const auto& c){return c.id==1;});
+    ASSERT_NE(separated,found.end());
+    EXPECT_EQ(std::find(separated->trackIds.begin(),separated->trackIds.end(),4),separated->trackIds.end());
+    for(auto& o:competitor.observations)o.appearanceEmbedding={0,0,1};
+    for(auto& o:back.observations)o.timestampSeconds+=12;
+    found=pfcore::characterCandidates({anchor,history,competitor,back});
+    const auto remote=std::find_if(found.begin(),found.end(),[](const auto& c){return c.id==4;});
+    EXPECT_NE(remote,found.end());
+}
+
 TEST(CharacterCandidates, CovisibleSimilarPersonRemainsBodyAmbiguityEvidence)
 {
     auto reference=track(1,0,{1,0},4);
