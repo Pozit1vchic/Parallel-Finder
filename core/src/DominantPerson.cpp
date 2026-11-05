@@ -1189,7 +1189,7 @@ static void recoverCompanionContinuity(std::vector<std::vector<std::size_t>>& co
             if(faceSamples[left.group]>=3 && faceSamples[right.group]>=3
                 && embeddingScore(facePrototypes[left.group],facePrototypes[right.group])<.20)continue;
             if(coVisibleDifferent(observations[left.group],observations[right.group]))continue;
-            bool companion=false;
+            bool companion=false;std::size_t weakCompanions=0;
             for(std::size_t k=0;k<observations.size() && !companion;++k) {
                 if(k==left.group || k==right.group || faceSamples[k]<3)continue;
                 const auto& group=observations[k];
@@ -1206,8 +1206,11 @@ static void recoverCompanionContinuity(std::vector<std::vector<std::size_t>>& co
                 const double after=center(first.box)-center((*b)->box);
                 // A historical identity label is insufficient at the cut:
                 // both visible companion faces must corroborate each other.
-                if(before*after>0 && embeddingScore((*a)->faceEmbedding,(*b)->faceEmbedding)>=.363
-                   && !sameObservedSkeleton(last,**a) && !sameObservedSkeleton(first,**b))companion=true;
+                if(before*after>0 && !sameObservedSkeleton(last,**a) && !sameObservedSkeleton(first,**b)) {
+                    const auto face=embeddingScore((*a)->faceEmbedding,(*b)->faceEmbedding);
+                    if(face>=.363)companion=true;
+                    else if(face>=0)++weakCompanions;
+                }
             }
             // A cut can split one close-up even when no companion is in
             // frame. Require a well-observed face before the cut, an actual
@@ -1217,7 +1220,8 @@ static void recoverCompanionContinuity(std::vector<std::vector<std::size_t>>& co
             const bool faceContinuity=faceSamples[left.group]>=3
                 && left.identity.faceEvidence>=.99 && right.identity.faceEvidence>0
                 && boundaryFace>=.52 && body>=.70 && box>=.65;
-            if(companion || faceContinuity)edges.push_back({left.group,right.group,.65*box+.35*body});
+            if(companion || (weakCompanions>=2 && body>=.65 && box>=.70 && gap<=.20) || faceContinuity)
+                edges.push_back({left.group,right.group,.65*box+.35*body});
         }
     }
     std::stable_sort(edges.begin(),edges.end(),[](const auto& a,const auto& b){return a.score>b.score;});

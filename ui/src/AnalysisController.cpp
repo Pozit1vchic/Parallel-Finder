@@ -2665,7 +2665,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 }
                 const auto generation = sourceGenerations[path.toStdString()];
                 if (!generation.empty()) cacheKey += "|generation=" + generation;
-                if (interactiveTargets) cacheKey += "|all-characters-v27-verified-cut";
+                if (interactiveTargets) cacheKey += "|all-characters-v28-two-companions";
                 if (auditWeakFaces) cacheKey += "|experimental-weak-face-v3";
                 if (interactiveTargets) characterArtifactKeys[path.toStdString()]=cacheKey;
                 sequenceCacheKeys[path.toStdString()]=cacheKey;

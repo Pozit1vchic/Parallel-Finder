@@ -488,6 +488,33 @@ TEST(CharacterCandidates, ContinuityAcrossCutNeedsTheSameObservedCompanion)
     EXPECT_EQ(pfcore::characterCandidates({companion,before,after}).size(),3);
 }
 
+TEST(CharacterCandidates, TwoIndependentWeakCompanionsCanSupportContinuity)
+{
+    auto first=track(1,0,{1,0,0},8),second=track(4,0,{0,0,1},8);
+    auto before=track(2,0,{},4),after=track(3,.9375,{},4);
+    for(auto& o:first.observations){o.box={0,0,100,200};o.appearanceEmbedding={0,1,0};}
+    for(auto& o:second.observations){o.box={120,0,220,200};o.appearanceEmbedding={0,0,1};}
+    for(auto& o:before.observations){o.box={300,0,400,200};o.appearanceEmbedding={1,0,0};}
+    for(auto& o:after.observations){o.box={301,0,401,200};o.appearanceEmbedding={.66F,.7512656F,0};}
+    first.observations[4].timestampSeconds=.9375;
+    second.observations[4].timestampSeconds=.9375;
+    first.observations[4].faceEmbedding={.1F,.9949874F,0};
+    second.observations[4].faceEmbedding={0,.9949874F,.1F};
+    auto found=pfcore::characterCandidates({first,second,before,after});
+    auto hasBoth=[](const auto& list){return std::any_of(list.begin(),list.end(),[](const auto& c){
+        return std::find(c.trackIds.begin(),c.trackIds.end(),2)!=c.trackIds.end()
+            && std::find(c.trackIds.begin(),c.trackIds.end(),3)!=c.trackIds.end();});};
+    ASSERT_TRUE(hasBoth(found));
+    auto delayedAfter=after;for(auto& o:delayedAfter.observations)o.timestampSeconds+=.0625;
+    auto delayedFirst=first,delayedSecond=second;
+    delayedFirst.observations[4].timestampSeconds=1.;delayedSecond.observations[4].timestampSeconds=1.;
+    EXPECT_FALSE(hasBoth(pfcore::characterCandidates({delayedFirst,delayedSecond,before,delayedAfter})));
+    second.observations[4].faceEmbedding.clear();
+    EXPECT_FALSE(hasBoth(pfcore::characterCandidates({first,second,before,after})));
+    second.observations[4].faceEmbedding={0,-.9949874F,-.1F};
+    EXPECT_FALSE(hasBoth(pfcore::characterCandidates({first,second,before,after})));
+}
+
 TEST(CharacterCandidates, FaceBackedCutContinuityRequiresIndependentEvidence)
 {
     auto before=track(1,0,{1,0},4),after=track(2,1,{},4);

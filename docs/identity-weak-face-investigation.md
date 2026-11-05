@@ -651,3 +651,29 @@ The full v27 application capture passed on the supplied video: the lead has
 496 tracks instead of 495, and the selector displays 11 confirmed and 20
 unresolved entries. The core suite passed 624 tests; 28 optional tests were
 skipped for missing assets or integration settings.
+
+## Two independently observed companions at a short boundary
+
+The v27 companion guard split two earlier associations. Review of the source
+shows that track 67/70 follows the same foreground person, while the forest
+figure in track 1093 and the man indoors in track 1097 are different people.
+The latter separation is retained. For the former, two distinct previously
+face-backed companions appear on both sides of the boundary; their observed
+faces are weak matches. A narrowly bounded alternative now requires both
+companions, noncontradictory face observations at the boundary, a gap no
+longer than 0.20 s, overlapping subject boxes and body agreement, in addition
+to the existing competing-link and co-visibility vetoes. One witness, missing
+or contradictory observations, and a longer gap do not pass the new route.
+
+On saved Butcher observations, the reviewed 67/70 pair rejoins while 1093/1097
+remain separate: 485 groups become 484 before repeated-scene recovery. No
+regressions occurred on 133 applicable selected Butcher comparisons or 28
+Kyle comparisons; all saved Kyle assignments stayed identical. This single
+positive and negative are correlated selected evidence, not general accuracy;
+face-less fragments and pictures/mirrors remain open. The character cache key
+changes to v28, requiring a fresh analysis while retaining older cache files.
+
+The full v28 application capture passed on the supplied video. The recovered
+67/70 group appears in the selector with two tracks, with 11 confirmed and 20
+unresolved choices shown. The core suite passed 625 tests; 28 optional tests
+were skipped for missing assets or integration settings.

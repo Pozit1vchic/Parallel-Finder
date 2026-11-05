@@ -1,0 +1,49 @@
+{
+  "scope": "Reviewed neighboring frames: the foreground person persists while two other people remain present; in a different scene a forest figure and a man indoors are distinct. Small selected source-specific checks.",
+  "controls": [
+    {
+      "id": "foreground-person-two-companions",
+      "sameIdentity": true,
+      "left": {
+        "time": 33.199865667150675,
+        "box": [
+          940.5401611328125,
+          5.9613037109375,
+          1278.7496337890625,
+          528.6260986328125
+        ]
+      },
+      "right": {
+        "time": 33.38755299998654,
+        "box": [
+          834.7758178710938,
+          10.115966796875,
+          1278.5064697265625,
+          527.9844970703125
+        ]
+      }
+    },
+    {
+      "id": "forest-figure-vs-indoor-man",
+      "sameIdentity": false,
+      "left": {
+        "time": 673.5233269999643,
+        "box": [
+          917.2911376953125,
+          72.06234741210938,
+          1127.6973876953125,
+          531.561279296875
+        ]
+      },
+      "right": {
+        "time": 673.7110140004735,
+        "box": [
+          826.232666015625,
+          117.6617431640625,
+          1100.552734375,
+          531.1499633789062
+        ]
+      }
+    }
+  ]
+}
