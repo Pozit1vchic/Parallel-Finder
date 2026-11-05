@@ -18,11 +18,13 @@ namespace {
 struct Version { QVector<quint64> core; QStringList pre; };
 std::optional<Version> parse(QString value) {
     if(value.startsWith('v'))value.remove(0,1);
-    const QRegularExpression re("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z.-]+)?$");
+    const QRegularExpression re("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:\\.(0|[1-9][0-9]*))?(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z.-]+)?$");
     const auto m=re.match(value);if(!m.hasMatch())return {};
     Version v;
     for(int i=1;i<=3;++i) {bool ok=false;auto n=m.captured(i).toULongLong(&ok);if(!ok)return {};v.core.push_back(n);}
-    if(!m.captured(4).isEmpty())v.pre=m.captured(4).split('.');
+    if (!m.captured(4).isEmpty()) { bool ok=false; const auto n=m.captured(4).toULongLong(&ok); if(!ok)return {}; v.core.push_back(n); }
+    else v.core.push_back(0);
+    if(!m.captured(5).isEmpty())v.pre=m.captured(5).split('.');
     for(const auto& p:v.pre)if(QRegularExpression("^[0-9]+$").match(p).hasMatch() && p.size()>1 && p[0]=='0')return {};
     return v;
 }
@@ -30,7 +32,7 @@ bool hashValid(const QString& s) {return QRegularExpression("^[a-f0-9]{64}$").ma
 }
 std::optional<int> compareVersions(QString left, QString right) {
     const auto a=parse(left),b=parse(right);if(!a||!b)return {};
-    for(int i=0;i<3;++i)if(a->core[i]!=b->core[i])return a->core[i]<b->core[i]?-1:1;
+    for(int i=0;i<4;++i)if(a->core[i]!=b->core[i])return a->core[i]<b->core[i]?-1:1;
     if(a->pre.isEmpty()!=b->pre.isEmpty())return a->pre.isEmpty()?1:-1;
     for(int i=0;i<std::min(a->pre.size(),b->pre.size());++i) {
         const auto& x=a->pre[i];const auto& y=b->pre[i];if(x==y)continue;

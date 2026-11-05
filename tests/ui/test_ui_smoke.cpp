@@ -95,6 +95,7 @@ private slots:
     void resultNavigationStopsAtEnds();
     void reviewRemovalKeepsNeighborAndColorsRefresh();
     void sourceSearchAndUnreviewedNavigation();
+    void resultCardsContainAllRows();
     void sourcesLiveInsideDropAreaAboveActions();
     void sourceWheelDoesNotMoveSettingsRail();
     void movementClassesAndExportOrder();
@@ -2512,6 +2513,37 @@ void UiSmokeTests::reviewRemovalKeepsNeighborAndColorsRefresh()
     QVERIFY(QMetaObject::invokeMethod(l10n,"colorLabel",Q_RETURN_ARG(QVariant,label),Q_ARG(QVariant,"#7c9885")));
     QCOMPARE(label.toString(),QString::fromUtf8("Зелёный"));
 
+}
+
+void UiSmokeTests::resultCardsContainAllRows()
+{
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine; QQmlComponent component(&engine);
+    component.setData(R"(import QtQuick
+import PfUi
+Window { width: 300; height: 1800; visible: true
+    ResultsRail { width: 280; height: 1800; results: [
+        {id: 1, similarity: .9, classification: "head_turn", classificationPartial: true},
+        {id: 2, similarity: .8, classification: "head_turn", classificationManual: true},
+        {id: 3, similarity: .7, classification: "head_turn"}] }
+})", QUrl());
+    std::unique_ptr<QQuickWindow> window(qobject_cast<QQuickWindow*>(component.create()));
+    QVERIFY2(window,qPrintable(component.errorString()));
+    auto* list=window->findChild<QQuickItem*>("resultList"); QVERIFY(list);
+    std::function<QQuickItem*(QQuickItem*,const QString&)> findVisual = [&](QQuickItem* item,const QString& name) -> QQuickItem* {
+        if (item->objectName()==name) return item;
+        for(auto* child:item->childItems()) if(auto* found=findVisual(child,name)) return found;
+        return nullptr;
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(findVisual(list,"resultCard1"),5000);
+    QTest::qWait(600);
+    auto* card=findVisual(list,"resultCard1");
+    auto* time=findVisual(list,"resultTime1");
+    QVERIFY(card); QVERIFY(time);
+    auto* content=findVisual(list,"resultContent1"); QVERIFY(content);
+    QVERIFY(card->height() >= 160);
+    QTRY_VERIFY_WITH_TIMEOUT(time->mapToItem(card,QPointF(0,time->height())).y() <= card->height()-7,5000);
+    auto* second=findVisual(list,"resultCard2");
+    if (second) QVERIFY(std::abs(card->y()-second->y()) >= std::min(card->height(),second->height()));
 }
 
 void UiSmokeTests::sourceSearchAndUnreviewedNavigation()

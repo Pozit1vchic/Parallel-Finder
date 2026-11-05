@@ -965,7 +965,7 @@ Rectangle {
                     }
                 }
                 width: Math.max(0, resultList.width - 8)
-                height: Math.max(120, Math.ceil(rowContent.implicitHeight) + 16)
+                height: Math.max(160, Math.ceil(Math.max(rowContent.implicitHeight, rowContent.childrenRect.y + rowContent.childrenRect.height)) + 16)
                 radius: 7
                 color: root.selectedRows[modelData.id] ? Theme.accentMuted : Theme.surfaceRaised
                 Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
@@ -1038,6 +1038,7 @@ Rectangle {
                     }
                     Column {
                         id: rowContent
+                        objectName: "resultContent" + modelData.id
                         width: Math.max(0, parent.width - 100)
                         spacing: 4
 
@@ -1092,6 +1093,7 @@ Rectangle {
                         Text {
                             font.family: Theme.fontFamily
                             width: parent.width
+                            objectName: "resultTime" + modelData.id
                             text: L10n.t("results.time") + " · " + root.formatTime(modelData.leftStart) + "  /  " + root.formatTime(modelData.rightStart)
                             color: Theme.textDisabled
                             font.pixelSize: 10

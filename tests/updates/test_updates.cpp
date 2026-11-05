@@ -150,6 +150,10 @@ private slots:
 };
 void UpdateTests::versions() {
     QVERIFY(pfupdate::compareVersions("v1.0.0","1.0.0-rc.17").value()>0);
+    QVERIFY(pfupdate::compareVersions("v0.2.0.1","v0.2.0").value()>0);
+    QVERIFY(pfupdate::compareVersions("0.2.0.0","0.2.0").value()==0);
+    QVERIFY(pfupdate::compareVersions("0.2.1","0.2.0.1").value()>0);
+    QVERIFY(!pfupdate::compareVersions("0.2.0.01","0.2.0"));
     QVERIFY(pfupdate::compareVersions("0.1.0-rc.17","0.1.0-rc.9").value()>0);
     QVERIFY(pfupdate::compareVersions("0.1.0-rc.16.4.1","0.1.0-rc.16.4").value()>0);
     QVERIFY(!pfupdate::compareVersions("runtime-v1","1.0.0"));
