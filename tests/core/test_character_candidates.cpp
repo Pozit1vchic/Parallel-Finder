@@ -458,6 +458,36 @@ TEST(CharacterCandidates, DuplicateDetectionDoesNotBlockRepeatedPersonButDistinc
     ASSERT_EQ(different.size(),2);
 }
 
+TEST(CharacterCandidates, CloseUpDuplicateRequiresDistinctAndConsistentHeadLandmarks)
+{
+    auto first=track(1,0,{.7660444F,.6427876F},6);
+    for(std::size_t i=3;i<first.observations.size();++i)
+        first.observations[i].faceEmbedding={.7660444F,-.6427876F};
+    auto second=track(2,1.25,{.3420201F,-.9396926F});
+    for(auto* person:{&first,&second})for(auto& observation:person->observations) {
+        observation.appearanceEmbedding={1,0}; observation.box={0,0,100,200};
+        observation.keypoints={{50,40,1},{42,36,1},{58,36,1},{36,40,1},{64,40,1}};
+    }
+    ASSERT_EQ(pfcore::characterCandidates({first,second}).size(),1);
+    auto contradictory=second;
+    contradictory.observations.front().faceEmbedding={-.7660444F,.6427876F};
+    EXPECT_EQ(pfcore::characterCandidates({first,contradictory}).size(),2);
+    auto shifted=second;
+    for(auto& point:shifted.observations.front().keypoints) point.x+=10;
+    EXPECT_EQ(pfcore::characterCandidates({first,shifted}).size(),2);
+    auto lowConfidence=second;
+    lowConfidence.observations.front().keypoints[3].confidence=.5;
+    lowConfidence.observations.front().keypoints[4].confidence=.5;
+    EXPECT_EQ(pfcore::characterCandidates({first,lowConfidence}).size(),2);
+    auto invalid=second;
+    invalid.observations.front().keypoints[1].confidence=std::numeric_limits<double>::quiet_NaN();
+    EXPECT_EQ(pfcore::characterCandidates({first,invalid}).size(),2);
+    auto collapsed=second;
+    for(auto* person:{&first,&collapsed})for(auto& observation:person->observations)
+        observation.keypoints[2]=observation.keypoints[1];
+    EXPECT_EQ(pfcore::characterCandidates({first,collapsed}).size(),2);
+}
+
 TEST(CharacterCandidates, MultiViewBridgeCannotJoinFacesWithRepeatedContradictoryEvidence)
 {
     // A third view contains plausible samples for each person. Its average is

@@ -488,3 +488,31 @@ unresolved choices to 20 and indicates how many more are hidden.
 The character-analysis cache key changed, so videos analysed with the previous
 version require one fresh analysis to use the new association rule. Existing
 cache data is not deleted.
+
+## Duplicate close-up detections
+
+A close-up may contain two detector boxes around the same visible head even
+when too little torso is visible for full-skeleton comparison. During identity
+recovery, four tightly agreeing high-confidence head landmarks with distinct
+eyes can now establish that overlapping detections are the same observation.
+Contradictory face embeddings, invalid or insufficient landmarks and different
+head positions veto this exception. It does not suppress detections during
+tracking or replace the other identity-link safeguards.
+
+A visually inspected Butcher close-up at 227.23–227.39 seconds had two nested
+boxes and was split from the lead. Frozen replay now joins track 363 to track
+362 and the existing lead: 488 candidate groups become 487 before repeated
+scene recovery. The two committed positive checks concern this one appearance;
+120 applicable Butcher and 28 Kyle controls have no regressions, and a narrow
+same-frame disjoint-box audit finds no conflict. This is not an estimate of
+general recognition quality. Another reviewed nested detection at 617.88
+seconds remains unresolved because independent body support is insufficient.
+
+The character-analysis cache key changes to v23; a fresh analysis is needed
+once to apply the new grouping. Existing cached data is retained.
+
+The full application processed the supplied video with the v23 key: the lead
+now contains 494 tracks instead of 493, while 11 confirmed and 20 unresolved
+cards are displayed. The cold run passed before the additional nonfinite-input
+guard; the final binary also passed a cached selector replay. The core suite
+passed 620 tests, with 28 optional integration tests skipped.

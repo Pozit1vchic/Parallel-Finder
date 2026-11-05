@@ -1,0 +1,49 @@
+{
+  "scope": "Reviewed Butcher close-up with duplicate head boxes; the two positives share an appearance and are not independent accuracy measurements.",
+  "controls": [
+    {
+      "id": "butcher-duplicated-close-up",
+      "sameIdentity": true,
+      "left": {
+        "time": 227.22595733328458,
+        "box": [
+          438.2122497558594,
+          36.56695556640625,
+          1028.052001953125,
+          529.553955078125
+        ]
+      },
+      "right": {
+        "time": 226.05812399995008,
+        "box": [
+          435.7980041503906,
+          49.5479736328125,
+          1252.7203369140625,
+          529.2945556640625
+        ]
+      }
+    },
+    {
+      "id": "butcher-close-up-to-later-view",
+      "sameIdentity": true,
+      "left": {
+        "time": 227.22595733328458,
+        "box": [
+          438.2122497558594,
+          36.56695556640625,
+          1028.052001953125,
+          529.553955078125
+        ]
+      },
+      "right": {
+        "time": 675.525305666996,
+        "box": [
+          103.74539184570312,
+          0,
+          894.20703125,
+          537.5087890625
+        ]
+      }
+    }
+  ]
+}

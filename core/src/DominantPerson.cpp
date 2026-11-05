@@ -121,6 +121,33 @@ bool sameObservedSkeleton(const PersonDetection& a, const PersonDetection& b)
         && sum/shared <= .015 && maximum <= .04;
 }
 
+// A close-up can expose only a head. This is used solely to distinguish
+// overlapping observations during recovery, never to suppress detections.
+static bool sameObservedHead(const PersonDetection& a, const PersonDetection& b)
+{
+    const double overlap=a.box.iou(b.box);
+    if (!std::isfinite(overlap) || overlap < .30 || a.keypoints.size() < 5 || b.keypoints.size() < 5) return false;
+    if (!a.faceEmbedding.empty() && !b.faceEmbedding.empty()
+        && embeddingScore(a.faceEmbedding,b.faceEmbedding) < .5) return false;
+    const double scale=std::sqrt(std::min(a.box.area(),b.box.area()));
+    if (!(scale > 0) || !std::isfinite(scale)) return false;
+    std::size_t count=0; double sum=0, maximum=0;
+    for(std::size_t i=0;i<5;++i) {
+        const auto& x=a.keypoints[i]; const auto& y=b.keypoints[i];
+        if(!(x.confidence >= .9 && y.confidence >= .9) || !std::isfinite(x.x+x.y+y.x+y.y)) continue;
+        const double distance=std::hypot(x.x-y.x,x.y-y.y)/scale;
+        ++count; sum+=distance; maximum=std::max(maximum,distance);
+    }
+    if(count<4 || sum/count>.012 || maximum>.02) return false;
+    for(const auto* detection:{&a,&b}) {
+        const auto& left=detection->keypoints[1]; const auto& right=detection->keypoints[2];
+        if(!(left.confidence >= .9 && right.confidence >= .9)
+            || !std::isfinite(left.x+left.y+right.x+right.y)
+            || std::hypot(left.x-right.x,left.y-right.y)/scale<.03) return false;
+    }
+    return true;
+}
+
 IdentitySummary summarizeObservations(std::span<const PersonDetection> observations, bool uniqueTimestamps = false)
 {
     IdentitySummary summary;
@@ -612,7 +639,7 @@ static bool coVisibleDifferent(const std::vector<const PersonDetection*>& x,
             // A second detector box on the same skeleton is not a second
             // person. Any genuinely distinct observation still vetoes.
             for(auto a=i;a<ie;++a)for(auto b=j;b<je;++b)
-                if(!sameObservedSkeleton(*x[a],*y[b]))return true;
+                if(!sameObservedSkeleton(*x[a],*y[b]) && !sameObservedHead(*x[a],*y[b]))return true;
             i=ie;j=je;
         } else if(xt<yt)++i;else ++j;
     }
