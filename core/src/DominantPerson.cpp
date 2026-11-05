@@ -1071,15 +1071,25 @@ static void recoverUniqueBodyTracks(std::vector<std::vector<std::size_t>>& compo
                 std::sort(support.begin(),support.end(),std::greater<>());
                 const double score=support[2];best[j]=std::max(best[j],score);
                 const auto consistent=std::count_if(support.begin(),support.end(),[](double score){return score>=.84;});
-                if(score>=.86 && consistent*5>=static_cast<std::ptrdiff_t>(support.size()*3)
-                   && local.faces>=3 && local.lastFace-local.firstFace>=.3-1e-9)eligible[j]=std::max(eligible[j],score);
+                const auto broad=std::count_if(support.begin(),support.end(),[](double score){return score>=.78;});
+                const bool normal=score>=.86 && consistent*5>=static_cast<std::ptrdiff_t>(support.size()*3);
+                // A brief shot change can alter the observed body view. Only
+                // relax the local score when geometry and most samples agree.
+                const bool follows=target.observations.back().timestampSeconds<source.observations.front().timestampSeconds;
+                const bool precedes=source.observations.back().timestampSeconds<target.observations.front().timestampSeconds;
+                const double boundaryBox=follows ? target.observations.back().box.iou(source.observations.front().box)
+                    : precedes ? source.observations.back().box.iou(target.observations.front().box) : 0.;
+                const bool boundary=gap<=1. && boundaryBox>=.65 && score>=.84 && consistent>=3
+                    && broad*5>=static_cast<std::ptrdiff_t>(support.size()*4);
+                if((normal || boundary) && local.faces>=3 && local.lastFace-local.firstFace>=.3-1e-9)
+                    eligible[j]=std::max(eligible[j],score);
             }
         }
         std::size_t winner=components.size();double high=-1;
         for(std::size_t j=0;j<eligible.size();++j)if(eligible[j]>high){high=eligible[j];winner=j;}
         double second=-1;
         for(std::size_t j=0;j<best.size();++j)if(j!=winner)second=std::max(second,best[j]);
-        if(winner==components.size() || high<.86 || second<0 || high-second<.10 || concurrent(i,winner))continue;
+        if(winner==components.size() || high<.84 || second<0 || high-second<.10 || concurrent(i,winner))continue;
         bool conflict=false;for(auto earlier:attached[winner])if(concurrent(i,earlier))conflict=true;
         if(conflict)continue;
         components[winner].insert(components[winner].end(),components[i].begin(),components[i].end());
@@ -1194,7 +1204,10 @@ static void recoverCompanionContinuity(std::vector<std::vector<std::size_t>>& co
                 const auto center=[](const BoundingBox& box){return (box.left+box.right)*.5;};
                 const double before=center(last.box)-center((*a)->box);
                 const double after=center(first.box)-center((*b)->box);
-                if(before*after>0 && !sameObservedSkeleton(last,**a) && !sameObservedSkeleton(first,**b))companion=true;
+                // A historical identity label is insufficient at the cut:
+                // both visible companion faces must corroborate each other.
+                if(before*after>0 && embeddingScore((*a)->faceEmbedding,(*b)->faceEmbedding)>=.363
+                   && !sameObservedSkeleton(last,**a) && !sameObservedSkeleton(first,**b))companion=true;
             }
             // A cut can split one close-up even when no companion is in
             // frame. Require a well-observed face before the cut, an actual

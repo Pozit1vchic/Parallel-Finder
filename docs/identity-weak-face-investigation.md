@@ -619,3 +619,35 @@ The application reused the v26 cache successfully, and visible candidate
 metadata matched the preceding capture apart from session-specific image URLs.
 The core suite passed 623 tests; 28 optional tests were skipped for missing
 assets or integration settings.
+
+## Adjacent-cut body evidence and companion verification
+
+Several no-face tracks near cuts have plausible body similarity. A direct
+lowering of the local appearance threshold joined a reviewed Butcher pair
+(1169/1173) but also indirectly caused two different people (1174/1176) to
+merge. The latter was a cascading effect: the newly linked Butcher track
+became a supposed common companion across their cut, despite lacking a face
+observation at one side. The experiment therefore was not accepted as-is.
+
+Companion-based recovery now requires matching face observations on both
+sides of the actual boundary, rather than assuming every fragment in an old
+face-backed group identifies its companion. With that guard, a narrow local
+body rule can join the Butcher pair when strong boundary-box overlap, short
+gap, independent appearance support, a face-backed target and competitor
+margin agree. The two different people stay separate, as does a second
+reviewed different person seen from behind. The selected fixtures contain one
+positive and two negatives and cannot establish general accuracy.
+
+Frozen Butcher replay changes 484 groups to 485: one reviewed same-person
+pair joins and two previous companion links are left split. Those two splits
+have not both been adjudicated as right or wrong. Across 131 applicable
+selected Butcher comparisons and 28 Kyle comparisons, none regressed; all
+saved Kyle assignments stayed the same. A disjoint-box co-visibility audit
+found no conflict but does not detect every possible wrong merge. Most no-face
+appearances, pictures and mirrors remain unresolved. The v27 grouping cache
+key requires one new analysis and retains existing cache files.
+
+The full v27 application capture passed on the supplied video: the lead has
+496 tracks instead of 495, and the selector displays 11 confirmed and 20
+unresolved entries. The core suite passed 624 tests; 28 optional tests were
+skipped for missing assets or integration settings.

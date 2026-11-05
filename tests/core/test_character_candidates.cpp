@@ -323,6 +323,28 @@ TEST(CharacterCandidates, NearbyFaceBackedTrackCanRecoverBodyAcrossOutfitGallery
     EXPECT_NE(remote,found.end());
 }
 
+TEST(CharacterCandidates, NearbyCutBodyRecoveryRequiresBoundaryGeometryAndFaceEvidence)
+{
+    auto anchor=track(1,0,{1,0},4), history=track(2,20,{1,0},20);
+    auto competitor=track(3,6,{0,1},4), back=track(4,1.5,{},4);
+    for(auto* person:{&anchor,&history,&competitor,&back})for(auto& o:person->observations)o.box={0,0,100,200};
+    for(auto& o:anchor.observations)o.appearanceEmbedding={1,0,0};
+    for(auto& o:history.observations)o.appearanceEmbedding={0,1,0};
+    for(auto& o:competitor.observations)o.appearanceEmbedding={0,0,1};
+    for(auto& o:back.observations)o.appearanceEmbedding={.85F,.5267827F,0};
+    const auto containsBack=[](const auto& candidates) {
+        const auto lead=std::find_if(candidates.begin(),candidates.end(),[](const auto& c){return c.id==1;});
+        return lead!=candidates.end() && std::find(lead->trackIds.begin(),lead->trackIds.end(),4)!=lead->trackIds.end();
+    };
+    ASSERT_TRUE(containsBack(pfcore::characterCandidates({anchor,history,competitor,back})));
+    auto shifted=back;for(auto& o:shifted.observations)o.box={100,0,200,200};
+    EXPECT_FALSE(containsBack(pfcore::characterCandidates({anchor,history,competitor,shifted})));
+    auto remote=back;for(auto& o:remote.observations)o.timestampSeconds+=2;
+    EXPECT_FALSE(containsBack(pfcore::characterCandidates({anchor,history,competitor,remote})));
+    auto faceless=anchor;for(auto& o:faceless.observations)o.faceEmbedding.clear();
+    EXPECT_FALSE(containsBack(pfcore::characterCandidates({faceless,history,competitor,back})));
+}
+
 TEST(CharacterCandidates, CovisibleSimilarPersonRemainsBodyAmbiguityEvidence)
 {
     auto reference=track(1,0,{1,0},4);
@@ -451,6 +473,11 @@ TEST(CharacterCandidates, ContinuityAcrossCutNeedsTheSameObservedCompanion)
     ASSERT_NE(recovered,result.end());
     EXPECT_EQ(recovered->trackIds,(std::vector<std::size_t>{2,3}));
 
+    // A historical group label cannot prove that the same companion is
+    // present when the face at the actual boundary was not observed.
+    companion.observations[3].faceEmbedding.clear();
+    EXPECT_EQ(pfcore::characterCandidates({companion,before,after}).size(),3);
+    companion.observations[3].faceEmbedding={1,0};
     // One side lacks the same companion, so the cut has no identity context.
     companion.observations.erase(companion.observations.begin()+4);
     EXPECT_EQ(pfcore::characterCandidates({companion,before,after}).size(),3);

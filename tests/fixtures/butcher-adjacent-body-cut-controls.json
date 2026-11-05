@@ -1,0 +1,71 @@
+{
+  "scope": "Reviewed adjacent shots in the Butcher video: Butcher persists across one cut, while two different people occupy similar positions across another cut. The two comparisons share a sequence and are not a general benchmark.",
+  "controls": [
+    {
+      "id": "butcher-adjacent-shots",
+      "sameIdentity": true,
+      "left": {
+        "time": 719.8611656667116,
+        "box": [
+          505.3608093261719,
+          9.8001708984375,
+          1274.1119384765625,
+          528.10107421875
+        ]
+      },
+      "right": {
+        "time": 721.863165333386,
+        "box": [
+          317.669189453125,
+          10.9544677734375,
+          1039.6708984375,
+          531.93408203125
+        ]
+      }
+    },
+    {
+      "id": "different-people-across-cut",
+      "sameIdentity": false,
+      "left": {
+        "time": 721.863165333386,
+        "box": [
+          14.523712158203125,
+          16.682373046875,
+          445.12957763671875,
+          532.0947265625
+        ]
+      },
+      "right": {
+        "time": 723.0518523328951,
+        "box": [
+          45.213592529296875,
+          4.714324951171875,
+          605.447021484375,
+          533.885986328125
+        ]
+      }
+    },
+    {
+      "id": "foreground-back-is-not-butcher",
+      "sameIdentity": false,
+      "left": {
+        "time": 325.2191286666985,
+        "box": [
+          163.40771484375,
+          23.2608642578125,
+          672.0885620117188,
+          536.7664794921875
+        ]
+      },
+      "right": {
+        "time": 328.2221076670588,
+        "box": [
+          112.28231811523438,
+          0,
+          671.3338012695312,
+          535.2296142578125
+        ]
+      }
+    }
+  ]
+}
