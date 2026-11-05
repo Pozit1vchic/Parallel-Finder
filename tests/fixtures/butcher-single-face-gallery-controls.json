@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "scope": "Visually reviewed Butcher views and a co-visible different man; two positives share the lead identity and are not independent accuracy estimates. No source frames or embeddings.",
+  "sourceBasename": "butcher_parallel_notsorted.mov",
+  "controls": [
+    {
+      "id": "butcher-dark-car-to-close-view",
+      "left": {"time": 332.53889833360086, "box": [170.7796630859375, 51.499664306640625, 629.6065673828125, 532.6722412109375]},
+      "right": {"time": 675.525305666996, "box": [103.74539184570312, 0, 894.20703125, 537.5087890625]},
+      "sameIdentity": true
+    },
+    {
+      "id": "butcher-dark-room-to-profile",
+      "left": {"time": 492.0514376662774, "box": [472.8465270996094, 7.604522705078125, 848.9267578125, 534.564453125]},
+      "right": {"time": 379.5230573328813, "box": [753.9685668945312, 9.93798828125, 1277.9173583984375, 530.0968017578125]},
+      "sameIdentity": true
+    },
+    {
+      "id": "two-distinct-men-together",
+      "left": {"time": 492.7187709996114, "box": [351.83990478515625, 18.302978515625, 840.733642578125, 535.98681640625]},
+      "right": {"time": 492.7187709996114, "box": [891.0009155273438, 108.54251098632812, 1278.57958984375, 537.02197265625]},
+      "sameIdentity": false
+    }
+  ]
+}

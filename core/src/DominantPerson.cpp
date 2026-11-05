@@ -754,6 +754,52 @@ static void recoverCharacterViews(std::vector<std::vector<std::size_t>>& compone
     struct Link {std::size_t a,b;double score;bool repeated;};
     std::vector<Link> links;
     std::set<std::pair<std::size_t,std::size_t>> contradictions;
+    for(std::size_t singleIndex=0;singleIndex<galleries.size();++singleIndex) {
+        if(control.cancelled && control.cancelled())return;
+        const auto& single=galleries[singleIndex];
+        if(single.faces.size()!=1 || single.observations.size()<2)continue;
+        // Do not treat duplicated frames or contradictory face detections as
+        // independent evidence for a difficult, single-face appearance.
+        double firstBodyTime=INFINITY; bool independentBody=false, conflictingFace=false;
+        for(const auto* observation:single.observations) {
+            if(embeddingScore(observation->appearanceEmbedding,observation->appearanceEmbedding)>.99) {
+                firstBodyTime=std::min(firstBodyTime,observation->timestampSeconds);
+                if(observation->timestampSeconds-firstBodyTime>=.1-1e-9)independentBody=true;
+            }
+            if(embeddingScore(observation->faceEmbedding,observation->faceEmbedding)>.99
+               && embeddingScore(observation->faceEmbedding,single.faces.front()->faceEmbedding)<.5)
+                conflictingFace=true;
+        }
+        if(!independentBody || conflictingFace)continue;
+        struct Support {std::size_t group;double strength;std::size_t independent;};
+        std::vector<Support> support;
+        std::vector<double> groupBest(galleries.size(),-1.);
+        for(std::size_t group=0;group<galleries.size();++group) {
+            if(group==singleIndex)continue;
+            std::vector<double> times;double strength=-1;
+            for(const auto index:originalComponents[group]) {
+                const auto& faces=atomicLocalFaces[index];
+                if(faces.size()<3)continue;
+                std::vector<double> scores;scores.reserve(faces.size());
+                for(const auto* face:faces)scores.push_back(embeddingScore(single.faces.front()->faceEmbedding,face->faceEmbedding));
+                std::sort(scores.begin(),scores.end(),std::greater<>());
+                groupBest[group]=std::max(groupBest[group],scores[2]);
+                if(scores[0]>=.58 && scores[2]>=.54 && embeddingScore(single.body,atomicBodies[index])>=.60) {
+                    times.push_back(faces.front()->timestampSeconds);strength=std::max(strength,scores[2]);
+                }
+            }
+            std::sort(times.begin(),times.end());
+            double previous=-INFINITY;std::size_t independent=0;
+            for(auto time:times)if(time-previous>=2.){++independent;previous=time;}
+            if(independent>=3 && !concurrent(singleIndex,group))support.push_back({group,strength,independent});
+        }
+        if(support.size()!=1)continue;
+        const auto chosen=support.front();double competitor=-1;
+        for(std::size_t group=0;group<groupBest.size();++group)
+            if(group!=singleIndex && group!=chosen.group)competitor=std::max(competitor,groupBest[group]);
+        if(chosen.strength-competitor>=.10)
+            links.push_back({singleIndex,chosen.group,chosen.strength,false});
+    }
     for(std::size_t a=0;a<galleries.size();++a) {
         if(control.cancelled && control.cancelled())return;
         if(control.progress)control.progress(DominantSelectionStage::Recovery,a,galleries.size());

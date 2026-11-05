@@ -218,6 +218,29 @@ TEST(CharacterCandidates, OneFaceNeedsSeveralIndependentReferencesAndBodyAgreeme
     EXPECT_EQ(pfcore::characterCandidates({reference,brief}).size(),2);
 }
 
+TEST(CharacterCandidates, SingleFaceGalleryRequiresIndependentTracksAndUniqueMargin)
+{
+    auto a=track(1,0,{.6F,.8F}),b=track(2,3,{.6F,.8F}),c=track(3,6,{.6F,.8F});
+    auto brief=track(4,12,{},2);brief.observations[0].faceEmbedding={1,0};
+    for(auto* person:{&a,&b,&c})for(auto& o:person->observations)o.appearanceEmbedding={1,0};
+    for(auto& o:brief.observations)o.appearanceEmbedding={.7F,.7141428F};
+    ASSERT_EQ(pfcore::characterCandidates({a,b,c,brief}).size(),1);
+    auto noBody=brief;
+    for(auto& o:noBody.observations)o.appearanceEmbedding.clear();
+    EXPECT_EQ(pfcore::characterCandidates({a,b,c,noBody}).size(),2);
+    // Two reference tracks cannot become three independent references by
+    // duplicating observations or adding another track at the same time.
+    auto sameTime=track(5,3,{.6F,.8F});
+    for(auto& o:sameTime.observations)o.appearanceEmbedding={1,0};
+    EXPECT_EQ(pfcore::characterCandidates({a,b,sameTime,brief}).size(),3);
+    // A distinct co-visible group with a similarly scoring face vetoes the
+    // merge even if its body descriptor is less compatible.
+    auto competitor=track(8,0,{.61F,.792401F});
+    for(auto& o:competitor.observations)o.appearanceEmbedding={-.7F,.7141428F};
+    const auto ambiguous=pfcore::characterCandidates({a,b,c,brief,competitor});
+    EXPECT_EQ(ambiguous.size(),3);
+}
+
 TEST(CharacterCandidates, ShortReferenceSurvivesDilutedWholePersonGallery)
 {
     auto reference=track(1,0,{.7F,.7141428F},4);

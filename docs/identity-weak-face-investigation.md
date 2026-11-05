@@ -466,3 +466,25 @@ build/ucrt64-release/tools/pf_matcher_probe.exe build/butcher-all-people-windows
 python tools/benchmark/audit_repeated_motion_identities.py --windows build/butcher-all-people-windows-v18.json --replay build/local-face-v19-replay.json --neighbours build/butcher-neighbour-scenes-id.json --output build/repeated-motion-identity-audit.json
 python tools/benchmark/evaluate_identity_controls.py build/local-face-v19-replay.json tests/fixtures/butcher-repeated-scene-controls.json
 ```
+
+## Single-face appearances supported by several tracks
+
+A short appearance with only one usable face can now join a known character
+when at least three time-separated tracks each supply three matching face views,
+the body appearance agrees, there is a clear margin over other characters,
+and the existing simultaneous-person and conflict checks allow the link.
+Duplicated body timestamps and contradictory faces are not counted as evidence.
+
+On the saved Butcher observations this recovers two reviewed appearances of
+Butcher, including a four-track car appearance: 490 candidate groups become
+488 before repeated-scene recovery. A co-visible different man stays separate.
+Other applicable reviewed Butcher controls have no regressions; the saved Kyle
+assignments remain unchanged, including the two different women. These two
+positive examples concern the same character and do not measure general
+precision. Many unresolved groups and appearances from behind remain; this
+rule does not identify people in pictures or mirrors. The display still limits
+unresolved choices to 20 and indicates how many more are hidden.
+
+The character-analysis cache key changed, so videos analysed with the previous
+version require one fresh analysis to use the new association rule. Existing
+cache data is not deleted.
