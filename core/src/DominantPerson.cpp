@@ -123,7 +123,7 @@ bool sameObservedSkeleton(const PersonDetection& a, const PersonDetection& b)
 
 // A close-up can expose only a head. This is used solely to distinguish
 // overlapping observations during recovery, never to suppress detections.
-static bool sameObservedHead(const PersonDetection& a, const PersonDetection& b)
+static bool sameObservedHead(const PersonDetection& a, const PersonDetection& b, double minimumConfidence=.9)
 {
     const double overlap=a.box.iou(b.box);
     if (!std::isfinite(overlap) || overlap < .30 || a.keypoints.size() < 5 || b.keypoints.size() < 5) return false;
@@ -134,14 +134,14 @@ static bool sameObservedHead(const PersonDetection& a, const PersonDetection& b)
     std::size_t count=0; double sum=0, maximum=0;
     for(std::size_t i=0;i<5;++i) {
         const auto& x=a.keypoints[i]; const auto& y=b.keypoints[i];
-        if(!(x.confidence >= .9 && y.confidence >= .9) || !std::isfinite(x.x+x.y+y.x+y.y)) continue;
+        if(!(x.confidence >= minimumConfidence && y.confidence >= minimumConfidence) || !std::isfinite(x.x+x.y+y.x+y.y)) continue;
         const double distance=std::hypot(x.x-y.x,x.y-y.y)/scale;
         ++count; sum+=distance; maximum=std::max(maximum,distance);
     }
     if(count<4 || sum/count>.012 || maximum>.02) return false;
     for(const auto* detection:{&a,&b}) {
         const auto& left=detection->keypoints[1]; const auto& right=detection->keypoints[2];
-        if(!(left.confidence >= .9 && right.confidence >= .9)
+        if(!(left.confidence >= minimumConfidence && right.confidence >= minimumConfidence)
             || !std::isfinite(left.x+left.y+right.x+right.y)
             || std::hypot(left.x-right.x,left.y-right.y)/scale<.03) return false;
     }
@@ -1278,6 +1278,77 @@ static void recoverOverlappingHeadDuplicates(std::vector<std::vector<std::size_t
         }
         if (!ambiguous && accepted!=components.size()) {
             components[accepted].push_back(components[i].front());components[i].clear();
+        }
+    }
+    // Slightly longer partial duplicates can miss an intermediate frame in
+    // one track. Require three precise simultaneous heads spanning the source,
+    // consistent weaker overlaps, and independent face confirmation.
+    for (std::size_t i=0;i<components.size();++i) {
+        if (control.cancelled && control.cancelled()) return;
+        if (components[i].size()!=1) continue;
+        const auto& source=tracks[indices[components[i].front()]];
+        if (source.observations.size()<3 || source.observations.size()>6) continue;
+        const double duration=source.observations.back().timestampSeconds-source.observations.front().timestampSeconds;
+        if (!std::isfinite(duration) || duration<.3-1e-9 || duration>1.5) continue;
+        const PersonDetection* face=nullptr;bool multipleFaces=false;
+        std::vector<const PersonDetection*> sourceViews;
+        for(const auto& o:source.observations) {
+            if(std::isfinite(o.timestampSeconds)) sourceViews.push_back(&o);
+            if(embeddingScore(o.faceEmbedding,o.faceEmbedding)>.99) {
+                if(face)multipleFaces=true;else face=&o;
+            }
+        }
+        if(!face || multipleFaces || sourceViews.size()!=source.observations.size())continue;
+        std::size_t chosen=components.size();bool ambiguous=false;
+        for(std::size_t j=0;j<components.size();++j) {
+            if(control.cancelled && control.cancelled())return;
+            if(j==i || components[j].empty())continue;
+            std::size_t validMember=indices.size();
+            for(const auto member:components[j]) {
+                const auto& target=tracks[indices[member]];
+                if(target.observations.empty() || target.observations.back().timestampSeconds<sourceViews.front()->timestampSeconds
+                   || target.observations.front().timestampSeconds>sourceViews.back()->timestampSeconds)continue;
+                std::size_t strict=0,matched=0;bool conflict=false;double first=INFINITY,last=-INFINITY;
+                for(const auto* x:sourceViews) {
+                    std::size_t simultaneous=0;
+                    for(const auto& y:target.observations)if(std::abs(x->timestampSeconds-y.timestampSeconds)<=1e-6) {
+                        ++simultaneous;
+                        if(!sameObservedHead(*x,y,.8))conflict=true;
+                        else {
+                            ++matched;
+                            if(sameObservedHead(*x,y) && x->timestampSeconds-last>=.1-1e-9) {
+                                ++strict;first=std::min(first,x->timestampSeconds);last=x->timestampSeconds;
+                            }
+                        }
+                    }
+                    if(simultaneous>1)conflict=true;
+                }
+                if(conflict || strict<3 || matched+1<sourceViews.size() || last-first<.3-1e-9
+                   || first>sourceViews.front()->timestampSeconds+1e-6 || last<sourceViews.back()->timestampSeconds-1e-6)continue;
+                std::vector<double> scores;double previous=-INFINITY;
+                for(const auto& o:target.observations)if(o.timestampSeconds-previous>=.1-1e-9) {
+                    const auto score=embeddingScore(face->faceEmbedding,o.faceEmbedding);
+                    if(score>=0){scores.push_back(score);previous=o.timestampSeconds;}
+                }
+                if(scores.size()<3)continue;
+                std::sort(scores.begin(),scores.end(),std::greater<>());
+                if(scores[0]<.90 || scores[2]<.80)continue;
+                if(validMember!=indices.size()){validMember=indices.size();break;}
+                validMember=member;
+            }
+            if(validMember==indices.size())continue;
+            bool conflicting=false;
+            for(const auto member:components[j])if(member!=validMember) {
+                std::vector<const PersonDetection*> other;
+                for(const auto& o:tracks[indices[member]].observations)if(std::isfinite(o.timestampSeconds))other.push_back(&o);
+                if(coVisibleDifferent(sourceViews,other)){conflicting=true;break;}
+            }
+            if(conflicting)continue;
+            if(chosen!=components.size()){ambiguous=true;break;}
+            chosen=j;
+        }
+        if(!ambiguous && chosen!=components.size()) {
+            components[chosen].push_back(components[i].front());components[i].clear();
         }
     }
     std::erase_if(components,[](const auto& c){return c.empty();});

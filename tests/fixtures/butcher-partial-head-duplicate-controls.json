@@ -1,0 +1,49 @@
+{
+  "scope": "Reviewed two overlapping boxes on one person and a nearby different person in the same shot. Small correlated selection; no images or embeddings.",
+  "controls": [
+    {
+      "id": "partial-head-same-person",
+      "sameIdentity": true,
+      "left": {
+        "time": 637.7168956671577,
+        "box": [
+          850.4395141601562,
+          108.44573974609375,
+          951.8251953125,
+          527.9024047851562
+        ]
+      },
+      "right": {
+        "time": 637.3832290004907,
+        "box": [
+          856.8218383789062,
+          102.50201416015625,
+          953.3096923828125,
+          389.8748779296875
+        ]
+      }
+    },
+    {
+      "id": "partial-head-nearby-person",
+      "sameIdentity": false,
+      "left": {
+        "time": 637.7168956671577,
+        "box": [
+          850.4395141601562,
+          108.44573974609375,
+          951.8251953125,
+          527.9024047851562
+        ]
+      },
+      "right": {
+        "time": 637.7168956671577,
+        "box": [
+          868.5508422851562,
+          158.6448974609375,
+          1098.9449462890625,
+          533.405029296875
+        ]
+      }
+    }
+  ]
+}

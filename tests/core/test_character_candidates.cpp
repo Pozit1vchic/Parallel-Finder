@@ -393,6 +393,28 @@ TEST(CharacterCandidates, TwoFrameHeadDuplicateNeedsIndependentMatchingFaces)
     EXPECT_EQ(pfcore::characterCandidates({weak,other,brief}).size(),2);
 }
 
+TEST(CharacterCandidates, PartialHeadDuplicateRequiresSpanningAgreementAndFace)
+{
+    auto anchor=track(1,0,{0,1},10), other=track(2,5,{0,1},4), partial=track(3,1.25,{},5);
+    for(std::size_t i=6;i<anchor.observations.size();++i)anchor.observations[i].faceEmbedding={1,0};
+    for(auto* person:{&anchor,&other,&partial})for(auto& o:person->observations) {
+        o.box={0,0,100,200};o.keypoints={{50,40,1},{42,36,1},{58,36,1},{36,40,1},{64,40,1}};
+    }
+    anchor.observations.erase(anchor.observations.begin()+7);
+    partial.observations[2].faceEmbedding={.95F,.3122499F};
+    partial.observations[2].appearanceEmbedding={1,0};
+    partial.observations[1].keypoints[2].confidence=.85;
+    ASSERT_EQ(pfcore::characterCandidates({anchor,other,partial}).size(),1);
+    auto different=partial;different.observations[3].keypoints[0].x+=15;
+    EXPECT_EQ(pfcore::characterCandidates({anchor,other,different}).size(),2);
+    auto noSpan=partial;noSpan.observations.back().timestampSeconds+=.25;
+    EXPECT_EQ(pfcore::characterCandidates({anchor,other,noSpan}).size(),2);
+    auto wrongFace=partial;wrongFace.observations[2].faceEmbedding={-1,0};
+    EXPECT_EQ(pfcore::characterCandidates({anchor,other,wrongFace}).size(),2);
+    auto onlyTwo=anchor;onlyTwo.observations.back().faceEmbedding.clear();
+    EXPECT_EQ(pfcore::characterCandidates({onlyTwo,other,partial}).size(),2);
+}
+
 TEST(CharacterCandidates, ContinuityAcrossCutNeedsTheSameObservedCompanion)
 {
     auto companion=track(1,0,{1,0},8);

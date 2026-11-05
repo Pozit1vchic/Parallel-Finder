@@ -543,3 +543,31 @@ The full v24 application analysis passed on the supplied video: the reviewed
 character's visible group grew from 21 to 22 tracks, with 11 confirmed and 20
 unresolved cards displayed. The core suite passed 621 tests; 28 optional tests
 were skipped because their separate assets or integration settings were absent.
+
+## Partially overlapping head tracks
+
+A short duplicate track can continue through a frame absent from the other
+track, while one shared frame has a lower-confidence landmark. Recovery now
+requires at least three time-separated, tightly agreeing head observations
+covering both ends of the short track, no more than one missing overlap,
+consistent remaining shared observations, and at least three face samples
+from the same target track. A distinct simultaneous member or competing target
+vetoes the link. Head evidence is never used to suppress raw detections.
+
+In the reviewed group scene at 637.72–638.38 seconds, tracks 1022 and 1024
+cover the same person. They now join, while the nearby overlapping person
+(track 1021) stays separate. Frozen Butcher groups decrease from 486 to 485
+before repeated-scene recovery; 125 selected applicable controls have no
+regressions. The 28 applicable Kyle controls and saved Kyle assignments are
+unchanged. These few correlated controls are not general accuracy estimates;
+many unresolved appearances and picture/mirror detections still need work.
+A synthetic positive fails under the prior implementation and passes under the
+new one, with shifted head, missing endpoint, conflicting face and insufficient
+reference samples retained as separate. The v25 grouping cache key requires a
+single fresh analysis and leaves older cache files intact.
+
+The full v25 application capture passed on the supplied video and retained 11
+confirmed plus 20 displayed unresolved entries. The merged group was outside
+the displayed selection, so its association is established by the saved-track
+replay, not directly by that capture. The core suite passed 622 tests; 28
+optional tests were skipped for missing assets or integration settings.
