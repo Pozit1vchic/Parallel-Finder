@@ -3633,29 +3633,35 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             std::optional<pfcore::CharacterCandidate> batchTarget;
             std::map<std::string,std::set<std::size_t>> selectedTracks;
             std::vector<std::string> targetSourceOrder;
-            for (const auto& [source,candidates]:sourceCandidates) {
-                targetSourceOrder.push_back(source);
-                // Seed additions from an existing explicit choice, even when a
-                // newly added episode sorts before the previously analysed files.
-                if(analysisCache && forceTargetSource.isEmpty()) {
-                    if(const auto saved=analysisCache->get(sequenceCacheKeys.at(source)+"|selected-target-v2")) {
-                        bool ok=false;
-                        const auto id=QByteArray(reinterpret_cast<const char*>(saved->data()),saved->size()).toULongLong(&ok);
-                        if(ok)for(const auto& candidate:candidates)if((candidate.id==id
-                            || std::find(candidate.trackIds.begin(),candidate.trackIds.end(),id)!=candidate.trackIds.end())
-                            && (!batchTarget || candidate.prototype.faceEvidence>batchTarget->prototype.faceEvidence))batchTarget=candidate;
-                    }
+            // The first explicit selection is the one anchor for the whole
+            // batch. Prefer a saved anchor when adding files, never independent
+            // saved choices for subsequent files.
+            for (const auto& path:paths)
+                if(sourceCandidates.contains(path.toStdString()))targetSourceOrder.push_back(path.toStdString());
+            auto anchor=targetSourceOrder.end();
+            if(!forceTargetSource.isEmpty())
+                anchor=std::find(targetSourceOrder.begin(),targetSourceOrder.end(),forceTargetSource.toStdString());
+            else if(analysisCache)for(auto it=targetSourceOrder.begin();it!=targetSourceOrder.end();++it) {
+                if(const auto saved=analysisCache->get(sequenceCacheKeys.at(*it)+"|selected-target-v2")) {
+                    bool ok=false;const auto id=QByteArray(reinterpret_cast<const char*>(saved->data()),saved->size()).toULongLong(&ok);
+                    const auto& candidates=sourceCandidates.at(*it);
+                    if(ok && std::any_of(candidates.begin(),candidates.end(),[&](const auto& c){return c.id==id
+                        || std::find(c.trackIds.begin(),c.trackIds.end(),id)!=c.trackIds.end();})) {anchor=it;break;}
                 }
             }
-            const auto forced=std::find(targetSourceOrder.begin(),targetSourceOrder.end(),forceTargetSource.toStdString());
-            if(forced!=targetSourceOrder.end())std::rotate(targetSourceOrder.begin(),forced,std::next(forced));
+            if(anchor!=targetSourceOrder.end())std::rotate(targetSourceOrder.begin(),anchor,std::next(anchor));
             for (const auto& source : targetSourceOrder) {
                 const auto& candidates=sourceCandidates.at(source);
                 if (isCancelled()) break;
-                if (candidates.empty()) continue;
+                if (candidates.empty()) {
+                    auto summary=summaries.value(QString::fromStdString(source)).toMap();
+                    summary.insert("targetMatchUncertain",true);
+                    summaries.insert(QString::fromStdString(source),summary);
+                    continue;
+                }
                 std::size_t selected = 0;
                 const auto selectionKey = sequenceCacheKeys.at(source) + "|selected-target-v2";
-                if (analysisCache && QString::fromStdString(source) != forceTargetSource) {
+                if (!batchTarget && analysisCache && QString::fromStdString(source) != forceTargetSource) {
                     if (const auto saved=analysisCache->get(selectionKey)) {
                         bool ok=false;
                         const auto id=QByteArray(reinterpret_cast<const char*>(saved->data()),saved->size()).toULongLong(&ok);
@@ -3671,6 +3677,15 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 if (!selected && batchTarget && QString::fromStdString(source) != forceTargetSource) {
                     suggestion=pfcore::suggestTargetCharacter(*batchTarget,candidates);
                     if (suggestion.automatic) selected=*suggestion.candidateId;
+                }
+                if (!selected && batchTarget) {
+                    // Do not ask again or silently substitute a different
+                    // person when this source lacks reliable identity evidence.
+                    auto summary=summaries.value(QString::fromStdString(source)).toMap();
+                    summary.insert("targetMatchUncertain",true);
+                    summary.insert("characterCount",static_cast<int>(candidates.size()));
+                    summaries.insert(QString::fromStdString(source),summary);
+                    continue;
                 }
                 if (!selected) {
                     QVariantList rows;
@@ -3789,8 +3804,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 if (isCancelled()) break;
                 const auto chosen=std::find_if(candidates.begin(),candidates.end(),[&](const auto& c){return c.id==selected;});
                 if (chosen==candidates.end()) { error=QStringLiteral("TARGET_SELECTION_INVALID"); break; }
-                if (!batchTarget || QString::fromStdString(source)==forceTargetSource
-                    || (!suggestion.automatic && chosen->prototype.faceEvidence>batchTarget->prototype.faceEvidence)) batchTarget=*chosen;
+                if (!batchTarget) batchTarget=*chosen;
                 selectedTracks[source].insert(chosen->trackIds.begin(),chosen->trackIds.end());
                 auto summary=summaries.value(QString::fromStdString(source)).toMap();
                 summary.insert("targetCharacterId",QString::number(selected));
@@ -4559,8 +4573,13 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 : QStringLiteral("Анализ остановлен"), processedFrames, totalFramesEstimate);
             busy_ = false; emit busyChanged();
             if (analysisCancel_ == cancel) analysisCancel_.reset();
+            int uncertainTargetSources=0;
+            for (auto it=sourceSummaries_.cbegin();it!=sourceSummaries_.cend();++it)
+                if (it.value().toMap().value("targetMatchUncertain").toBool()) ++uncertainTargetSources;
+            const auto uncertainStatus=uncertainTargetSources
+                ? QStringLiteral(" · Персонаж не подтверждён в видео: %1").arg(uncertainTargetSources) : QString();
             setStatus(error.isEmpty() ? (expandedSearch ? QStringLiteral("Расширенный поиск завершён · ")
-                                                       : QStringLiteral("Анализ сцен завершён · ")) + reidStatus + debugSummary
+                                                       : QStringLiteral("Анализ сцен завершён · ")) + reidStatus + debugSummary + uncertainStatus
                                       : QStringLiteral("Анализ остановлен: ") + error);
         }, Qt::QueuedConnection);
         } catch (const std::exception& exception) {

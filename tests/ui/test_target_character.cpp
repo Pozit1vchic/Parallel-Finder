@@ -387,19 +387,29 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),5000);
         QVERIFY(!analysis->awaitingTarget());
         QVERIFY(!analysis->analysisCompleted());
-        // A second source with no face evidence requires explicit confirmation,
-        // and its manual choice must survive a cached batch run.
+        // A batch uses the saved single anchor and never prompts again for
+        // another source, even when its identity evidence is insufficient.
         const auto episode=directory.filePath("episode-two.mp4");
         QVERIFY(QFile::copy(source,episode));
         analysis->analyzeFiles({source,episode});
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy() || analysis->awaitingTarget(),30000);
+        QVERIFY2(!analysis->awaitingTarget(),"A second source requested another character");
+        QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
+        QCOMPARE(analysis->summaryForSource(source).value("targetCharacterId").toString(),second);
+        QVERIFY(analysis->summaryForSource(episode).value("targetCharacterId").toString().isEmpty());
+        QVERIFY(analysis->summaryForSource(episode).value("targetMatchUncertain").toBool());
+        QVERIFY(analysis->status().contains(QStringLiteral("Персонаж не подтверждён")));
+        // Explicitly choose once for the whole batch; the other video must not
+        // open a second selector, even without reliable identity evidence.
+        analysis->reselectTargetCharacter(source);
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
         QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
-        QCOMPARE(analysis->targetSelectionSource(),episode);
         QVERIFY(analysis->selectTargetCharacter(first));
-        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
-        QVERIFY(analysis->analysisCompleted());
-        QCOMPARE(analysis->summaryForSource(source).value("targetCharacterId").toString(),second);
-        QCOMPARE(analysis->summaryForSource(episode).value("targetCharacterId").toString(),first);
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy() || analysis->awaitingTarget(),30000);
+        QVERIFY2(!analysis->awaitingTarget(),"Batch requested another character");
+        QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
+        QCOMPARE(analysis->summaryForSource(source).value("targetCharacterId").toString(),first);
+        QVERIFY(analysis->summaryForSource(episode).value("targetMatchUncertain").toBool());
         // A saved character choice must not force a target in all-people mode.
         // This mode also works when optional face/ReID models are unavailable.
         qunsetenv("PF_ALLOW_UNVERIFIED_TARGETS");
@@ -414,7 +424,8 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
         QVERIFY(analysis->analysisCompleted());
         QCOMPARE(analysis->analyzedFrames(),0);
-        QCOMPARE(analysis->summaryForSource(episode).value("targetCharacterId").toString(),first);
+        QVERIFY(analysis->summaryForSource(episode).value("targetCharacterId").toString().isEmpty());
+        QVERIFY(analysis->summaryForSource(episode).value("targetMatchUncertain").toBool());
         pfservices::SettingsStore::flushPendingWrites();
         struct DelayedWrite {
             std::mutex mutex;std::condition_variable ready;bool released=false;

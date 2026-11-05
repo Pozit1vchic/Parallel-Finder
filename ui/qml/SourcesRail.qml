@@ -140,7 +140,8 @@ Rectangle {
                     id: sourceCard
                     Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
                     property var identitySummary: { Analysis.sourceSummaries; return Analysis.summaryForSource(String(modelData)) }
-                    readonly property bool identityExcluded: Analysis.analysisCompleted && identitySummary.identityAdmitted === false
+                    readonly property bool identityExcluded: Analysis.analysisCompleted && (identitySummary.identityAdmitted === false || identitySummary.targetMatchUncertain === true)
+                    readonly property bool targetUncertain: Analysis.analysisCompleted && identitySummary.targetMatchUncertain === true
                     width: ListView.view.width; height: 30; radius: 5; color: index === root.selectedSourceIndex ? Theme.accentMuted : (index % 2 === 0 ? Theme.surfaceRaised : "transparent"); Accessible.name: root.sourceName(modelData); Accessible.role: Accessible.ListItem
                     Text { font.family: Theme.fontFamily; anchors.left: parent.left; anchors.leftMargin: 9; anchors.right: parent.right; anchors.rightMargin: parent.identityExcluded ? 21 : 7; anchors.verticalCenter: parent.verticalCenter; text: (index + 1) + "  " + root.sourceName(modelData); color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideMiddle }
                     Rectangle { anchors.right: parent.right; anchors.rightMargin: 7; anchors.verticalCenter: parent.verticalCenter; width: 6; height: 6; radius: 3; color: Theme.accent; visible: parent.identityExcluded }
@@ -151,7 +152,7 @@ Rectangle {
                     ToolTip {
                         id: sourceTip
                         visible: sourceHover.containsMouse; delay: 650
-                        text: root.sourceName(modelData) + (sourceCard.identityExcluded ? "\n" + L10n.t("sources.identityExcluded") : "")
+                        text: root.sourceName(modelData) + (sourceCard.identityExcluded ? "\n" + L10n.t(sourceCard.targetUncertain ? "sources.targetUncertain" : "sources.identityExcluded") : "")
                         contentItem: Text { text: sourceTip.text; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.Wrap; width: Math.min(360,implicitWidth) }
                         background: Rectangle { color: Theme.surfaceRaised; radius: Theme.radiusButton; border.color: Theme.hairlineStrong }
                     }
