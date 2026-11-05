@@ -516,3 +516,30 @@ now contains 494 tracks instead of 493, while 11 confirmed and 20 unresolved
 cards are displayed. The cold run passed before the additional nonfinite-input
 guard; the final binary also passed a cached selector replay. The core suite
 passed 620 tests, with 28 optional integration tests skipped.
+
+## Two-frame duplicate with independently confirmed face
+
+Some short duplicate detections contain only one usable body descriptor, so
+the general body-based recovery correctly rejects them. A special recovery now
+requires both source frames to align uniquely with the same head in one target
+track, at least three time-separated matching face samples from that track,
+and no conflicting co-visible members or competing target component. It
+leaves unsupported or contradictory observations unresolved.
+
+In the reviewed crowd shot at 617.88–618.05 seconds, this joins the two-frame
+Frenchie detection (track 950) to his existing track 946 and identity 31.
+Butcher and Mother's Milk in that same frame remain separate. The frozen
+Butcher replay changes 487 groups to 486 before repeated-scene processing;
+123 applicable selected controls show no regressions. The 28 applicable Kyle
+controls and all saved Kyle assignments are unchanged. The zero-conflict
+co-visibility audit is limited to disjoint boxes; these hand-selected examples
+are not an overall recognition benchmark. This does not solve the many remaining
+unresolved appearances or picture/mirror detections.
+
+The character-analysis cache key changes to v24 and requires one fresh analysis;
+old cached data is retained.
+
+The full v24 application analysis passed on the supplied video: the reviewed
+character's visible group grew from 21 to 22 tracks, with 11 confirmed and 20
+unresolved cards displayed. The core suite passed 621 tests; 28 optional tests
+were skipped because their separate assets or integration settings were absent.

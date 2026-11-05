@@ -1222,6 +1222,64 @@ static void recoverOverlappingHeadDuplicates(std::vector<std::vector<std::size_t
             components[i].clear();
         }
     }
+    // A tiny duplicate may have only two frames and one valid body sample.
+    // Recover it only when every frame coincides with the same precisely
+    // localized head in one established track and several independent face
+    // observations from that track corroborate its single face.
+    for (std::size_t i=0;i<components.size();++i) {
+        if (control.cancelled && control.cancelled()) return;
+        if (components[i].size()!=1) continue;
+        const auto& source=tracks[indices[components[i].front()]];
+        if (source.observations.size()!=2
+            || source.observations.back().timestampSeconds-source.observations.front().timestampSeconds<.15-1e-9) continue;
+        const PersonDetection* sourceFace=nullptr; bool multipleFaces=false;
+        for (const auto& observation:source.observations)
+            if (embeddingScore(observation.faceEmbedding,observation.faceEmbedding)>.99) {
+                if (sourceFace) multipleFaces=true; else sourceFace=&observation;
+            }
+        if (!sourceFace || multipleFaces) continue;
+        std::vector<const PersonDetection*> sourceViews;
+        for (const auto& o:source.observations) if(std::isfinite(o.timestampSeconds)) sourceViews.push_back(&o);
+        if (sourceViews.size()!=source.observations.size()) continue;
+        std::size_t accepted=components.size(); bool ambiguous=false;
+        for (std::size_t j=0;j<components.size();++j) {
+            if (control.cancelled && control.cancelled()) return;
+            if (j==i || components[j].empty()) continue;
+            bool matched=false, conflict=false;
+            for (const auto member:components[j]) {
+                const auto& target=tracks[indices[member]];
+                if (target.observations.empty()
+                    || target.observations.back().timestampSeconds < source.observations.front().timestampSeconds-1e-6
+                    || target.observations.front().timestampSeconds > source.observations.back().timestampSeconds+1e-6) continue;
+                std::vector<const PersonDetection*> targetViews;targetViews.reserve(target.observations.size());
+                for (const auto& o:target.observations) if(std::isfinite(o.timestampSeconds)) targetViews.push_back(&o);
+                if (coVisibleDifferent(sourceViews,targetViews)) { conflict=true;break; }
+                bool completeOverlap=true;
+                for (const auto* x:sourceViews) {
+                    std::size_t matches=0;
+                    for (const auto* y:targetViews)
+                        if (std::abs(x->timestampSeconds-y->timestampSeconds)<=1e-6 && sameObservedHead(*x,*y)) ++matches;
+                    if (matches!=1) {completeOverlap=false;break;}
+                }
+                if (!completeOverlap) continue;
+                std::vector<double> scores;double previous=-INFINITY;
+                for (const auto* view:targetViews) {
+                    if (view->timestampSeconds-previous<.1-1e-9) continue;
+                    const auto score=embeddingScore(sourceFace->faceEmbedding,view->faceEmbedding);
+                    if (score>=0) {scores.push_back(score);previous=view->timestampSeconds;}
+                }
+                if (scores.size()<3) continue;
+                std::sort(scores.begin(),scores.end(),std::greater<>());
+                if (scores[0]>=.90 && scores[2]>=.80) matched=true;
+            }
+            if (!matched || conflict) continue;
+            if (accepted!=components.size()) {ambiguous=true;break;}
+            accepted=j;
+        }
+        if (!ambiguous && accepted!=components.size()) {
+            components[accepted].push_back(components[i].front());components[i].clear();
+        }
+    }
     std::erase_if(components,[](const auto& c){return c.empty();});
 }
 

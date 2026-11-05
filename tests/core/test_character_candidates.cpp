@@ -374,6 +374,25 @@ TEST(CharacterCandidates, DuplicateHeadCanJoinAnExistingMultiTrackIdentity)
     EXPECT_EQ(result.front().trackIds,(std::vector<std::size_t>{1,2}));
 }
 
+TEST(CharacterCandidates, TwoFrameHeadDuplicateNeedsIndependentMatchingFaces)
+{
+    auto anchor=track(1,0,{1,0},6), other=track(2,4,{1,0},4);
+    auto brief=track(3,1,{},2);
+    for(auto* person:{&anchor,&other,&brief})for(auto& o:person->observations) {
+        o.box={0,0,100,200};o.keypoints={{50,40,1},{42,36,1},{58,36,1},{36,40,1},{64,40,1}};
+    }
+    brief.observations.back().faceEmbedding={.95F,.3122499F};
+    brief.observations.back().appearanceEmbedding={1,0};
+    const auto result=pfcore::characterCandidates({anchor,other,brief});
+    ASSERT_EQ(result.size(),1);
+    auto shifted=brief;shifted.observations.front().keypoints[0].x+=10;
+    EXPECT_EQ(pfcore::characterCandidates({anchor,other,shifted}).size(),2);
+    auto mismatch=brief;mismatch.observations.back().faceEmbedding={0,1};
+    EXPECT_EQ(pfcore::characterCandidates({anchor,other,mismatch}).size(),2);
+    auto weak=anchor;for(std::size_t i=0;i<4;++i)weak.observations[i].faceEmbedding.clear();
+    EXPECT_EQ(pfcore::characterCandidates({weak,other,brief}).size(),2);
+}
+
 TEST(CharacterCandidates, ContinuityAcrossCutNeedsTheSameObservedCompanion)
 {
     auto companion=track(1,0,{1,0},8);

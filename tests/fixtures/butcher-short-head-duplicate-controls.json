@@ -1,0 +1,71 @@
+{
+  "scope": "Reviewed overlapping Frenchie detections and two different men in the same shot; examples share one shot and are not independent accuracy estimates.",
+  "controls": [
+    {
+      "id": "frenchie-two-frame-duplicate",
+      "sameIdentity": true,
+      "left": {
+        "time": 617.8847109997976,
+        "box": [
+          595.3311157226562,
+          225.3558349609375,
+          664.2109375,
+          356.7154541015625
+        ]
+      },
+      "right": {
+        "time": 617.2173776664636,
+        "box": [
+          572.7559204101562,
+          229.365234375,
+          689.8075561523438,
+          532.4072265625
+        ]
+      }
+    },
+    {
+      "id": "frenchie-versus-butcher",
+      "sameIdentity": false,
+      "left": {
+        "time": 617.8847109997976,
+        "box": [
+          595.3311157226562,
+          225.3558349609375,
+          664.2109375,
+          356.7154541015625
+        ]
+      },
+      "right": {
+        "time": 617.8847109997976,
+        "box": [
+          299.8763427734375,
+          132.21603393554688,
+          607.9041748046875,
+          534.7420654296875
+        ]
+      }
+    },
+    {
+      "id": "frenchie-versus-mothers-milk",
+      "sameIdentity": false,
+      "left": {
+        "time": 617.8847109997976,
+        "box": [
+          595.3311157226562,
+          225.3558349609375,
+          664.2109375,
+          356.7154541015625
+        ]
+      },
+      "right": {
+        "time": 617.8847109997976,
+        "box": [
+          618.09326171875,
+          150.19873046875,
+          913.1559448242188,
+          533.2208862304688
+        ]
+      }
+    }
+  ]
+}
