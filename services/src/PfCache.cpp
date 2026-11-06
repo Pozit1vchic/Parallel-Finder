@@ -142,8 +142,13 @@ void PfCache::evictIfNeeded(const std::filesystem::path& protectedPath) const
             || entry.path().extension() != ".pfc") continue;
         const auto size = entry.file_size(filesystemError);
         if (filesystemError) continue;
-        files.push_back({entry.path(), size, entry.last_write_time(filesystemError)});
+        files.push_back({entry.path(), size, {}});
         total += size;
+    }
+    if (total <= limitBytes_) return;
+    for (auto& file : files) {
+        file.time=std::filesystem::last_write_time(file.path, filesystemError);
+        filesystemError.clear();
     }
     std::sort(files.begin(), files.end(), [](const File& left, const File& right) {
         return left.time < right.time;

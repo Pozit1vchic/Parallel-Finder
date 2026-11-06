@@ -2,6 +2,9 @@
 #include <cmath>
 #include <algorithm>
 #include <cstring>
+#include <future>
+#include <thread>
+#include <mutex>
 
 namespace pfservices {
 namespace {
@@ -10,6 +13,14 @@ void appendBytes(std::vector<std::uint8_t>& output, const T& value)
 {
     const auto* begin = reinterpret_cast<const std::uint8_t*>(&value);
     output.insert(output.end(), begin, begin + sizeof(T));
+}
+
+template <typename T>
+void appendArray(std::vector<std::uint8_t>& output, const std::vector<T>& values)
+{
+    if (values.empty()) return;
+    const auto* begin = reinterpret_cast<const std::uint8_t*>(values.data());
+    output.insert(output.end(), begin, begin + values.size() * sizeof(T));
 }
 
 template <typename T>
@@ -24,17 +35,21 @@ bool readBytes(std::span<const std::uint8_t> input, std::size_t& offset, T& valu
 } // namespace
 
 std::vector<std::uint8_t> serializeMotionWindows(std::span<const pfcore::MotionWindow> windows, int sceneCount,
-    const std::function<bool()>& cancelled)
+    const std::function<bool()>& cancelled, std::size_t maxThreads)
 {
-    std::vector<std::uint8_t> output;
-    const std::uint32_t version = std::any_of(windows.begin(),windows.end(),[](const auto& window) {
+    const auto version = std::any_of(windows.begin(),windows.end(),[](const auto& window) {
         return !window.directFaceModel.empty() || !window.directFaces.empty();
-    }) ? 10 : 9;
-    appendBytes(output, version);
-    appendBytes(output, static_cast<std::uint32_t>(windows.size()));
-    appendBytes(output, static_cast<std::uint32_t>(sceneCount));
-    for (const auto& window : windows) {
-        if (cancelled && cancelled()) return {};
+    }) ? 10U : 9U;
+    std::mutex cancelMutex;
+    const auto checkCancelled = [&] {
+        if (!cancelled) return false;
+        std::lock_guard lock(cancelMutex);
+        return cancelled();
+    };
+    const auto encode = [&](std::span<const pfcore::MotionWindow> part) -> std::vector<std::uint8_t> {
+        std::vector<std::uint8_t> output;
+    for (const auto& window : part) {
+        if (checkCancelled()) return {};
         appendBytes(output, static_cast<std::uint32_t>(window.sourceId.size()));
         output.insert(output.end(), window.sourceId.begin(), window.sourceId.end());
         appendBytes(output, static_cast<std::uint64_t>(window.trackId));
@@ -45,18 +60,18 @@ std::vector<std::uint8_t> serializeMotionWindows(std::span<const pfcore::MotionW
         appendBytes(output, window.sceneEndSeconds);
         appendBytes(output, window.appearanceConfidence);
         appendBytes(output, static_cast<std::uint32_t>(window.appearanceEmbedding.size()));
-        for (const float value : window.appearanceEmbedding) appendBytes(output, value);
+        appendArray(output, window.appearanceEmbedding);
         appendBytes(output, static_cast<std::uint32_t>(window.sceneContext.size()));
-        for (const float value : window.sceneContext) appendBytes(output, value);
+        appendArray(output, window.sceneContext);
         appendBytes(output, static_cast<std::uint8_t>(window.sceneViewSampled ? 1 : 0));
         appendBytes(output, static_cast<std::uint32_t>(window.sceneView.size()));
-        for (const float value : window.sceneView) appendBytes(output, value);
+        appendArray(output, window.sceneView);
         appendBytes(output, window.faceConfidence);
         appendBytes(output, static_cast<std::uint32_t>(window.faceEmbedding.size()));
-        for (const float value : window.faceEmbedding) appendBytes(output, value);
+        appendArray(output, window.faceEmbedding);
         appendBytes(output, static_cast<std::uint32_t>(window.frames.size()));
         for (const auto& frame : window.frames) {
-            if (cancelled && cancelled()) return {};
+            if (checkCancelled()) return {};
             appendBytes(output, frame.timestampSeconds);
             appendBytes(output, static_cast<std::uint32_t>(frame.keypoints.size()));
             for (const auto& point : frame.keypoints) {
@@ -72,10 +87,34 @@ std::vector<std::uint8_t> serializeMotionWindows(std::span<const pfcore::MotionW
             for(const auto& face:window.directFaces) {
                 appendBytes(output,face.timestampSeconds);
                 appendBytes(output,static_cast<std::uint32_t>(face.embedding.size()));
-                for(float value:face.embedding)appendBytes(output,value);
+                appendArray(output,face.embedding);
             }
         }
     }
+        return output;
+    };
+    // Independent windows have a stable on-disk order. Divide only large
+    // batches, then join in input order; the codec format remains unchanged.
+    const auto workers = windows.size() >= 2048
+        ? std::min<std::size_t>({4, maxThreads ? maxThreads : std::max(1U,std::thread::hardware_concurrency()), windows.size()/512}) : 1;
+    std::vector<std::future<std::vector<std::uint8_t>>> tasks;
+    std::vector<std::vector<std::uint8_t>> parts;
+    if (workers == 1) parts.push_back(encode(windows));
+    else {
+        for (std::size_t i=0;i<workers;++i) {
+            const auto begin=windows.size()*i/workers, end=windows.size()*(i+1)/workers;
+            tasks.push_back(std::async(std::launch::async,encode,windows.subspan(begin,end-begin)));
+        }
+        for (auto& task:tasks) parts.push_back(task.get());
+    }
+    if (checkCancelled()) return {};
+    std::size_t bytes=12;
+    for (const auto& part:parts) { if (part.empty() && !windows.empty()) return {}; bytes+=part.size(); }
+    std::vector<std::uint8_t> output; output.reserve(bytes);
+    appendBytes(output,version);
+    appendBytes(output,static_cast<std::uint32_t>(windows.size()));
+    appendBytes(output,static_cast<std::uint32_t>(sceneCount));
+    for (const auto& part:parts) output.insert(output.end(),part.begin(),part.end());
     return output;
 }
 

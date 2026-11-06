@@ -2,6 +2,8 @@
 #include <gtest/gtest.h>
 #include <array>
 #include <cstring>
+#include <chrono>
+#include <iostream>
 
 TEST(MotionWindowCache, RejectsForgedCountBeforeReservingWindows) {
     const std::array<std::uint32_t, 3> header{9, 100000, 1};
@@ -60,4 +62,27 @@ TEST(MotionWindowCache, RoundTripsAndRejectsEveryTruncation) {
         std::vector<pfcore::MotionWindow> output;
         EXPECT_FALSE(pfservices::deserializeMotionWindows(std::span(bytes).first(n), output, scenes)) << n;
     }
+}
+
+TEST(MotionWindowCache, ParallelEncodingIsByteIdenticalAndCancellable) {
+    std::vector<pfcore::MotionWindow> windows(3000);
+    for (std::size_t i=0;i<windows.size();++i) {
+        auto& w=windows[i]; w.sourceId="video"+std::to_string(i%3); w.trackId=i+1;
+        w.frames.resize(12); for(auto& f:w.frames) f.keypoints.resize(17);
+        w.appearanceEmbedding.assign(128,.25f); w.sceneView.assign(432,.5f);
+    }
+    windows.back().directFaceModel="face-model"; windows.back().directFaces={{.5,{1,0}}};
+    const auto alwaysRunning=[] {return false;};
+    const auto begin=std::chrono::steady_clock::now();
+    const auto serial=pfservices::serializeMotionWindows(windows,8,alwaysRunning,1);
+    const auto middle=std::chrono::steady_clock::now();
+    const auto parallel=pfservices::serializeMotionWindows(windows,8,alwaysRunning,4);
+    const auto end=std::chrono::steady_clock::now();
+    std::cout << "CACHE_CODEC_SERIAL_MS=" << std::chrono::duration_cast<std::chrono::milliseconds>(middle-begin).count()
+              << " PARALLEL_MS=" << std::chrono::duration_cast<std::chrono::milliseconds>(end-middle).count() << "\n";
+    ASSERT_EQ(parallel,serial);
+    std::vector<pfcore::MotionWindow> decoded; int scenes=0;
+    ASSERT_TRUE(pfservices::deserializeMotionWindows(parallel,decoded,scenes));
+    EXPECT_EQ(decoded.size(),windows.size()); EXPECT_EQ(scenes,8);
+    EXPECT_TRUE(pfservices::serializeMotionWindows(windows,8,[]{return true;},4).empty());
 }

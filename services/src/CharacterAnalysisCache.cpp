@@ -37,8 +37,16 @@ bool unit(double value) { return std::isfinite(value) && value >= 0 && value <= 
 std::vector<std::uint8_t> serializeCharacterAnalysis(const CharacterAnalysis& analysis,
     const std::function<bool()>& cancelled)
 {
+    return serializeCharacterAnalysis(analysis.candidates,analysis.windows,analysis.sceneCount,cancelled);
+}
+
+std::vector<std::uint8_t> serializeCharacterAnalysis(
+    std::span<const pfcore::CharacterCandidate> inputCandidates,
+    std::span<const pfcore::MotionWindow> inputWindows, int sceneCount,
+    const std::function<bool()>& cancelled, std::size_t maxThreads)
+{
     QJsonArray candidates;
-    for (const auto& c : analysis.candidates) {
+    for (const auto& c : inputCandidates) {
         if (cancelled && cancelled()) return {};
         QJsonArray tracks, appearances;
         for (auto id : c.trackIds) tracks.append(QString::number(id));
@@ -56,8 +64,9 @@ std::vector<std::uint8_t> serializeCharacterAnalysis(const CharacterAnalysis& an
     const auto size = static_cast<std::uint32_t>(header.size());
     for (int i=0;i<4;++i) result.push_back(static_cast<std::uint8_t>(size >> (8*i)));
     result.insert(result.end(),header.begin(),header.end());
-    const auto windows = serializeMotionWindows(analysis.windows,analysis.sceneCount,cancelled);
+    const auto windows = serializeMotionWindows(inputWindows,sceneCount,cancelled,maxThreads);
     if (windows.empty() || (cancelled && cancelled())) return {};
+    result.reserve(result.size() + windows.size() + 32);
     result.insert(result.end(),windows.begin(),windows.end());
     const auto digest=QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char*>(result.data()),result.size()),QCryptographicHash::Sha256);
     result.insert(result.end(),digest.begin(),digest.end());
@@ -72,7 +81,9 @@ bool deserializeCharacterAnalysis(std::span<const std::uint8_t> bytes, Character
     if (!std::equal(bytes.end()-32,bytes.end(),reinterpret_cast<const std::uint8_t*>(digest.constData()))) return false;
     bytes=payload;
     std::uint32_t size=0; for (int i=0;i<4;++i) size |= std::uint32_t(bytes[5+i]) << (8*i);
-    if (size > 16*1024*1024 || size > bytes.size()-9) return false;
+    // Character lists for long videos can legitimately exceed 16 MiB.
+    // Keep a bounded header, while accepting cache files the writer produces.
+    if (size > 64U*1024U*1024U || size > bytes.size()-9) return false;
     QJsonParseError error;
     const auto document=QJsonDocument::fromJson(QByteArray(reinterpret_cast<const char*>(bytes.data()+9),size),&error);
     if (error.error!=QJsonParseError::NoError || !document.isObject()) return false;

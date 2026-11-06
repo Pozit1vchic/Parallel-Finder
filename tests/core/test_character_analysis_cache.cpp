@@ -1,5 +1,10 @@
 #include <pfservices/CharacterAnalysisCache.hpp>
 #include <gtest/gtest.h>
+#include <fstream>
+#include <chrono>
+#include <iostream>
+#include <cstdlib>
+#include <cstring>
 
 namespace {
 pfservices::CharacterAnalysis artifact()
@@ -62,4 +67,38 @@ TEST(CharacterAnalysisCache, DetectsSameSizeCorruptionAndCooperativeWriteCancell
     EXPECT_TRUE(pfservices::serializeCharacterAnalysis(artifact(),[]{return true;}).empty());
     int calls=0;
     EXPECT_TRUE(pfservices::serializeCharacterAnalysis(artifact(),[&]{return ++calls>2;}).empty());
+}
+
+TEST(CharacterAnalysisCache, RealCacheParallelEncodingMatchesExistingBytes) {
+    const auto* path=std::getenv("PF_TEST_CHARACTER_CACHE_FILE");
+    if(!path) GTEST_SKIP() << "Set PF_TEST_CHARACTER_CACHE_FILE for real cache comparison";
+    std::ifstream input(path,std::ios::binary); ASSERT_TRUE(input);
+    std::vector<std::uint8_t> data((std::istreambuf_iterator<char>(input)),{});
+    ASSERT_GT(data.size(),24u); std::uint32_t keySize=0; std::memcpy(&keySize,data.data()+12,4);
+    ASSERT_LT(24u+keySize,data.size()); std::span payload(data.data()+24+keySize,data.size()-24-keySize);
+    pfservices::CharacterAnalysis analysis; ASSERT_TRUE(pfservices::deserializeCharacterAnalysis(payload,analysis));
+    const auto running=[] {return false;};
+    const auto start=std::chrono::steady_clock::now();
+    const auto serial=pfservices::serializeCharacterAnalysis(analysis.candidates,analysis.windows,analysis.sceneCount,running,1);
+    const auto mid=std::chrono::steady_clock::now();
+    const auto parallel=pfservices::serializeCharacterAnalysis(analysis.candidates,analysis.windows,analysis.sceneCount,running,4);
+    const auto end=std::chrono::steady_clock::now();
+    std::cout << "REAL_CACHE windows=" << analysis.windows.size() << " bytes=" << payload.size()
+              << " serial_ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(mid-start).count()
+              << " parallel_ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(end-mid).count() << "\n";
+    EXPECT_TRUE(std::equal(serial.begin(),serial.end(),payload.begin(),payload.end()));
+    EXPECT_EQ(parallel,serial);
+}
+
+TEST(CharacterAnalysisCache, ReadsLargeCandidateHeaderWrittenByTheApplication) {
+    pfservices::CharacterAnalysis source;
+    for(std::size_t i=0;i<1100;++i) {
+        pfcore::CharacterCandidate c; c.id=i+1; c.trackIds={i+1}; c.observationCount=1;
+        c.prototype.body.assign(4096,.25f); source.candidates.push_back(std::move(c));
+    }
+    const auto bytes=pfservices::serializeCharacterAnalysis(source);
+    ASSERT_GT(bytes.size(),16U*1024U*1024U);
+    pfservices::CharacterAnalysis loaded;
+    ASSERT_TRUE(pfservices::deserializeCharacterAnalysis(bytes,loaded));
+    EXPECT_EQ(loaded.candidates.size(),source.candidates.size());
 }

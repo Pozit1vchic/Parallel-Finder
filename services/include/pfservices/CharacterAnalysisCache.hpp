@@ -14,5 +14,9 @@ struct CharacterAnalysis {
 // Readers validate into a temporary object and publish only a complete record.
 std::vector<std::uint8_t> serializeCharacterAnalysis(const CharacterAnalysis& analysis,
     const std::function<bool()>& cancelled = {});
+std::vector<std::uint8_t> serializeCharacterAnalysis(
+    std::span<const pfcore::CharacterCandidate> candidates,
+    std::span<const pfcore::MotionWindow> windows, int sceneCount,
+    const std::function<bool()>& cancelled = {}, std::size_t maxThreads = 0);
 bool deserializeCharacterAnalysis(std::span<const std::uint8_t> bytes, CharacterAnalysis& analysis);
 }

@@ -2569,8 +2569,11 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 frozenWindowKeys=QJsonDocument::fromJson(file.readAll()).object();
         }
         std::vector<pfcore::MotionWindow> windows;
-        for (const QString& path : paths) {
+        for (qsizetype sourceIndex=0; sourceIndex<paths.size(); ++sourceIndex) {
+            const QString& path=paths[sourceIndex];
             if (isCancelled()) { markCancelled(); break; }
+            reportPreparation(QStringLiteral("Подготавливаем видео %1 / %2: %3")
+                .arg(sourceIndex+1).arg(paths.size()).arg(QFileInfo(path).fileName()));
             try {
                 if (analysisCache) {
                     sourceGenerations[path.toStdString()] = analysisCache->sourceGeneration(path.toStdString());
@@ -2719,7 +2722,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     if (analysisCache && missingViews) {
                         std::string cacheError;
                         analysisCache->putForSource(path.toStdString(),cacheKey, interactiveTargets
-                            ? pfservices::serializeCharacterAnalysis({sourceCandidates[path.toStdString()],cachedWindows,cachedSceneCount})
+                            ? pfservices::serializeCharacterAnalysis(sourceCandidates[path.toStdString()],cachedWindows,cachedSceneCount)
                             : pfservices::serializeMotionWindows(cachedWindows, cachedSceneCount), cacheError);
                     }
                     scenes += cachedSceneCount;
@@ -3556,9 +3559,14 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                         candidate.sceneContext = contextIndex.query(
                             candidate.frames.front().timestampSeconds, candidate.frames.back().timestampSeconds);
                 }
+                // Move this source's windows into the preparation buffer instead
+                // of duplicating every pose, embedding and frame on large batches.
                 std::vector<pfcore::MotionWindow> fileWindows;
-                for (const auto& candidate : windows)
-                    if (candidate.sourceId == path.toStdString()) fileWindows.push_back(candidate);
+                std::vector<std::size_t> fileWindowIndices;
+                for (std::size_t i=0;i<windows.size();++i) if (windows[i].sourceId == path.toStdString()) {
+                    fileWindowIndices.push_back(i);
+                    fileWindows.push_back(std::move(windows[i]));
+                }
                 reportPreparation(QStringLiteral("Проверяем ракурсы сцен"));
                 QElapsedTimer viewUpdates;viewUpdates.start();
                 ensureSceneViews(fileWindows, decoder, isCancelled,[&](std::size_t done,std::size_t total) {
@@ -3570,39 +3578,21 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 ensureSceneSequences(fileWindows,path.toStdString(),cacheKey,analysisCache.get(),false,isCancelled,&samples,
                     [&](std::size_t done,std::size_t total) {reportPreparation(QStringLiteral("Подготавливаем кадры для матчера"),done,total);});
                 if (isCancelled()) { markCancelled(); break; }
-                std::unordered_map<std::size_t, const pfcore::MotionWindow*> views;
-                for (const auto& candidate : fileWindows) if (candidate.sceneViewSampled)
-                    views.try_emplace(candidate.sceneIndex, &candidate);
-                for (auto& candidate : windows) if (candidate.sourceId == path.toStdString()) {
-                    if (const auto found = views.find(candidate.sceneIndex); found != views.end()) {
-                        candidate.sceneView = found->second->sceneView;
-                        candidate.sceneViewSampled = true;
-                    }
-                }
-                // Preserve one measured sequence per shot in memory. A cold pass
-                // must not parse its own large JSON cache immediately afterwards.
-                std::unordered_map<std::size_t,pfcore::MotionWindow*> sequences;
-                for(auto& candidate:fileWindows) sequences.try_emplace(candidate.sceneIndex,&candidate);
-                for(auto& candidate:windows) if(candidate.sourceId==path.toStdString()) {
-                    if(const auto found=sequences.find(candidate.sceneIndex);found!=sequences.end()) {
-                        candidate.sceneSequence=std::move(found->second->sceneSequence);
-                        candidate.sceneSequenceTimes=std::move(found->second->sceneSequenceTimes);
-                        sequences.erase(found);
-                    }
-                }
                 preparedSequenceSources.insert(path.toStdString());
                 reportPreparation(QStringLiteral("Сохраняем кеш анализа"));
                 const auto windowsReadyNs = stageNow();
                 if (analysisCache && !isCancelled() && faceFailure.isEmpty() && reidFailure.isEmpty()) {
                     std::string cacheError;
                     const auto bytes=interactiveTargets
-                        ? pfservices::serializeCharacterAnalysis({sourceCandidates[path.toStdString()],fileWindows,
-                            static_cast<int>(sceneBoundaries.size())+1},isCancelled)
-                        : pfservices::serializeMotionWindows(fileWindows,static_cast<int>(sceneBoundaries.size())+1,isCancelled);
+                        ? pfservices::serializeCharacterAnalysis(sourceCandidates[path.toStdString()],fileWindows,
+                            static_cast<int>(sceneBoundaries.size())+1,isCancelled,settings.processingThreads)
+                        : pfservices::serializeMotionWindows(fileWindows,static_cast<int>(sceneBoundaries.size())+1,isCancelled,settings.processingThreads);
                     if (!bytes.empty() && !isCancelled())
                         analysisCache->putForSource(path.toStdString(),cacheKey,bytes,cacheError);
                     if (!cacheError.empty()) qWarning() << "ANALYSIS_CACHE_WRITE_FAILED" << QString::fromStdString(cacheError);
                 }
+                for (std::size_t i=0;i<fileWindowIndices.size();++i)
+                    windows[fileWindowIndices[i]]=std::move(fileWindows[i]);
                 if (profilePipeline)
                     std::fprintf(stderr, "PF_DEBUG_TIMING cold_pipeline_ms=%.1f decode_infer_ms=%.1f pose_ms=%.1f face_ms=%.1f reid_ms=%.1f tracker_ms=%.1f scene_ms=%.1f windows_ms=%.1f cache_write_ms=%.1f pose_samples=%zu tracks=%zu prefetch=%d peak_buffered=%zu\n",
                         stageNow() / 1e6, decodeAndInferNs / 1e6, poseNs / 1e6, faceNs / 1e6,
