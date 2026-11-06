@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(ParallelFinder
-    VERSION 0.2.0.1
+    VERSION 0.2.1
     DESCRIPTION "Parallel-Finder: поиск параллельных движений в видео"
     LANGUAGES CXX
 )
