@@ -67,6 +67,7 @@ class AnalysisController final : public QObject {
     Q_PROPERTY(double modelDownloadProgress READ modelDownloadProgress NOTIFY modelDownloadProgressChanged)
     Q_PROPERTY(QString modelDownloadingName READ modelDownloadingName NOTIFY modelStatusChanged)
     Q_PROPERTY(int modelCatalogRevision READ modelCatalogRevision NOTIFY modelCatalogChanged)
+    Q_PROPERTY(bool cacheEnabled READ cacheEnabled WRITE setCacheEnabled NOTIFY settingsChanged)
     Q_PROPERTY(QString cachePath READ cachePath NOTIFY settingsChanged)
     Q_PROPERTY(double cacheLimitGb READ cacheLimitGb NOTIFY settingsChanged)
     Q_PROPERTY(int processingThreads READ processingThreads WRITE setProcessingThreads NOTIFY settingsChanged)
@@ -131,6 +132,7 @@ public:
     double modelDownloadProgress() const noexcept { return modelDownloadProgress_; }
     QString modelDownloadingName() const { return modelDownloadingName_; }
     int modelCatalogRevision() const noexcept { return modelCatalogRevision_; }
+    bool cacheEnabled() const noexcept { return cacheEnabled_; }
     QString cachePath() const { return cachePath_; }
     double cacheLimitGb() const noexcept { return cacheLimitGb_; }
     int processingThreads() const noexcept { return processingThreads_; }
@@ -162,6 +164,7 @@ public:
     void setMirrorPoses(bool value);
     void setExpandedSearch(bool value);
     void setProcessingThreads(int value);
+    void setCacheEnabled(bool value);
 
     Q_INVOKABLE void setModelPath(const QString& value);
     Q_INVOKABLE void selectModel(const QString& filename);
@@ -305,6 +308,7 @@ private:
     bool deferredAllPeople_ = false;
     std::optional<QStringList> pendingInspectionPaths_;
     std::shared_ptr<std::atomic_bool> inspectionCancel_;
+    bool cacheEnabled_ = false;
     QString cachePath_;
     double cacheLimitGb_ = 8.0;
     int processingThreads_ = 0;

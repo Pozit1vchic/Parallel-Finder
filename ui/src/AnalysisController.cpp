@@ -1286,6 +1286,7 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
     modelStatus_ = findLocalModelFile(modelChoice_).has_value()
         ? QStringLiteral("Модель установлена и готова к анализу")
         : QStringLiteral("Модель не установлена · выберите её для скачивания");
+    cacheEnabled_ = settings.cacheEnabled;
     cachePath_ = QString::fromStdString(settings.cachePath);
     cacheLimitGb_ = static_cast<double>(settings.cacheLimitBytes) / (1024.0 * 1024.0 * 1024.0);
     processingThreads_ = static_cast<int>(std::clamp<std::size_t>(settings.processingThreads, 0, 256));
@@ -1354,6 +1355,7 @@ void AnalysisController::saveSettings() const
     settings.expandedSearch = expandedSearch_;
     settings.modelPath = modelPath_.toStdString();
     settings.modelChoice = modelChoice_.toStdString();
+    settings.cacheEnabled = cacheEnabled_;
     settings.cachePath = cachePath_.toStdString();
     settings.cacheLimitBytes = static_cast<std::size_t>(std::max(0.25, cacheLimitGb_) * 1024.0 * 1024.0 * 1024.0);
     settings.processingThreads = static_cast<std::size_t>(std::clamp(processingThreads_, 0, 256));
@@ -1376,6 +1378,7 @@ void AnalysisController::saveSettings() const
         current.expandedSearch = settings.expandedSearch;
         current.modelPath = settings.modelPath;
         current.modelChoice = settings.modelChoice;
+        current.cacheEnabled = settings.cacheEnabled;
         current.cachePath = settings.cachePath;
         current.cacheLimitBytes = settings.cacheLimitBytes;
         current.processingThreads = settings.processingThreads;
@@ -1713,6 +1716,14 @@ void AnalysisController::setCacheLimitGb(double value)
     cacheLimitGb_ = clamped;
     saveSettings();
     emit settingsChanged();
+}
+
+void AnalysisController::setCacheEnabled(bool value)
+{
+    if (cacheEnabled_ == value) return;
+    cacheEnabled_ = value;
+    emit settingsChanged();
+    saveSettings();
 }
 
 void AnalysisController::setProcessingThreads(int value)
@@ -2366,6 +2377,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
     // Persistence runs asynchronously. Capture controls on their owning thread;
     // a worker must not recover an older cache/segmentation policy from disk.
     pfservices::Settings runControls;
+    runControls.cacheEnabled=cacheEnabled_;
     runControls.cachePath=cachePath_.toStdString();
     runControls.cacheLimitBytes=static_cast<std::size_t>(std::max(.25,cacheLimitGb_)*1024.*1024.*1024.);
     runControls.processingThreads=static_cast<std::size_t>(std::clamp(processingThreads_,0,256));
@@ -2418,6 +2430,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
         auto settings = pfservices::SettingsStore().load(settingsError);
         if(!settingsError.empty())throw std::runtime_error("Cannot read analysis settings: "+settingsError);
         const auto persistedCachePath=settings.cachePath;
+        settings.cacheEnabled=runControls.cacheEnabled;
         settings.cachePath=runControls.cachePath;
         settings.cacheLimitBytes=runControls.cacheLimitBytes;
         settings.processingThreads=runControls.processingThreads;
@@ -2498,7 +2511,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
         std::unique_ptr<pfservices::PfCache> analysisCache;
         std::filesystem::path movementCacheRoot;
         std::shared_ptr<VideoActionReviewContext> actionContext;
-        try {
+        if (settings.cacheEnabled) try {
             std::filesystem::path cacheRoot = settings.cachePath.empty()
                 ? std::filesystem::u8path(pfservices::SettingsStore::defaultDirectory()) / "cache"
                 : std::filesystem::u8path(settings.cachePath);
@@ -3579,7 +3592,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     [&](std::size_t done,std::size_t total) {reportPreparation(QStringLiteral("Подготавливаем кадры для матчера"),done,total);});
                 if (isCancelled()) { markCancelled(); break; }
                 preparedSequenceSources.insert(path.toStdString());
-                reportPreparation(QStringLiteral("Сохраняем кеш анализа"));
+                if (analysisCache) reportPreparation(QStringLiteral("Сохраняем кеш анализа"));
                 const auto windowsReadyNs = stageNow();
                 if (analysisCache && !isCancelled() && faceFailure.isEmpty() && reidFailure.isEmpty()) {
                     std::string cacheError;

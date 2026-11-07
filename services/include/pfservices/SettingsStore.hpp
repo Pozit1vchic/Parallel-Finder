@@ -15,6 +15,7 @@ struct Settings {
     std::string modelPath;
     // Last model selected in the UI, even if its download is unavailable.
     std::string modelChoice;
+    bool cacheEnabled = false;
     std::string cachePath;
     std::size_t cacheLimitBytes = 8ULL * 1024ULL * 1024ULL * 1024ULL;
     // 0 lets ONNX Runtime choose a safe default for the current machine.

@@ -669,11 +669,13 @@ Popup {
                             Text { width: parent.width; text: root.providerDetailsText; color: Theme.textSecondary; font.family: Theme.monoFont; font.pixelSize: 10; wrapMode: Text.WrapAnywhere }
                         }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.cache"); color: Theme.secondaryText; font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.DemiBold }
-                        RowLayout { Layout.fillWidth: true; spacing: 8
+                        PfCheckBox { objectName: "createCacheCheck"; Layout.fillWidth: true; text: L10n.t("settings.cacheEnabled"); checked: Analysis.cacheEnabled; onToggled: Analysis.cacheEnabled = checked }
+                        Text { Layout.fillWidth: true; text: L10n.t("settings.cacheEnabledHint"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                        RowLayout { Layout.fillWidth: true; spacing: 8; enabled: Analysis.cacheEnabled
                             PfTextField { Layout.fillWidth: true; font.family: Theme.monoFont; text: Analysis.cachePath; placeholderText: L10n.t("settings.cachePlaceholder"); Accessible.name: L10n.t("settings.cachePath"); onEditingFinished: Analysis.setCachePath(text) }
                             PfButton { Layout.preferredWidth: 96; compact: true; text: L10n.t("settings.choose"); quiet: true; onClicked: cacheDialog.open() }
                         }
-                        PfSliderField { Layout.fillWidth: true; label: L10n.t("settings.cacheLimit"); from: 0.25; to: 128; stepSize: 0.25; value: Analysis.cacheLimitGb; decimals: 2; suffix: "GB"; tooltipText: L10n.t("settings.cacheLimitHint"); Accessible.name: L10n.t("settings.cacheLimit"); onValueEdited: Analysis.setCacheLimitGb(nextValue) }
+                        PfSliderField { Layout.fillWidth: true; label: L10n.t("settings.cacheLimit"); enabled: Analysis.cacheEnabled; from: 0.25; to: 128; stepSize: 0.25; value: Analysis.cacheLimitGb; decimals: 2; suffix: "GB"; tooltipText: L10n.t("settings.cacheLimitHint"); Accessible.name: L10n.t("settings.cacheLimit"); onValueEdited: Analysis.setCacheLimitGb(nextValue) }
                         PfSliderField { Layout.fillWidth: true; label: L10n.t("settings.processingThreads"); from: 0; to: 64; stepSize: 1; value: Analysis.processingThreads; decimals: 0; integer: true; tooltipText: L10n.t("settings.processingThreadsHint"); Accessible.name: L10n.t("settings.processingThreads"); onValueEdited: Analysis.setProcessingThreads(Math.round(nextValue)) }
                         Text { Layout.fillWidth: true; text: L10n.t("settings.systemHint"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
                         PfCheckBox { objectName: "multiSelectCheck"; Layout.fillWidth: true; text: Review.t("multi"); checked: Review.multiSelect; onToggled: Review.setMulti(checked) }

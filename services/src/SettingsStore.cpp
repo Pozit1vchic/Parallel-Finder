@@ -103,6 +103,7 @@ QJsonObject toJson(const Settings& settings)
     json[QStringLiteral("theme")] = QString::fromStdString(settings.theme);
     json[QStringLiteral("modelPath")] = QString::fromStdString(settings.modelPath);
     json[QStringLiteral("modelChoice")] = QString::fromStdString(settings.modelChoice);
+    json[QStringLiteral("cacheEnabled")] = settings.cacheEnabled;
     json[QStringLiteral("cachePath")] = QString::fromStdString(settings.cachePath);
     json[QStringLiteral("cacheLimitBytes")] = static_cast<qint64>(
         std::min(settings.cacheLimitBytes, kMaxCacheLimitBytes));
@@ -187,6 +188,8 @@ Settings SettingsStore::load(std::string& error) const
     readString(json, "modelPath", settings.modelPath);
     readString(json, "modelChoice", settings.modelChoice);
     readString(json, "cachePath", settings.cachePath);
+    if (json[QStringLiteral("cacheEnabled")].isBool())
+        settings.cacheEnabled=json[QStringLiteral("cacheEnabled")].toBool();
     // Older folder pickers persisted a file URL instead of a filesystem path.
     // Decode URLs only: percent sequences are legal in ordinary folder names.
     const QUrl cacheUrl(QString::fromStdString(settings.cachePath));

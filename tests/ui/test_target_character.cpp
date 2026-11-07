@@ -298,6 +298,42 @@ private slots:
         QTest::qWait(800);QVERIFY(window->grabWindow().save(QCoreApplication::applicationDirPath()+"/kyle-character-selection.png"));
         analysis->stopAnalysis();QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),10000);
     }
+    void analysisRunsWithoutDiskCache() {
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        const auto model=directory.filePath("workflow-pose.onnx");
+        QFile file(model); QVERIFY(file.open(QIODevice::WriteOnly));
+        const auto data=pftest::twoPeopleModel();
+        QCOMPARE(file.write(data.data(),data.size()),qint64(data.size())); file.close();
+        qputenv("PF_MODEL_PATH",model.toUtf8()); qputenv("PF_ALLOW_UNVERIFIED_TARGETS","1");
+        const auto cleanup=qScopeGuard([] {qunsetenv("PF_MODEL_PATH");qunsetenv("PF_ALLOW_UNVERIFIED_TARGETS");});
+        pfservices::Settings settings;settings.modelPath=model.toStdString();
+        settings.modelChoice="workflow-pose.onnx";settings.provider="cpu";settings.qualityProfile="fast";
+        settings.cachePath=directory.filePath("cache").toStdString();settings.processingThreads=1;
+        std::string error; QVERIFY2(pfservices::SettingsStore().save(settings,error),error.c_str());
+        pfui::AppInfo::registerQmlTypes(); auto* info=pfui::AppInfo::instance();info->initializeBackendsAsync();
+        QTRY_VERIFY_WITH_TIMEOUT(!info->backendInitializing(),30000);
+        auto* analysis=pfui::AnalysisController::instance();
+        analysis->setCacheEnabled(true);
+        analysis->setCacheEnabled(false);
+        pfservices::SettingsStore::flushPendingWrites();
+        const auto persisted=pfservices::SettingsStore().load(error);
+        QVERIFY2(error.empty(),error.c_str()); QVERIFY(!persisted.cacheEnabled);
+        const QString source=QStringLiteral(PF_TARGET_VIDEO);
+        const QString second=directory.filePath("second-video.mp4"); QVERIFY(QFile::copy(source,second));
+        for(int run=0;run<2;++run) {
+            analysis->analyzeFiles({source,second});
+            QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
+            QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
+            const auto rows=analysis->targetCandidates(); QVERIFY(!rows.isEmpty());
+            QVERIFY(analysis->selectTargetCharacter(rows[0].toMap().value("id").toString()));
+            QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy() || analysis->awaitingTarget(),30000);
+            QVERIFY2(!analysis->awaitingTarget(),"Unexpected extra target selection");
+            QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
+            QVERIFY(analysis->analyzedFrames()>0);
+            QVERIFY(!analysis->status().contains(QStringLiteral("Сохраняем кеш анализа")));
+        }
+        QVERIFY(!QDir(directory.filePath("cache")).exists());
+    }
     void selectionCachedReselectionAndCancellation() {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
@@ -315,6 +351,8 @@ private slots:
         auto* appInfo=pfui::AppInfo::instance();appInfo->initializeBackendsAsync();
         QTRY_VERIFY_WITH_TIMEOUT(!appInfo->backendInitializing(),30000);
         auto* analysis=pfui::AnalysisController::instance();
+        analysis->setCachePath(directory.filePath("cache"));
+        analysis->setCacheEnabled(true);
         const QString source=QStringLiteral(PF_TARGET_VIDEO);
         QQmlApplicationEngine engine;
         engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
@@ -322,13 +360,22 @@ private slots:
         QVERIFY(!engine.rootObjects().isEmpty());
         auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().front());
         QVERIFY(window);
+        auto* settingsDialog=window->findChild<QObject*>("settingsDialog"); QVERIFY(settingsDialog);
+        QVERIFY(QMetaObject::invokeMethod(settingsDialog,"open"));
+        QTRY_VERIFY_WITH_TIMEOUT(settingsDialog->findChild<QObject*>("createCacheCheck"),5000);
+        auto* cacheCheck=settingsDialog->findChild<QObject*>("createCacheCheck");
+        QTRY_VERIFY(cacheCheck->property("checked").toBool());
+        analysis->setCacheEnabled(false); QTRY_VERIFY(!cacheCheck->property("checked").toBool());
+        analysis->setCacheEnabled(true); QTRY_VERIFY(cacheCheck->property("checked").toBool());
+        QVERIFY(QMetaObject::invokeMethod(settingsDialog,"close"));
         window->setProperty("sourceFiles",QVariantList{source});
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),10000);
         qunsetenv("PF_ALLOW_UNVERIFIED_TARGETS");
+        const auto previousPoseDetections=analysis->poseDetectionCount();
         analysis->analyzeFiles({source});QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),10000);
         QVERIFY(!analysis->awaitingTarget());QVERIFY(!analysis->analysisCompleted());
         QVERIFY(analysis->status().contains(QStringLiteral("распознавание персонажей")));
-        QCOMPARE(analysis->analyzedFrames(),0);QCOMPARE(analysis->poseDetectionCount(),0);
+        QCOMPARE(analysis->analyzedFrames(),0);QCOMPARE(analysis->poseDetectionCount(),previousPoseDetections);
         qputenv("PF_ALLOW_UNVERIFIED_TARGETS","1");
         analysis->analyzeFiles({source});
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
