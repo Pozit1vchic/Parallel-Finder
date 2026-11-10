@@ -80,7 +80,8 @@ std::vector<Triplet> prepareTriplets(const MotionWindow& window,const std::funct
 
 std::vector<RepeatedSceneIdentityLink> auditRepeatedSceneIdentityLinks(
     const std::vector<CharacterCandidate>& candidates,const std::vector<MotionWindow>& windows,
-    const std::function<bool()>& cancelled,std::string_view source)
+    const std::function<bool()>& cancelled,std::string_view source,
+    const std::function<void(std::size_t,std::size_t)>& progress)
 {
     std::map<std::size_t,std::size_t> owners;
     for(const auto& candidate:candidates)for(auto id:candidate.trackIds)
@@ -101,17 +102,33 @@ std::vector<RepeatedSceneIdentityLink> auditRepeatedSceneIdentityLinks(
         if((cancelled && cancelled()) || scene.triplets.size()!=(frameCount>=3 ? frameCount-2 : 0))return {};
     }
     std::map<std::pair<std::size_t,std::size_t>,RepeatedSceneIdentityLink> links;
+    std::size_t completedPairs=0;
+    const auto totalPairs=scenes.size()*(scenes.size()-std::min<std::size_t>(1,scenes.size()))/2;
+    if(progress)progress(0,totalPairs);
     for(auto a=scenes.begin();a!=scenes.end();++a) {
         if(cancelled && cancelled())return {};
-        if(!a->second.sequence || a->second.sequence->sceneSequenceTimes.size()<3)continue;
         for(auto b=std::next(a);b!=scenes.end();++b) {
             if(cancelled && cancelled())return {};
+            if(progress)progress(completedPairs++,totalPairs);
+            if(!a->second.sequence || a->second.sequence->sceneSequenceTimes.size()<3)continue;
             if(a->first.first!=b->first.first || !b->second.sequence
                || b->second.sequence->sceneSequenceTimes.size()<3)continue;
+            // Reject scene pairs with no eligible body pair before comparing pixels.
+            struct BodyPair {const Track* left;const Track* right;double similarity;};
+            std::vector<BodyPair> bodyPairs;
+            for(const auto& [idA,ta]:a->second.tracks)for(const auto& [idB,tb]:b->second.tracks) {
+                if(ta.owner==tb.owner || !ta.body || !tb.body)continue;
+                const auto similarity=cosine(ta.body->appearanceEmbedding,tb.body->appearanceEmbedding);
+                if(similarity>=.85)bodyPairs.push_back({&ta,&tb,similarity});
+            }
+            if(bodyPairs.empty())continue;
             const auto& x=*a->second.sequence;const auto& y=*b->second.sequence;
             if(std::abs(x.sceneStartSeconds-y.sceneStartSeconds)<4)continue;
             for(std::size_t i=0;i+2<x.sceneSequenceTimes.size();++i) {
-            if((i%8)==0 && cancelled && cancelled())return {};
+            if((i%8)==0) {
+                if(cancelled && cancelled())return {};
+                if(progress)progress(completedPairs-1,totalPairs);
+            }
             for(std::size_t j=0;j+2<y.sceneSequenceTimes.size();++j) {
                 const auto& cx=a->second.triplets[i];const auto& cy=b->second.triplets[j];
                 if(!cx.valid || !cy.valid)continue;
@@ -119,7 +136,10 @@ std::vector<RepeatedSceneIdentityLink> auditRepeatedSceneIdentityLinks(
                 // between block sums cannot exceed the full pixel L1 error.
                 // Reject only pairs which already exceed its existing limit.
                 double lowerBound=0;
-                for(std::size_t k=0;k<cx.sums.size();++k)lowerBound+=std::abs(cx.sums[k]-cy.sums[k]);
+                for(std::size_t k=0;k<cx.sums.size();++k) {
+                    lowerBound+=std::abs(cx.sums[k]-cy.sums[k]);
+                    if(cx.bounded && cy.bounded && lowerBound>.08*(3*432)+.001)break;
+                }
                 if(cx.bounded && cy.bounded && lowerBound>.08*(3*432)+.001)continue;
                 double error=0,variationX=0,variationY=0;
                 for(std::size_t k=0;k<3*432;++k) {
@@ -135,9 +155,9 @@ std::vector<RepeatedSceneIdentityLink> auditRepeatedSceneIdentityLinks(
                 error/=3*432;
                 const double requiredVariation=error<.05 ? .004 : .01;
                 if(error>=.08 || variationX/(2*432)<requiredVariation || variationY/(2*432)<requiredVariation)continue;
-                for(const auto& [unusedA,ta]:a->second.tracks)for(const auto& [unusedB,tb]:b->second.tracks) {
-                    if(ta.owner==tb.owner || !ta.body || !tb.body)continue;
-                    const auto body=cosine(ta.body->appearanceEmbedding,tb.body->appearanceEmbedding);
+                for(const auto& pair:bodyPairs) {
+                    const auto& ta=*pair.left;const auto& tb=*pair.right;
+                    const auto body=pair.similarity;
                     if(body<(error>=.025 && error<.05 ? .90 : .85))continue;
                     std::set<double> leftTimes,rightTimes;
                     for(std::size_t k=0;k<3;++k) {
@@ -186,13 +206,15 @@ std::vector<RepeatedSceneIdentityLink> auditRepeatedSceneIdentityLinks(
         }
         if(!conflict)result.push_back(link);
     }
+    if(progress)progress(totalPairs,totalPairs);
     return result;
 }
 
 std::size_t mergeRepeatedSceneIdentities(std::vector<CharacterCandidate>& candidates,
-    const std::vector<MotionWindow>& windows,const std::function<bool()>& cancelled,std::string_view source)
+    const std::vector<MotionWindow>& windows,const std::function<bool()>& cancelled,std::string_view source,
+    const std::function<void(std::size_t,std::size_t)>& progress)
 {
-    const auto links=auditRepeatedSceneIdentityLinks(candidates,windows,cancelled,source);
+    const auto links=auditRepeatedSceneIdentityLinks(candidates,windows,cancelled,source,progress);
     if(cancelled && cancelled())return 0;
     std::set<std::size_t> removed;
     std::size_t merged=0;

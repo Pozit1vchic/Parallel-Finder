@@ -98,6 +98,7 @@ public:
     QString targetSelectionSource() const { return targetSelectionSource_; }
     bool awaitingTarget() const { return !targetCandidates_.isEmpty() && busy_; }
     Q_INVOKABLE bool selectTargetCharacter(const QString& id);
+    Q_INVOKABLE bool continueWithoutTargetCharacter();
     Q_INVOKABLE void reselectTargetCharacter(const QString& source);
     Q_INVOKABLE QVariantMap summaryForSource(const QString& path) const;
     QVariantList results() const { return results_; }

@@ -1207,6 +1207,7 @@ QtObject {
             "Подготавливаем кадры для матчера": "Preparing footage for matching",
             "Сохраняем кеш анализа": "Saving analysis cache",
             "Подготавливаем появления персонажей": "Preparing character appearances",
+            "Проверяем повторные появления": "Checking repeated appearances",
             "Проверяем общего персонажа в видео": "Verifying the shared character across videos",
             "Подготавливаем поиск параллелей": "Preparing parallel search",
             "Исключаем одинаковые фрагменты": "Removing copied footage",

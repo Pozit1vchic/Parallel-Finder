@@ -2271,6 +2271,15 @@ bool AnalysisController::selectTargetCharacter(const QString& id)
     return true;
 }
 
+bool AnalysisController::continueWithoutTargetCharacter()
+{
+    if (!awaitingTarget() || !targetChoice_) return false;
+    targetChoice_->store(std::numeric_limits<std::size_t>::max(), std::memory_order_release);
+    targetCandidates_.clear(); hiddenUnresolvedCharacters_=0;
+    emit targetSelectionChanged();
+    return true;
+}
+
 void AnalysisController::reselectTargetCharacter(const QString& source)
 {
     const auto normalized=normalizedPaths({source});
@@ -2396,7 +2405,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
     QThread* thread = QThread::create([this, cancel, paths = normalized, similarityThreshold, candidateThreshold, repeatGap,
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
                                         maxUniqueResults, timeWeight, providerChoice,
-                                        qualityProfile, analysisMode, runControls, expandedSearch, normalizeSize, mirrorPoses, previewToken, forceTargetSource, targetChoice, allPeople] {
+                                        qualityProfile, analysisMode, runControls, expandedSearch, normalizeSize, mirrorPoses, previewToken, forceTargetSource, targetChoice, allPeople] () mutable {
         try {
         const bool interactiveTargets = !QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
             || qEnvironmentVariableIsSet("PF_SMOKE_TARGET_ID");
@@ -3629,7 +3638,15 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     if(isCancelled())break;
                     preparedSequenceSources.insert(source);
                 }
-                const auto merged=pfcore::mergeRepeatedSceneIdentities(candidates,windows,isCancelled,source);
+                reportPreparation(QStringLiteral("Проверяем повторные появления"));
+                QElapsedTimer identityUpdates;identityUpdates.start();
+                const auto merged=pfcore::mergeRepeatedSceneIdentities(candidates,windows,isCancelled,source,
+                    [&](std::size_t done,std::size_t total) {
+                        if(done==0 || done==total || identityUpdates.elapsed()>=150) {
+                            reportPreparation(QStringLiteral("Проверяем повторные появления"),done,total);
+                            identityUpdates.restart();
+                        }
+                    });
                 if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
                     std::fprintf(stderr,"PF_REPEATED_SCENE_IDENTITIES source=%s merged=%zu\n",source.c_str(),merged);
             }
@@ -3691,6 +3708,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     continue;
                 }
                 if (!selected) {
+                    reportPreparation(QStringLiteral("Подготавливаем появления персонажей"));
                     QVariantList rows;
                     QElapsedTimer previewClock;previewClock.start();
                     const auto visibleOrder=pfcore::characterSelectionOrder(candidates,20,suggestion.candidateId);
@@ -3805,6 +3823,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                         std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 }
                 if (isCancelled()) break;
+                if(selected==std::numeric_limits<std::size_t>::max()) {allPeople=true;break;}
                 const auto chosen=std::find_if(candidates.begin(),candidates.end(),[&](const auto& c){return c.id==selected;});
                 if (chosen==candidates.end()) { error=QStringLiteral("TARGET_SELECTION_INVALID"); break; }
                 if (!batchTarget) batchTarget=*chosen;
@@ -3832,12 +3851,12 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             // happened to own its first window before target filtering.
             using ShotKey=std::pair<std::string,std::size_t>;
             std::map<ShotKey,std::pair<std::vector<float>,std::vector<double>>> shotSequences;
-            for (auto& window:windows) if (!window.sceneSequence.empty())
+            for (auto& window:windows) if (!allPeople && !window.sceneSequence.empty())
                 shotSequences.try_emplace({window.sourceId,window.sceneIndex},
                     std::move(window.sceneSequence),std::move(window.sceneSequenceTimes));
             std::vector<pfcore::MotionWindow> targetWindows;
             QStringList targetA,targetB;
-            for (std::size_t i=0;i<windows.size();++i) if (selectedTracks[windows[i].sourceId].contains(windows[i].trackId)
+            for (std::size_t i=0;i<windows.size();++i) if (!allPeople && selectedTracks[windows[i].sourceId].contains(windows[i].trackId)
                 && (analysisMode==QStringLiteral("combined") || (analysisMode==QStringLiteral("static"))==windows[i].staticFrameSet)) {
                 if (auto found=shotSequences.find({windows[i].sourceId,windows[i].sceneIndex});found!=shotSequences.end()) {
                     windows[i].sceneSequence=std::move(found->second.first);
@@ -3847,7 +3866,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 targetWindows.push_back(std::move(windows[i]));
                 targetA.push_back(previewA[static_cast<qsizetype>(i)]); targetB.push_back(previewB[static_cast<qsizetype>(i)]);
             }
-            windows=std::move(targetWindows); previewA=std::move(targetA); previewB=std::move(targetB);
+            if(!allPeople) {windows=std::move(targetWindows); previewA=std::move(targetA); previewB=std::move(targetB);}
             QMetaObject::invokeMethod(this,[this,cancel] {
                 if (analysisCancel_!=cancel) return;
                 targetCandidates_.clear(); hiddenUnresolvedCharacters_=0; targetSelectionSource_.clear(); emit targetSelectionChanged();

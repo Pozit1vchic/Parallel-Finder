@@ -26,7 +26,6 @@ Rectangle {
     signal clearRequested()
     signal removeRequested(int index)
     signal analyzeRequested()
-    signal analyzeAllPeopleRequested()
     implicitWidth: Theme.sidePanelWidth; color: Theme.rail; radius: Theme.radiusCard; border.color: Theme.border
 
     onSourceFilesChanged: {
@@ -167,13 +166,6 @@ Rectangle {
             RowLayout { Layout.fillWidth: true; spacing: 7
                 PfButton { objectName: "clearSourcesButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.clear"); quiet: true; enabled: root.sourceFiles.length > 0; onClicked: root.clearRequested() }
                 PfButton { objectName: "removeSourceButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.remove"); quiet: true; enabled: root.selectedSourceIndex >= 0 && root.selectedSourceIndex < root.sourceFiles.length; onClicked: root.removeRequested(root.selectedSourceIndex) }
-            }
-            PfButton {
-                objectName: "analyzeAllPeopleButton"
-                Layout.fillWidth: true; quiet: true
-                text: L10n.t("character.allPeople")
-                enabled: root.sourceFiles.length > 0 && !Analysis.busy && !Analysis.modelDownloading && !AppInfo.backendInitializing
-                onClicked: root.analyzeAllPeopleRequested()
             }
             PfButton {
                 objectName: "reselectCharacterButton"

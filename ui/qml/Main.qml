@@ -199,7 +199,6 @@ ApplicationWindow {
                     onClearRequested: { root.sourceFiles = []; root.syncResultsSelection(); Analysis.inspectFiles([]) }
                     onRemoveRequested: root.removeSource(index)
                     onAnalyzeRequested: Analysis.analyzeFiles(root.sourceFiles)
-                    onAnalyzeAllPeopleRequested: Analysis.analyzeAllPeople(root.sourceFiles)
                 }
                 MotionCenter {
                     id: motionCenter

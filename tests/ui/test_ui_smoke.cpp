@@ -1520,12 +1520,8 @@ void UiSmokeTests::sourcesLiveInsideDropAreaAboveActions()
     auto* remove = sources->findChild<QQuickItem*>("removeSourceButton");
     auto* clear = sources->findChild<QQuickItem*>("clearSourcesButton");
     auto* add=sources->findChild<QQuickItem*>("addSourcesButton");
-    auto* allPeople=sources->findChild<QQuickItem*>("analyzeAllPeopleButton");
-    QVERIFY(list && drop && remove && clear && add && allPeople);
-    QSignalSpy allPeopleRequested(sources, SIGNAL(analyzeAllPeopleRequested()));
-    QVERIFY(allPeopleRequested.isValid());
-    QVERIFY(QMetaObject::invokeMethod(allPeople, "clicked"));
-    QCOMPARE(allPeopleRequested.count(), 1);
+    QVERIFY(list && drop && remove && clear && add);
+    QVERIFY(!sources->findChild<QQuickItem*>("analyzeAllPeopleButton"));
     QCOMPARE(list->parentItem(), drop);
     // Exercise the smallest supported window as well as the animated list.
     window->resize(1100, 700);
@@ -1551,7 +1547,6 @@ void UiSmokeTests::sourcesLiveInsideDropAreaAboveActions()
     QVERIFY(remove->isEnabled());
     sources->setProperty("sourceFiles", QStringList{});
     QVERIFY(!remove->isEnabled()); QVERIFY(!clear->isEnabled());
-    QVERIFY(!allPeople->isEnabled());
 }
 
 void UiSmokeTests::sourceWheelDoesNotMoveSettingsRail()

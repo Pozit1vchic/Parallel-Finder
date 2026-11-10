@@ -101,5 +101,12 @@ Item {
             primary: true; text: L10n.t("character.continue"); enabled: root.chosenId.length > 0
             onClicked: Analysis.selectTargetCharacter(root.chosenId)
         }
+        PfButton {
+            objectName: "analyzeAllPeopleButton"
+            Layout.fillWidth: true; quiet: true
+            text: L10n.t("character.allPeople")
+            enabled: Analysis.awaitingTarget
+            onClicked: Analysis.continueWithoutTargetCharacter()
+        }
     }
 }

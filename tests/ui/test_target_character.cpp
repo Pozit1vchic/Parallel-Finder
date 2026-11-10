@@ -325,7 +325,10 @@ private slots:
             QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
             QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
             const auto rows=analysis->targetCandidates(); QVERIFY(!rows.isEmpty());
-            QVERIFY(analysis->selectTargetCharacter(rows[0].toMap().value("id").toString()));
+            const auto preparedFrames=analysis->analyzedFrames();
+            if(run==0) QVERIFY(analysis->selectTargetCharacter(rows[0].toMap().value("id").toString()));
+            else QVERIFY(analysis->continueWithoutTargetCharacter());
+            QCOMPARE(analysis->analyzedFrames(),preparedFrames);
             QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy() || analysis->awaitingTarget(),30000);
             QVERIFY2(!analysis->awaitingTarget(),"Unexpected extra target selection");
             QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
@@ -382,6 +385,10 @@ private slots:
         QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
         auto* selector=window->findChild<QQuickItem*>("targetCharacterPanel");
         QVERIFY(selector && selector->isVisible());
+        auto* allPeople=selector->findChild<QQuickItem*>("analyzeAllPeopleButton");
+        auto* confirm=selector->findChild<QQuickItem*>("confirmCharacterButton");
+        QVERIFY(allPeople && confirm && allPeople->isEnabled());
+        QVERIFY(allPeople->mapToScene(QPointF()).y() >= confirm->mapToScene(QPointF(0,confirm->height())).y());
         // Pose-only fixture observations are explicitly unresolved, not new
         // unique identities. They remain inspectable and selectable.
         QVERIFY(selector->property("unresolvedCount").toInt()>0);

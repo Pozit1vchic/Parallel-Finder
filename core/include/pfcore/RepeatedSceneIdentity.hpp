@@ -12,10 +12,12 @@ struct RepeatedSceneIdentityLink {
 std::vector<RepeatedSceneIdentityLink> auditRepeatedSceneIdentityLinks(
     const std::vector<CharacterCandidate>& candidates,
     const std::vector<MotionWindow>& windows,
-    const std::function<bool()>& cancelled = {}, std::string_view source = {});
+    const std::function<bool()>& cancelled = {}, std::string_view source = {},
+    const std::function<void(std::size_t,std::size_t)>& progress = {});
 // Applies only unambiguous, disjoint links. Existing appearances keep their
 // order and provenance so their previously saved preview keys stay valid.
 std::size_t mergeRepeatedSceneIdentities(std::vector<CharacterCandidate>& candidates,
     const std::vector<MotionWindow>& windows, const std::function<bool()>& cancelled = {},
-    std::string_view source = {});
+    std::string_view source = {},
+    const std::function<void(std::size_t,std::size_t)>& progress = {});
 }

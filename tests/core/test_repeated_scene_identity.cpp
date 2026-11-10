@@ -99,3 +99,16 @@ TEST(RepeatedSceneIdentity, MergeKeepsStableIdTracksAndPreviewOrder) {
     ASSERT_EQ(people[0].appearances.size(),2);EXPECT_EQ(people[0].appearances[0].trackId,1);
     EXPECT_EQ(people[0].appearances[1].trackId,2);EXPECT_EQ(people[0].prototype.face,(std::vector<float>{1,0}));
 }
+
+TEST(RepeatedSceneIdentity, ProgressAndEarlyBodyRejection) {
+    auto a=window(1,0,0),b=window(2,1,10);
+    b.appearanceEmbedding={0,1};
+    std::vector<std::pair<std::size_t,std::size_t>> updates;
+    const auto result=pfcore::auditRepeatedSceneIdentityLinks(candidates(),{a,b},{},"film",
+        [&](auto done,auto total){updates.emplace_back(done,total);});
+    EXPECT_TRUE(result.empty());
+    ASSERT_GE(updates.size(),2);
+    EXPECT_EQ(updates.front(),(std::pair<std::size_t,std::size_t>{0,1}));
+    EXPECT_EQ(updates.back(),(std::pair<std::size_t,std::size_t>{1,1}));
+    for(std::size_t i=1;i<updates.size();++i)EXPECT_GE(updates[i].first,updates[i-1].first);
+}
