@@ -1,8 +1,8 @@
 # Shared analysis and refinement cache capacity
 
-The common capacity policy and three compatible native warm runs are verified.
-Native analysis of the pressure copy is still running. This document does not
-mark the full cache objective complete.
+The common capacity policy, three compatible native warm runs and four native
+analyses of the pressure copy are verified. This document does not mark the full
+cache objective complete.
 
 `CacheBudget` coordinates an explicit set of flat managed directories under one
 capacity. The analysis controller registers its primary cache, movement review
@@ -57,9 +57,18 @@ this does not establish cross-process coordination or physical disk-full safety.
   primary payload hashes were unchanged. All **8062** refinement files retained
   their paths, lengths and SHA-256 hashes (zero differences in before/after
   manifests). PFC-only totals, separately reported, are 22468908779/21316456971.
-- A subsequent native control is running in
-  `build/goal-chernobyl-shared-pressure20-native-01`; it is not counted as passed
-  until its reports and exact output comparisons are checked.
+- The subsequent native control completed in
+  `build/goal-chernobyl-shared-pressure20-native-01`. All four runs retained all
+  **188 records** exactly except temporary preview URLs. Primary analysis
+  decoded/analyzed/detection counts and write failures remained zero. The raw
+  Matcher cache hit, all 3936 head and 95 action requests were cached, and those
+  review stages constructed no inference models. The first run rebuilt 376
+  previews removed by pressure, taking **34468 ms**; its preview decoding is
+  separate from the zero primary-analysis decoding counter. The next three runs
+  took **8749/13540/13628 ms**, median **13540 ms**. Final recursive cache
+  footprint (including refinement) was **21398555574 bytes**, below the
+  21474836480-byte limit. This verifies a native repeat under this logical
+  pressure scenario, not sustained multi-process or physical disk-full safety.
 - The first pressure-preparation attempt stopped before copying because the
   default 5 GiB free-space reserve was unavailable. No deletion was performed.
   The preparer now exposes `--minimum-free-gib` (default remains 5), independently
@@ -67,3 +76,7 @@ this does not establish cross-process coordination or physical disk-full safety.
   This run selected 1 GiB, copied about 1 GiB of actual records, allocated only
   2621440 bytes for fillers and left **3476357120 bytes** free before the small
   refinement copy. This is separate from physical disk-full robustness testing.
+- After the pressure analysis finished, three full uncached native runs were
+  started in `build/goal-chernobyl-cache-disabled-01` with `cacheEnabled=false`
+  in isolated settings. Their completion and comparisons remain pending; they
+  must not be inferred from the successful warm or pressure controls.
