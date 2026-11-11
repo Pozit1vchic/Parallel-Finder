@@ -10,6 +10,10 @@
 #include "pfgpu/Inference.hpp"
 
 namespace pfgpu {
+inline constexpr auto kPosePreprocessingContract="pose-input-v2-bilinear-upscale";
+inline bool poseInputEnlarges(int width,int height,int inputWidth=640,int inputHeight=640) noexcept {
+    return width>0 && height>0 && width<inputWidth && height<inputHeight;
+}
 namespace detail { struct PoseInputWorkspace; }
 
 struct PoseImage {

@@ -4,6 +4,7 @@
 #include <pfcore/MotionRanker.hpp>
 #include <pfcore/DominantPerson.hpp>
 #include <pfcore/MovementClassifier.hpp>
+#include <pfcore/PoseSupport.hpp>
 #if __has_include(<pfcore/SceneFamily.hpp>)
 #include <pfcore/SceneFamily.hpp>
 #define PF_ORGANIZATION_PROBE 1
@@ -185,20 +186,50 @@ int main(int argc, char** argv)
         std::cout<<QJsonDocument(report).toJson(QJsonDocument::Compact).constData()<<"\n";return 0;
     }
 #endif
-    if (args[2]=="--actions" || args[2]=="--labelled-actions") {
+    if (args[2]=="--actions" || args[2]=="--labelled-actions" || args[2]=="--supported-actions") {
         const pfcore::MovementClassifier classifier;
-        const bool labelled=args[2]=="--labelled-actions";
+        const bool supported=args[2]=="--supported-actions";
+        const bool labelled=args[2]=="--labelled-actions" || supported;
         const auto started=std::chrono::steady_clock::now();
         QJsonArray rows;
         for(std::size_t index=0;index<windows.size();++index) {
             const auto& window=windows[index];
             if(window.frames.empty())return 2;
-            const auto start=window.frames.front().timestampSeconds;
+            double start=window.frames.front().timestampSeconds;
             const auto metadata=json.array()[static_cast<qsizetype>(index)].toObject();
-            const auto end=window.frames.back().timestampSeconds+(labelled && window.frames.size()>1
+            double end=window.frames.back().timestampSeconds+(labelled && window.frames.size()>1
                 ? window.frames.back().timestampSeconds-window.frames[window.frames.size()-2].timestampSeconds:0);
+            // Dataset annotations can end between sampled frames. Their
+            // explicit half-open boundary must not be extended into the next
+            // scene by rounding to the observation cadence.
+            if(labelled && (metadata.contains("evaluationStart") || metadata.contains("evaluationEnd"))) {
+                if(!metadata["evaluationStart"].isDouble() || !metadata["evaluationEnd"].isDouble())return 2;
+                start=metadata["evaluationStart"].toDouble();end=metadata["evaluationEnd"].toDouble();
+                if(!std::isfinite(start) || !std::isfinite(end) || end<=start)return 2;
+            }
             const bool head=labelled && metadata["headOnly"].toBool();
-            const auto classification=classifier.classifyForGrouping(window,start,end,head);
+            auto classification=classifier.classifyForGrouping(window,start,end,head);
+            QJsonArray runs;
+            if(supported) {
+                classification={};
+                for(const auto range:pfcore::observedPoseRuns(window)) {
+                    const double runStart=std::max(start,window.frames[range.begin].timestampSeconds);
+                    const double runEnd=std::min(end,window.frames[range.end].timestampSeconds+1e-5);
+                    if(runEnd<=runStart)continue;
+                    const auto current=classifier.classifyForGrouping(window,runStart,runEnd,head);
+                    runs.append(QJsonObject{{"start",runStart},{"end",runEnd},
+                        {"gesture",pfcore::MovementClassifier::gestureName(current.gesture)},
+                        {"confidence",current.gestureConfidence}});
+                    for(const auto action:current.actions)
+                        if(action!=pfcore::GestureClass::Unknown && action!=pfcore::GestureClass::Static)
+                            classification.actions.push_back(action);
+                    classification.gestureConfidence=std::max(classification.gestureConfidence,current.gestureConfidence);
+                }
+                auto& actions=classification.actions;
+                std::sort(actions.begin(),actions.end());actions.erase(std::unique(actions.begin(),actions.end()),actions.end());
+                if(actions.size()==1)classification.gesture=actions.front();
+                else if(actions.size()>1)classification.gesture=pfcore::GestureClass::Mixed;
+            }
             const auto predicted=labelled && metadata["pose"].toBool()
                 ? classifier.classifyPoseForGrouping(window,start,end,head)
                 : std::string(pfcore::MovementClassifier::gestureName(classification.gesture));
@@ -210,6 +241,7 @@ int main(int argc, char** argv)
                 {"start",start},{"end",end},
                 {"gesture",QString::fromStdString(predicted)},{"expected",labelled?metadata["expected"]:QJsonValue()},
                 {"caseId",labelled?metadata["name"]:QJsonValue()},
+                {"supportedRuns",runs},
                 {"actions",actions},{"confidence",classification.gestureConfidence}});
         }
         std::cout<<QJsonDocument(QJsonObject{{"scope","grouping only; no identity or matcher admission"},

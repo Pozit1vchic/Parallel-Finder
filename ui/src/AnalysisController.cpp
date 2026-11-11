@@ -2640,7 +2640,12 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 const bool auditNativeCandidates = QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
                     && !qEnvironmentVariable("PF_BENCHMARK_CACHE_ROOT").isEmpty()
                     && qEnvironmentVariable("PF_AUDIT_NATIVE_CANDIDATES") == QStringLiteral("1");
-                std::string cacheKey = "motion-v43|rc16-independent-admission|rc16-lead-recovery|duplicate-identity-veto|shot-local-tracking|duration-first-lead|co-visible-identities|strict-source-lead|sparse-face-veto|stable-motion-cuts|bidirectional-low-contrast-cuts|spatial-fades|supported-static-runs|matcher-mirror|scene4fps|infer=1280x720|decode="
+                // Analysis uses a 640-square pose input and only bounds RGBA
+                // to 1280x720. Larger sources therefore keep their byte-exact
+                // preparation and existing expensive observation cache.
+                const auto cachePrefix=pfgpu::poseInputEnlarges(decoder.info().width,decoder.info().height)
+                    ? std::string("motion-v44|")+pfgpu::kPosePreprocessingContract+"|" : std::string("motion-v43|");
+                std::string cacheKey = cachePrefix+"rc16-independent-admission|rc16-lead-recovery|duplicate-identity-veto|shot-local-tracking|duration-first-lead|co-visible-identities|strict-source-lead|sparse-face-veto|stable-motion-cuts|bidirectional-low-contrast-cuts|spatial-fades|supported-static-runs|matcher-mirror|scene4fps|infer=1280x720|decode="
                     + decoder.diagnostics().backend
                     + "|pose=" + cacheFileFingerprint(model) + "|"
                     + providerChoice.toStdString() + "|reid="
@@ -2682,8 +2687,8 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 if (const auto frozen=frozenWindowKeys.value(path).toString();!frozen.isEmpty()) {
                     const auto original=frozen.toStdString();
                     const auto suffix=cacheFileFingerprint(path.toStdString());
-                    if (!original.starts_with("motion-v43|") || !original.ends_with(suffix))
-                        throw std::runtime_error("Frozen observations do not match the current source fingerprint");
+                    if (!original.starts_with(cachePrefix) || !original.ends_with(suffix))
+                        throw std::runtime_error("Frozen observations use a different preprocessing contract or source fingerprint; run analysis again");
                     cacheKey=original;
                     if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
                         std::fprintf(stderr,"PF_DEBUG_FROZEN_OBSERVATIONS source=%s legacy_window_replay=1 new_model_inference=0\n",path.toStdString().c_str());

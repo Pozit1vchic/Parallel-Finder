@@ -7,6 +7,12 @@
 namespace pfgpu::detail {
 namespace {
 constexpr std::size_t kMaxInputElements = 64ULL * 1024ULL * 1024ULL;
+constexpr unsigned kLinearScale=2048;
+int roundedDimension(float value) {
+    const int lower=static_cast<int>(std::floor(value));
+    if(value-lower==.5F)return lower+(lower&1);
+    return static_cast<int>(std::lround(value));
+}
 const std::array<float, 256>& normalizedBytes()
 {
     static const auto table = [] {
@@ -28,12 +34,20 @@ void PoseInputWorkspace::mapImage(const PoseImage& image, const PoseEstimatorPar
     transform_.sourceHeight = image.height;
     transform_.scale = std::min(static_cast<float>(params.inputWidth) / image.width,
                                 static_cast<float>(params.inputHeight) / image.height);
-    const int resizedWidth = std::max(1, static_cast<int>(std::lround(image.width * transform_.scale)));
-    const int resizedHeight = std::max(1, static_cast<int>(std::lround(image.height * transform_.scale)));
+    linearUpscale_=poseInputEnlarges(image.width,image.height,params.inputWidth,params.inputHeight);
+    const int resizedWidth = std::max(1,linearUpscale_?roundedDimension(image.width*transform_.scale)
+        :static_cast<int>(std::lround(image.width*transform_.scale)));
+    const int resizedHeight = std::max(1,linearUpscale_?roundedDimension(image.height*transform_.scale)
+        :static_cast<int>(std::lround(image.height*transform_.scale)));
     transform_.padX = (params.inputWidth - resizedWidth) * 0.5F;
     transform_.padY = (params.inputHeight - resizedHeight) * 0.5F;
+    if(linearUpscale_) {
+        transform_.padX=std::floor(transform_.padX);transform_.padY=std::floor(transform_.padY);
+    }
     sourceX_.assign(static_cast<std::size_t>(params.inputWidth), -1);
     sourceY_.assign(static_cast<std::size_t>(params.inputHeight), -1);
+    nextX_.resize(params.inputWidth);nextY_.resize(params.inputHeight);
+    weightX_.resize(params.inputWidth);weightY_.resize(params.inputHeight);
     firstX_ = params.inputWidth; lastX_ = 0;
     for (int x = 0; x < params.inputWidth; ++x) {
         const float value = (static_cast<float>(x) - transform_.padX) / transform_.scale;
@@ -46,6 +60,22 @@ void PoseInputWorkspace::mapImage(const PoseImage& image, const PoseEstimatorPar
         const float value = (static_cast<float>(y) - transform_.padY) / transform_.scale;
         if (value >= 0.0F && value < image.height)
             sourceY_[y] = std::clamp(static_cast<int>(value), 0, image.height - 1);
+    }
+    if(linearUpscale_) {
+        // Pixel-center bilinear enlargement avoids the block edges produced
+        // by nearest-neighbor magnification of low-resolution people. Keep
+        // the established downsampling path unchanged pending its own audit.
+        const auto map=[](int output,int padding,int resized,int source,int& first,int& next,unsigned& weight) {
+            if(output<padding || output>=padding+resized){first=-1;return;}
+            const double value=std::clamp((output-padding+.5)*source/resized-.5,0.,static_cast<double>(source-1));
+            first=static_cast<int>(std::floor(value));next=std::min(first+1,source-1);
+            weight=static_cast<unsigned>(std::lround((value-first)*kLinearScale));
+        };
+        for(int x=0;x<params.inputWidth;++x)
+            map(x,static_cast<int>(transform_.padX),resizedWidth,image.width,sourceX_[x],nextX_[x],weightX_[x]);
+        for(int y=0;y<params.inputHeight;++y)
+            map(y,static_cast<int>(transform_.padY),resizedHeight,image.height,sourceY_[y],nextY_[y],weightY_[y]);
+        firstX_=static_cast<int>(transform_.padX);lastX_=firstX_+resizedWidth;
     }
     imageWidth_ = image.width; imageHeight_ = image.height;
     inputWidth_ = params.inputWidth; inputHeight_ = params.inputHeight;
@@ -87,6 +117,23 @@ const FloatTensor& PoseInputWorkspace::build(std::span<const PoseImage> images,
                 std::fill(channel + row + lastX_, channel + row + params.inputWidth, pad);
             }
             const auto* sourceRow = image.rgba + static_cast<std::size_t>(sourceY) * image.width * 4U;
+            if(linearUpscale_) {
+                const auto* nextRow=image.rgba+static_cast<std::size_t>(nextY_[y])*image.width*4U;
+                const unsigned wy=weightY_[y];
+                for(int x=firstX_;x<lastX_;++x) {
+                    const auto first=static_cast<std::size_t>(sourceX_[x])*4U;
+                    const auto next=static_cast<std::size_t>(nextX_[x])*4U;
+                    const unsigned wx=weightX_[x];
+                    const auto interpolate=[&](unsigned channel) {
+                        const unsigned top=sourceRow[first+channel]*(kLinearScale-wx)+sourceRow[next+channel]*wx;
+                        const unsigned bottom=nextRow[first+channel]*(kLinearScale-wx)+nextRow[next+channel]*wx;
+                        const auto value=(top*(kLinearScale-wy)+bottom*wy+(1U<<21U))>>22U;
+                        return bytes[value];
+                    };
+                    red[row+x]=interpolate(0);green[row+x]=interpolate(1);blue[row+x]=interpolate(2);
+                }
+                continue;
+            }
             // No per-pixel pad branch, division, or initial full-buffer fill.
             // Every output value is written exactly once on a reused buffer.
             for (int x = firstX_; x < lastX_; ++x) {

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "source": "https://www.csc.kth.se/cvap/actions/",
+  "purpose": "Independent action/retrieval evaluation; not a release-level TV-editing benchmark",
+  "terms": "Publicly available for non-commercial use; do not redistribute videos or put them in release artifacts",
+  "reference": "Schuldt, Laptev and Caputo, Recognizing Human Actions: A Local SVM Approach, ICPR 2004",
+  "actions": ["walking", "jogging", "running", "boxing", "handwaving", "handclapping"],
+  "scenarios": [1, 2, 3, 4],
+  "splits": {
+    "tuning": [11, 12],
+    "development": [19, 20],
+    "holdout": [2, 3, 5, 6, 7, 8, 9, 10, 22]
+  },
+  "invariants": [
+    "Freeze this subject partition before observing baseline scores",
+    "Never tune thresholds or fit calibration on the holdout subjects",
+    "Preserve published temporal subsequence boundaries and source hashes",
+    "Treat missing detections and unknown classification as outcomes, not excluded examples",
+    "Evaluate action discrimination separately from identity gates and full application retrieval",
+    "Use the same extracted observations for baseline and modified matcher/classifier comparisons",
+    "Report KTH's low-resolution static-camera limits; it does not validate camera-motion or TV-editing precision"
+  ]
+}

@@ -19,6 +19,9 @@ struct PoseInputWorkspace {
 private:
     FloatTensor tensor_;
     std::vector<int> sourceX_, sourceY_;
+    std::vector<int> nextX_, nextY_;
+    std::vector<unsigned> weightX_, weightY_;
+    bool linearUpscale_ = false;
     int imageWidth_ = 0, imageHeight_ = 0, inputWidth_ = 0, inputHeight_ = 0;
     int firstX_ = 0, lastX_ = 0;
     LetterboxTransform transform_;
