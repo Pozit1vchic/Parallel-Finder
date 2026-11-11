@@ -3,6 +3,7 @@
 #include <pfservices/SettingsStore.hpp>
 
 #include <QDir>
+#include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QFile>
@@ -14,6 +15,41 @@
 #include <mutex>
 
 namespace {
+TEST(SettingsStore, BenchmarkPreferencesAreIsolatedAndIgnoredByOrdinaryLaunches)
+{
+    ASSERT_FALSE(QCoreApplication::instance());
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto isolated=directory.filePath("benchmark.json");
+    struct Restore {
+        QByteArray value=qgetenv("PF_BENCHMARK_SETTINGS_PATH");
+        ~Restore(){if(value.isNull())qunsetenv("PF_BENCHMARK_SETTINGS_PATH");else qputenv("PF_BENCHMARK_SETTINGS_PATH",value);}
+    } restore;
+    qputenv("PF_BENCHMARK_SETTINGS_PATH",isolated.toUtf8());
+    std::string personalPath;
+    {
+        int argc=1;char name[]="pf-settings-test";char* argv[]={name,nullptr};
+        QCoreApplication application(argc,argv);
+        personalPath=pfservices::SettingsStore::defaultPath();
+        EXPECT_NE(personalPath,isolated.toStdString());
+    }
+    {
+        int argc=2;char name[]="pf-settings-test",smoke[]="--pf-analysis-smoke";char* argv[]={name,smoke,nullptr};
+        QCoreApplication application(argc,argv);
+        pfservices::SettingsStore store;
+        EXPECT_EQ(store.path(),isolated.toStdString());
+        pfservices::Settings settings;settings.cacheEnabled=true;settings.processingThreads=4;
+        std::string error;ASSERT_TRUE(store.save(settings,error))<<error;
+        EXPECT_TRUE(store.load(error).cacheEnabled);EXPECT_TRUE(error.empty());
+        const auto explicitPath=directory.filePath("explicit.json").toStdString();
+        EXPECT_EQ(pfservices::SettingsStore(explicitPath).path(),explicitPath);
+    }
+    {
+        int argc=1;char name[]="pf-settings-test";char* argv[]={name,nullptr};
+        QCoreApplication application(argc,argv);
+        EXPECT_EQ(pfservices::SettingsStore::defaultPath(),personalPath);
+    }
+}
+
 TEST(SettingsStore, SuccessfulOperationsClearPreviousErrors)
 {
     QTemporaryDir directory;ASSERT_TRUE(directory.isValid());

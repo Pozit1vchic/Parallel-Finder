@@ -47,6 +47,7 @@ public:
     bool clear(std::string& error);
     [[nodiscard]] std::size_t bytesUsed() const;
     [[nodiscard]] std::size_t limitBytes() const noexcept { return limitBytes_; }
+    [[nodiscard]] const std::filesystem::path& rootPath() const noexcept { return root_; }
 
 private:
     std::filesystem::path fileFor(const std::string& key) const;

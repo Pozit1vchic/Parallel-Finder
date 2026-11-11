@@ -2,6 +2,7 @@
 #include <pfservices/SettingsStore.hpp>
 
 #include <QDir>
+#include <QCoreApplication>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -173,6 +174,14 @@ std::string SettingsStore::defaultDirectory()
 
 std::string SettingsStore::defaultPath()
 {
+    // Reproducible application benchmarks must not read or mutate personal
+    // preferences. Ordinary launches and explicit SettingsStore paths ignore it.
+    if(QCoreApplication::instance()
+        && QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))) {
+        const auto benchmarkPath=qEnvironmentVariable("PF_BENCHMARK_SETTINGS_PATH");
+        if(!benchmarkPath.isEmpty())
+            return QFileInfo(benchmarkPath).absoluteFilePath().toStdString();
+    }
     return pfcore::pathToUtf8(pfcore::pathFromUtf8(defaultDirectory()) / "settings.json");
 }
 

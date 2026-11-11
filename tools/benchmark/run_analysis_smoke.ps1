@@ -12,7 +12,8 @@ param(
     [ValidateRange(0, 10000)][int]$MinimumPairs = 0,
     [double]$ExpectedOffsetSec = -1,
     [string]$ReportPath = "",
-    [string[]]$Modes = @("motion", "static", "combined")
+    [string[]]$Modes = @("motion", "static", "combined"),
+    [switch]$ResourceTelemetry
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,6 +25,9 @@ foreach ($additionalVideo in $AdditionalVideos) {
 if (-not (Test-Path -LiteralPath $Model)) { throw "Pose model not found: $Model" }
 if (-not (Test-Path -LiteralPath $OrtDll)) { throw "ONNX Runtime DLL not found: $OrtDll" }
 if ($ReIdModel -and -not (Test-Path -LiteralPath $ReIdModel)) { throw "ReID model not found: $ReIdModel" }
+if ($ResourceTelemetry -and -not $ReportPath) { throw 'Resource telemetry requires ReportPath.' }
+if ($ResourceTelemetry -and [Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'WDDM telemetry requires Windows.' }
+$smokeHarnessSha256=(Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
 # Explicit choices belong to the child only. Leaving a TensorRT DLL in the
 # caller's environment can contaminate a subsequent CPU/QML test process
@@ -79,6 +83,20 @@ foreach ($mode in $Modes) {
     $process.StartInfo = $psi
     $processClock = [System.Diagnostics.Stopwatch]::StartNew()
     [void]$process.Start()
+    $telemetryProcess=$null
+    $telemetryPath=$null
+    $telemetryError=$null
+    if($ResourceTelemetry) {
+        $telemetryPath=$ReportPath+'.resources.jsonl'
+        $telemetryArguments=@('-NoProfile','-File',('"'+$PSScriptRoot+'/monitor_process_resources.ps1"'),
+            '-TargetProcessId',[string]$process.Id,'-OutputPath',('"'+$telemetryPath+'"'))
+        try {
+            $telemetryProcess=Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList $telemetryArguments -WindowStyle Hidden -PassThru
+        } catch {
+            $telemetryError=$_.Exception.Message
+            Write-Warning "Resource telemetry did not start: $telemetryError"
+        }
+    }
     # Read both redirected streams concurrently. Reading stdout to completion
     # before stderr can deadlock a verbose PF_DEBUG_MATCHER run when stderr's
     # pipe fills before the child has a chance to exit.
@@ -99,13 +117,35 @@ foreach ($mode in $Modes) {
     }
     # Cover startup too: the application's own analysis timer cannot fire if
     # runtime/platform initialization fails before its event loop begins.
-    $exited = $process.WaitForExit(($TimeoutSec + 45) * 1000)
+    # Windows can stop exposing memory counters after process exit. Sample
+    # while the handle is live; do not serialize a null as a measured peak.
+    $sampledPeakWorkingSetBytes = [long]0
+    $sampledPeakPrivateBytes = [long]0
+    $memorySamples = 0
+    do {
+        try {
+            $process.Refresh()
+            $workingSet = $process.PeakWorkingSet64
+            $privateBytes = $process.PrivateMemorySize64
+            if ($workingSet -gt 0) {
+                $sampledPeakWorkingSetBytes = [Math]::Max($sampledPeakWorkingSetBytes, $workingSet)
+                $sampledPeakPrivateBytes = [Math]::Max($sampledPeakPrivateBytes, $privateBytes)
+                ++$memorySamples
+            }
+        } catch { # Exit can race the final sample; earlier live samples survive.
+        }
+        $exited = $process.WaitForExit(50)
+    } while (-not $exited -and $processClock.ElapsedMilliseconds -lt ($TimeoutSec + 45) * 1000)
     if (-not $exited) {
         $process.Kill()
     }
     $process.WaitForExit()
     $process.Refresh()
     $processClock.Stop()
+    if($telemetryProcess) {
+        if(-not $telemetryProcess.WaitForExit(10000)){$telemetryProcess.Kill();$telemetryProcess.WaitForExit()}
+        $telemetryProcess.Dispose()
+    }
     $stdout = $stdoutTask.GetAwaiter().GetResult()
     if ($stderrStream) {
         try { [void]$stderrTask.GetAwaiter().GetResult() } finally { $stderrStream.Dispose() }
@@ -129,13 +169,32 @@ foreach ($mode in $Modes) {
         if ($ReportPath) {
             $elapsedMatch = [regex]::Match($stdout, '(?m)^\s*elapsed_ms\s*:\s*(\d+)')
             $framesMatch = [regex]::Match($stdout, '(?m)^\s*frames\s*:\s*(\d+)')
+            $workCounters=@{}
+            foreach($counterName in @('decoded_frames','analyzed_frames','pose_detections','cache_write_failures')) {
+                $counterMatch=[regex]::Match($stdout,'(?m)^\s*'+$counterName+'\s*:\s*(\d+)')
+                $workCounters[$counterName]=if($counterMatch.Success){[long]$counterMatch.Groups[1].Value}else{$null}
+            }
+            $sourceSummaries=$null
+            $summaryLine=($stdout -split '\r?\n' | Where-Object {$_ -match '^\s*source_summaries_json\s*:'} | Select-Object -First 1)
+            if($summaryLine){$sourceSummaries=($summaryLine -replace '^\s*source_summaries_json\s*:\s*','') | ConvertFrom-Json}
+            $cacheFootprint=$null
+            $benchmarkCacheRoot=$psi.EnvironmentVariables['PF_BENCHMARK_CACHE_ROOT']
+            if($benchmarkCacheRoot -and (Test-Path -LiteralPath $benchmarkCacheRoot -PathType Container)) {
+                $cacheFiles=@(Get-ChildItem -LiteralPath $benchmarkCacheRoot -File -Recurse)
+                $cacheFootprint=@{bytes=($cacheFiles | Measure-Object Length -Sum).Sum;fileCount=$cacheFiles.Count;root=$benchmarkCacheRoot}
+            }
             $cpuTimeMs = $null
             try { $cpuTimeMs = [math]::Round($process.TotalProcessorTime.TotalMilliseconds, 1) } catch {}
             $report = @{ video=$Video; inputVideos=@($Video) + $AdditionalVideos; mode=$mode; results=$pairs;
                 debugFlags=@{analysis=$psi.EnvironmentVariables['PF_DEBUG_ANALYSIS']; matcher=$psi.EnvironmentVariables['PF_DEBUG_MATCHER']; pose=$psi.EnvironmentVariables['PF_DEBUG_POSE']};
                 processWallMs=$processClock.ElapsedMilliseconds;
                 cpuTimeMs=$cpuTimeMs;
-                peakWorkingSetBytes=$process.PeakWorkingSet64;
+                peakWorkingSetBytes=$(if ($memorySamples) { $sampledPeakWorkingSetBytes } else { $null });
+                sampledPeakPrivateBytes=$(if ($memorySamples) { $sampledPeakPrivateBytes } else { $null });
+                memorySamples=$memorySamples; memorySampleIntervalMs=50;
+                resourceTelemetryPath=$telemetryPath;
+                resourceTelemetryError=$telemetryError;harnessSha256=$smokeHarnessSha256;
+                workCounters=$workCounters;sourceSummaries=$sourceSummaries;cacheFootprint=$cacheFootprint;
                 elapsedMs=$(if ($elapsedMatch.Success) { [long]$elapsedMatch.Groups[1].Value } else { $null });
                 frameCount=$(if ($framesMatch.Success) { [long]$framesMatch.Groups[1].Value } else { $null });
                 decodeDiagnostics=@([regex]::Matches($stderr, 'PF_DECODE [^\r\n]+') | ForEach-Object { $_.Value });

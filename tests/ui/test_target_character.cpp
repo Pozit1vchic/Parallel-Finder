@@ -17,6 +17,8 @@
 #include <QSaveFile>
 #include <QElapsedTimer>
 #include <QScopeGuard>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
@@ -27,6 +29,74 @@
 class TargetCharacterTests : public QObject {
     Q_OBJECT
 private slots:
+    void allPeopleSmokeDoesNotUseSinglePersonAdmission() {
+        QTemporaryDir directory;QVERIFY(directory.isValid());
+        const auto model=directory.filePath("workflow-pose.onnx");
+        QFile file(model);QVERIFY(file.open(QIODevice::WriteOnly));
+        const auto data=pftest::twoPeopleModel();
+        QCOMPARE(file.write(data.data(),data.size()),qint64(data.size()));file.close();
+        const auto second=directory.filePath("second-video.mp4");
+        QVERIFY(QFile::copy(QStringLiteral(PF_TARGET_VIDEO),second));
+        pfservices::Settings settings;settings.provider="cpu";settings.qualityProfile="fast";
+        settings.modelPath=model.toStdString();settings.modelChoice="workflow-pose.onnx";
+        settings.processingThreads=1;settings.cacheEnabled=true;
+        const auto settingsPath=directory.filePath("settings.json");
+        std::string error;QVERIFY2(pfservices::SettingsStore(settingsPath.toStdString()).save(settings,error),error.c_str());
+        auto environment=QProcessEnvironment::systemEnvironment();
+#ifdef Q_OS_WIN
+        environment.insert("QT_QPA_PLATFORM","windows");
+#endif
+        environment.insert("PF_MODEL_PATH",model);environment.insert("PF_MODEL_ROOT",directory.path());
+        environment.insert("PF_PROVIDER","cpu");environment.insert("PF_ANALYSIS_MODE","combined");
+        environment.insert("PF_SMOKE_ALL_PEOPLE","1");environment.remove("PF_SMOKE_TARGET_ID");
+        environment.insert("PF_BENCHMARK_SETTINGS_PATH",settingsPath);
+        environment.insert("PF_BENCHMARK_CACHE_ROOT",directory.filePath("cache"));
+        environment.insert("PF_BENCHMARK_MOVEMENT_CACHE_ROOT",directory.filePath("refinement"));
+        environment.insert("PF_ANALYSIS_JSON","1");
+        environment.insert("PF_DEBUG_ANALYSIS","1");
+        QProcess process;process.setProcessEnvironment(environment);
+        const auto cleanup=qScopeGuard([&] {if(process.state()!=QProcess::NotRunning){process.kill();process.waitForFinished(5000);}});
+        process.start(QStringLiteral(PF_ANALYSIS_SMOKE_EXE),{"--pf-analysis-smoke",QStringLiteral(PF_TARGET_VIDEO),second});
+        QVERIFY(process.waitForStarted(5000));QVERIFY(process.waitForFinished(30000));
+        const auto output=process.readAllStandardOutput()+process.readAllStandardError();
+        const auto diagnostic=QByteArray::number(process.exitCode())+": "+output;
+        if(process.exitStatus()!=QProcess::NormalExit) {
+            directory.setAutoRemove(false);
+            qInfo()<<"Failed smoke inputs retained at"<<directory.path();
+        }
+        QVERIFY2(process.exitStatus()==QProcess::NormalExit,diagnostic.constData());
+        QVERIFY2(process.exitCode()==0,output.constData());
+        QVERIFY2(output.contains("analysis smoke ok"),output.constData());
+        // This stage is reached only with at least two admitted windows, so
+        // a vacuous empty-input success cannot hide the former empty mask access.
+        QVERIFY2(output.contains("PF_DEBUG_TIMING matcher_ms="),output.constData());
+        // A new process and changed matcher policy must keep both compatible
+        // source observations, including their detector/identity/tracker work.
+        settings.similarityThreshold=.9;settings.candidateThreshold=.8;
+        settings.timeWeight=.7;settings.duplicateWindowSec=.9;
+        settings.mirrorPoses=false;settings.normalizeSize=false;settings.expandedSearch=true;
+        QVERIFY2(pfservices::SettingsStore(settingsPath.toStdString()).save(settings,error),error.c_str());
+        process.start(QStringLiteral(PF_ANALYSIS_SMOKE_EXE),{"--pf-analysis-smoke",QStringLiteral(PF_TARGET_VIDEO),second});
+        QVERIFY(process.waitForStarted(5000));QVERIFY(process.waitForFinished(30000));
+        const auto repeated=process.readAllStandardOutput()+process.readAllStandardError();
+        QVERIFY2(process.exitStatus()==QProcess::NormalExit && process.exitCode()==0,repeated.constData());
+        QCOMPARE(repeated.count("complete_cache_hit=1 window_cache_hit=1 decoded=0 view_samples=0 pose_samples=0"),2);
+        QVERIFY2(!repeated.contains("cold_pipeline_ms="),repeated.constData());
+        // A writable result is still useful when storage fails. The user must
+        // learn that this run cannot be reused instead of silently redoing it.
+        const auto blockedRoot=directory.filePath("not-a-cache-directory");
+        QFile blocker(blockedRoot);QVERIFY(blocker.open(QIODevice::WriteOnly));
+        QCOMPARE(blocker.write("keep"),qint64(4));blocker.close();
+        environment.insert("PF_BENCHMARK_CACHE_ROOT",blockedRoot);process.setProcessEnvironment(environment);
+        process.start(QStringLiteral(PF_ANALYSIS_SMOKE_EXE),{"--pf-analysis-smoke",QStringLiteral(PF_TARGET_VIDEO),second});
+        QVERIFY(process.waitForStarted(5000));QVERIFY(process.waitForFinished(30000));
+        const auto failedStorage=process.readAllStandardOutput()+process.readAllStandardError();
+        QVERIFY2(process.exitStatus()==QProcess::NormalExit && process.exitCode()==0,failedStorage.constData());
+        QVERIFY2(failedStorage.contains("cache_write_failures : 2"),failedStorage.constData());
+        QVERIFY2(failedStorage.contains("Кеш не сохранён"),failedStorage.constData());
+        QVERIFY(QFileInfo::exists(blockedRoot));
+    }
+
     void realVideoCharacterCapture() {
         const auto source=qEnvironmentVariable("PF_TEST_REAL_CHARACTER_VIDEO");
         const auto model=qEnvironmentVariable("PF_MODEL_PATH");

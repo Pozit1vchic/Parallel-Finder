@@ -2407,7 +2407,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                                         maxUniqueResults, timeWeight, providerChoice,
                                         qualityProfile, analysisMode, runControls, expandedSearch, normalizeSize, mirrorPoses, previewToken, forceTargetSource, targetChoice, allPeople] () mutable {
         try {
-        const bool interactiveTargets = !QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
+        const bool interactiveTargets = allPeople || !QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
             || qEnvironmentVariableIsSet("PF_SMOKE_TARGET_ID");
         const bool auditWeakFaces = interactiveTargets && qEnvironmentVariable("PF_AUDIT_WEAK_FACES") == QStringLiteral("1");
         std::map<std::string,std::vector<pfcore::CharacterCandidate>> sourceCandidates;
@@ -2518,6 +2518,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             setProgress(0.0, QStringLiteral("Читаем кадры"), 0, totalFramesEstimate);
         }, Qt::QueuedConnection);
         std::unique_ptr<pfservices::PfCache> analysisCache;
+        QString cacheStorageError;
         std::filesystem::path movementCacheRoot;
         std::shared_ptr<VideoActionReviewContext> actionContext;
         if (settings.cacheEnabled) try {
@@ -2536,7 +2537,8 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             if(QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
                 && !benchmarkMovementCache.isEmpty())
                 movementCacheRoot=std::filesystem::u8path(benchmarkMovementCache.toStdString());
-        } catch (const std::exception&) {
+        } catch (const std::exception& exception) {
+            cacheStorageError=QString::fromUtf8(exception.what());
             // Cache is an optimization; analysis remains usable when its path
             // is unavailable or malformed.
         }
@@ -2720,6 +2722,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     const auto digest=QCryptographicHash::hash(QByteArray::fromStdString(cacheKey),QCryptographicHash::Sha256).toHex();
                     cacheDecision={{"key",QString::fromLatin1(digest)},{"entryFound",cacheEntryFound},{"validated",cacheHit},
                         {"configuredRoot",QString::fromStdString(settings.cachePath)},
+                        {"effectiveRoot",analysisCache ? QString::fromStdString(pfcore::pathToUtf8(analysisCache->rootPath())):QString{}},
                         {"persistedRoot",QString::fromStdString(persistedCachePath)},{"sceneThreshold",settings.sceneThreshold},
                         {"sceneMinFrames",static_cast<qulonglong>(settings.sceneMinFrames)},
                         {"sceneAdaptiveMultiplier",settings.sceneAdaptiveMultiplier}};
@@ -2735,6 +2738,10 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     {"frameCount", static_cast<qlonglong>(std::max(0.0, info.durationSeconds * info.frameRate))},
                     {"durationSeconds", info.durationSeconds}, {"frameRate", info.frameRate}, {"sceneCount", 0}, {"matchCount", 0},
                     {"observationCacheHit",false}});
+                if(!cacheStorageError.isEmpty()) {
+                    auto summary=summaries.value(path).toMap();
+                    summary.insert("observationCacheWriteError",cacheStorageError);summaries.insert(path,summary);
+                }
                 if(!cacheDecision.isEmpty()) {
                     auto summary=summaries.value(path).toMap();summary.insert("observationCacheDecision",cacheDecision);summaries.insert(path,summary);
                 }
@@ -3614,8 +3621,16 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                         ? pfservices::serializeCharacterAnalysis(sourceCandidates[path.toStdString()],fileWindows,
                             static_cast<int>(sceneBoundaries.size())+1,isCancelled,settings.processingThreads)
                         : pfservices::serializeMotionWindows(fileWindows,static_cast<int>(sceneBoundaries.size())+1,isCancelled,settings.processingThreads);
+                    bool saved=false;
                     if (!bytes.empty() && !isCancelled())
-                        analysisCache->putForSource(path.toStdString(),cacheKey,bytes,cacheError);
+                        saved=analysisCache->putForSource(path.toStdString(),cacheKey,bytes,cacheError);
+                    if(!isCancelled()) {
+                        if(!saved && cacheError.empty())cacheError="Observation serialization produced no reusable cache entry";
+                        auto summary=summaries.value(path).toMap();
+                        summary.insert("observationCacheWriteBytes",saved ? static_cast<qulonglong>(bytes.size()):0ULL);
+                        summary.insert("observationCacheWriteError",QString::fromStdString(cacheError));
+                        summaries.insert(path,summary);
+                    }
                     if (!cacheError.empty()) qWarning() << "ANALYSIS_CACHE_WRITE_FAILED" << QString::fromStdString(cacheError);
                 }
                 for (std::size_t i=0;i<fileWindowIndices.size();++i)
@@ -3913,7 +3928,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 sharedIdentity.sources.clear();
                 for (const auto& [source, candidates] : sourceCandidates) sharedIdentity.sources.push_back(source);
             }
-            if (!interactiveTargets && paths.size() > 1) {
+            if (!interactiveTargets && !allPeople && paths.size() > 1) {
                 std::vector<pfcore::MotionWindow> admitted;
                 QStringList admittedA, admittedB;
                 for (std::size_t i=0;i<windows.size();++i) if (sharedIdentity.windows[i]) {
@@ -4605,8 +4620,13 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 if (it.value().toMap().value("targetMatchUncertain").toBool()) ++uncertainTargetSources;
             const auto uncertainStatus=uncertainTargetSources
                 ? QStringLiteral(" · Персонаж не подтверждён в видео: %1").arg(uncertainTargetSources) : QString();
+            int cacheFailureSources=0;
+            for(auto it=sourceSummaries_.cbegin();it!=sourceSummaries_.cend();++it)
+                if(!it.value().toMap().value("observationCacheWriteError").toString().isEmpty())++cacheFailureSources;
+            const auto cacheStatus=cacheFailureSources
+                ? QStringLiteral(" · Кеш не сохранён для видео: %1").arg(cacheFailureSources):QString();
             setStatus(error.isEmpty() ? (expandedSearch ? QStringLiteral("Расширенный поиск завершён · ")
-                                                       : QStringLiteral("Анализ сцен завершён · ")) + reidStatus + debugSummary + uncertainStatus
+                                                       : QStringLiteral("Анализ сцен завершён · ")) + reidStatus + debugSummary + uncertainStatus + cacheStatus
                                       : QStringLiteral("Анализ остановлен: ") + error);
         }, Qt::QueuedConnection);
         } catch (const std::exception& exception) {

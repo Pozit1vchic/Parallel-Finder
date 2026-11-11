@@ -322,7 +322,11 @@ int main(int argc, char* argv[])
         });
         QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
         timeout.start();
-        analysis->analyzeFiles(paths);
+        // Exercise the existing all-people workflow without changing saved UI
+        // preferences or bypassing its ordinary matcher rules.
+        if(qEnvironmentVariableIntValue("PF_SMOKE_ALL_PEOPLE")>0)
+            analysis->analyzeAllPeople(paths);
+        else analysis->analyzeFiles(paths);
         // Validation failures (missing model/provider or invalid input) are
         // reported synchronously and deliberately never toggle `busy`.  Do
         // not make headless diagnostics wait for the full timeout in that
@@ -331,14 +335,24 @@ int main(int argc, char* argv[])
             QTimer::singleShot(0, &loop, &QEventLoop::quit);
         loop.exec();
         std::printf("ParallelFinder analysis smoke %s\n", analysis->busy() ? "timeout" : "ok");
-        std::printf("  status : %s\n", qPrintable(analysis->status()));
+        std::printf("  status : %s\n", analysis->status().toUtf8().constData());
         std::printf("  files  : %d\n", analysis->fileCount());
         std::printf("  frames : %lld\n", static_cast<long long>(analysis->frameCount()));
+        std::printf("  decoded_frames : %lld\n",static_cast<long long>(analysis->decodedFrames()));
+        std::printf("  analyzed_frames : %lld\n",static_cast<long long>(analysis->analyzedFrames()));
+        std::printf("  pose_detections : %d\n",analysis->poseDetectionCount());
         std::printf("  pairs  : %d\n", analysis->matchCount());
+        int cacheFailures=0;
+        for(const auto& path:paths)
+            if(!analysis->summaryForSource(path).value("observationCacheWriteError").toString().isEmpty())++cacheFailures;
+        std::printf("  cache_write_failures : %d\n",cacheFailures);
         std::printf("  elapsed_ms : %lld\n", static_cast<long long>(elapsed.elapsed()));
         if (qEnvironmentVariableIsSet("PF_ANALYSIS_JSON")) {
             const auto json = QJsonDocument::fromVariant(analysis->results()).toJson(QJsonDocument::Compact);
             std::printf("  results_json : %s\n", json.constData());
+            QJsonObject summaries;
+            for(const auto& path:paths)summaries.insert(path,QJsonObject::fromVariantMap(analysis->summaryForSource(path)));
+            std::printf("  source_summaries_json : %s\n",QJsonDocument(summaries).toJson(QJsonDocument::Compact).constData());
         }
         const int minimumPairs = qEnvironmentVariableIntValue("PF_ANALYSIS_MIN_PAIRS");
         return analysis->busy() || !analysis->analysisCompleted()

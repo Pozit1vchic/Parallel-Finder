@@ -9,7 +9,10 @@ find_package(GTest CONFIG REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Test)
 add_executable(pf_target_character_tests ui/test_target_character.cpp)
 target_link_libraries(pf_target_character_tests PRIVATE pfui pfui_module_import Qt6::Test)
-target_compile_definitions(pf_target_character_tests PRIVATE PF_TARGET_VIDEO="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/tiny.mp4")
+target_compile_definitions(pf_target_character_tests PRIVATE
+    PF_TARGET_VIDEO="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/tiny.mp4"
+    PF_ANALYSIS_SMOKE_EXE="$<TARGET_FILE:ParallelFinder>")
+add_dependencies(pf_target_character_tests ParallelFinder)
 add_test(NAME pf_target_character_tests COMMAND pf_target_character_tests -o "${CMAKE_CURRENT_BINARY_DIR}/target-character-results.txt,txt")
 set_tests_properties(pf_target_character_tests PROPERTIES TIMEOUT 120 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 add_executable(pf_head_review_tests ui/test_head_review.cpp)

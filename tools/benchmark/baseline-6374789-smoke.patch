@@ -1,0 +1,34 @@
+diff --git a/app/src/main.cpp b/app/src/main.cpp
+index 47d7eee..4cd9717 100644
+--- a/app/src/main.cpp
++++ b/app/src/main.cpp
+@@ -324 +324,4 @@ int main(int argc, char* argv[])
+-        analysis->analyzeFiles(paths);
++        // Benchmark adapter: existing public workflow, same admission rules.
++        if(qEnvironmentVariableIntValue("PF_SMOKE_ALL_PEOPLE")>0)
++            analysis->analyzeAllPeople(paths);
++        else analysis->analyzeFiles(paths);
+diff --git a/services/src/SettingsStore.cpp b/services/src/SettingsStore.cpp
+index 3bcbba0..7ed893c 100644
+--- a/services/src/SettingsStore.cpp
++++ b/services/src/SettingsStore.cpp
+@@ -4,0 +5 @@
++#include <QCoreApplication>
+@@ -151,0 +153,7 @@ std::string SettingsStore::defaultPath()
++    // Benchmark adapter only: identical isolated settings path on both sides.
++    if(QCoreApplication::instance()
++        && QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))) {
++        const auto benchmarkPath=qEnvironmentVariable("PF_BENCHMARK_SETTINGS_PATH");
++        if(!benchmarkPath.isEmpty())
++            return QFileInfo(benchmarkPath).absoluteFilePath().toStdString();
++    }
+diff --git a/ui/src/AnalysisController.cpp b/ui/src/AnalysisController.cpp
+index 2f493d5..17f7d51 100644
+--- a/ui/src/AnalysisController.cpp
++++ b/ui/src/AnalysisController.cpp
+@@ -2410 +2410 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
+-        const bool interactiveTargets = !QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
++        const bool interactiveTargets = allPeople || !QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
+@@ -3911 +3911 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
+-            if (!interactiveTargets && paths.size() > 1) {
++            if (!interactiveTargets && !allPeople && paths.size() > 1) {
