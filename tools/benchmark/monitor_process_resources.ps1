@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][int]$TargetProcessId,
-    [Parameter(Mandatory=$true)][string]$OutputPath
+    [Parameter(Mandatory=$true)][string]$OutputPath,
+    [ValidateRange(0,1000000)][int]$MaxSamples=0
 )
 $ErrorActionPreference='Stop'
 # Windows WDDM exposes per-process dedicated/shared GPU allocations even when
@@ -8,6 +9,7 @@ $ErrorActionPreference='Stop'
 # device-wide or instantaneous peak. The analysis process never waits on CIM.
 $writer=[IO.StreamWriter]::new($OutputPath,$false,[Text.UTF8Encoding]::new($false))
 $writer.AutoFlush=$true
+$samples=0
 try {
     while($true) {
         $process=Get-CimInstance Win32_Process -Filter "ProcessId=$TargetProcessId"
@@ -25,12 +27,16 @@ try {
                 Where-Object Name -Like "pid_${TargetProcessId}_*")
             $sample.gpuEngines=@($engines | ForEach-Object {
                 $reported=[double]$_.UtilizationPercentage
-                $valid=[double]::IsFinite($reported) -and $reported -ge 0 -and $reported -le 100
+                # Windows PowerShell 5.1 uses .NET Framework, which has no
+                # Double.IsFinite. Preserve the same validity rule there.
+                $valid=-not [double]::IsNaN($reported) -and -not [double]::IsInfinity($reported) -and $reported -ge 0 -and $reported -le 100
                 @{instance=$_.Name;reportedUtilizationPercent=$reported;utilizationValid=$valid;
                     utilizationPercent=$(if($valid){$reported}else{$null})}
             })
         } catch {$sample.gpuError=$_.Exception.Message}
         $writer.WriteLine(($sample | ConvertTo-Json -Depth 5 -Compress))
+        ++$samples
+        if($MaxSamples -gt 0 -and $samples -ge $MaxSamples){break}
         Start-Sleep -Milliseconds 1000
     }
 } finally {$writer.Dispose()}

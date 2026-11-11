@@ -86,12 +86,16 @@ foreach ($mode in $Modes) {
     $telemetryProcess=$null
     $telemetryPath=$null
     $telemetryError=$null
+    $telemetryMonitorSha256=$null
+    $telemetryShellPath=$null
     if($ResourceTelemetry) {
         $telemetryPath=$ReportPath+'.resources.jsonl'
         $telemetryArguments=@('-NoProfile','-File',('"'+$PSScriptRoot+'/monitor_process_resources.ps1"'),
             '-TargetProcessId',[string]$process.Id,'-OutputPath',('"'+$telemetryPath+'"'))
         try {
-            $telemetryProcess=Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList $telemetryArguments -WindowStyle Hidden -PassThru
+            $telemetryMonitorSha256=(Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'monitor_process_resources.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
+            $telemetryShellPath=(Get-Process -Id $PID).Path
+            $telemetryProcess=Start-Process -FilePath $telemetryShellPath -ArgumentList $telemetryArguments -WindowStyle Hidden -PassThru
         } catch {
             $telemetryError=$_.Exception.Message
             Write-Warning "Resource telemetry did not start: $telemetryError"
@@ -194,6 +198,7 @@ foreach ($mode in $Modes) {
                 memorySamples=$memorySamples; memorySampleIntervalMs=50;
                 resourceTelemetryPath=$telemetryPath;
                 resourceTelemetryError=$telemetryError;harnessSha256=$smokeHarnessSha256;
+                resourceMonitorSha256=$telemetryMonitorSha256;resourceMonitorShellPath=$telemetryShellPath;
                 workCounters=$workCounters;sourceSummaries=$sourceSummaries;cacheFootprint=$cacheFootprint;
                 elapsedMs=$(if ($elapsedMatch.Success) { [long]$elapsedMatch.Groups[1].Value } else { $null });
                 frameCount=$(if ($framesMatch.Success) { [long]$framesMatch.Groups[1].Value } else { $null });
