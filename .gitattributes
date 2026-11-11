@@ -11,6 +11,8 @@ CMakeLists.txt text
 *.json text
 /tools/benchmark/chernobyl-prediction-review-plan.json text eol=lf
 /tools/benchmark/chernobyl-prediction-review-labels.json text eol=lf
+/tools/benchmark/chernobyl-training-ranking-plan.json text eol=lf
+/tools/benchmark/chernobyl-training-ranking-labels.json text eol=lf
 *.qml text
 *.yml text
 *.yaml text
