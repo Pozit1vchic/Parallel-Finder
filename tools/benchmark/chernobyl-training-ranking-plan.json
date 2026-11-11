@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "split": "tuning: S01E01/S01E02 only",
+  "referenceReport": "build/goal-chernobyl-after-native-cold-01/cold.json",
+  "selectionFrozenBeforeNewRankingChanges": true,
+  "returnedArrayIndices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 37, 64],
+  "selectionReason": "Complete first ten results plus two previously reviewed training examples (observed head rotation and repeated hand-behind-head posture). Selected output audit, not independent ground truth or random sampling.",
+  "review": "Temporal source-PTS sheets plus native matched-track pose overlays; grade with the existing 0/1/2/unknown rubric and preserve uncertainty. No inference from a foreground actor when a background track was matched.",
+  "hypotheses": [
+    "Final organization weights raw similarity and observation completeness, while computed pose similarity is metadata and initial classifier rankScore is not the final ordering score.",
+    "Observation completeness does not measure action or posture specificity; a fully visible generic pose can outrank a meaningful but less completely observed movement.",
+    "Returning camera angles can retain similar actor poses without being copied footage, so copied-footage exclusion alone need not remove repetitive results."
+  ],
+  "limits": "These hypotheses require training-side evidence and validation before implementation. Do not fit thresholds, remove categories or calibrate probabilities from the frozen held-out top-ten judgments. Do not claim these twelve selected examples measure overall Precision.",
+  "benchmarkAccounting": "Extraction overlaps only the already excluded functional uncached-01 run; no application rebuild. Three subsequent timing runs remain reserved for no heavy diagnostic work."
+}
