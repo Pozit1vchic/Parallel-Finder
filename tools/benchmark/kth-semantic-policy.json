@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "modelSha256": "b9316ea2de6a29282fa1567246dc74670052525319e48cbab02b6b91ff10c481",
+  "selection": "First published interval of each video; two seconds centered on the median observed single-person frame",
+  "scope": "Evaluate existing temporal AVA walk and run/jog evidence; no new model or trained weights",
+  "policyOrigin": "Existing measuredWalking gates; run policy uses the same gates with walk/run indices exchanged, frozen before AVA holdout inference",
+  "walking": {"index": 13, "competitors": [9, 11]},
+  "running": {"index": 9, "competitors": [13, 11]},
+  "minimumTemporalScore": 0.9,
+  "minimumFrozenMargin": 0.5,
+  "minimumCompetitorMargin": 0.2,
+  "expectedRunningActions": ["jogging", "running"],
+  "expectedWalkingActions": ["walking"],
+  "confidenceMeaning": "Evidence strength, not calibrated probability; do not relabel raw sigmoid outputs as calibrated confidence",
+  "unavailableHandling": "Retain every planned source; absent eligible boxes are unknown and count as misses for positive actions"
+}

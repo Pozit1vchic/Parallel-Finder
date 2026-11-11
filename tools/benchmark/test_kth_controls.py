@@ -9,6 +9,7 @@ import zipfile
 
 from evaluate_kth_controls import cases
 from fetch_kth_controls import extract_member, fetch_range
+from evaluate_kth_video_actions import binary_metrics, decision, POLICY
 
 
 class Response(io.BytesIO):
@@ -20,6 +21,23 @@ class Response(io.BytesIO):
 
 
 class KthControlsTests(unittest.TestCase):
+    def test_frozen_temporal_and_competing_action_gates_are_required(self):
+        policy = json.loads(POLICY.read_text())
+        scores, frozen = [0.] * 80, [0.] * 80
+        scores[9] = .99
+        self.assertTrue(decision(scores, frozen, "running", policy))
+        self.assertFalse(decision(scores, frozen, "walking", policy))
+        frozen[9] = .8
+        self.assertFalse(decision(scores, frozen, "running", policy))
+        frozen[9] = 0.;scores[13] = .95
+        self.assertFalse(decision(scores, frozen, "running", policy))
+
+    def test_unavailable_positive_remains_a_false_negative(self):
+        metrics = binary_metrics([(True, True), (True, False), (False, False)])
+        self.assertEqual(metrics["recall"], .5)
+        self.assertEqual(metrics["precision"], 1.)
+        self.assertAlmostEqual(metrics["f1"], 2 / 3)
+
     def test_range_server_cannot_ignore_or_shift_requested_interval(self):
         with patch("urllib.request.urlopen", side_effect=lambda *a, **kw: Response(b"abc", "bytes 1-3/9")), patch("time.sleep"):
             with self.assertRaises(ValueError):

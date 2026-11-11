@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QElapsedTimer>
+#include <QCryptographicHash>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -24,6 +25,8 @@ int main(int argc,char** argv)
     const auto cases=QJsonDocument::fromJson(input.readAll()).array();
     if(cases.isEmpty() || cases.size()>16 || QFileInfo::exists(QString::fromUtf8(argv[4])))return 2;
     try {
+        QFile modelFile(QString::fromUtf8(argv[2]));QCryptographicHash modelHash(QCryptographicHash::Sha256);
+        if(!modelFile.open(QIODevice::ReadOnly) || !modelHash.addData(&modelFile))return 2;
         pfgpu::VideoActionEstimator estimator(argv[2],provider=="cuda"?pfgpu::Provider::Cuda:pfgpu::Provider::Cpu,8);
         QJsonArray results;
         for(const auto entry:cases) {
@@ -34,9 +37,12 @@ int main(int argc,char** argv)
             const auto roi=QJsonDocument::fromJson(roiFile.readAll()).object();
             if(QFileInfo(roi["source"].toString()).absoluteFilePath()!=QFileInfo(source).absoluteFilePath())return 2;
             const auto observation=roi["observations"].toArray().at(0).toObject();
-            if(observation["association"].isNull() || observation["time"].toDouble()<start || observation["time"].toDouble()>=end)return 2;
-            const int candidate=observation["association"].toObject()["candidate"].toInt(-1);
-            const auto people=observation["people"].toArray();if(candidate<0 || candidate>=people.size())return 2;
+            const auto people=observation["people"].toArray();
+            const bool singleSubject=roi["selectionPolicy"]=="single-subject-dataset";
+            if(observation["time"].toDouble()<start || observation["time"].toDouble()>=end)return 2;
+            if(singleSubject ? people.size()!=1 : observation["association"].isNull())return 2;
+            const int candidate=singleSubject?0:observation["association"].toObject()["candidate"].toInt(-1);
+            if(candidate<0 || candidate>=people.size())return 2;
             const auto box=people[candidate].toObject()["box"].toArray();if(box.size()!=4)return 2;
             const std::array<pfgpu::VideoActionSubject,1> subjects{{{float(box[0].toDouble()),float(box[1].toDouble()),
                 float(box[2].toDouble()),float(box[3].toDouble())}}};
@@ -72,13 +78,15 @@ int main(int argc,char** argv)
                 variants[name]=QJsonObject{{"walk",scores[13]},{"scores",values}};
             }
             results.append(QJsonObject{{"id",row["id"]},{"source",source},{"start",start},{"end",end},
+                {"subjectSelection",singleSubject?"single-subject dataset (no identity proof)":"supplied pose association"},
                 {"sourceBytes",sourceSize},{"sourceModifiedMs",sourceModified.toMSecsSinceEpoch()},
                 {"framePts",timestamps},{"variants",variants},{"elapsedMs",clock.elapsed()}});
             std::cerr<<"Reviewed "<<results.size()<<"/"<<cases.size()<<" native clips\n";
         }
         QFile output(QString::fromUtf8(argv[4]));if(!output.open(QIODevice::WriteOnly|QIODevice::NewOnly))return 3;
         const auto bytes=QJsonDocument(QJsonObject{{"scope","native person-action model audit; not identity, continuity or app admission"},
-            {"providerRequested",provider},{"model",QString::fromUtf8(argv[2])},{"results",results}}).toJson();
+            {"providerRequested",provider},{"model",QString::fromUtf8(argv[2])},
+            {"modelSha256",QString::fromLatin1(modelHash.result().toHex())},{"results",results}}).toJson();
         if(output.write(bytes)!=bytes.size())return 3;
     }catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 4;}
     return 0;
