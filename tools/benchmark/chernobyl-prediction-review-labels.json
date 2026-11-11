@@ -1,0 +1,660 @@
+{
+  "schemaVersion": 1,
+  "scope": "Frozen-plan post-hoc top-10 prediction review; not independent positive-control ground truth",
+  "reviewer": "Assistant temporal visual inspection with matched-track native pose overlays; no independent human confirmation",
+  "planSha256": "5d50d7270758c21c311127fd46c36ffc73ad8ce9352c660272aae4a21e50174e",
+  "reportSha256": {
+    "before": "768170eb060473951e7666cf0f6c65fff488f188b720ac8c4d4e0674c1c523b2",
+    "after": "5735df40ad3b6183271574809fecc0dc91b5a451a457de6f22597ca59bd989bd"
+  },
+  "judgments": [
+    {
+      "variant": "before",
+      "returnedArrayIndex": 0,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 0,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 11,
+        "rightTrackId": 15,
+        "leftStart": 27.201,
+        "leftEnd": 28.361,
+        "rightStart": 35.841,
+        "rightEnd": 37.521,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Correct seated brown-and-tan-jacket subject on both sides. Cross-legged sitting and hands near the lap recur when the camera returns; lower interval includes small object/hand manipulation. Grade 1 under the frozen returning-camera and generic-posture rule; no comparable distinctive movement demonstrated.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\before\\pair-000.jpg",
+          "sha256": "d9de59fa7064473300926838a411810ceb9d682a8a7f327f6938c750ff434935"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\before\\pair-000\\overlay\\review-001.jpg",
+          "sha256": "d892751544ac5eb111c2b7ed42bfae9d2155f58ffc0c3eac3ea59fcb032fb650"
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "returnedArrayIndex": 1,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 1,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1360,
+        "rightTrackId": 1364,
+        "leftStart": 1910.516,
+        "leftEnd": 1911.516,
+        "rightStart": 1915.836,
+        "rightEnd": 1917.836,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays select the rear dark-clothed subject holding a long object across the torso, not the foreground flashlight holder. The camera returns a few seconds later to substantially the same held configuration. Grade 1 by the frozen returning-camera rule, even though the held object is visually distinctive.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\before\\pair-001.jpg",
+          "sha256": "5a4927cf7fcfe6f6f876f90d92ebb82bcad392402e96bcfe55b754104979af15"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\before\\pair-001\\overlay\\review-001.jpg",
+          "sha256": "041f471212c164de1835e6c39f351e39b9638c262817358bd57c8073efd87f2a"
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "returnedArrayIndex": 2,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 2,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1328,
+        "rightTrackId": 1653,
+        "leftStart": 1852.5140000000001,
+        "leftEnd": 1853.5140000000001,
+        "rightStart": 2398.335,
+        "rightEnd": 2399.335,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays select the red-and-green-jacket subject in the background on both sides. Upright stance with hands near the waist is weak generic correspondence; foreground flashlight gestures belong to other tracks and cannot substantiate this match.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\before\\pair-002.jpg",
+          "sha256": "80bb099fe52ea0e92aedaf8bf248b72395064237569ac45d666dcfab92cd7634"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\before\\pair-002\\overlay\\review-001.jpg",
+          "sha256": "3b1b9fe35d396f31e038c2bf5dc7248ab053a83af7a2f5f0ae0dfc03e7e3ed2f"
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "returnedArrayIndex": 3,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 3,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 95,
+        "rightTrackId": 1117,
+        "leftStart": 212.68800000000002,
+        "leftEnd": 214.529,
+        "rightStart": 1463.858,
+        "rightEnd": 1465.858,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays select the gray-hooded subject at the left rear in both intervals. Walking with hands near pockets is compared with standing and holding a long object near the waist. There is generic upright geometry but no demonstrated comparable trajectory or distinctive held-pose correspondence; grade 1, not a strong parallel.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\before\\pair-003.jpg",
+          "sha256": "3c8ff39e32ece965bcf8295d8c963e307470a77309a6cc96273f6c66ed4f7294"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\before\\pair-003\\overlay\\review-001.jpg",
+          "sha256": "7a6046833cfe93341256c732ce3d88868164639b3aaf5fde34ee15e6963b5c0f"
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "returnedArrayIndex": 4,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 4,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1606,
+        "rightTrackId": 1472,
+        "leftStart": 2241.338,
+        "leftEnd": 2243.179,
+        "rightStart": 2140.005,
+        "rightEnd": 2142.005,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays select the dark-haired subject behind the foreground teal-jacket person on the left and at the left of the rooftop group on the right. Arms mostly down and upright stance are generic; the foreground person movement is not evidence for this selected track.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\before\\pair-004.jpg",
+          "sha256": "6240397ff64abb33d51eabee592000a5583b6ab7239b90744c66d8a5aacb7f1c"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\before\\pair-004\\overlay\\review-001.jpg",
+          "sha256": "7ed6f963c5596973a8bc898e1a932aedbbc652675f45d6f2a569115eff5ee506"
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "returnedArrayIndex": 5,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 5,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1508,
+        "rightTrackId": 1530,
+        "leftStart": 2195.007,
+        "leftEnd": 2196.007,
+        "rightStart": 2218.368,
+        "rightEnd": 2220.0080000000003,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Correct gray-hooded foreground subject on both sides. A returning camera shows essentially the same upright stance and slight head tilt; grade 1, with redundancy concern, rather than a demonstrated matching movement.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\before\\pair-005.jpg",
+          "sha256": "e256948dc6d1d8c409b7b604120defc48f4f5080ff87d2bb73c8955f4f09f41b"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\before\\pair-005\\overlay\\review-001.jpg",
+          "sha256": "4503c5901c661f4b702a53a79929af8ca2e6f2772d74c95350bdf50280d3dd5a"
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "returnedArrayIndex": 6,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 6,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1517,
+        "rightTrackId": 1536,
+        "leftStart": 2204.5280000000002,
+        "leftEnd": 2206.368,
+        "rightStart": 2226.689,
+        "rightEnd": 2227.689,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Correct gray-hooded foreground subject on both sides. Small gaze/head changes occur while the body remains in a generic upright stance, and the camera returns to the same setup. Grade 1 under the frozen generic/returning-camera rule.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\before\\pair-006.jpg",
+          "sha256": "27d3713b5789f0a8bc80d4d9040ef5606d2a946b892d7c538c302cf8cc0a9496"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\before\\pair-006\\overlay\\review-001.jpg",
+          "sha256": "6f73904ff272a2b207acd240fc5e5e7206ab2cae722a068cbccc359eb000d24d"
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "returnedArrayIndex": 7,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 7,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 391,
+        "rightTrackId": 1525,
+        "leftStart": 535.021,
+        "leftEnd": 536.341,
+        "rightStart": 2211.688,
+        "rightEnd": 2213.168,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays select the gray-hooded subject outdoors and the gray-hooded foreground subject indoors. Both are upright with arms down; visible similarity is generic posture rather than a distinctive action or trajectory.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\before\\pair-007.jpg",
+          "sha256": "f0b549ddeff3f9b4ac1b8a4e1efb504dfbff7c710c6421fd73a3787875d28004"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\before\\pair-007\\overlay\\review-001.jpg",
+          "sha256": "9cd04785c25fefe84d0412cd4ef95389c3ee35d48cc960ba2506d1c77558461f"
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "returnedArrayIndex": 8,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 8,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1492,
+        "rightTrackId": 1519,
+        "leftStart": 2128.369,
+        "leftEnd": 2130.17,
+        "rightStart": 2166.372,
+        "rightEnd": 2167.373,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays select the brown-and-tan-jacket subject at the rear, not the foreground paper exchange or red-and-green-jacket person. The camera returns to an unchanged shoulder-strap hold and upright stance. Grade 1 under the frozen returning-camera rule.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\before\\pair-008.jpg",
+          "sha256": "7eb79b37886480db7f5a5032ea65f687dc8483bbe620e8df77020150eb6ce6c7"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\before\\pair-008\\overlay\\review-001.jpg",
+          "sha256": "0985a9b9e48f6bd94452f8f8b2affb6300f0f4efc63c0ba9efd02b086501f738"
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "returnedArrayIndex": 9,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 9,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1149,
+        "rightTrackId": 1686,
+        "leftStart": 1511.8600000000001,
+        "leftEnd": 1513.8600000000001,
+        "rightStart": 2450.538,
+        "rightEnd": 2452.178,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays select the red-and-green-jacket subject at the rear of the stairwell group and the rear right of the rooftop group. Upright stance and hands near the waist are weak generic correspondence; the foreground flashlight holder is not the matched actor.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\before\\pair-009.jpg",
+          "sha256": "99ad0e45267af66ab5a9e50f32f3e33ff75a9f3ccf3b21ba6b5c75a5e32724df"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\before\\pair-009\\overlay\\review-001.jpg",
+          "sha256": "ea724cb0ef6f2252496e833cc7d3d231cd72f981b27ad5bc1522a7bd05f5863c"
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "returnedArrayIndex": 0,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 0,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 11,
+        "rightTrackId": 15,
+        "leftStart": 27.201,
+        "leftEnd": 28.361,
+        "rightStart": 35.841,
+        "rightEnd": 37.521,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Correct seated brown-and-tan-jacket subject on both sides. Cross-legged sitting and hands near the lap recur when the camera returns; lower interval includes small object/hand manipulation. Grade 1 under the frozen returning-camera and generic-posture rule; no comparable distinctive movement demonstrated.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\after\\pair-000.jpg",
+          "sha256": "d9de59fa7064473300926838a411810ceb9d682a8a7f327f6938c750ff434935"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\after\\pair-000\\overlay\\review-001.jpg",
+          "sha256": "d892751544ac5eb111c2b7ed42bfae9d2155f58ffc0c3eac3ea59fcb032fb650"
+        }
+      ],
+      "identicalNativePoseInputToBeforeIndex": 0
+    },
+    {
+      "variant": "after",
+      "returnedArrayIndex": 1,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 1,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1360,
+        "rightTrackId": 1364,
+        "leftStart": 1910.516,
+        "leftEnd": 1911.516,
+        "rightStart": 1915.836,
+        "rightEnd": 1917.836,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays select the rear dark-clothed subject holding a long object across the torso, not the foreground flashlight holder. The camera returns a few seconds later to substantially the same held configuration. Grade 1 by the frozen returning-camera rule, even though the held object is visually distinctive.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\after\\pair-001.jpg",
+          "sha256": "5a4927cf7fcfe6f6f876f90d92ebb82bcad392402e96bcfe55b754104979af15"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\after\\pair-001\\overlay\\review-001.jpg",
+          "sha256": "041f471212c164de1835e6c39f351e39b9638c262817358bd57c8073efd87f2a"
+        }
+      ],
+      "identicalNativePoseInputToBeforeIndex": 1
+    },
+    {
+      "variant": "after",
+      "returnedArrayIndex": 2,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 2,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 556,
+        "rightTrackId": 1611,
+        "leftStart": 761.181,
+        "leftEnd": 762.701,
+        "rightStart": 2256.02,
+        "rightEnd": 2257.5,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays select the long-haired subject standing behind the desk and the dark-haired subject standing in the doorway. Upright stance with both arms mostly down is generic; no distinctive comparable motion or held posture is established. Different people are allowed in all-people mode.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\after\\pair-002.jpg",
+          "sha256": "5c0b5792acb82014fc2ca94b444709836e73cc07d776211565691f600ff5a905"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\after\\pair-002\\overlay\\review-001.jpg",
+          "sha256": "33a1c0d6e55c826a308f212aa988d99f58ed18660888f53f354c872be5102592"
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "returnedArrayIndex": 3,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 3,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1328,
+        "rightTrackId": 1653,
+        "leftStart": 1852.5140000000001,
+        "leftEnd": 1853.5140000000001,
+        "rightStart": 2398.335,
+        "rightEnd": 2399.335,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays select the red-and-green-jacket subject in the background on both sides. Upright stance with hands near the waist is weak generic correspondence; foreground flashlight gestures belong to other tracks and cannot substantiate this match.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\after\\pair-003.jpg",
+          "sha256": "22fc1326860e7f61418fba179fc9313a6c4d69ee9d443359efa257f07bfe699f"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\after\\pair-003\\overlay\\review-001.jpg",
+          "sha256": "3b1b9fe35d396f31e038c2bf5dc7248ab053a83af7a2f5f0ae0dfc03e7e3ed2f"
+        }
+      ],
+      "identicalNativePoseInputToBeforeIndex": 2
+    },
+    {
+      "variant": "after",
+      "returnedArrayIndex": 4,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 4,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 95,
+        "rightTrackId": 1117,
+        "leftStart": 212.68800000000002,
+        "leftEnd": 214.529,
+        "rightStart": 1463.858,
+        "rightEnd": 1465.858,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays select the gray-hooded subject at the left rear in both intervals. Walking with hands near pockets is compared with standing and holding a long object near the waist. There is generic upright geometry but no demonstrated comparable trajectory or distinctive held-pose correspondence; grade 1, not a strong parallel.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\after\\pair-004.jpg",
+          "sha256": "99dd08bbf6f7a3f11a034a71d862428b82b8def748975761d5aa7d8f58ff555f"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\after\\pair-004\\overlay\\review-001.jpg",
+          "sha256": "7a6046833cfe93341256c732ce3d88868164639b3aaf5fde34ee15e6963b5c0f"
+        }
+      ],
+      "identicalNativePoseInputToBeforeIndex": 3
+    },
+    {
+      "variant": "after",
+      "returnedArrayIndex": 5,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 5,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1508,
+        "rightTrackId": 1530,
+        "leftStart": 2195.007,
+        "leftEnd": 2196.007,
+        "rightStart": 2218.368,
+        "rightEnd": 2220.0080000000003,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Correct gray-hooded foreground subject on both sides. A returning camera shows essentially the same upright stance and slight head tilt; grade 1, with redundancy concern, rather than a demonstrated matching movement.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\after\\pair-005.jpg",
+          "sha256": "e256948dc6d1d8c409b7b604120defc48f4f5080ff87d2bb73c8955f4f09f41b"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\after\\pair-005\\overlay\\review-001.jpg",
+          "sha256": "4503c5901c661f4b702a53a79929af8ca2e6f2772d74c95350bdf50280d3dd5a"
+        }
+      ],
+      "identicalNativePoseInputToBeforeIndex": 5
+    },
+    {
+      "variant": "after",
+      "returnedArrayIndex": 6,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 6,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1517,
+        "rightTrackId": 1536,
+        "leftStart": 2204.5280000000002,
+        "leftEnd": 2206.368,
+        "rightStart": 2226.689,
+        "rightEnd": 2227.689,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Correct gray-hooded foreground subject on both sides. Small gaze/head changes occur while the body remains in a generic upright stance, and the camera returns to the same setup. Grade 1 under the frozen generic/returning-camera rule.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\after\\pair-006.jpg",
+          "sha256": "27d3713b5789f0a8bc80d4d9040ef5606d2a946b892d7c538c302cf8cc0a9496"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\after\\pair-006\\overlay\\review-001.jpg",
+          "sha256": "6f73904ff272a2b207acd240fc5e5e7206ab2cae722a068cbccc359eb000d24d"
+        }
+      ],
+      "identicalNativePoseInputToBeforeIndex": 6
+    },
+    {
+      "variant": "after",
+      "returnedArrayIndex": 7,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 7,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 391,
+        "rightTrackId": 1525,
+        "leftStart": 535.021,
+        "leftEnd": 536.341,
+        "rightStart": 2211.688,
+        "rightEnd": 2213.168,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays select the gray-hooded subject outdoors and the gray-hooded foreground subject indoors. Both are upright with arms down; visible similarity is generic posture rather than a distinctive action or trajectory.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\after\\pair-007.jpg",
+          "sha256": "f0b549ddeff3f9b4ac1b8a4e1efb504dfbff7c710c6421fd73a3787875d28004"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\after\\pair-007\\overlay\\review-001.jpg",
+          "sha256": "9cd04785c25fefe84d0412cd4ef95389c3ee35d48cc960ba2506d1c77558461f"
+        }
+      ],
+      "identicalNativePoseInputToBeforeIndex": 7
+    },
+    {
+      "variant": "after",
+      "returnedArrayIndex": 8,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 8,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1492,
+        "rightTrackId": 1519,
+        "leftStart": 2128.369,
+        "leftEnd": 2130.17,
+        "rightStart": 2166.372,
+        "rightEnd": 2167.373,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays select the brown-and-tan-jacket subject at the rear, not the foreground paper exchange or red-and-green-jacket person. The camera returns to an unchanged shoulder-strap hold and upright stance. Grade 1 under the frozen returning-camera rule.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\after\\pair-008.jpg",
+          "sha256": "7eb79b37886480db7f5a5032ea65f687dc8483bbe620e8df77020150eb6ce6c7"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\after\\pair-008\\overlay\\review-001.jpg",
+          "sha256": "0985a9b9e48f6bd94452f8f8b2affb6300f0f4efc63c0ba9efd02b086501f738"
+        }
+      ],
+      "identicalNativePoseInputToBeforeIndex": 8
+    },
+    {
+      "variant": "after",
+      "returnedArrayIndex": 9,
+      "grade": "unknown",
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 9,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1217,
+        "rightTrackId": 1490,
+        "leftStart": 1632.505,
+        "leftEnd": 1634.505,
+        "rightStart": 2172.846,
+        "rightEnd": 2174.007,
+        "matchType": "pose",
+        "headOnlyComparison": false
+      },
+      "notes": "Overlays identify the selected person beside the car carrying a large rectangular object on the left and the dark-haired person near the rooftop wall on the right. The carried object occludes the arm configuration, while the right subject turns with arms mostly down. The six temporal samples and three pose frames do not establish whether a comparable held posture exists; retain unknown instead of coercing a false-positive or positive judgment.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-prediction-review\\after\\pair-009.jpg",
+          "sha256": "816eb5989d5e7b0b857d0d500e236532f065b3e8b755ccebc4052a5c64e3dd5a"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-heldout-top10-pose-review-01\\after\\pair-009\\overlay\\review-001.jpg",
+          "sha256": "e0d4f62a71a1a7d31de262314cc11265a6ecda322ffb871816fa75e993b0a192"
+        }
+      ]
+    }
+  ]
+}

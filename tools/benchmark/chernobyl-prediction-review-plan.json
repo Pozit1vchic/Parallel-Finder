@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "scope": "Post-hoc audit of returned top-10 predictions on S01E03/S01E04; separate from the frozen positive-control recall experiment",
+  "selection": "Returned array positions 0 through 9 for each version, without cherry-picking based on score or appearance",
+  "referenceReports": ["build/goal-chernobyl-holdout-full-01/before/cold.json", "build/goal-chernobyl-holdout-full-01/after/cold.json"],
+  "reviewer": "Assistant temporal visual inspection; no independent human confirmation",
+  "imagePolicy": "Scores and classifier labels hidden on review sheets; actual source times retained; predictions and version identity are not fully blinded",
+  "frozenBeforeRenderingSelectedPredictionSheets": true,
+  "grades": {
+    "2": "Comparable observed action trajectory or distinctive sustained posture; sufficient visible support on the matched tracks",
+    "1": "Weak/generic posture similarity, isolated gaze similarity, or a returning camera with substantially unchanged pose; some similarity but limited montage specificity",
+    "0": "Observed incompatible action/posture, non-person artifact, or clear wrong-track association without comparable evidence",
+    "unknown": "Insufficient visibility or temporal evidence; resolve by dense sequence and native pose overlay if possible, otherwise retain unknown"
+  },
+  "specialCases": {
+    "allPeople": "Different people may form a relevant parallel; do not demand identity equality",
+    "headOnly": "Judge head evidence separately; do not infer whole-body correspondence",
+    "static": "A distinctive observed held posture is eligible; neutral standing/sitting alone is weak",
+    "mirroring": "Mirrored actions may be relevant because the frozen benchmark enables mirror invariance",
+    "occlusion": "Missing evidence is unknown, not automatically a false positive",
+    "duplicates": "Track returning-camera/near-duplicate concerns separately from exact duplicate record invariants"
+  },
+  "metrics": {
+    "strictPrecisionAt10": "Grade 2 count / 10, with unknown treated as unresolved; report lower/upper bounds [grade2/10,(grade2+unknown)/10]",
+    "lenientPrecisionAt10": "Grades 1+2 count / 10, with corresponding unknown bounds",
+    "disclosure": "Do not call top-10 precision episode-wide Precision, independent ground truth, confidence calibration, or a representative random-sample estimate"
+  },
+  "noTuning": "Do not adjust matcher thresholds or logic from these held-out prediction judgments; implementation changes must use the tuning split or another previously reserved dataset"
+}
