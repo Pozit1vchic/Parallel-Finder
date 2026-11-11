@@ -1,4 +1,5 @@
 #include <QtTest/QTest>
+#include <UiRuntime.h>
 #include <QGuiApplication>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -361,5 +362,11 @@ private slots:
         controller.setEnabled(false);pfservices::SettingsStore::flushPendingWrites();
     }
 };
-QTEST_MAIN(McpTests)
+int main(int argc,char** argv) {
+    pfui::configureUiRuntime();
+    pfui::GuiApartment guiApartment;
+    QGuiApplication app(argc,argv);
+    McpTests tests;
+    return QTest::qExec(&tests,argc,argv);
+}
 #include "test_mcp.moc"

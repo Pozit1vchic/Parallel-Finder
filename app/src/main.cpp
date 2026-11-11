@@ -154,6 +154,7 @@ int main(int argc, char* argv[])
 #endif
     // A provider probe has no window or QML. QGuiApplication would try to load
     // an offscreen platform plugin absent from the shipped Windows package.
+    pfui::GuiApartment guiApartment(!providerProbe);
     std::unique_ptr<QCoreApplication> application;
     if (providerProbe) application = std::make_unique<QCoreApplication>(argc, argv);
     else application = std::make_unique<QGuiApplication>(argc, argv);

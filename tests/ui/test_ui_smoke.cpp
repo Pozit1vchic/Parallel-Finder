@@ -8,6 +8,10 @@
 #include <QtGui/QFontMetricsF>
 #include <QtGui/QFontDatabase>
 #include <QtCore/QDir>
+#include <QtCore/QLocale>
+#ifdef Q_OS_WIN
+#include <objbase.h>
+#endif
 #include <QtQml/QQmlApplicationEngine>
 #include <QtQml/QQmlComponent>
 #include <QtQml/QQmlProperty>
@@ -64,6 +68,7 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!pfui::AppInfo::instance()->backendInitializing(), 30000);
     }
     void addingFilesDoesNotWaitForPreviewDeletion();
+    void nestedComUsersDoNotInvalidateQtLocale();
     void firstAddingRealVideosKeepsUiResponsive();
     void nativeSourceDialogKeepsUiResponsive();
     void mainQmlLoadsFromResources();
@@ -898,6 +903,22 @@ QQuickWindow* loadWindow(QQmlApplicationEngine& engine)
     return window;
 }
 } // namespace
+
+void UiSmokeTests::nestedComUsersDoNotInvalidateQtLocale()
+{
+#ifdef Q_OS_WIN
+    const auto status=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
+    QVERIFY(SUCCEEDED(status));
+    const auto before=QLocale::system().uiLanguages();
+    CoUninitialize();
+    // On Qt 6.11.2 this crashes if the nested user's release ends the GUI
+    // apartment while Qt still holds a cached WinRT globalization factory.
+    QCOMPARE(QLocale::system().uiLanguages(),before);
+    pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;
+    QVERIFY(loadWindow(engine));
+#endif
+}
 
 void UiSmokeTests::themeSingletonResolves()
 {
@@ -3571,6 +3592,7 @@ int main(int argc, char** argv)
         std::printf("PF_BACKENDS_JSON=%s\n",pfui::backendProbeJson(probe).constData()); return 0;
     }
     pfui::configureUiRuntime();
+    pfui::GuiApartment guiApartment;
     QGuiApplication app(argc, argv);
     UiSmokeTests tests;
     return QTest::qExec(&tests, argc, argv);

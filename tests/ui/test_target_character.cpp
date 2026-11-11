@@ -202,7 +202,7 @@ private slots:
             QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget()||!analysis->busy(),180000);
             QVERIFY(analysis->awaitingTarget());
             QString alternative;double longest=3.1;
-            for(const auto value:analysis->targetCandidates()) {
+            for(const auto& value:analysis->targetCandidates()) {
                 const auto row=value.toMap();
                 if(row.value("id").toString()!=expectedManualId&&row.value("presence").toDouble()>longest) {
                     longest=row.value("presence").toDouble();alternative=row.value("id").toString();
@@ -523,7 +523,7 @@ private slots:
 };
 
 int main(int argc,char** argv) {
-    pfui::configureUiRuntime();QGuiApplication app(argc,argv);
+    pfui::configureUiRuntime();pfui::GuiApartment guiApartment;QGuiApplication app(argc,argv);
     QCoreApplication::setOrganizationName("ParallelFinderTests");
     QTemporaryDir profile;
     if(!profile.isValid())return 2;

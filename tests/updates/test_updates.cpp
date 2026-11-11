@@ -33,11 +33,13 @@ namespace {
 QByteArray digest(QByteArray bytes){return QCryptographicHash::hash(bytes,QCryptographicHash::Sha256);}
 void write(const QString& path,const QByteArray& bytes){QDir().mkpath(QFileInfo(path).absolutePath());QFile f(path);if(f.open(QIODevice::WriteOnly))f.write(bytes);}
 QByteArray read(const QString& path){QFile f(path);return f.open(QIODevice::ReadOnly)?f.readAll():QByteArray{};}
-QByteArray incrementalZip(const QString& path) {
+QByteArray incrementalZip(const QString& path,const QMap<QString,QByteArray>& contents) {
     archive* a=archive_write_new();archive_write_set_format_zip(a);archive_write_open_filename(a,path.toUtf8().constData());
-    archive_entry* e=archive_entry_new();archive_entry_set_pathname(e,"ParallelFinder/ParallelFinder.exe");
-    const QByteArray content="new-application";archive_entry_set_size(e,content.size());archive_entry_set_filetype(e,AE_IFREG);archive_entry_set_perm(e,0644);
-    archive_write_header(a,e);archive_write_data(a,content.constData(),content.size());archive_entry_free(e);
+    for(auto it=contents.begin();it!=contents.end();++it) {
+        archive_entry* e=archive_entry_new();const auto name=("ParallelFinder/"+it.key()).toUtf8();archive_entry_set_pathname(e,name.constData());
+        archive_entry_set_size(e,it.value().size());archive_entry_set_filetype(e,AE_IFREG);archive_entry_set_perm(e,0644);
+        archive_write_header(a,e);archive_write_data(a,it.value().constData(),it.value().size());archive_entry_free(e);
+    }
     archive_write_close(a);archive_write_free(a);return read(path);
 }
 struct Fixture {
@@ -67,11 +69,12 @@ struct Fixture {
     }
     QString root(){const auto path=directory.path()+"/installation";write(path+"/ParallelFinder.exe","old-application");write(path+"/unins000.exe","existing-installer-uninstaller");write(path+"/user-file.txt","portable-user-file");return path;}
     QString package(){const auto path=directory.path()+"/download.zip";write(path,zip);return path;}
-    QByteArray addIncremental() {
-        const auto delta=incrementalZip(directory.path()+"/incremental.zip");
-        object["incremental"]=QJsonArray{QJsonObject{{"baseVersion","0.1.0-rc.17"},{"asset","ParallelFinder-1.0.0-Incremental-x64.zip"},
+    QByteArray addIncremental(const QMap<QString,QByteArray>& payload={{"ParallelFinder.exe","new-application"}},
+        const QStringList& reuse={"ParallelFinderUpdater.exe","qml/test.qml"},const QString& base="0.1.0-rc.17") {
+        const auto delta=incrementalZip(directory.path()+"/incremental.zip",payload);
+        object["incremental"]=QJsonArray{QJsonObject{{"baseVersion",base},{"asset","ParallelFinder-1.0.0-Incremental-x64.zip"},
             {"size",delta.size()},{"sha256",QString::fromLatin1(digest(delta).toHex())},
-            {"reuse",QJsonArray{"ParallelFinderUpdater.exe","qml/test.qml"}}}};
+            {"reuse",QJsonArray::fromStringList(reuse)}}};
         resign();return delta;
     }
     void repackage(const QMap<QString,QByteArray>& contents) {
@@ -352,21 +355,31 @@ void UpdateTests::dialogMatchesThemeAndShowsDownload() {
 #ifdef Q_OS_WIN
 void UpdateTests::updaterProcessRestartsAndRollsBack_data() {
     QTest::addColumn<bool>("failHealth");QTest::addColumn<bool>("cancelHandoff");QTest::addColumn<bool>("prefixed");
-    QTest::newRow("successful-restart")<<false<<false<<false;QTest::newRow("failed-health-restores-old")<<true<<false<<false;
-    QTest::newRow("cancelled-handoff-keeps-old")<<false<<true<<false;
-    QTest::newRow("prefixed-manifest-restart")<<false<<false<<true;
+    QTest::addColumn<bool>("incremental");
+    QTest::newRow("successful-restart")<<false<<false<<false<<false;QTest::newRow("failed-health-restores-old")<<true<<false<<false<<false;
+    QTest::newRow("cancelled-handoff-keeps-old")<<false<<true<<false<<false;
+    QTest::newRow("prefixed-manifest-restart")<<false<<false<<true<<false;
+    QTest::newRow("incremental-restart")<<false<<false<<false<<true;
+    QTest::newRow("incremental-failed-health-restores-old")<<true<<false<<false<<true;
 }
 void UpdateTests::updaterProcessRestartsAndRollsBack() {
-    QFETCH(bool,failHealth);QFETCH(bool,cancelHandoff);QFETCH(bool,prefixed);Fixture f;const auto stub=read(PF_UPDATE_APP_STUB);QVERIFY(!stub.isEmpty());
+    QFETCH(bool,failHealth);QFETCH(bool,cancelHandoff);QFETCH(bool,prefixed);QFETCH(bool,incremental);Fixture f;const auto stub=read(PF_UPDATE_APP_STUB);QVERIFY(!stub.isEmpty());
     QMap<QString,QByteArray> contents{{"ParallelFinder.exe",stub},{"ParallelFinderUpdater.exe",read(PF_UPDATE_TEST_WORKER)},{"version.txt","1.0.0"}};
     if(failHealth)contents["fail-health.txt"]="fail";
     f.repackage(contents);
     if(prefixed){f.object["version"]="v1.0.0";f.resign();}
     const auto root=f.root();write(root+"/ParallelFinder.exe",stub);write(root+"/version.txt","0.1.0");
+    QString selectedAsset;
+    if(incremental) {
+        write(root+"/ParallelFinderUpdater.exe",contents.take("ParallelFinderUpdater.exe"));
+        const auto delta=f.addIncremental(contents,{"ParallelFinderUpdater.exe"},"0.1.0");
+        QVERIFY(f.manifest.size>delta.size());f.zip=delta;
+        selectedAsset="ParallelFinder-1.0.0-Incremental-x64.zip";
+    }
     QProcess parent;parent.start(root+"/ParallelFinder.exe",{"--wait"});QVERIFY(parent.waitForStarted());
     const auto request=f.directory.path()+"/request.json";
     if(cancelHandoff)write(request+".cancel","cancel");
-    write(request,QJsonDocument(QJsonObject{{"schema",1},{"root",root},{"package",f.package()},{"manifest",QString::fromLatin1(f.bytes.toBase64())},{"signature",QString::fromLatin1(f.signature.toBase64())},{"testPublicKey",QString::fromLatin1(f.publicKey.toBase64())},{"currentVersion","0.1.0"},{"parentPid",parent.processId()},{"consent",true}}).toJson());
+    write(request,QJsonDocument(QJsonObject{{"schema",1},{"root",root},{"package",f.package()},{"manifest",QString::fromLatin1(f.bytes.toBase64())},{"signature",QString::fromLatin1(f.signature.toBase64())},{"asset",selectedAsset},{"testPublicKey",QString::fromLatin1(f.publicKey.toBase64())},{"currentVersion","0.1.0"},{"parentPid",parent.processId()},{"consent",true}}).toJson());
     QProcess worker;worker.start(PF_UPDATE_TEST_WORKER,{"--request",request});QVERIFY(worker.waitForStarted());QVERIFY(parent.waitForFinished(5000));QVERIFY(worker.waitForFinished(15000));
     QCOMPARE(worker.exitCode(),cancelHandoff?4:failHealth?5:0);QCOMPARE(read(root+"/version.txt"),QByteArray(failHealth||cancelHandoff?"0.1.0":"1.0.0"));
     QCOMPARE(QJsonDocument::fromJson(read(f.directory.path()+"/last-result.json")).object()["success"].toBool(),!failHealth&&!cancelHandoff);
@@ -388,6 +401,7 @@ void UpdateTests::lockedDirectoryRollsBack() {
 int main(int argc, char** argv)
 {
     pfui::configureUiRuntime();
+    pfui::GuiApartment guiApartment;
     QGuiApplication app(argc, argv);
     UpdateTests tests;
     return QTest::qExec(&tests, argc, argv);

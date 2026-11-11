@@ -86,6 +86,7 @@ qt_add_qml_module(pfui
 # a pure-QML module generates no plugin, and AppInfo is registered manually
 # (AppInfo::registerQmlTypes) by the app/tests. See AppInfo.h.
 target_sources(pfui PRIVATE
+    src/UiRuntime.cpp
     src/BackendProbeProcess.cpp
     src/AppInfo.cpp
     src/DiscordPresence.cpp
@@ -99,6 +100,9 @@ target_sources(pfui PRIVATE
     src/McpController.h
 )
 target_link_libraries(pfui PUBLIC pf::core pf::gpu pf::services pf::exporters pfupdate)
+if(WIN32)
+    target_link_libraries(pfui PUBLIC runtimeobject)
+endif()
 
 # Static import of the module plugin: qt_add_qml_module writes "optional
 # plugin pfuiplugin" into qmldir, but shared-Qt builds do not link static
