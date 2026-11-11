@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "frozenBeforeHoldoutMatcherInspection": true,
+  "sourcePolicy": "User-supplied local videos; never modify originals or distribute episodes/extracted frames in Git/releases",
+  "episodes": [
+    {
+      "id": "S01E01",
+      "fileName": "Chernobyl.Zona.otchuzhdeniya.S.01.(01.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+      "split": "tuning",
+      "bytes": 1684740067,
+      "mtimeUtc": "2026-11-07T14:30:17.0089711Z",
+      "durationSeconds": 3219.456,
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "25/1"
+    },
+    {
+      "id": "S01E02",
+      "fileName": "Chernobyl.Zona.otchuzhdeniya.S.01.(02.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+      "split": "tuning",
+      "bytes": 1385277737,
+      "mtimeUtc": "2026-11-07T14:31:53.6516283Z",
+      "durationSeconds": 2643.712,
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "25/1"
+    },
+    {
+      "id": "S01E03",
+      "fileName": "Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+      "split": "holdout",
+      "bytes": 1422539231,
+      "mtimeUtc": "2026-11-07T14:29:10.7369403Z",
+      "durationSeconds": 2714.776,
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "25/1"
+    },
+    {
+      "id": "S01E04",
+      "fileName": "Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+      "split": "holdout",
+      "bytes": 1396033391,
+      "mtimeUtc": "2026-11-07T14:29:53.1624992Z",
+      "durationSeconds": 2665.312,
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "25/1"
+    }
+  ],
+  "qualityTruth": {
+    "status": "pending temporal visual review",
+    "independentOfMatcherOutput": true,
+    "positive": "Comparable observed temporal action with reviewable half-open bounds; not a similar isolated still alone",
+    "negative": "Comparable appearance or pose but an observably different action, or a reviewed mismatching temporal sequence",
+    "uncertain": "Insufficient visibility or ambiguous action; never coerce into a negative",
+    "reviewerDisclosure": "Name the actual reviewer; assistant inspection is not independently confirmed human annotation",
+    "unjudgedRetrieved": "Retain as unjudged; do not automatically count as false positives",
+    "tuning": "S01E01/S01E02 only; freeze annotations before threshold changes",
+    "holdout": "S01E03/S01E04; freeze annotations and scoring policy before testing the changed matcher"
+  },
+  "cacheScenarios": [
+    "empty",
+    "compatible repeat",
+    "matcher-only changes",
+    "classifier-only dependencies",
+    "new process",
+    "multi-day retention (distinguish simulated age from elapsed days)",
+    "disabled",
+    "15-20GiB budget pressure",
+    "partial deletion/corruption",
+    "changed test copy of exactly one source"
+  ],
+  "requiredEvidence": [
+    "per-stage timing",
+    "inference/frame/tracking counts",
+    "hit/miss by layer",
+    "process and cache I/O",
+    "actual cache footprint",
+    "peak process RAM and sampled per-process WDDM VRAM",
+    "output equality for compatible cache/no-cache runs",
+    "Precision/Recall/Recall@K on frozen judged controls"
+  ],
+  "settingsIsolation": "Separate benchmark settings and cache roots; never copy tokens or alter personal preferences"
+}

@@ -6,6 +6,9 @@
 #include <QCryptographicHash>
 #include <QTemporaryDir>
 #include <fstream>
+#include <chrono>
+#include <atomic>
+#include <thread>
 #include <pfcore/PathEncoding.hpp>
 
 TEST(PfCache, UnicodePathsAndAtomicReplacementPreserveOtherSources)
@@ -23,6 +26,97 @@ TEST(PfCache, UnicodePathsAndAtomicReplacementPreserveOtherSources)
     EXPECT_EQ(*cache.get("other"),(std::vector<std::uint8_t>{8,9}));
     EXPECT_FALSE(cache.put("target",std::vector<std::uint8_t>(65537),error));
     EXPECT_EQ(*cache.get("target"),(std::vector<std::uint8_t>{4,5,6}));
+}
+
+TEST(PfCache, RecentExpensiveObservationsOutliveReplaceablePreviews)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString());
+    pfservices::PfCache cache(root,512);
+    const std::string observations="motion-v43|source=video",oldPreview="preview-v1|older",newPreview="preview-v1|newer";
+    const auto path=[&](const std::string& key){return root/(QCryptographicHash::hash(QByteArray::fromStdString(key),QCryptographicHash::Sha256).toHex().toStdString()+".pfc");};
+    std::string error;const std::vector<std::uint8_t> data(180,7);
+    ASSERT_TRUE(cache.put(observations,data,error));
+    ASSERT_TRUE(cache.put(oldPreview,data,error));
+    const auto now=std::filesystem::file_time_type::clock::now();
+    std::filesystem::last_write_time(path(observations),now-std::chrono::hours(72));
+    std::filesystem::last_write_time(path(oldPreview),now-std::chrono::hours(1));
+    ASSERT_TRUE(cache.put(newPreview,data,error))<<error;
+    EXPECT_EQ(cache.get(observations),std::optional(data));
+    EXPECT_FALSE(cache.get(oldPreview));EXPECT_TRUE(cache.get(newPreview));
+    EXPECT_LE(cache.bytesUsed(),cache.limitBytes());
+}
+
+TEST(PfCache, ExpiredProtectionReturnsObservationsToOrdinaryLru)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString());
+    pfservices::PfCache cache(root,512);std::string error;
+    const std::string observations="motion-v43|source=video";
+    ASSERT_TRUE(cache.put(observations,std::vector<std::uint8_t>(180,1),error));
+    const auto name=QCryptographicHash::hash(QByteArray::fromStdString(observations),QCryptographicHash::Sha256).toHex().toStdString()+".pfc";
+    std::filesystem::last_write_time(root/name,std::filesystem::file_time_type::clock::now()-std::chrono::hours(24*8));
+    ASSERT_TRUE(cache.put("preview-v1|older",std::vector<std::uint8_t>(180,2),error));
+    ASSERT_TRUE(cache.put("preview-v1|newer",std::vector<std::uint8_t>(180,3),error));
+    EXPECT_FALSE(cache.get(observations));
+    EXPECT_TRUE(cache.get("preview-v1|newer"));EXPECT_LE(cache.bytesUsed(),cache.limitBytes());
+}
+
+TEST(PfCache, DeclinesCheapPreviewRatherThanLosingRecentAnalysis)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    pfservices::PfCache cache(std::filesystem::path(directory.path().toStdWString()),256);
+    std::string error;const std::vector<std::uint8_t> observations(180,1);
+    ASSERT_TRUE(cache.put("motion-v43|source=video",observations,error));
+    EXPECT_FALSE(cache.put("preview-v1|large",std::vector<std::uint8_t>(64,2),error));
+    EXPECT_FALSE(error.empty());
+    EXPECT_EQ(cache.get("motion-v43|source=video"),std::optional(observations));
+    EXPECT_FALSE(cache.get("preview-v1|large"));EXPECT_LE(cache.bytesUsed(),cache.limitBytes());
+}
+
+TEST(PfCache, EntryHeaderFitsBudgetBeforeReplacingAnExistingValue)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    pfservices::PfCache cache(std::filesystem::path(directory.path().toStdWString()),64);
+    std::string error;ASSERT_TRUE(cache.put("target",{1},error));
+    EXPECT_FALSE(cache.put("target",std::vector<std::uint8_t>(40,2),error));
+    EXPECT_FALSE(error.empty());EXPECT_EQ(cache.get("target"),std::optional(std::vector<std::uint8_t>{1}));
+    EXPECT_LE(cache.bytesUsed(),cache.limitBytes());
+}
+
+TEST(PfCache, ReducedCapacityIsAppliedWithoutWritingNewData)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString());
+    pfservices::PfCache original(root,2048);std::string error;
+    ASSERT_TRUE(original.put("motion-v43|source=video",std::vector<std::uint8_t>(180,1),error));
+    for(int i=0;i<3;++i)ASSERT_TRUE(original.put("preview-v1|"+std::to_string(i),std::vector<std::uint8_t>(180,2),error));
+    ASSERT_GT(original.bytesUsed(),512U);
+    pfservices::PfCache reduced(root,512);
+    ASSERT_TRUE(reduced.enforceLimit(error))<<error;
+    EXPECT_LE(reduced.bytesUsed(),512U);
+    EXPECT_TRUE(reduced.get("motion-v43|source=video"));
+}
+
+TEST(PfCache, ConcurrentPressureOnTheSameRootPreservesRecentObservations)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString());
+    pfservices::PfCache cache(root,512);std::string error;
+    const std::string key="motion-v43|source=video";const std::vector<std::uint8_t> data(180,1);
+    ASSERT_TRUE(cache.put(key,data,error));
+    std::vector<std::jthread> writers;
+    for(int worker=0;worker<4;++worker)writers.emplace_back([&,worker] {
+        pfservices::PfCache local(worker%2 ? root/".":root,512);
+        for(int i=0;i<32;++i) {
+            std::string localError;
+            local.put("preview-v1|"+std::to_string(worker)+"|"+std::to_string(i),
+                std::vector<std::uint8_t>(180,2),localError);
+        }
+    });
+    writers.clear();
+    EXPECT_EQ(cache.get(key),std::optional(data));
+    EXPECT_LE(cache.bytesUsed(),cache.limitBytes());
 }
 
 TEST(PfCache, ForgedPayloadLengthAndTrailingBytesAreCacheMisses)

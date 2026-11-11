@@ -31,9 +31,7 @@ public:
     // Ownership is kept separately from opaque hashed cache keys.
     bool rememberSourceKey(const std::string& source, const std::string& key, std::string& error);
     bool putForSource(const std::string& source, const std::string& key,
-                      const std::vector<std::uint8_t>& payload, std::string& error) {
-        return rememberSourceKey(source,key,error) && put(key,payload,error);
-    }
+                      const std::vector<std::uint8_t>& payload, std::string& error);
     // Write a group of observations for one source, then perform one LRU
     // budget scan instead of rescanning the growing cache after every entry.
     bool putForSourceBatch(const std::string& source,
@@ -48,6 +46,8 @@ public:
     [[nodiscard]] std::size_t bytesUsed() const;
     [[nodiscard]] std::size_t limitBytes() const noexcept { return limitBytes_; }
     [[nodiscard]] const std::filesystem::path& rootPath() const noexcept { return root_; }
+    // Reapply a changed capacity even when a warm analysis writes nothing.
+    bool enforceLimit(std::string& error) const;
 
 private:
     std::filesystem::path fileFor(const std::string& key) const;
@@ -55,10 +55,11 @@ private:
                    std::vector<std::uint8_t>& payload) const;
     bool writeEntry(const std::filesystem::path& path, const std::string& key,
                     const std::vector<std::uint8_t>& payload, std::string& error) const;
-    void evictIfNeeded(const std::filesystem::path& protectedPath) const;
+    bool evictIfNeeded(const std::filesystem::path& protectedPath, std::string& error) const;
 
     std::filesystem::path root_;
     std::size_t limitBytes_;
+    std::size_t coordinationSlot_=0;
 };
 
 } // namespace pfservices

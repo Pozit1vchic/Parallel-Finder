@@ -2519,6 +2519,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
         }, Qt::QueuedConnection);
         std::unique_ptr<pfservices::PfCache> analysisCache;
         QString cacheStorageError;
+        QString cacheBudgetError;
         std::filesystem::path movementCacheRoot;
         std::shared_ptr<VideoActionReviewContext> actionContext;
         if (settings.cacheEnabled) try {
@@ -2532,6 +2533,8 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 && !benchmarkCache.isEmpty())
                 cacheRoot = std::filesystem::u8path(benchmarkCache.toStdString());
             analysisCache = std::make_unique<pfservices::PfCache>(cacheRoot, settings.cacheLimitBytes);
+            std::string budgetError;
+            if(!analysisCache->enforceLimit(budgetError))cacheBudgetError=QString::fromStdString(budgetError);
             movementCacheRoot=cacheRoot/"movement-refinement-v1";
             const QString benchmarkMovementCache=qEnvironmentVariable("PF_BENCHMARK_MOVEMENT_CACHE_ROOT");
             if(QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
@@ -2741,6 +2744,10 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 if(!cacheStorageError.isEmpty()) {
                     auto summary=summaries.value(path).toMap();
                     summary.insert("observationCacheWriteError",cacheStorageError);summaries.insert(path,summary);
+                }
+                if(!cacheBudgetError.isEmpty()) {
+                    auto summary=summaries.value(path).toMap();
+                    summary.insert("cacheBudgetError",cacheBudgetError);summaries.insert(path,summary);
                 }
                 if(!cacheDecision.isEmpty()) {
                     auto summary=summaries.value(path).toMap();summary.insert("observationCacheDecision",cacheDecision);summaries.insert(path,summary);
@@ -4621,11 +4628,16 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 if (it.value().toMap().value("targetMatchUncertain").toBool()) ++uncertainTargetSources;
             const auto uncertainStatus=uncertainTargetSources
                 ? QStringLiteral(" · Персонаж не подтверждён в видео: %1").arg(uncertainTargetSources) : QString();
-            int cacheFailureSources=0;
+            int cacheFailureSources=0,cacheBudgetFailureSources=0;
             for(auto it=sourceSummaries_.cbegin();it!=sourceSummaries_.cend();++it)
-                if(!it.value().toMap().value("observationCacheWriteError").toString().isEmpty())++cacheFailureSources;
+            {
+                const auto summary=it.value().toMap();
+                if(!summary.value("observationCacheWriteError").toString().isEmpty())++cacheFailureSources;
+                if(!summary.value("cacheBudgetError").toString().isEmpty())++cacheBudgetFailureSources;
+            }
             const auto cacheStatus=cacheFailureSources
-                ? QStringLiteral(" · Кеш не сохранён для видео: %1").arg(cacheFailureSources):QString();
+                ? QStringLiteral(" · Кеш не сохранён для видео: %1").arg(cacheFailureSources)
+                : cacheBudgetFailureSources ? QStringLiteral(" · Не удалось применить лимит кеша"):QString();
             setStatus(error.isEmpty() ? (expandedSearch ? QStringLiteral("Расширенный поиск завершён · ")
                                                        : QStringLiteral("Анализ сцен завершён · ")) + reidStatus + debugSummary + uncertainStatus + cacheStatus
                                       : QStringLiteral("Анализ остановлен: ") + error);

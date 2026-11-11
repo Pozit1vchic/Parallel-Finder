@@ -4,6 +4,8 @@
 #include <QCoreApplication>
 #include <QUuid>
 #include <QSaveFile>
+#include <QDir>
+#include <QFileInfo>
 
 #include <algorithm>
 #include <array>
@@ -14,6 +16,9 @@
 #include <system_error>
 #include <utility>
 #include <set>
+#include <chrono>
+#include <string_view>
+#include <mutex>
 
 namespace pfservices {
 namespace {
@@ -24,6 +29,29 @@ constexpr std::uint64_t kMaxCacheEntryBytes = 512ULL * 1024ULL * 1024ULL;
 // Observation keys include source/model paths and the inference contract.
 // Long Windows paths can exceed 1 KiB without indicating a malformed entry.
 constexpr std::uint32_t kMaxCacheKeyBytes = 16U * 1024U;
+constexpr std::size_t kEntryHeaderBytes=kMagic.size()+2*sizeof(std::uint32_t)+sizeof(std::uint64_t);
+
+auto& cacheLocks()
+{
+    // Bounded process-lifetime coordination. The static controller can drain
+    // cache workers from its destructor; these locks must outlive that drain.
+    // No per-source registry or background worker is retained here.
+    static auto* const locks=new std::array<std::recursive_mutex,64>;
+    return *locks;
+}
+
+std::size_t cacheCoordinationSlot(const std::filesystem::path& root)
+{
+    std::error_code error;
+    const auto canonical=std::filesystem::weakly_canonical(root,error);
+    const auto& path=error ? root:canonical;
+#ifdef _WIN32
+    auto normalized=QDir::cleanPath(QFileInfo(QString::fromStdWString(path.wstring())).absoluteFilePath()).toCaseFolded();
+#else
+    auto normalized=QDir::cleanPath(QFileInfo(QString::fromStdString(path.string())).absoluteFilePath());
+#endif
+    return qHash(normalized)%cacheLocks().size();
+}
 template <typename T>
 bool readScalar(std::istream& stream, T& value)
 {
@@ -46,6 +74,25 @@ std::string normalizeSource(std::string value)
     return value;
 }
 
+struct Retention {
+    bool expensive=false,preview=false;
+};
+Retention retentionClass(const std::filesystem::path& path,std::uintmax_t fileSize)
+{
+    std::ifstream input(path,std::ios::binary);
+    std::array<char,8> magic{};std::uint32_t version=0,keySize=0;std::uint64_t payloadSize=0;
+    if(!input.read(magic.data(),magic.size()) || magic!=kMagic || !readScalar(input,version)
+        || version!=kVersion || !readScalar(input,keySize) || !readScalar(input,payloadSize)
+        || !keySize || keySize>kMaxCacheKeyBytes || payloadSize>kMaxCacheEntryBytes
+        || fileSize!=kEntryHeaderBytes+keySize+payloadSize)return {};
+    std::array<char,32> prefix{};
+    const auto length=std::min<std::size_t>(prefix.size(),keySize);
+    if(!input.read(prefix.data(),static_cast<std::streamsize>(length)))return {};
+    const std::string_view key(prefix.data(),length);
+    return {key.starts_with("motion-v") || key.starts_with("scene-sequence-v")
+        || key.starts_with("matched-face-v"),key.starts_with("preview-v")};
+}
+
 } // namespace
 
 PfCache::PfCache(std::filesystem::path root, std::size_t limitBytes)
@@ -54,6 +101,7 @@ PfCache::PfCache(std::filesystem::path root, std::size_t limitBytes)
     if (root_.empty() || limitBytes_ == 0) {
         throw std::invalid_argument("PfCache: root and limit must be valid");
     }
+    coordinationSlot_=cacheCoordinationSlot(root_);
 }
 
 std::filesystem::path PfCache::fileFor(const std::string& key) const
@@ -97,7 +145,9 @@ bool PfCache::readEntry(const std::filesystem::path& path, const std::string& ke
 bool PfCache::writeEntry(const std::filesystem::path& path, const std::string& key,
                          const std::vector<std::uint8_t>& payload, std::string& error) const
 {
-    if (key.empty() || key.size() > kMaxCacheKeyBytes || payload.size() > limitBytes_
+    const bool fitsCapacity=kEntryHeaderBytes<=limitBytes_ && key.size()<=limitBytes_-kEntryHeaderBytes
+        && payload.size()<=limitBytes_-kEntryHeaderBytes-key.size();
+    if (key.empty() || key.size() > kMaxCacheKeyBytes || !fitsCapacity
         || payload.size() > kMaxCacheEntryBytes) {
         error = "cache entry exceeds PFCACHE1 limits";
         return false;
@@ -130,40 +180,77 @@ bool PfCache::writeEntry(const std::filesystem::path& path, const std::string& k
     return true;
 }
 
-void PfCache::evictIfNeeded(const std::filesystem::path& protectedPath) const
+bool PfCache::evictIfNeeded(const std::filesystem::path& protectedPath,std::string& error) const
 {
     std::error_code filesystemError;
     std::filesystem::create_directories(root_, filesystemError);
-    struct File { std::filesystem::path path; std::uintmax_t size; std::filesystem::file_time_type time; };
+    if(filesystemError){error="create cache directory: "+filesystemError.message();return false;}
+    struct File {
+        std::filesystem::path path;std::uintmax_t size;std::filesystem::file_time_type time;
+        unsigned priority=0;bool preview=false;
+    };
     std::vector<File> files;
     std::uintmax_t total = 0;
     for (const auto& entry : std::filesystem::directory_iterator(root_, filesystemError)) {
-        if (filesystemError || !entry.is_regular_file(filesystemError)
+        if (filesystemError || entry.is_symlink(filesystemError) || !entry.is_regular_file(filesystemError)
             || entry.path().extension() != ".pfc") continue;
         const auto size = entry.file_size(filesystemError);
         if (filesystemError) continue;
         files.push_back({entry.path(), size, {}});
         total += size;
     }
-    if (total <= limitBytes_) return;
+    if(filesystemError){error="inspect cache capacity: "+filesystemError.message();return false;}
+    if (total <= limitBytes_) return true;
+    const auto protectSince=std::filesystem::file_time_type::clock::now()-std::chrono::hours(24*7);
     for (auto& file : files) {
         file.time=std::filesystem::last_write_time(file.path, filesystemError);
+        if(filesystemError)file.time=std::filesystem::file_time_type::min();
         filesystemError.clear();
+        const auto retention=retentionClass(file.path,file.size);
+        file.priority=retention.expensive && file.time>=protectSince ? 1U:0U;
+        file.preview=retention.preview;
     }
     std::sort(files.begin(), files.end(), [](const File& left, const File& right) {
-        return left.time < right.time;
+        if(left.priority!=right.priority)return left.priority<right.priority;
+        if(left.time!=right.time)return left.time<right.time;
+        if(left.size!=right.size)return left.size>right.size;
+        return left.path.native()<right.path.native();
     });
     for (const auto& file : files) {
         if (total <= limitBytes_) break;
-        if (file.path == protectedPath) continue;
-        std::filesystem::remove(file.path, filesystemError);
-        if (!filesystemError) total -= file.size;
+        // A new preview is expendable too: keeping it must not evict the
+        // expensive observations it will be rebuilt from on the next run.
+        if (file.path == protectedPath && !file.preview) continue;
+        const bool removed=std::filesystem::remove(file.path, filesystemError);
+        if (removed && !filesystemError) total -= file.size;
         filesystemError.clear();
     }
+    if(total>limitBytes_ && !protectedPath.empty()) {
+        // Locked older entries cannot justify exceeding the configured limit.
+        // Decline the new record; all writes remain optional for analysis.
+        const auto found=std::find_if(files.begin(),files.end(),[&](const auto& f){return f.path==protectedPath;});
+        if(found!=files.end() && std::filesystem::remove(protectedPath,filesystemError) && !filesystemError)
+            total-=found->size;
+        filesystemError.clear();
+    }
+    if(total>limitBytes_){error="cache capacity cannot be enforced while entries are locked or inaccessible";return false;}
+    if(!protectedPath.empty()) {
+        const bool retained=std::filesystem::exists(protectedPath,filesystemError);
+        if(filesystemError){error="inspect retained cache entry: "+filesystemError.message();return false;}
+        if(!retained){error="cache entry was not retained under the capacity policy";return false;}
+    }
+    return true;
+}
+
+bool PfCache::enforceLimit(std::string& error) const
+{
+    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    error.clear();return evictIfNeeded({},error);
 }
 
 std::optional<std::vector<std::uint8_t>> PfCache::get(const std::string& key) const
 {
+    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
     if (key.empty()) return std::nullopt;
     const auto path = fileFor(key);
     std::vector<std::uint8_t> payload;
@@ -176,14 +263,17 @@ std::optional<std::vector<std::uint8_t>> PfCache::get(const std::string& key) co
 bool PfCache::put(const std::string& key, const std::vector<std::uint8_t>& payload,
                   std::string& error)
 {
+    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    error.clear();
     if (!writeEntry(fileFor(key), key, payload, error)) return false;
-    evictIfNeeded(fileFor(key));
-    return true;
+    return evictIfNeeded(fileFor(key),error);
 }
 
 bool PfCache::putBatch(const std::vector<std::pair<std::string,std::vector<std::uint8_t>>>& entries,
                        std::string& error)
 {
+    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    error.clear();
     std::filesystem::path lastWritten;
     bool success = true;
     for (const auto& [key,payload] : entries) {
@@ -196,29 +286,42 @@ bool PfCache::putBatch(const std::vector<std::pair<std::string,std::vector<std::
         }
         lastWritten = path;
     }
-    if (!lastWritten.empty()) evictIfNeeded(lastWritten);
+    std::string capacityError;
+    if (!lastWritten.empty() && !evictIfNeeded(lastWritten,capacityError)) {
+        if(success)error=std::move(capacityError);
+        success=false;
+    }
     return success;
 }
 
 bool PfCache::putForSourceBatch(const std::string& source,
     const std::vector<std::pair<std::string,std::vector<std::uint8_t>>>& entries,std::string& error)
 {
+    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    error.clear();
     if(source.empty()) { error="cache source must not be empty";return false; }
     std::filesystem::path lastWritten;
     for(const auto& [key,payload]:entries) {
         const auto path=fileFor(key);
         if(!rememberSourceKey(source,key,error) || !writeEntry(path,key,payload,error)) {
-            if(!lastWritten.empty())evictIfNeeded(lastWritten);
+            if(!lastWritten.empty()){std::string ignored;evictIfNeeded(lastWritten,ignored);}
             return false;
         }
         lastWritten=path;
     }
-    if(!lastWritten.empty())evictIfNeeded(lastWritten);
-    return true;
+    return lastWritten.empty() || evictIfNeeded(lastWritten,error);
+}
+
+bool PfCache::putForSource(const std::string& source,const std::string& key,
+    const std::vector<std::uint8_t>& payload,std::string& error)
+{
+    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    return rememberSourceKey(source,key,error) && put(key,payload,error);
 }
 
 bool PfCache::erase(const std::string& key, std::string& error)
 {
+    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
     std::error_code filesystemError;
     if (!std::filesystem::remove(fileFor(key), filesystemError) && filesystemError) {
         error = "remove cache entry: " + filesystemError.message();
@@ -229,6 +332,7 @@ bool PfCache::erase(const std::string& key, std::string& error)
 
 std::string PfCache::sourceGeneration(const std::string& source) const
 {
+    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
     const auto readGeneration = [&](const std::string& name) {
         const auto key = "source-generation-v1|" + name;
         auto path = fileFor(key);
@@ -245,6 +349,7 @@ std::string PfCache::sourceGeneration(const std::string& source) const
 
 bool PfCache::resetSource(const std::string& source, std::string& error)
 {
+    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
     const auto key = "source-generation-v1|" + normalizeSource(source);
     auto path = fileFor(key);
     path.replace_extension(".generation");
@@ -271,12 +376,14 @@ bool PfCache::resetSource(const std::string& source, std::string& error)
 
 bool PfCache::rememberSourceKey(const std::string& source,const std::string& key,std::string& error)
 {
+    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
     auto owner=fileFor("source-owner-v1|"+key);owner.replace_extension(".owner");
     return writeEntry(owner,"source-owner-v1|"+key,std::vector<std::uint8_t>(source.begin(),source.end()),error);
 }
 
 std::vector<std::string> PfCache::keysForSource(const std::string& source,std::string* outputError) const
 {
+    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
     std::set<std::string> keys;std::error_code error;
     if(!std::filesystem::exists(root_,error)) {
         if(error && outputError)*outputError="inspect cache: "+error.message();
@@ -313,6 +420,7 @@ std::vector<std::string> PfCache::keysForSource(const std::string& source,std::s
 
 bool PfCache::clear(std::string& error)
 {
+    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
     std::error_code filesystemError;
     if (!std::filesystem::exists(root_, filesystemError)) return true;
     for (const auto& entry : std::filesystem::directory_iterator(root_, filesystemError)) {
@@ -330,6 +438,7 @@ bool PfCache::clear(std::string& error)
 
 std::size_t PfCache::bytesUsed() const
 {
+    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
     std::error_code filesystemError;
     std::uintmax_t total = 0;
     if (!std::filesystem::exists(root_, filesystemError)) return 0;
