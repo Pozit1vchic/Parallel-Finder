@@ -166,6 +166,21 @@ TEST(SceneFamily, ProductionOrganizationDeduplicatesPairsAndPreservesDeterminist
     EXPECT_EQ(first[0].leftSceneFamily,second[0].leftSceneFamily);
     EXPECT_EQ(first[0].leftFamilySize,2);
     EXPECT_GT(first[0].evidenceQuality,.5);
+    // An unavailable/out-of-range score must not win family deduplication
+    // and discard the valid observation of the same pair.
+    for(const auto score:{std::numeric_limits<double>::quiet_NaN(),
+        std::numeric_limits<double>::infinity(),-std::numeric_limits<double>::infinity(),-.1,1.1}) {
+        auto broken=a;broken.similarity=score;
+        for(const auto badFirst:{false,true}) {
+            auto input=badFirst?std::vector{broken,a}:std::vector{a,broken};
+            ASSERT_TRUE(pfcore::MotionRanker::organize(input,windows));
+            ASSERT_EQ(input.size(),1);
+            EXPECT_DOUBLE_EQ(input[0].similarity,a.similarity);
+        }
+        std::vector invalidOnly{broken};
+        ASSERT_TRUE(pfcore::MotionRanker::organize(invalidOnly,windows));
+        EXPECT_TRUE(invalidOnly.empty());
+    }
     ASSERT_TRUE(first[0].leftFamilyEvidence);
     EXPECT_EQ(first[0].leftFamilyEvidence->members.size(),2);
     EXPECT_EQ(std::count_if(first[0].leftFamilyEvidence->members.begin(),first[0].leftFamilyEvidence->members.end(),

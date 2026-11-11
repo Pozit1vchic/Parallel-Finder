@@ -12,6 +12,13 @@ bool MotionRanker::organize(std::vector<MotionMatch>& matches,const std::vector<
     const std::map<std::string,std::size_t>& selectedIdentities,const std::function<bool()>& cancelled) {
     std::vector<SceneOccurrence> occurrences;occurrences.reserve(matches.size()*2);
     auto working=matches;
+    if(cancelled&&cancelled())return false;
+    // Validate pair scores before grouping: a NaN can violate the ordering
+    // contract, while infinity can win deduplication over a valid pair from
+    // the same families. Neither is an admissible similarity observation.
+    working.erase(std::remove_if(working.begin(),working.end(),[](const auto& match) {
+        return !std::isfinite(match.similarity) || match.similarity<0. || match.similarity>1.;
+    }),working.end());
     for(auto& match:working) {
         if(cancelled&&cancelled())return false;
         for (bool left:{true,false}) {
