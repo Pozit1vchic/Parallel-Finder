@@ -25,6 +25,20 @@ def evaluate(report, ks=(1, 5, 10)):
         correct = sum(row["expected"] == row["gesture"] for row in rows)
         result["metrics"].update(classificationCases=len(rows), classificationCorrect=correct,
                                  classificationAccuracy=correct / len(rows))
+        labels = sorted({row["expected"] for row in rows} | {row["gesture"] for row in rows})
+        per_class = {}
+        for label in labels:
+            tp = confusion[label][label]
+            support = sum(confusion[label].values())
+            predicted = sum(confusion[actual][label] for actual in labels)
+            precision = tp / predicted if predicted else 0.0
+            recall = tp / support if support else 0.0
+            per_class[label] = {"support": support, "precision": precision, "recall": recall,
+                                "f1": 2 * tp / (support + predicted) if support + predicted else 0.0}
+        result["metrics"].update(
+            classificationMacroF1=statistics.mean(item["f1"] for item in per_class.values()),
+            unclassifiedRate=sum(row["gesture"] == "unknown" for row in rows) / len(rows))
+        result["perClass"] = per_class
         result["confusion"] = {key: dict(value) for key, value in sorted(confusion.items())}
     queries = report.get("queries", [])
     if queries:

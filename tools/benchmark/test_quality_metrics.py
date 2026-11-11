@@ -4,6 +4,18 @@ from evaluate_identity_controls import evaluate as evaluate_identities
 
 
 class QualityMetricsTests(unittest.TestCase):
+    def test_classification_macro_f1_counts_unknown_and_predicted_only_labels(self):
+        report = {"labelled": True, "results": [
+            {"expected": "raise", "gesture": "raise"},
+            {"expected": "raise", "gesture": "unknown"},
+            {"expected": "turn", "gesture": "raise"}]}
+        result = evaluate(report)
+        self.assertAlmostEqual(result["metrics"]["classificationAccuracy"], 1 / 3)
+        self.assertAlmostEqual(result["metrics"]["classificationMacroF1"], 1 / 6)
+        self.assertAlmostEqual(result["metrics"]["unclassifiedRate"], 1 / 3)
+        self.assertEqual(result["perClass"]["unknown"]["support"], 0)
+        self.assertEqual(result["perClass"]["turn"]["recall"], 0)
+
     def test_identity_control_counts_misses_and_false_merges(self):
         a={"time":0,"box":[0,0,10,10]};b={"time":1,"box":[0,0,10,10]}
         assignments=[dict(a,identity="same"),dict(b,identity="same")]

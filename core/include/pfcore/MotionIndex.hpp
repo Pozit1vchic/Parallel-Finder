@@ -31,6 +31,7 @@ public:
                          std::size_t constructionSearch = 32);
 
     void clear();
+    // Empty or nonfinite descriptors are unavailable evidence and are ignored.
     void add(std::size_t id, std::vector<double> embedding);
     void build();
 

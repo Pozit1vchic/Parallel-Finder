@@ -301,6 +301,49 @@ TEST(MotionRanker, AddsLabelsAndStableScore)
     EXPECT_GT(matches.front().rankScore, 0.0);
 }
 
+TEST(MotionRanker, ExactScoresTakePrecedenceOverIndexForNearTies)
+{
+    std::vector<pfcore::MotionMatch> matches(3);
+    for (std::size_t i=0;i<matches.size();++i) {
+        matches[i].leftIndex=i;
+        matches[i].similarity=.9+static_cast<double>(i)*.6e-12;
+    }
+    pfcore::MotionRanker::rank(matches, {});
+    ASSERT_EQ(matches.size(),3u);
+    EXPECT_EQ(matches[0].leftIndex,2u);
+    EXPECT_EQ(matches[1].leftIndex,1u);
+    EXPECT_EQ(matches[2].leftIndex,0u);
+}
+
+TEST(MotionRanker, NumericScoresPrecedeNaNs)
+{
+    std::vector<pfcore::MotionMatch> matches(2);
+    matches[0].similarity=std::numeric_limits<double>::quiet_NaN();
+    matches[0].leftIndex=0;
+    matches[1].similarity=.9;
+    matches[1].leftIndex=1;
+    pfcore::MotionRanker::rank(matches, {});
+    ASSERT_EQ(matches.size(),2u);
+    EXPECT_EQ(matches.front().leftIndex,1u);
+}
+
+TEST(MotionRanker, LabelsOnlyTheMatchedInterval)
+{
+    auto left=moving("a",0,0);
+    const double offsets[]={0,4,8,8,4,0};
+    for(std::size_t i=0;i<left.frames.size();++i)
+        for(auto& point:left.frames[i].keypoints)point.x+=offsets[i];
+    auto right=left;right.sourceId="b";
+    pfcore::MotionMatch match;match.leftIndex=0;match.rightIndex=1;
+    match.similarity=.9;match.durationSeconds=.6;
+    match.leftStartSeconds=match.rightStartSeconds=0;
+    match.leftEndSeconds=match.rightEndSeconds=.6;
+    std::vector<pfcore::MotionMatch> matches{match};
+    pfcore::MotionRanker::rank(matches,{left,right});
+    ASSERT_EQ(matches.size(),1u);
+    EXPECT_EQ(matches.front().directionLabel,"right");
+}
+
 TEST(MotionRanker, RetainsClosedHandGestureButRejectsJitter)
 {
     auto left = moving("a", 0.0, 0.0);

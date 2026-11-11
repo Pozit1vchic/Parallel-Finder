@@ -1,4 +1,8 @@
 find_package(GTest CONFIG REQUIRED)
+add_executable(pf_classifier_interval_bench classifier_interval_bench.cpp)
+pf_set_executable_output_group(pf_classifier_interval_bench tools)
+set_target_properties(pf_classifier_interval_bench PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_link_libraries(pf_classifier_interval_bench PRIVATE pf::core)
 find_package(Python3 QUIET COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
     add_test(NAME pf_quality_metrics COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_quality_metrics.py")

@@ -3,6 +3,7 @@
 #include <pfcore/MotionIndex.hpp>
 #include <cmath>
 #include <future>
+#include <limits>
 
 namespace {
 void expectSameNeighbors(const std::vector<pfcore::MotionIndex::Neighbor>& left,
@@ -13,6 +14,21 @@ void expectSameNeighbors(const std::vector<pfcore::MotionIndex::Neighbor>& left,
         EXPECT_EQ(left[i].id, right[i].id);
         EXPECT_DOUBLE_EQ(left[i].similarity, right[i].similarity);
     }
+}
+
+TEST(MotionIndex, NonfiniteDescriptorsDoNotEnterRetrieval)
+{
+    pfcore::MotionIndex index;
+    index.add(1,{std::numeric_limits<double>::quiet_NaN(),0.});
+    index.add(2,{0.,std::numeric_limits<double>::infinity()});
+    index.add(3,{0.,0.});
+    index.build();
+    EXPECT_EQ(index.size(),1u);
+    const auto results=index.query({0.,0.},3);
+    ASSERT_EQ(results.size(),1u);
+    EXPECT_EQ(results.front().id,3u);
+    EXPECT_TRUE(index.query({std::numeric_limits<double>::quiet_NaN(),0.},3).empty());
+    EXPECT_TRUE(index.query({0.,-std::numeric_limits<double>::infinity()},3).empty());
 }
 }
 

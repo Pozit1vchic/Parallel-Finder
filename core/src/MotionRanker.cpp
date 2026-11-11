@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "pfcore/MovementClassifier.hpp"
+#include "pfcore/detail/MatchOrdering.hpp"
 
 namespace pfcore {
 
@@ -11,6 +12,14 @@ void MotionRanker::rank(std::vector<MotionMatch>& matches,
                         const std::vector<MotionWindow>& windows)
 {
     MovementClassifier classifier;
+    const auto classifyInterval=[&](const MotionWindow& window,double start,double end) {
+        if(std::isfinite(start) && std::isfinite(end) && end>start)
+            return classifier.classify(window,start,end);
+        // Older callers do not supply matched boundaries. Preserve their
+        // whole-window behavior, but do not guess for malformed explicit ranges.
+        if(start==0. && end==0.)return classifier.classify(window);
+        return MovementClassification{};
+    };
     for (auto& match : matches) {
         if (match.leftIndex >= windows.size() || match.rightIndex >= windows.size()) {
             match.rankScore = match.similarity;
@@ -22,8 +31,9 @@ void MotionRanker::rank(std::vector<MotionMatch>& matches,
             match.rankScore = match.similarity;
             continue;
         }
-        const auto classification = classifier.classify(windows[match.leftIndex],
-                                                         windows[match.rightIndex]);
+        const auto classification = MovementClassifier::combineClassifications(
+            classifyInterval(windows[match.leftIndex],match.leftStartSeconds,match.leftEndSeconds),
+            classifyInterval(windows[match.rightIndex],match.rightStartSeconds,match.rightEndSeconds));
         // A combined label may be inherited from only one side. Zero
         // confidence means the other side could not support the claim, so
         // avoid presenting that label as a measured property of the pair.
@@ -50,21 +60,20 @@ void MotionRanker::rank(std::vector<MotionMatch>& matches,
         if (explicitStaticAnalysis || match.directionLabel != "static" || match.gestureLabel != "static")
             return false;
         if (match.leftIndex >= windows.size() || match.rightIndex >= windows.size()) return false;
-        // Combining a known static side with an unknown side keeps the static
-        // label but has zero confidence. That is not evidence that both sides
-        // are static, and must not discard an otherwise valid match.
-        const auto classification=classifier.classify(windows[match.leftIndex],windows[match.rightIndex]);
-        return classification.confirmedStatic();
+        // Labels above are static only when both sides support them with
+        // positive confidence. Reuse that decision rather than classifying
+        // the complete windows again and including an unrelated action.
+        return true;
     }), matches.end());
     std::stable_sort(matches.begin(), matches.end(), [](const MotionMatch& left,
                                                         const MotionMatch& right) {
         // The user-facing order is the calibrated similarity percentage. The
         // classifier confidence remains a tie-breaker, never a way to move a
         // weaker match above a stronger one.
-        if (std::abs(left.similarity - right.similarity) > 1e-12)
-            return left.similarity > right.similarity;
-        if (std::abs(left.rankScore - right.rankScore) > 1e-12)
-            return left.rankScore > right.rankScore;
+        const auto similarityOrder=detail::descendingScoreOrder(left.similarity,right.similarity);
+        if (similarityOrder != 0) return similarityOrder < 0;
+        const auto rankOrder=detail::descendingScoreOrder(left.rankScore,right.rankScore);
+        if (rankOrder != 0) return rankOrder < 0;
         if (left.leftIndex != right.leftIndex) return left.leftIndex < right.leftIndex;
         return left.rightIndex < right.rightIndex;
     });

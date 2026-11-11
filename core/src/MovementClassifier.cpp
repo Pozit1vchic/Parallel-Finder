@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <span>
 
 namespace pfcore {
 namespace {
@@ -133,15 +134,15 @@ MovementClassification classifyEndpoints(const PoseFrame& first, const PoseFrame
     return result;
 }
 
-MovementClassification classifyOne(const MotionWindow& window)
+MovementClassification classifyOne(std::span<const PoseFrame> frames)
 {
-    if (window.frames.size() < 2) return {};
-    auto result = classifyEndpoints(window.frames.front(), window.frames.back());
+    if (frames.size() < 2) return {};
+    auto result = classifyEndpoints(frames.front(), frames.back());
     // If both hands are occluded, sustained, corroborating movement of both
     // elbows relative to the shoulders can establish an unspecified arm
     // action. It cannot establish the particular gesture or hand direction.
-    if (result.gesture == GestureClass::Unknown && window.frames.size() >= 5) {
-        const auto& first=window.frames.front();const auto& last=window.frames.back();
+    if (result.gesture == GestureClass::Unknown && frames.size() >= 5) {
+        const auto& first=frames.front();const auto& last=frames.back();
         if (!observedAtBothEnds(first,last,9,.45) && !observedAtBothEnds(first,last,10,.45)
             && observedAtBothEnds(first,last,5,.8) && observedAtBothEnds(first,last,6,.8)
             && observedAtBothEnds(first,last,7,.8) && observedAtBothEnds(first,last,8,.8)
@@ -163,8 +164,8 @@ MovementClassification classifyOne(const MotionWindow& window)
                 if(std::abs(a)>=.12 && std::abs(b)>=.12 && a*b>0.) {
                     std::size_t supported=0;
                     double previousSupport=first.timestampSeconds;
-                    for(std::size_t i=1;i+1<window.frames.size();++i) {
-                        const auto& frame=window.frames[i];
+                    for(std::size_t i=1;i+1<frames.size();++i) {
+                        const auto& frame=frames[i];
                         if(!std::isfinite(frame.timestampSeconds) || frame.timestampSeconds-previousSupport<.1-1e-9
                             || frame.timestampSeconds>=last.timestampSeconds)continue;
                         if(!observedAtBothEnds(first,frame,5,.8) || !observedAtBothEnds(first,frame,6,.8)
@@ -191,8 +192,8 @@ MovementClassification classifyOne(const MotionWindow& window)
     // out-and-back). Require a sustained excursion rather than one outlier.
     // The temporal matcher remains responsible for matching both trajectories.
     std::size_t directionConsecutive = 0, gestureConsecutive = 0;
-    for (std::size_t i = 1; i + 1 < window.frames.size(); ++i) {
-        const auto excursion = classifyEndpoints(window.frames.front(), window.frames[i]);
+    for (std::size_t i = 1; i + 1 < frames.size(); ++i) {
+        const auto excursion = classifyEndpoints(frames.front(), frames[i]);
         const bool directionMoving = excursion.direction != MovementDirection::Static
             && excursion.direction != MovementDirection::Unknown;
         const bool gestureMoving = excursion.gesture != GestureClass::Static
@@ -226,25 +227,36 @@ T combine(T left, T right, double leftConfidence, double rightConfidence, T mixe
 
 MovementClassification MovementClassifier::classify(const MotionWindow& window) const
 {
-    return classifyOne(window);
+    return classifyOne(window.frames);
 }
 
 MovementClassification MovementClassifier::classify(const MotionWindow& window, double start, double end) const
 {
+    const auto inside=[&](const PoseFrame& frame) {
+        return frame.timestampSeconds >= start - 1e-6 && frame.timestampSeconds < end - 1e-6;
+    };
+    const auto first=std::find_if(window.frames.begin(),window.frames.end(),inside);
+    if(first==window.frames.end())return {};
+    const auto last=std::find_if_not(first,window.frames.end(),inside);
+    // Normal chronological windows have one contiguous matched interval.
+    // Borrow frames instead of copying every keypoint vector per result.
+    if(std::none_of(last,window.frames.end(),inside))
+        return classifyOne(std::span<const PoseFrame>(first,last));
+    // Preserve filtering semantics for noncontiguous legacy observations.
     MotionWindow supported;
     for (const auto& frame : window.frames)
         // Matched video ranges are half-open; the frame at end belongs to the
         // next clip and must not supply its direction or gesture evidence.
         if (frame.timestampSeconds >= start - 1e-6 && frame.timestampSeconds < end - 1e-6)
             supported.frames.push_back(frame);
-    return classifyOne(supported);
+    return classifyOne(supported.frames);
 }
 
 MovementClassification MovementClassifier::classify(const MotionWindow& left,
                                                     const MotionWindow& right) const
 {
-    const auto a = classifyOne(left);
-    const auto b = classifyOne(right);
+    const auto a = classifyOne(left.frames);
+    const auto b = classifyOne(right.frames);
     return combineClassifications(a, b);
 }
 

@@ -18,6 +18,12 @@ namespace {
 // exact retrieval is preferable here to silently sacrificing recall.
 constexpr std::size_t kExactSearchLimit = 512;
 
+bool validEmbedding(const std::vector<double>& embedding)
+{
+    return !embedding.empty() && std::all_of(embedding.begin(),embedding.end(),
+        [](double value) { return std::isfinite(value); });
+}
+
 std::uint64_t nextRevision()
 {
     // A revision identifies graph contents, including after default copy/move
@@ -149,7 +155,7 @@ void MotionIndex::clear()
 
 void MotionIndex::add(std::size_t id, std::vector<double> embedding)
 {
-    if (embedding.empty()) return;
+    if (!validEmbedding(embedding)) return;
     revision_ = nextRevision();
     nodes_.push_back(Node{id, std::move(embedding), {}});
     built_ = false;
@@ -216,7 +222,7 @@ std::vector<MotionIndex::Neighbor> MotionIndex::query(const std::vector<double>&
                                                       std::size_t searchWidth,
                                                       QueryWorkspace& workspace) const
 {
-    if (!built_ || nodes_.empty() || embedding.empty() || count == 0) return {};
+    if (!built_ || nodes_.empty() || count == 0 || !validEmbedding(embedding)) return {};
     if (workspace.owner_ != this || workspace.revision_ != revision_
         || workspace.embedding_ != embedding) {
         workspace.owner_ = this;
