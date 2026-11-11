@@ -28,6 +28,11 @@ cached pose samples inside each returned interval. All four actual observation
 artifacts from the old/new E03/E04 analyses were used to resolve source, track
 and pose-window associations; no new inference was performed by the pose probe.
 
+The complete returned lists contain 104 pose/13 motion results before and
+134 pose/19 motion results after (117/153 total). These counts identify the
+scope of the reviewed top ten and the next ranking investigation; they do not
+establish that pose results as a category are irrelevant.
+
 The assessor is the assistant, without independent human confirmation. The
 predictions and version identities are not fully blinded. Scores and classifier
 labels are hidden on temporal sheets. This post-hoc audit is separate from the
