@@ -47,6 +47,57 @@ TEST(PfCache, RecentExpensiveObservationsOutliveReplaceablePreviews)
     EXPECT_LE(cache.bytesUsed(),cache.limitBytes());
 }
 
+TEST(PfCache, EvictionAndEraseRemoveOwnershipWithoutLosingGeneration)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    pfservices::PfCache cache(directory.path().toStdWString(),512);
+    const std::string source="video",other="other";
+    const std::string raw="motion-v43|source=video",oldPreview="preview-v1|old",newPreview="preview-v1|new";
+    std::string error;
+    ASSERT_TRUE(cache.resetSource(source,error));
+    const auto generation=cache.sourceGeneration(source);ASSERT_FALSE(generation.empty());
+    ASSERT_TRUE(cache.putForSource(source,raw,std::vector<std::uint8_t>(180,1),error));
+    ASSERT_TRUE(cache.putForSource(other,oldPreview,std::vector<std::uint8_t>(180,2),error));
+    const auto oldFile=std::filesystem::path(directory.path().toStdWString())/
+        (QCryptographicHash::hash(QByteArray::fromStdString(oldPreview),QCryptographicHash::Sha256).toHex().toStdString()+".pfc");
+    std::filesystem::last_write_time(oldFile,std::filesystem::file_time_type::clock::now()-std::chrono::hours(1));
+    ASSERT_TRUE(cache.putForSource(other,newPreview,std::vector<std::uint8_t>(180,3),error));
+    EXPECT_FALSE(cache.get(oldPreview));EXPECT_TRUE(cache.get(raw));
+    EXPECT_EQ(cache.keysForSource(other),(std::vector<std::string>{newPreview}));
+    EXPECT_EQ(cache.sourceGeneration(source),generation);
+    ASSERT_TRUE(cache.erase(newPreview,error));EXPECT_TRUE(cache.keysForSource(other).empty());
+    EXPECT_EQ(cache.sourceGeneration(source),generation);
+}
+
+TEST(PfCache, FailedNewOwnedWriteDoesNotAccumulateMetadata)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    pfservices::PfCache cache(directory.path().toStdWString(),256);std::string error;
+    EXPECT_FALSE(cache.putForSource("video","too-large",std::vector<std::uint8_t>(512),error));
+    EXPECT_TRUE(cache.keysForSource("video").empty());
+    EXPECT_FALSE(cache.putForSourceBatch("video",{{"too-large",std::vector<std::uint8_t>(512)}},error));
+    EXPECT_TRUE(cache.keysForSource("video").empty());
+    ASSERT_TRUE(cache.putForSource("video","existing",{1,2,3},error));
+    EXPECT_FALSE(cache.putForSource("video","existing",std::vector<std::uint8_t>(512),error));
+    EXPECT_EQ(cache.get("existing"),std::optional(std::vector<std::uint8_t>{1,2,3}));
+    EXPECT_EQ(cache.keysForSource("video"),(std::vector<std::string>{"existing"}));
+}
+
+TEST(PfCache, CapacityPressureReclaimsLegacyOrphanOwnersOnly)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString());
+    pfservices::PfCache original(root,4096);std::string error;
+    ASSERT_TRUE(original.resetSource("video",error));
+    const auto generation=original.sourceGeneration("video");
+    ASSERT_TRUE(original.rememberSourceKey("video","legacy-orphan",error));
+    ASSERT_TRUE(original.putForSource("video","motion-v43|source=video",std::vector<std::uint8_t>(180,1),error));
+    ASSERT_TRUE(original.put("preview-v1|large",std::vector<std::uint8_t>(500),error));
+    pfservices::PfCache reduced(root,512);ASSERT_TRUE(reduced.enforceLimit(error))<<error;
+    EXPECT_EQ(reduced.keysForSource("video"),(std::vector<std::string>{"motion-v43|source=video"}));
+    EXPECT_EQ(reduced.sourceGeneration("video"),generation);
+}
+
 TEST(PfCache, ExpiredProtectionReturnsObservationsToOrdinaryLru)
 {
     QTemporaryDir directory;ASSERT_TRUE(directory.isValid());

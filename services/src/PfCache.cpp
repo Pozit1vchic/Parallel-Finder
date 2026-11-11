@@ -65,6 +65,25 @@ std::string fileStem(const std::string& key)
     return digest.toStdString() + ".pfc";
 }
 
+std::optional<std::string> storedEntryKey(const std::filesystem::path& path)
+{
+    std::ifstream input(path,std::ios::binary);
+    std::array<char,8> magic{};std::uint32_t version=0,keySize=0;std::uint64_t payloadSize=0;
+    if(!input.read(magic.data(),magic.size()) || magic!=kMagic || !readScalar(input,version)
+        || version!=kVersion || !readScalar(input,keySize) || !readScalar(input,payloadSize)
+        || !keySize || keySize>kMaxCacheKeyBytes)return std::nullopt;
+    std::string key(keySize,'\0');
+    if(!input.read(key.data(),keySize))return std::nullopt;
+    return key;
+}
+
+void removeEntryOwner(const std::filesystem::path& root,const std::string& key)
+{
+    auto owner=root/fileStem("source-owner-v1|"+key);owner.replace_extension(".owner");
+    std::error_code ignored;
+    std::filesystem::remove(owner,ignored);
+}
+
 std::string normalizeSource(std::string value)
 {
 #ifdef _WIN32
@@ -201,6 +220,21 @@ bool PfCache::evictIfNeeded(const std::filesystem::path& protectedPath,std::stri
     }
     if(filesystemError){error="inspect cache capacity: "+filesystemError.message();return false;}
     if (total <= limitBytes_) return true;
+    // Reclaim legacy ownership records only when their data file is absent.
+    // Generation records deliberately survive eviction: deleting one could
+    // reactivate observations from before an explicit source reset.
+    for(const auto& entry:std::filesystem::directory_iterator(root_,filesystemError)) {
+        if(filesystemError)break;
+        if(entry.is_symlink(filesystemError) || !entry.is_regular_file(filesystemError)
+            || entry.path().extension()!=".owner")continue;
+        const auto ownerKey=storedEntryKey(entry.path());
+        if(!ownerKey || !ownerKey->starts_with("source-owner-v1|"))continue;
+        const auto data=root_/fileStem(ownerKey->substr(16));
+        const bool exists=std::filesystem::exists(data,filesystemError);
+        if(!filesystemError && !exists)std::filesystem::remove(entry.path(),filesystemError);
+        filesystemError.clear();
+    }
+    filesystemError.clear();
     const auto protectSince=std::filesystem::file_time_type::clock::now()-std::chrono::hours(24*7);
     for (auto& file : files) {
         file.time=std::filesystem::last_write_time(file.path, filesystemError);
@@ -221,16 +255,23 @@ bool PfCache::evictIfNeeded(const std::filesystem::path& protectedPath,std::stri
         // A new preview is expendable too: keeping it must not evict the
         // expensive observations it will be rebuilt from on the next run.
         if (file.path == protectedPath && !file.preview) continue;
+        const auto key=storedEntryKey(file.path);
         const bool removed=std::filesystem::remove(file.path, filesystemError);
-        if (removed && !filesystemError) total -= file.size;
+        if (removed && !filesystemError) {
+            total -= file.size;
+            if(key)removeEntryOwner(root_,*key);
+        }
         filesystemError.clear();
     }
     if(total>limitBytes_ && !protectedPath.empty()) {
         // Locked older entries cannot justify exceeding the configured limit.
         // Decline the new record; all writes remain optional for analysis.
         const auto found=std::find_if(files.begin(),files.end(),[&](const auto& f){return f.path==protectedPath;});
-        if(found!=files.end() && std::filesystem::remove(protectedPath,filesystemError) && !filesystemError)
+        const auto key=storedEntryKey(protectedPath);
+        if(found!=files.end() && std::filesystem::remove(protectedPath,filesystemError) && !filesystemError) {
             total-=found->size;
+            if(key)removeEntryOwner(root_,*key);
+        }
         filesystemError.clear();
     }
     if(total>limitBytes_){error="cache capacity cannot be enforced while entries are locked or inaccessible";return false;}
@@ -304,6 +345,8 @@ bool PfCache::putForSourceBatch(const std::string& source,
     for(const auto& [key,payload]:entries) {
         const auto path=fileFor(key);
         if(!rememberSourceKey(source,key,error) || !writeEntry(path,key,payload,error)) {
+            std::error_code inspectError;
+            if(!std::filesystem::exists(path,inspectError) && !inspectError)removeEntryOwner(root_,key);
             if(!lastWritten.empty()){std::string ignored;evictIfNeeded(lastWritten,ignored);}
             return false;
         }
@@ -316,7 +359,13 @@ bool PfCache::putForSource(const std::string& source,const std::string& key,
     const std::vector<std::uint8_t>& payload,std::string& error)
 {
     std::lock_guard guard(cacheLocks()[coordinationSlot_]);
-    return rememberSourceKey(source,key,error) && put(key,payload,error);
+    if(!rememberSourceKey(source,key,error))return false;
+    const bool stored=put(key,payload,error);
+    if(!stored) {
+        std::error_code inspectError;
+        if(!std::filesystem::exists(fileFor(key),inspectError) && !inspectError)removeEntryOwner(root_,key);
+    }
+    return stored;
 }
 
 bool PfCache::erase(const std::string& key, std::string& error)
@@ -327,6 +376,7 @@ bool PfCache::erase(const std::string& key, std::string& error)
         error = "remove cache entry: " + filesystemError.message();
         return false;
     }
+    removeEntryOwner(root_,key);
     return true;
 }
 
