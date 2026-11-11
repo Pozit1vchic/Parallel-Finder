@@ -48,6 +48,13 @@ def main():
     allocated_size = kernel.GetCompressedFileSizeW
     allocated_size.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
     allocated_size.restype = wintypes.DWORD
+    set_pointer = kernel.SetFilePointerEx
+    set_pointer.argtypes = [wintypes.HANDLE, ctypes.c_longlong,
+                           ctypes.POINTER(ctypes.c_longlong), wintypes.DWORD]
+    set_pointer.restype = wintypes.BOOL
+    set_eof = kernel.SetEndOfFile
+    set_eof.argtypes = [wintypes.HANDLE]
+    set_eof.restype = wintypes.BOOL
     chunk_bytes = 512 * 1024**2
     count = args.logical_gib * 1024**3 // chunk_bytes
     allocated = 0
@@ -65,7 +72,12 @@ def main():
                 raise RuntimeError("The file was not marked sparse; refusing to extend it")
             payload_bytes = chunk_bytes - 24 - len(key)
             file.write(struct.pack("<8sIIQ", b"PFCACHE1", 1, len(key), payload_bytes) + key)
-            file.truncate(chunk_bytes)
+            file.flush()
+            # Windows CRT truncate can explicitly zero-fill the extension,
+            # allocating the sparse hole. Extend through Win32 instead.
+            handle = msvcrt.get_osfhandle(file.fileno())
+            if not set_pointer(handle, chunk_bytes, None, 0) or not set_eof(handle):
+                raise ctypes.WinError(ctypes.get_last_error())
         high = wintypes.DWORD()
         ctypes.set_last_error(0)
         low = allocated_size(str(path), ctypes.byref(high))
