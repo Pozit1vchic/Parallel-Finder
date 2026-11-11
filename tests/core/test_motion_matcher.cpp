@@ -3060,6 +3060,34 @@ TEST(MotionMatcher, SearchReuseRechecksFacesAndInvalidatesEveryChangedInput)
     pfcore::MotionSearchReuse bounded(0);control.reuse=&bounded;check();check();
 }
 
+TEST(MotionMatcher, AllPeopleDoesNotUseASingleCharacterMeasuredFaceVeto)
+{
+    auto windows=deanAimingPoseFixture();
+    ASSERT_GE(windows.size(),2U);
+    windows.resize(2);
+    pfcore::MotionMatcherParams params;
+    params.allowStaticFrames=true;params.mirrorInvariant=true;
+    params.requireAppearance=false;params.requireSameTrackWithinSource=false;
+    params.individualPairs=true;params.recoverUnusedShots=false;
+    const auto clean=pfcore::MotionMatcher(params).compare(windows[0],windows[1]);
+    ASSERT_GE(clean.similarity,params.similarityThreshold);
+    ASSERT_FALSE(pfcore::MotionMatcher(params).findAllPairs(windows).empty());
+    for(const auto& frame:windows[0].frames)
+        windows[0].measuredFaces.push_back({frame.timestampSeconds,true,.1,.10});
+    // Low similarity to a source-wide face centroid says nothing about
+    // whether two different actors perform a comparable observed movement.
+    const auto allPeople=pfcore::MotionMatcher(params).compare(windows[0],windows[1]);
+    EXPECT_DOUBLE_EQ(allPeople.similarity,clean.similarity);
+    EXPECT_FALSE(pfcore::MotionMatcher(params).findAllPairs(windows).empty());
+    params.requireAppearance=true;
+    EXPECT_EQ(pfcore::MotionMatcher(params).compare(windows[0],windows[1]).rejection,
+        pfcore::MotionRejection::MeasuredIdentity);
+    EXPECT_TRUE(pfcore::MotionMatcher(params).findAllPairs(windows).empty());
+    params.requireAppearance=false;params.requireSameTrackWithinSource=true;
+    EXPECT_EQ(pfcore::MotionMatcher(params).compare(windows[0],windows[1]).rejection,
+        pfcore::MotionRejection::MeasuredIdentity);
+}
+
 TEST(MotionMatcher, RejectedReusePreservesDirectionGeometryAndParameterChanges)
 {
     auto windows=deanAimingPoseFixture();

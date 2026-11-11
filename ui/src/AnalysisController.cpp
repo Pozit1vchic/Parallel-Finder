@@ -4124,7 +4124,8 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 }
             }
             reportPreparation(QStringLiteral("Подготавливаем проверку лиц"));
-            MatchedFaceVerifier faceVerifier(windows,sequenceCacheKeys,analysisCache.get(),face,
+            MatchedFaceVerifier faceVerifier(windows,sequenceCacheKeys,analysisCache.get(),
+                allPeople ? std::shared_ptr<pfgpu::FaceEstimator>{}:face,
                 providerChoice==QStringLiteral("cuda") || providerChoice==QStringLiteral("tensorrt"),isCancelled,
                 forwardFaceAlignmentAudit);
             QElapsedTimer resultTimer;
@@ -4165,7 +4166,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             searchControl.recoveryProgress=[&](auto stage,auto done,auto total) {reportSearchStage(stage,done,total,true);};
             foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows,searchControl);
             markCancelled();
-            while(!isCancelled() && !foundMatches.empty()) {
+            while(!allPeople && !isCancelled() && !foundMatches.empty()) {
                 reportPreparation(QStringLiteral("Проверяем человека в найденных фрагментах…"));
                 QElapsedTimer faceUpdates;faceUpdates.start();
                 std::vector<std::vector<pfcore::MeasuredFaceIdentity>> previousFaceNotes;

@@ -209,6 +209,14 @@ bool measuredIdentityCompatible(const MotionWindow& w,double start,double end,bo
     return !portrait || inspected.size()<3 || supported.size()>=2;
 }
 
+bool requiresMeasuredIdentity(const MotionMatcherParams& params)
+{
+    // All-people matching explicitly disables both identity requirements.
+    // A face's disagreement with a source-wide prototype must not turn that
+    // mode back into a single-character search.
+    return params.requireAppearance || params.requireSameTrackWithinSource;
+}
+
 double appearanceCosine(const std::vector<float>& left,
                          const std::vector<float>& right)
 {
@@ -2499,8 +2507,9 @@ MotionMatch MotionMatcher::compare(const MotionWindow& left, const MotionWindow&
         best.similarity = best.rankScore = 0;
         if (best.rejection == MotionRejection::None) best.rejection = reason;
     };
-    if (!measuredIdentityCompatible(left,best.leftStartSeconds,best.leftEndSeconds,left.staticFrameSet && best.headOnlyComparison)
-        || !measuredIdentityCompatible(right,best.rightStartSeconds,best.rightEndSeconds,right.staticFrameSet && best.headOnlyComparison))
+    if (requiresMeasuredIdentity(params_)
+        && (!measuredIdentityCompatible(left,best.leftStartSeconds,best.leftEndSeconds,left.staticFrameSet && best.headOnlyComparison)
+        || !measuredIdentityCompatible(right,best.rightStartSeconds,best.rightEndSeconds,right.staticFrameSet && best.headOnlyComparison)))
         rejectBest(MotionRejection::MeasuredIdentity);
     if (params_.individualPairs && (copiedScene(left,right)
         || (left.staticFrameSet && right.staticFrameSet && best.headOnlyComparison
@@ -4002,8 +4011,9 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             auto& count = windows[match.leftIndex].staticFrameSet ? staticResults : motionResults;
             if (a == b || shotUseCounts[a] || shotUseCounts[b] || count >= params_.maxUniqueResults) return;
             const bool head=portrait(match);
-            if (!measuredIdentityCompatible(windows[match.leftIndex],match.leftStartSeconds,match.leftEndSeconds,head)
-                || !measuredIdentityCompatible(windows[match.rightIndex],match.rightStartSeconds,match.rightEndSeconds,head)
+            if ((requiresMeasuredIdentity(params_)
+                && (!measuredIdentityCompatible(windows[match.leftIndex],match.leftStartSeconds,match.leftEndSeconds,head)
+                || !measuredIdentityCompatible(windows[match.rightIndex],match.rightStartSeconds,match.rightEndSeconds,head)))
                 || returningBodyView(match)) return;
             if (!windows[match.leftIndex].staticFrameSet) {
                 const auto movement=pairMovement(match);
@@ -4121,6 +4131,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         }
     }
     std::erase_if(unique,[&](const auto& match) {
+        if(!requiresMeasuredIdentity(params_))return false;
         const bool head=portrait(match);
         return !measuredIdentityCompatible(windows[match.leftIndex],match.leftStartSeconds,match.leftEndSeconds,head)
             || !measuredIdentityCompatible(windows[match.rightIndex],match.rightStartSeconds,match.rightEndSeconds,head);
