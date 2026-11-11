@@ -167,7 +167,7 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
             return a.evidence.sourceId!=b.evidence.sourceId ? a.evidence.sourceId<b.evidence.sourceId:a.evidence.start<b.evidence.start;
         });
         if(!cacheDirectory.empty())try {cache=std::make_unique<pfservices::PfCache>(cacheDirectory,64ULL*1024*1024);}catch(...) {}
-        pfgpu::VideoActionEstimator actions(pfcore::pathToUtf8(actionModel),provider,8);
+        std::unique_ptr<pfgpu::VideoActionEstimator> actions;
         pfcore::VideoDecoder decoder;std::string opened;
         options.maxWidth=1280;options.maxHeight=720;options.preferNvidia=false;
         std::size_t done=0;
@@ -213,10 +213,14 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
                                     const std::array<pfgpu::VideoActionSubject,1> subjects{{{person.left,person.top,person.right,person.bottom}}};
                                     std::vector<pfgpu::VideoActionFrame> frames;
                                     for(const auto& frame:pixels)frames.push_back({frame.width,frame.height,frame.rgba.data()});
-                                    evidence.scores=actions.infer(frames,subjects).at(0);
+                                    if(!actions) {
+                                        actions=std::make_unique<pfgpu::VideoActionEstimator>(pfcore::pathToUtf8(actionModel),provider,8);
+                                        ++stats.modelInitializations;
+                                    }
+                                    evidence.scores=actions->infer(frames,subjects).at(0);
                                     if(stopped())break;
                                     std::fill(frames.begin(),frames.end(),frames[16*(frames.size()-1)/31]);
-                                    evidence.frozenScores=actions.infer(frames,subjects).at(0);evidence.observed=true;
+                                    evidence.frozenScores=actions->infer(frames,subjects).at(0);evidence.observed=true;
                                 }
                             }
                         }

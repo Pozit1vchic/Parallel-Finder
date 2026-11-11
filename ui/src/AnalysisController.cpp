@@ -4269,13 +4269,13 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                         },Qt::QueuedConnection);
                     });
                 if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS") || !headReview.error.empty())
-                    std::fprintf(stderr,"PF_HEAD_REVIEW requested=%zu cached=%zu observed=%zu decoded=%zu prepare_us=%llu cache_us=%llu decode_us=%llu face_us=%llu orientation_us=%llu error=%s\n",
+                    std::fprintf(stderr,"PF_HEAD_REVIEW requested=%zu cached=%zu observed=%zu decoded=%zu prepare_us=%llu cache_us=%llu decode_us=%llu face_us=%llu orientation_us=%llu model_initializations=%zu error=%s\n",
                         headReview.requested,headReview.cached,headReview.observed,headReview.decoded,
                         static_cast<unsigned long long>(headReview.preparationMicros),
                         static_cast<unsigned long long>(headReview.cacheMicros),
                         static_cast<unsigned long long>(headReview.decodeMicros),
                         static_cast<unsigned long long>(headReview.faceMicros),
-                        static_cast<unsigned long long>(headReview.orientationMicros),headReview.error.c_str());
+                        static_cast<unsigned long long>(headReview.orientationMicros),headReview.modelInitializations,headReview.error.c_str());
                 headReviewMs=resultTimer.elapsed()-headReviewStartedMs;
             }
             const auto actionModel=findLocalModelFile(QStringLiteral("ava-slowfast-r50.onnx"));
@@ -4311,8 +4311,8 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                         if(name.contains(QStringLiteral("-")+profile)) {actionContext->poseProfile=profile;break;}
                 }
                 if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS") || !review.error.empty())
-                    std::fprintf(stderr,"PF_ACTION_REVIEW requested=%zu cached=%zu observed=%zu decoded=%zu cuts=%zu unassociated=%zu error=%s\n",
-                        review.requested,review.cached,review.observed,review.decoded,review.cuts,review.unassociated,review.error.c_str());
+                    std::fprintf(stderr,"PF_ACTION_REVIEW requested=%zu cached=%zu observed=%zu decoded=%zu cuts=%zu unassociated=%zu model_initializations=%zu error=%s\n",
+                        review.requested,review.cached,review.observed,review.decoded,review.cuts,review.unassociated,review.modelInitializations,review.error.c_str());
                 actionReviewMs=resultTimer.elapsed()-actionReviewStartedMs;
             }
             BodyOrientationReviewStats bodyReview;

@@ -6,12 +6,49 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QElapsedTimer>
+#include <QCryptographicHash>
+#include <pfservices/PfCache.hpp>
 #include <HeadOrientationReview.h>
 #include <ResultClassification.h>
 
 class HeadReviewTests:public QObject {
     Q_OBJECT
 private slots:
+    void cachedObservationsDoNotInitializeInferenceModels() {
+        const auto model=qEnvironmentVariable("PF_HEAD_REVIEW_MODEL");
+        if(model.isEmpty())QSKIP("Set audited head model path for cache-only producer integration");
+        QFile modelFile(model);QVERIFY(modelFile.open(QIODevice::ReadOnly));
+        QCryptographicHash digest(QCryptographicHash::Sha256);QVERIFY(digest.addData(&modelFile));
+        const auto modelHash=digest.result().toHex();
+        QCOMPARE(modelHash,QByteArray("8585173bcd7e7d1e5f14baee995cca285814d3f3cf4e1a20d6cafa70787400a3"));
+        QTemporaryDir directory;QVERIFY(directory.isValid());
+        const auto detector=directory.path()+"/unloadable-detector.onnx";
+        QFile detectorFile(detector);QVERIFY(detectorFile.open(QIODevice::WriteOnly));
+        const QByteArray invalidModel("not an ONNX model");QCOMPARE(detectorFile.write(invalidModel),invalidModel.size());detectorFile.close();
+        const auto identity=modelHash+"|detector="+QCryptographicHash::hash(invalidModel,QCryptographicHash::Sha256).toHex();
+        pfcore::MotionWindow window;window.sourceId="cache-only-fixture";
+        window.frames={{1,{{100,100,.9},{90,90,.9},{110,90,.9}}},{2,{{100,100,.9},{90,90,.9},{110,90,.9}}}};
+        const auto cachePath=directory.path()+"/cache";
+        pfservices::PfCache cache(cachePath.toStdWString());std::string error;
+        for(const auto& frame:window.frames) {
+            QJsonArray points;for(const auto& point:frame.keypoints)points.append(QJsonArray{point.x,point.y,point.confidence});
+            const auto keyData=QJsonDocument(QJsonObject{{"source","cache-only-fixture"},{"namespace","fixture-v1"},
+                {"time",frame.timestampSeconds},{"pose",points},{"model",QString::fromLatin1(identity)},
+                {"provider",static_cast<int>(pfgpu::Provider::Cpu)}}).toJson(QJsonDocument::Compact);
+            const auto key="head-orientation-v1|PIL-resize256-center224|unaligned-yunet-nose|fp32|"
+                +QCryptographicHash::hash(keyData,QCryptographicHash::Sha256).toHex().toStdString();
+            const auto sample=QJsonDocument(QJsonObject{{"time",frame.timestampSeconds},{"observed",true},
+                {"rotation",QJsonArray{1,0,0,0,1,0,0,0,1}}}).toJson(QJsonDocument::Compact);
+            QVERIFY(cache.putForSource(window.sourceId,key,{sample.begin(),sample.end()},error));
+        }
+        std::vector windows{window};pfcore::MotionMatch match;
+        match.leftStartSeconds=match.rightStartSeconds=1;match.leftEndSeconds=match.rightEndSeconds=2;
+        const auto result=pfui::reviewMatchedHeadOrientations(windows,{match},model.toStdWString(),detector.toStdWString(),
+            cachePath.toStdWString(),{{window.sourceId,"fixture-v1"}},pfgpu::Provider::Cpu,{},[]{return false;},{});
+        QVERIFY2(result.error.empty(),result.error.c_str());QCOMPARE(result.requested,2U);QCOMPARE(result.cached,2U);
+        QCOMPARE(result.observed,2U);QCOMPARE(result.decoded,0U);QCOMPARE(result.modelInitializations,0U);
+        QCOMPARE(windows[0].headOrientations.size(),2U);QVERIFY(windows[0].headOrientations[0].observed);
+    }
     void realSourceColdWarmAndCancellation() {
         const auto root=qEnvironmentVariable("PF_HEAD_REVIEW_ROOT");
         const auto model=qEnvironmentVariable("PF_HEAD_REVIEW_MODEL");

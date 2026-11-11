@@ -15,6 +15,7 @@ struct VideoActionReviewContext {
 };
 struct VideoActionReviewStats {
     std::size_t requested=0,cached=0,observed=0,decoded=0,cuts=0,unassociated=0;
+    std::size_t modelInitializations=0;
     std::string error;
 };
 // Post-match classifier only. Re-detect the selected person at an original

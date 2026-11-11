@@ -119,8 +119,8 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
         std::sort(requests.begin(),requests.end(),[](const auto& a,const auto& b) {
             return a.source!=b.source ? a.source<b.source:a.frame.timestampSeconds<b.frame.timestampSeconds;
         });
-        pfgpu::FaceEstimator faces(pfcore::pathToUtf8(detector),{},provider);
-        pfgpu::HeadPoseEstimator heads(pfcore::pathToUtf8(model),provider);
+        std::unique_ptr<pfgpu::FaceEstimator> faces;
+        std::unique_ptr<pfgpu::HeadPoseEstimator> heads;
         stats.preparationMicros=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::steady_clock::now()-preparationStarted).count());
         pfcore::VideoDecoder decoder;pfcore::DecodedFrame retained;
@@ -169,8 +169,15 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
                             static_cast<float>(std::min<double>(retained.width,nose.x+radius)),
                             static_cast<float>(std::min<double>(retained.height,nose.y+radius))};
                         const std::array<double,2> expected={nose.x,nose.y};
+                        if(!faces) {
+                            const auto loadStarted=std::chrono::steady_clock::now();
+                            faces=std::make_unique<pfgpu::FaceEstimator>(pfcore::pathToUtf8(detector),std::string{},provider);
+                            ++stats.modelInitializations;
+                            stats.preparationMicros+=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::steady_clock::now()-loadStarted).count());
+                        }
                         const auto faceStarted=std::chrono::steady_clock::now();
-                        const auto box=faces.locateFace(view,expected);
+                        const auto box=faces->locateFace(view,expected);
                         stats.faceMicros+=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
                             std::chrono::steady_clock::now()-faceStarted).count());
                         if(box) {
@@ -184,8 +191,15 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
                                 && crop.right-crop.left<=(crop.bottom-crop.top)*8
                                 && crop.bottom-crop.top<=(crop.right-crop.left)*8)
                             {
+                                if(!heads) {
+                                    const auto loadStarted=std::chrono::steady_clock::now();
+                                    heads=std::make_unique<pfgpu::HeadPoseEstimator>(pfcore::pathToUtf8(model),provider);
+                                    ++stats.modelInitializations;
+                                    stats.preparationMicros+=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                        std::chrono::steady_clock::now()-loadStarted).count());
+                                }
                                 const auto orientationStarted=std::chrono::steady_clock::now();
-                                if(const auto rotation=heads.infer(crop)) {sample.rotation=*rotation;sample.observed=true;}
+                                if(const auto rotation=heads->infer(crop)) {sample.rotation=*rotation;sample.observed=true;}
                                 stats.orientationMicros+=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
                                     std::chrono::steady_clock::now()-orientationStarted).count());
                             }
