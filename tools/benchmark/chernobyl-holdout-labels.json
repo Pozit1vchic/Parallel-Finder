@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "status": "frozen small judged control; incomplete coverage of full episodes",
+  "split": "holdout S01E03/S01E04",
+  "reviewer": "assistant temporal contact-sheet visual review; not independently confirmed by a human",
+  "selection": "uniform minute overview followed by three-second temporal review, before consulting any matcher output on S01E03/S01E04",
+  "temporalEvidence": "Approximately 0.16-second spacing at actual decoded PTS from 25-fps originals; intervals below exclude observed cuts",
+  "rubric": {
+    "2": "Comparable specific observed action sequence or distinctive sustained posture, with sufficient continuous visibility",
+    "1": "Related action/posture with a material difference in temporal phase, direction or limb configuration",
+    "0": "Reviewed different action or distinctive posture; shared clothing, actor or generic standing is insufficient",
+    "unknown": "All unlisted pairs and all unreviewed retrieved matches remain unjudged",
+    "strictPositiveGrade": 2,
+    "lenientPositiveGrades": [1, 2],
+    "identity": "All-people pose/action relevance; identity equivalence is not claimed",
+    "scope": "Two strong positive control pairs cannot establish comprehensive episode recall or calibrated confidence",
+    "matching": "Evaluate returned intervals against both labeled intervals, either order, with intersection over shorter interval >=0.5 on each side; actor correspondence must be visually checked when multiple people are visible",
+    "precision": "Report judged precision together with judged coverage; do not count unjudged returns as negatives",
+    "recall": "Report recall over the frozen positive control pairs only, separately from full-episode recall",
+    "ranking": "Deduplicate returned hits of a control pair before Recall@K; report full-output rank and judged-only rank separately"
+  },
+  "clips": [
+    {"id":"raise-a","episode":"S01E04","start":898.676,"end":900.116,"actor":"green clothing at doorway","action":"both arms raise long object toward shoulder then hold","review":"e04-forward-a"},
+    {"id":"raise-b","episode":"S01E04","start":958.998,"end":960.438,"actor":"dark shirt at doorway","action":"both arms raise long object then hold","review":"e04-forward-b","cutBefore":958.998},
+    {"id":"hold-c","episode":"S01E04","start":1019.161,"end":1020.921,"actor":"brown jacket after reverse-angle cut","action":"one arm already held forward; raising onset absent","review":"e04-forward-c","cutBefore":1019.161},
+    {"id":"hold-d","episode":"S01E04","start":2278.531,"end":2279.011,"actor":"brown jacket in dark interior","action":"one arm held forward with small object","review":"e04-forward-d","cutAfter":2279.171,"limitation":"Only 0.48 seconds continuous reviewed evidence; short posture control, not long temporal action"},
+    {"id":"run-away","episode":"S01E04","start":539.621,"end":541.382,"actor":"foreground tan sleeves and dark jacket","action":"running away from camera across field","review":"e04-walk","selectionNameIsNotLabel":true},
+    {"id":"run-toward","episode":"S01E04","start":598.504,"end":600.264,"actor":"leading dark blue jacket; red jacket follows","action":"running toward camera then left","review":"e04-run","cutAfter":600.424},
+    {"id":"straighten","episode":"S01E04","start":119.645,"end":120.445,"actor":"blue hoodie behind tan-sleeved foreground figure","action":"straightens torso from bent posture","review":"e04-bend"},
+    {"id":"driver-turn","episode":"S01E03","start":1918.513,"end":1920.273,"actor":"brown jacket at steering wheel","action":"head turns from forward profile toward camera while seated, hand remains on wheel","review":"e03-driver"},
+    {"id":"driver-steady","episode":"S01E04","start":2518.5,"end":2521.38,"actor":"right-side driver behind steering wheel","action":"mostly forward head orientation with brief gaze change; left passenger movement is a different actor","review":"e04-driver-b"},
+    {"id":"head-side","episode":"S01E04","start":1440.457,"end":1441.417,"actor":"foreground black hat and patterned scarf","action":"head turns sideways/back then returns while speaking","review":"e04-head-hand","cutBefore":1440.457},
+    {"id":"lower-optics","episode":"S01E03","start":2338.506,"end":2339.146,"actor":"orange green jacket with red backpack","action":"lowers binocular-like object from face to chest","review":"e03-back"}
+  ],
+  "pairs": [
+    {"a":"raise-a","b":"raise-b","grade":2,"reason":"Comparable two-arm raising followed by shoulder-level hold"},
+    {"a":"hold-c","b":"hold-d","grade":2,"reason":"Distinctive sustained one-arm forward posture; short second interval must be reported"},
+    {"a":"run-away","b":"run-toward","grade":1,"reason":"Both running, opposite motion relative to camera"},
+    {"a":"raise-a","b":"hold-c","grade":1,"reason":"Related forward object posture, but two arms and raising phase versus one-arm existing hold"},
+    {"a":"raise-b","b":"hold-d","grade":1,"reason":"Related forward object posture, different limb configuration and phase"},
+    {"a":"raise-a","b":"run-toward","grade":0,"reason":"Arm raising/holding versus locomotion"},
+    {"a":"raise-b","b":"run-away","grade":0,"reason":"Arm raising/holding versus locomotion"},
+    {"a":"straighten","b":"run-toward","grade":0,"reason":"Rising torso versus continuous running"},
+    {"a":"driver-turn","b":"driver-steady","grade":0,"reason":"Specific head rotation absent from the reviewed driver interval despite shared driving context"},
+    {"a":"hold-c","b":"lower-optics","grade":0,"reason":"Sustained extended arm versus lowering object from face"},
+    {"a":"head-side","b":"raise-a","grade":0,"reason":"Head turn versus coordinated arm raise"},
+    {"a":"head-side","b":"run-away","grade":0,"reason":"Head turn versus running"}
+  ]
+}

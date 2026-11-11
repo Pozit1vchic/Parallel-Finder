@@ -53,9 +53,9 @@
     }
   ],
   "qualityTruth": {
-    "status": "pending temporal visual review",
+    "status": "small held-out judged control frozen in chernobyl-holdout-labels.json; episode-wide coverage and human confirmation remain open",
     "independentOfMatcherOutput": true,
-    "positive": "Comparable observed temporal action with reviewable half-open bounds; not a similar isolated still alone",
+    "positive": "Comparable observed temporal action or distinctive sustained posture with reviewable half-open bounds; not a similar isolated still alone",
     "negative": "Comparable appearance or pose but an observably different action, or a reviewed mismatching temporal sequence",
     "uncertain": "Insufficient visibility or ambiguous action; never coerce into a negative",
     "reviewerDisclosure": "Name the actual reviewer; assistant inspection is not independently confirmed human annotation",
