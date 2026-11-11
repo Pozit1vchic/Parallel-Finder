@@ -94,7 +94,7 @@ std::string normalizeSource(std::string value)
 }
 
 struct Retention {
-    bool expensive=false,preview=false;
+    unsigned cost=0;bool preview=false;
 };
 Retention retentionClass(const std::filesystem::path& path,std::uintmax_t fileSize)
 {
@@ -108,8 +108,9 @@ Retention retentionClass(const std::filesystem::path& path,std::uintmax_t fileSi
     const auto length=std::min<std::size_t>(prefix.size(),keySize);
     if(!input.read(prefix.data(),static_cast<std::streamsize>(length)))return {};
     const std::string_view key(prefix.data(),length);
-    return {key.starts_with("motion-v") || key.starts_with("scene-sequence-v")
-        || key.starts_with("matched-face-v"),key.starts_with("preview-v")};
+    const bool observations=key.starts_with("motion-v") || key.starts_with("scene-sequence-v")
+        || key.starts_with("matched-face-v");
+    return {observations?2U:key.starts_with("matcher-results-v")?1U:0U,key.starts_with("preview-v")};
 }
 
 } // namespace
@@ -241,7 +242,7 @@ bool PfCache::evictIfNeeded(const std::filesystem::path& protectedPath,std::stri
         if(filesystemError)file.time=std::filesystem::file_time_type::min();
         filesystemError.clear();
         const auto retention=retentionClass(file.path,file.size);
-        file.priority=retention.expensive && file.time>=protectSince ? 1U:0U;
+        file.priority=file.time>=protectSince ? retention.cost:0U;
         file.preview=retention.preview;
     }
     std::sort(files.begin(), files.end(), [](const File& left, const File& right) {

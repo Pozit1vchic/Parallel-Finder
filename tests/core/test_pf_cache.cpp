@@ -125,6 +125,25 @@ TEST(PfCache, DeclinesCheapPreviewRatherThanLosingRecentAnalysis)
     EXPECT_FALSE(cache.get("preview-v1|large"));EXPECT_LE(cache.bytesUsed(),cache.limitBytes());
 }
 
+TEST(PfCache, RecentMatcherResultsOutlivePreviewsButYieldToObservations)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString());
+    pfservices::PfCache cache(root,512);std::string error;
+    ASSERT_TRUE(cache.put("matcher-results-v1|first",std::vector<std::uint8_t>(180,1),error));
+    ASSERT_TRUE(cache.put("preview-v1|first",std::vector<std::uint8_t>(180,2),error));
+    const auto name=QCryptographicHash::hash("matcher-results-v1|first",QCryptographicHash::Sha256).toHex().toStdString()+".pfc";
+    std::filesystem::last_write_time(root/name,std::filesystem::file_time_type::clock::now()-std::chrono::hours(72));
+    const auto previewName=QCryptographicHash::hash("preview-v1|first",QCryptographicHash::Sha256).toHex().toStdString()+".pfc";
+    std::filesystem::last_write_time(root/previewName,std::filesystem::file_time_type::clock::now()-std::chrono::hours(1));
+    ASSERT_TRUE(cache.put("preview-v1|second",std::vector<std::uint8_t>(180,3),error));
+    EXPECT_TRUE(cache.get("matcher-results-v1|first"));EXPECT_FALSE(cache.get("preview-v1|first"));
+    ASSERT_TRUE(cache.put("motion-v43|source=a",std::vector<std::uint8_t>(180,4),error));
+    ASSERT_TRUE(cache.put("motion-v43|source=b",std::vector<std::uint8_t>(180,5),error));
+    EXPECT_FALSE(cache.get("matcher-results-v1|first"));
+    EXPECT_TRUE(cache.get("motion-v43|source=a"));EXPECT_TRUE(cache.get("motion-v43|source=b"));
+}
+
 TEST(PfCache, EntryHeaderFitsBudgetBeforeReplacingAnExistingValue)
 {
     QTemporaryDir directory;ASSERT_TRUE(directory.isValid());

@@ -80,6 +80,7 @@
 #include "pfservices/SettingsStore.hpp"
 #include "pfservices/ModelStore.hpp"
 #include "pfservices/PfCache.hpp"
+#include "pfservices/MatcherResultCache.hpp"
 #include "pfservices/CutService.hpp"
 #include "pfservices/ExportQueue.hpp"
 #include "pfservices/MontageExport.hpp"
@@ -4114,6 +4115,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 PF_AUDIT_NUMBER(nmsOverlapThreshold); PF_AUDIT_NUMBER(minAppearanceSimilarity);
                 PF_AUDIT_NUMBER(appearanceWeight); PF_AUDIT_NUMBER(minAppearanceEvidence);
                 PF_AUDIT_NUMBER(minFaceSimilarity); PF_AUDIT_NUMBER(minHeadFaceSimilarity);
+                PF_AUDIT_NUMBER(minMotionBodyIdentitySimilarity);
                 PF_AUDIT_NUMBER(sameSceneContextThreshold); PF_AUDIT_NUMBER(sameSceneContextGapSec);
                 PF_AUDIT_BOOL(individualPairs); PF_AUDIT_BOOL(recoverUnusedShots);
                 PF_AUDIT_BOOL(bodyMotionOnly); PF_AUDIT_BOOL(reuseCameraConflicts);
@@ -4171,9 +4173,27 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             };
             searchControl.progress=[&](auto stage,auto done,auto total) {reportSearchStage(stage,done,total,false);};
             searchControl.recoveryProgress=[&](auto stage,auto done,auto total) {reportSearchStage(stage,done,total,true);};
-            foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows,searchControl);
+            QStringList searchDependencies;
+            for(const auto& [source,key]:sequenceCacheKeys)
+                searchDependencies.push_back(QString::fromStdString(source)+QStringLiteral("|")+QString::fromStdString(key));
+            searchDependencies.sort(Qt::CaseSensitive);
+            const auto dependencyBytes=QJsonDocument(QJsonArray::fromStringList(searchDependencies)).toJson(QJsonDocument::Compact);
+            const auto searchCacheKey=[&]() {
+                const auto fingerprint=pfcore::motionSearchInputFingerprint(windows,params,isCancelled);
+                return fingerprint ? pfservices::matcherResultCacheKey(*fingerprint,
+                    std::string_view(dependencyBytes.constData(),dependencyBytes.size())):std::string{};
+            };
+            bool matcherCacheHit=false;
+            std::string rawSearchKey;
+            if(analysisCache && !isCancelled()) {
+                rawSearchKey=searchCacheKey();
+                if(!rawSearchKey.empty())if(const auto cached=analysisCache->get(rawSearchKey))
+                    matcherCacheHit=pfservices::deserializeMatcherResults(*cached,windows,foundMatches);
+            }
+            if(!matcherCacheHit && !isCancelled())
+                foundMatches = pfcore::MotionMatcher(params).findAllPairs(windows,searchControl);
             markCancelled();
-            while(!allPeople && !isCancelled() && !foundMatches.empty()) {
+            while(!matcherCacheHit && !allPeople && !isCancelled() && !foundMatches.empty()) {
                 reportPreparation(QStringLiteral("Проверяем человека в найденных фрагментах…"));
                 QElapsedTimer faceUpdates;faceUpdates.start();
                 std::vector<std::vector<pfcore::MeasuredFaceIdentity>> previousFaceNotes;
@@ -4196,6 +4216,18 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 foundMatches=pfcore::MotionMatcher(params).findAllPairs(windows,searchControl);
                 markCancelled();
             }
+            std::string matcherCacheError;
+            if(analysisCache && !matcherCacheHit && !isCancelled()) {
+                // Face verification may add admission evidence. Persist using
+                // final notes, which warm verifier construction reloads.
+                if(!allPeople || rawSearchKey.empty())rawSearchKey=searchCacheKey();
+                if(!rawSearchKey.empty()) {
+                    const auto bytes=pfservices::serializeMatcherResults(foundMatches);
+                    if(!bytes.empty())analysisCache->put(rawSearchKey,bytes,matcherCacheError);
+                }
+            }
+            if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
+                std::fprintf(stderr,"PF_MATCHER_CACHE hit=%d results=%zu error=%s\n",matcherCacheHit?1:0,foundMatches.size(),matcherCacheError.c_str());
             if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
                 std::fprintf(stderr, "PF_DEBUG_TIMING matcher_ms=%lld\n", static_cast<long long>(resultTimer.restart()));
             QMetaObject::invokeMethod(this,[this,cancel,processedFrames,totalFramesEstimate] {

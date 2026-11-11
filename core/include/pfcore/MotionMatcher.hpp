@@ -6,6 +6,8 @@
 #include <vector>
 #include <functional>
 #include <memory>
+#include <array>
+#include <optional>
 #include "pfcore/HeadOrientationSample.hpp"
 #include "pfcore/BodyOrientationSample.hpp"
 #include "pfcore/FaceConsensus.hpp"
@@ -347,5 +349,13 @@ public:
 private:
     MotionMatcherParams params_;
 };
+
+// Exact input identity for persistent raw search results. Result-only head,
+// body and action refinement is deliberately excluded; measured face vetoes
+// and every search parameter are included. Version the caller's algorithm key
+// when search semantics change, independently of presentation classification.
+std::optional<std::array<std::uint8_t,32>> motionSearchInputFingerprint(
+    const std::vector<MotionWindow>& windows,const MotionMatcherParams& params,
+    const std::function<bool()>& cancelled = {});
 
 } // namespace pfcore

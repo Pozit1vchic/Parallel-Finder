@@ -4204,4 +4204,79 @@ bool observedIdentityAdmissionChanged(const MotionWindow& window,
     return false;
 }
 
+
+std::optional<std::array<std::uint8_t,32>> motionSearchInputFingerprint(
+    const std::vector<MotionWindow>& windows,const MotionMatcherParams& params,
+    const std::function<bool()>& cancelled)
+{
+    const auto geometry=geometryFingerprint(windows,cancelled);
+    if(!geometry)return {};
+    auto* sha=av_sha_alloc();if(!sha)return {};
+    const auto release=std::unique_ptr<AVSHA,decltype(&av_free)>(sha,&av_free);
+    if(av_sha_init(sha,256)<0)return {};
+    av_sha_update(sha,geometry->data(),geometry->size());
+    const auto value=[&](const auto& v) {
+        av_sha_update(sha,reinterpret_cast<const std::uint8_t*>(&v),sizeof(v));
+    };
+    // Explicit ABI salt prevents cross-endian/word-size reinterpretation.
+    const std::uint32_t endian=0x01020304;value(endian);value(sizeof(std::size_t));value(sizeof(bool));
+#define PF_SEARCH_PARAMETER(name) value(params.name)
+    PF_SEARCH_PARAMETER(auditDirectFaceConsensus);
+    PF_SEARCH_PARAMETER(similarityThreshold);
+    PF_SEARCH_PARAMETER(candidateThreshold);
+    PF_SEARCH_PARAMETER(minRepeatGapSec);
+    PF_SEARCH_PARAMETER(sameFileGapSec);
+    PF_SEARCH_PARAMETER(crossFileGapSec);
+    PF_SEARCH_PARAMETER(duplicateWindowSec);
+    PF_SEARCH_PARAMETER(noiseFactor);
+    PF_SEARCH_PARAMETER(maxUniqueResults);
+    PF_SEARCH_PARAMETER(maxResultsPerShot);
+    PF_SEARCH_PARAMETER(individualPairs);
+    PF_SEARCH_PARAMETER(recoverUnusedShots);
+    PF_SEARCH_PARAMETER(coverageSeedLimit);
+    PF_SEARCH_PARAMETER(bodyMotionOnly);
+    PF_SEARCH_PARAMETER(maxComparisonThreads);
+    PF_SEARCH_PARAMETER(reuseCameraConflicts);
+    PF_SEARCH_PARAMETER(reuseRejectedComparisons);
+    PF_SEARCH_PARAMETER(expandedSearch);
+    PF_SEARCH_PARAMETER(timeWeight);
+    PF_SEARCH_PARAMETER(normalizeSize);
+    PF_SEARCH_PARAMETER(mirrorInvariant);
+    PF_SEARCH_PARAMETER(dtwBand);
+    PF_SEARCH_PARAMETER(sakoeChibaRatio);
+    PF_SEARCH_PARAMETER(motionDeltaThreshold);
+    PF_SEARCH_PARAMETER(minActiveTransitionRatio);
+    PF_SEARCH_PARAMETER(minMotionRange);
+    PF_SEARCH_PARAMETER(minMotionSpanSec);
+    PF_SEARCH_PARAMETER(temporalSimilarityThreshold);
+    PF_SEARCH_PARAMETER(staticPoseSimilarityThreshold);
+    PF_SEARCH_PARAMETER(staticArticulationSimilarityThreshold);
+    PF_SEARCH_PARAMETER(bodyScaleInvariant);
+    PF_SEARCH_PARAMETER(minTemporalFrames);
+    PF_SEARCH_PARAMETER(minTemporalDurationSec);
+    PF_SEARCH_PARAMETER(minimumResultDurationSec);
+    PF_SEARCH_PARAMETER(sameSourceGapFloorSec);
+    PF_SEARCH_PARAMETER(nmsOverlapThreshold);
+    PF_SEARCH_PARAMETER(requireSameTrackWithinSource);
+    PF_SEARCH_PARAMETER(allowStaticFrames);
+    PF_SEARCH_PARAMETER(requireAppearance);
+    PF_SEARCH_PARAMETER(minAppearanceSimilarity);
+    PF_SEARCH_PARAMETER(minMotionBodyIdentitySimilarity);
+    PF_SEARCH_PARAMETER(appearanceWeight);
+    PF_SEARCH_PARAMETER(minAppearanceEvidence);
+    PF_SEARCH_PARAMETER(minFaceSimilarity);
+    PF_SEARCH_PARAMETER(minHeadFaceSimilarity);
+    PF_SEARCH_PARAMETER(sameSceneContextThreshold);
+    PF_SEARCH_PARAMETER(sameSceneContextGapSec);
+#undef PF_SEARCH_PARAMETER
+    for(const auto& window:windows) {
+        if(cancelled && cancelled())return {};
+        value(window.measuredFaces.size());
+        for(const auto& face:window.measuredFaces) {
+            value(face.timestampSeconds);value(face.observed);value(face.similarity);value(face.relativeEyeSpan);
+        }
+    }
+    std::array<std::uint8_t,32> result{};av_sha_final(sha,result.data());return result;
+}
+
 } // namespace pfcore

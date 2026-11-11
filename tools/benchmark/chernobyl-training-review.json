@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "split": "tuning",
+  "selection": "Two deliberately selected returned results (head turn and arms-raised category); NOT a random sample and NOT independent ground truth",
+  "reviewer": "assistant temporal visual review plus native pose overlay; not independently human-confirmed",
+  "referenceReportSha256": "7249935b33340c765c3cc35eca1217d6bb90ea9ec63eeb6e51e7bc39e7b60a5d",
+  "coverageWarning": "Do not infer overall Precision from these two selected examples",
+  "evidenceLocalDirectory": "build/goal-training-temporal-review and build/goal-training-selected-overlays",
+  "pairs": [
+    {
+      "referenceResultId": 37,
+      "grade": 2,
+      "classification": "head_turn/mixed",
+      "matchType": "motion",
+      "description": "Comparable observed head rotation on both matched tracks; multiple people visible, target confirmed by pose overlay",
+      "left": {
+        "episode": "S01E01",
+        "track": 623,
+        "start": 724.538,
+        "end": 726.178
+      },
+      "right": {
+        "episode": "S01E01",
+        "track": 2752,
+        "start": 2713.856,
+        "end": 2715.856
+      }
+    },
+    {
+      "referenceResultId": 64,
+      "grade": 1,
+      "classification": "arms_raised",
+      "matchType": "pose",
+      "description": "Distinctive sustained hand-behind-head posture on both sides; same returning camera/view, montage relevance remains partial due redundancy",
+      "left": {
+        "episode": "S01E01",
+        "track": 1818,
+        "start": 1935.194,
+        "end": 1936.354
+      },
+      "right": {
+        "episode": "S01E01",
+        "track": 1835,
+        "start": 1966.037,
+        "end": 1968.037
+      }
+    }
+  ]
+}
