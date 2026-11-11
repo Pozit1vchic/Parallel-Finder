@@ -67,7 +67,7 @@ void MotionRanker::rank(std::vector<MotionMatch>& matches,
     }), matches.end());
     std::stable_sort(matches.begin(), matches.end(), [](const MotionMatch& left,
                                                         const MotionMatch& right) {
-        // The user-facing order is the calibrated similarity percentage. The
+        // The user-facing order is the similarity score. The
         // classifier confidence remains a tie-breaker, never a way to move a
         // weaker match above a stronger one.
         const auto similarityOrder=detail::descendingScoreOrder(left.similarity,right.similarity);

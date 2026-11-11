@@ -1115,7 +1115,10 @@ void UiSmokeTests::settingsAndNumericTypography()
     pfui::AppInfo::registerQmlTypes();
     QQmlApplicationEngine engine;
     QStringList warnings;
-    connect(&engine, &QQmlEngine::warnings, this, [&](const QList<QQmlError>& errors) {
+    // Disconnect before the captured list is destroyed. Engine teardown can
+    // emit warnings after later-declared local variables have left scope.
+    QObject warningScope;
+    connect(&engine, &QQmlEngine::warnings, &warningScope, [&](const QList<QQmlError>& errors) {
         for (const auto& error : errors) warnings << error.toString();
     });
     auto* window = loadWindow(engine);
