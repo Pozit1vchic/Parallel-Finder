@@ -5,6 +5,9 @@
 #include <pfcore/DominantPerson.hpp>
 #include <pfcore/MovementClassifier.hpp>
 #include <pfcore/PoseSupport.hpp>
+#include <pfservices/CharacterAnalysisCache.hpp>
+#include <pfservices/MotionWindowCache.hpp>
+#include <QtEndian>
 #if __has_include(<pfcore/SceneFamily.hpp>)
 #include <pfcore/SceneFamily.hpp>
 #define PF_ORGANIZATION_PROBE 1
@@ -42,9 +45,31 @@ int main(int argc, char** argv)
     QFile file(args[1]);
     if (!file.open(QIODevice::ReadOnly)) return 2;
     QJsonParseError error;
-    const auto json = QJsonDocument::fromJson(file.readAll(), &error);
-    if (error.error != QJsonParseError::NoError || !json.isArray()) return 2;
+    QJsonDocument json;
     std::vector<pfcore::MotionWindow> windows;
+    if(file.peek(8)==QByteArray("PFCACHE1",8)) {
+        const auto header=file.read(24);
+        if(header.size()!=24)return 2;
+        const auto version=qFromLittleEndian<quint32>(header.constData()+8);
+        const auto keySize=qFromLittleEndian<quint32>(header.constData()+12);
+        const auto payloadSize=qFromLittleEndian<quint64>(header.constData()+16);
+        if(version!=1 || !keySize || keySize>16384 || payloadSize>512ULL*1024*1024
+            || file.size()!=static_cast<qint64>(24ULL+keySize+payloadSize)
+            || !file.seek(24ULL+keySize))return 2;
+        const auto bytes=file.read(static_cast<qint64>(payloadSize));
+        if(bytes.size()!=static_cast<qint64>(payloadSize))return 2;
+        const auto payload=std::span(reinterpret_cast<const std::uint8_t*>(bytes.constData()),bytes.size());
+        if(bytes.startsWith("PFCH")) {
+            pfservices::CharacterAnalysis analysis;
+            if(!pfservices::deserializeCharacterAnalysis(payload,analysis))return 2;
+            windows=std::move(analysis.windows);
+        }else {
+            int sceneCount=0;
+            if(!pfservices::deserializeMotionWindows(payload,windows,sceneCount))return 2;
+        }
+    }else {
+    json = QJsonDocument::fromJson(file.readAll(), &error);
+    if (error.error != QJsonParseError::NoError || !json.isArray()) return 2;
     for (const auto& value : json.array()) {
         const auto o = value.toObject();
         pfcore::MotionWindow w;
@@ -84,6 +109,7 @@ int main(int argc, char** argv)
             w.frames.push_back(std::move(f));
         }
         windows.push_back(std::move(w));
+    }
     }
     if(args[2]=="--endpoint-actions") {
         const pfcore::MovementClassifier classifier;
@@ -196,7 +222,8 @@ int main(int argc, char** argv)
             const auto& window=windows[index];
             if(window.frames.empty())return 2;
             double start=window.frames.front().timestampSeconds;
-            const auto metadata=json.array()[static_cast<qsizetype>(index)].toObject();
+            const auto metadata=json.isArray() && index<static_cast<std::size_t>(json.array().size())
+                ? json.array()[static_cast<qsizetype>(index)].toObject():QJsonObject{};
             double end=window.frames.back().timestampSeconds+(labelled && window.frames.size()>1
                 ? window.frames.back().timestampSeconds-window.frames[window.frames.size()-2].timestampSeconds:0);
             // Dataset annotations can end between sampled frames. Their

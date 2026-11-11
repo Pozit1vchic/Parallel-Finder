@@ -2,6 +2,7 @@
 #include <pfcore/VideoActionEvidence.hpp>
 #include <pfcore/SceneWindow.hpp>
 #include <pfservices/MotionWindowCache.hpp>
+#include <pfservices/CharacterAnalysisCache.hpp>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -90,12 +91,20 @@ int main(int argc,char** argv) {
     input.read(magic,8);input.read(reinterpret_cast<char*>(&version),4);
     input.read(reinterpret_cast<char*>(&keySize),4);input.read(reinterpret_cast<char*>(&size),8);
     if(!input||std::string(magic,8)!="PFCACHE1"||version!=1||keySize>16*1024||size>512ULL*1024*1024)return 3;
-    input.seekg(keySize,std::ios::cur);std::vector<std::uint8_t> bytes(size);
+    input.seekg(0,std::ios::end);
+    if(input.tellg()!=static_cast<std::streamoff>(24ULL+keySize+size))return 3;
+    input.seekg(24ULL+keySize,std::ios::beg);std::vector<std::uint8_t> bytes(size);
     input.read(reinterpret_cast<char*>(bytes.data()),size);if(!input)return 3;
     std::vector<pfcore::MotionWindow> windows;int scenes=0;
-    if(!pfservices::deserializeMotionWindows(bytes,windows,scenes))return 4;
+    const bool characterArtifact=bytes.size()>=4 && std::equal(bytes.begin(),bytes.begin()+4,"PFCH");
+    if(characterArtifact) {
+        pfservices::CharacterAnalysis analysis;
+        if(!pfservices::deserializeCharacterAnalysis(bytes,analysis))return 4;
+        windows=std::move(analysis.windows);scenes=analysis.sceneCount;
+    }else if(!pfservices::deserializeMotionWindows(bytes,windows,scenes))return 4;
     QFile results(argv[2]);if(!results.open(QIODevice::ReadOnly))return 5;
     auto report=QJsonDocument::fromJson(results.readAll()).object();QJsonArray reviewed;
+    report["observationArtifact"]=characterArtifact?"PFCH":"motion-windows";
     if(!cutsPath.empty()) {
         QFile cutsFile(QString::fromStdString(cutsPath.string()));if(!cutsFile.open(QIODevice::ReadOnly))return 7;
         const auto cutsReport=QJsonDocument::fromJson(cutsFile.readAll()).object();
@@ -193,6 +202,7 @@ int main(int argc,char** argv) {
         const auto displacement=classifier.classify(w,start,end);
         QJsonArray actions;for(const auto action:body.actions)actions.append(pfcore::MovementClassifier::gestureName(action));
         candidates.append(QJsonObject{{"source",QString::fromStdString(w.sourceId)},
+            {"windowIndex",static_cast<qint64>(&w-windows.data())},
             {"scene",static_cast<qint64>(w.sceneIndex)},{"start",start},{"end",end},
             {"track",static_cast<qint64>(w.trackId)},
             {"actions",actions},
@@ -214,6 +224,17 @@ int main(int argc,char** argv) {
         }
     }
     report["candidateWindows"]=candidates;
+    QJsonArray staticWindows;
+    for(std::size_t i=0;i<windows.size();++i) {
+        const auto& window=windows[i];
+        if(!window.staticFrameSet || window.frames.empty())continue;
+        staticWindows.append(QJsonObject{{"windowIndex",static_cast<qint64>(i)},
+            {"track",static_cast<qint64>(window.trackId)},
+            {"source",QString::fromStdString(window.sourceId)},
+            {"scene",static_cast<qint64>(window.sceneIndex)},
+            {"start",window.frames.front().timestampSeconds},{"end",window.frames.back().timestampSeconds}});
+    }
+    report["staticWindows"]=staticWindows;
     QFile output(argv[3]);if(!output.open(QIODevice::WriteOnly|QIODevice::NewOnly))return 6;
     output.write(QJsonDocument(report).toJson());std::cout<<"Reviewed "<<reviewed.size()<<" pairs from "<<windows.size()<<" cached windows\n";
 }
