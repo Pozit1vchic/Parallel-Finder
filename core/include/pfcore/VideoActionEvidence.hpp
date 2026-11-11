@@ -49,6 +49,16 @@ inline std::optional<double> measuredWalking(const VideoActionEvidence& evidence
         || walk-evidence.scores[11]<.2 || walk-evidence.scores[9]<.2)return {};
     return walk;
 }
+inline std::optional<double> measuredRunning(const VideoActionEvidence& evidence,
+    const std::string& source,double start,double end) {
+    if(!validVideoActionEvidence(evidence,source,start,end))return {};
+    // Symmetric walking policy, frozen before independent KTH evaluation.
+    // High precision and deliberately limited recall; no calibrated certainty.
+    const double run=evidence.scores[9];
+    if(run<.9 || run-evidence.frozenScores[9]<.5
+        || run-evidence.scores[11]<.2 || run-evidence.scores[13]<.2)return {};
+    return run;
+}
 // AVA v2.2 class ids 8/11/12 are lie/sleep, sit and stand. The model emits
 // uncalibrated sigmoid scores, so posture labels require temporal and frozen
 // views to agree with a clear margin. Any ambiguity stays unknown.

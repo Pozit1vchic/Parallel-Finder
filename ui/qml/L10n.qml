@@ -5,7 +5,7 @@ import "Translations.js" as Catalog
 
 QtObject {
     property string language: "en"
-    readonly property var movementTypes: ["sitting", "lying", "head_turn_away", "head_turn_back", "head_turn", "turn", "head_front", "head_turned", "head_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "body_pose", "head_nod", "head_tilt", "raise", "lower", "raise_lower", "wave", "push", "pull", "reach_return", "step", "static", "mixed", "seated_lying", "posture_uncertain", "posture_mismatch", "pose_mismatch", "head_action_mismatch", "action_mismatch", "unknown"]
+    readonly property var movementTypes: ["sitting", "lying", "head_turn_away", "head_turn_back", "head_turn", "turn", "head_front", "head_turned", "head_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "body_pose", "head_nod", "head_tilt", "raise", "lower", "raise_lower", "wave", "push", "pull", "reach_return", "step", "run", "static", "mixed", "seated_lying", "posture_uncertain", "posture_mismatch", "pose_mismatch", "head_action_mismatch", "action_mismatch", "unknown"]
     function movementKey(value) {
         const key=String(value || "unknown").split("/")[0]
         if (movementTypes.indexOf(key)>=0) return key
@@ -174,6 +174,7 @@ QtObject {
             "class.head_turn_away": "Отворачивает голову от камеры",
             "class.head_turn_back": "Поворачивает голову к камере",
             "class.step": "Шаг",
+            "class.run": "Бег",
             "class.wave": "Взмах",
             "class.static": "Без движения",
             "class.mixed": "Смешанное движение",
@@ -716,6 +717,7 @@ QtObject {
             "class.head_turn_away": "Turns head away from camera",
             "class.head_turn_back": "Turns head toward camera",
             "class.step": "Step",
+            "class.run": "Running",
             "class.wave": "Wave",
             "class.static": "Still",
             "class.mixed": "Mixed movement",

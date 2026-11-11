@@ -25,7 +25,8 @@
   "professionalMovementAccuracyEstablished": false,
   "applicationClassificationIntegration": true,
   "supportedSemanticActions": [
-    "walk"
+    "walk",
+    "run"
   ],
   "experimentalSemanticActions": [
     "seated_lying",
@@ -46,5 +47,13 @@
     "standingMinimumMarginOverSeatedOrLying": 0.25,
     "requiresSelectedSubjectUpperTorsoAndHipAndNativeContinuity": true,
     "ambiguousOrConflictingEvidence": "unknown"
+  },
+  "runLabelIndex": 9,
+  "runPolicy": {
+    "minimumScore": 0.9,
+    "minimumFrozenMargin": 0.5,
+    "minimumStandWalkMargin": 0.2,
+    "requiresSelectedTorsoAndNativeContinuity": true,
+    "validation": "KTH frozen subject holdout, 17 TP / 0 FP / 55 FN; not calibrated correctness or editing-parallel ground truth"
   }
 }

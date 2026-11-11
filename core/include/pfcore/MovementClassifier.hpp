@@ -33,6 +33,7 @@ enum class GestureClass {
     HeadTurn,
     HeadNod,
     HeadTilt,
+    Run,
 };
 
 struct MovementClassification {

@@ -296,6 +296,7 @@ const char* MovementClassifier::gestureName(GestureClass value) noexcept
     case GestureClass::Lower: return "lower";
     case GestureClass::Turn: return "turn";
     case GestureClass::Step: return "step";
+    case GestureClass::Run: return "run";
     case GestureClass::Wave: return "wave";
     case GestureClass::Static: return "static";
     case GestureClass::Mixed: return "mixed";

@@ -54,6 +54,45 @@ TEST(VideoActionEvidence, RequiresTemporalAndFrozenAgreementForPosture) {
     auto cropped=seated;cropped.postureVisible=false;
     EXPECT_EQ(pfcore::measuredPosture(cropped,"selected-source",0,1.5),"unknown");
 }
+TEST(VideoActionEvidence, RunningRequiresSelectedTemporalEvidenceAndRejectsAmbiguousGaits) {
+    auto run=measuredClip();run.scores[13]=0;run.scores[9]=.99;
+    ASSERT_TRUE(pfcore::measuredRunning(run,"selected-source",0,1.5));
+    EXPECT_FALSE(pfcore::measuredWalking(run,"selected-source",0,1.5));
+    for(int invalid=0;invalid<10;++invalid) {
+        auto changed=run;
+        switch(invalid) {
+        case 0:changed.associated=false;break;
+        case 1:changed.continuous=false;break;
+        case 2:changed.torsoVisible=false;break;
+        case 3:changed.modelHash="unverified";break;
+        case 4:changed.scores[9]=.8;break;
+        case 5:changed.frozenScores[9]=.8;break;
+        case 6:changed.scores[13]=.95;break;
+        case 7:changed.scores[11]=.95;break;
+        case 8:changed.frameTimes[3]=changed.frameTimes[2];break;
+        case 9:changed.frozenScores[0]=std::numeric_limits<double>::quiet_NaN();break;
+        }
+        EXPECT_FALSE(pfcore::measuredRunning(changed,"selected-source",0,1.5))<<invalid;
+    }
+    EXPECT_FALSE(pfcore::measuredRunning(run,"other",0,1.5));
+    EXPECT_FALSE(pfcore::measuredRunning(run,"selected-source",.1,1.5));
+    pfcore::MotionWindow window;window.sourceId="selected-source";
+    window.sceneStartSeconds=0;window.sceneEndSeconds=2;window.videoActions={run};
+    const pfcore::MovementClassifier classifier;
+    const auto action=classifier.classifyForGrouping(window,0,1.5);
+    EXPECT_EQ(action.gesture,pfcore::GestureClass::Run);
+    EXPECT_EQ(action.actions,(std::vector<pfcore::GestureClass>{pfcore::GestureClass::Run}));
+    EXPECT_STREQ(pfcore::MovementClassifier::gestureName(action.gesture),"run");
+    EXPECT_EQ(classifier.classifyForGrouping(window,0,1.5,true).gesture,pfcore::GestureClass::Unknown);
+    window.staticFrameSet=true;
+    EXPECT_EQ(classifier.classifyForGrouping(window,0,1.5).gesture,pfcore::GestureClass::Unknown);
+    window.staticFrameSet=false;window.videoActions.push_back(measuredClip());
+    EXPECT_EQ(classifier.classifyForGrouping(window,0,1.5).gesture,pfcore::GestureClass::Unknown);
+    std::reverse(window.videoActions.begin(),window.videoActions.end());
+    EXPECT_EQ(classifier.classifyForGrouping(window,0,1.5).gesture,pfcore::GestureClass::Unknown);
+    EXPECT_EQ(pfcore::MovementClassifier::combineForGrouping(action,{}).gesture,pfcore::GestureClass::Unknown);
+    EXPECT_EQ(pfcore::MovementClassifier::combineForGrouping(action,action).gesture,pfcore::GestureClass::Run);
+}
 TEST(VideoActionEvidence, SpecificPostureRequiresAgreementAgainstTheClosestAlternative) {
     auto seated=measuredClip();seated.scores[10]=.85;seated.frozenScores[10]=.75;
     EXPECT_EQ(pfcore::measuredSpecificPosture(seated,"selected-source",0,1.5),"sitting");
@@ -110,4 +149,23 @@ TEST(VideoActionEvidence, GeometricLabelsCannotBorrowAnUnobservedClipTail) {
     const pfcore::MovementClassifier classifier;
     EXPECT_EQ(classifier.classifyForGrouping(window,0,1).gesture,pfcore::GestureClass::Static);
     EXPECT_EQ(classifier.classifyForGrouping(window,0,2).gesture,pfcore::GestureClass::Unknown);
+}
+TEST(VideoActionEvidence, RunningPreservesIndependentArmActionsAndSceneBoundaries) {
+    pfcore::MotionWindow window;window.sourceId="selected-source";
+    window.sceneStartSeconds=0;window.sceneEndSeconds=2;
+    const std::vector<pfcore::Keypoint> pose={{0,-2},{-.5,-2.5},{.5,-2.5},{-1,-2},{1,-2},
+        {-2,0},{2,0},{-2,1.5},{2,1.5},{-2,3},{2,3},{-1,4},{1,4},{-1,6},{1,6},{-1,8},{1,8}};
+    for(int i=0;i<15;++i) {
+        auto points=pose;points[9].y-=3.*i/14.;
+        window.frames.push_back({i*.1,std::move(points)});
+    }
+    const pfcore::MovementClassifier classifier;
+    ASSERT_EQ(classifier.classifyForGrouping(window,0,1.5).gesture,pfcore::GestureClass::Raise);
+    auto run=measuredClip();run.scores[13]=0;run.scores[9]=.99;
+    window.videoActions={run};
+    const auto mixed=classifier.classifyForGrouping(window,0,1.5);
+    EXPECT_EQ(mixed.gesture,pfcore::GestureClass::Mixed);
+    EXPECT_EQ(mixed.actions,(std::vector<pfcore::GestureClass>{pfcore::GestureClass::Raise,pfcore::GestureClass::Run}));
+    window.sceneEndSeconds=1.;
+    EXPECT_EQ(classifier.classifyForGrouping(window,0,1.5).gesture,pfcore::GestureClass::Unknown);
 }

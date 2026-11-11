@@ -581,19 +581,36 @@ MovementClassification MovementClassifier::classifyGeometricForGrouping(const Mo
 MovementClassification MovementClassifier::classifyForGrouping(const MotionWindow& window,double start,double end,bool headOnly) const {
     auto result=classifyGeometricForGrouping(window,start,end,headOnly);
     if(headOnly || !insideSceneRange(window,start,end))return result;
-    std::optional<double> walking;
-    if(!window.staticFrameSet)for(const auto& evidence:window.videoActions)
-        if(const auto strength=measuredWalking(evidence,window.sourceId,start,end))walking=strength;
-    if(!walking)return result;
+    std::optional<double> walking,running;
+    if(!window.staticFrameSet)for(const auto& evidence:window.videoActions) {
+        if(const auto strength=measuredWalking(evidence,window.sourceId,start,end))
+            walking=walking ? std::min(*walking,*strength):*strength;
+        if(const auto strength=measuredRunning(evidence,window.sourceId,start,end))
+            running=running ? std::min(*running,*strength):*strength;
+    }
+    // Conflicting clip measurements cannot choose a gait by iteration order.
+    if((!walking && !running) || (walking && running))return result;
+    const auto gait=running ? GestureClass::Run:GestureClass::Step;
+    const double strength=running ? *running:*walking;
+    if(running) {
+        // A geometric step is a broad gait observation, not a second action
+        // simultaneous with running. Keep independent arm/head facets.
+        std::erase(result.actions,GestureClass::Step);
+        if(result.gesture==GestureClass::Step)result.gesture=GestureClass::Run;
+    }
     if(result.gesture==GestureClass::Unknown || result.gesture==GestureClass::Static) {
-        result.gesture=GestureClass::Step;result.actions={GestureClass::Step};
-        result.gestureConfidence=*walking;
-    } else if(result.gesture!=GestureClass::Step) {
+        result.gesture=gait;result.actions={gait};
+        result.gestureConfidence=strength;
+    } else if(result.gesture!=gait) {
         if(result.gesture!=GestureClass::Mixed)result.actions.push_back(result.gesture);
-        result.actions.push_back(GestureClass::Step);
+        result.actions.push_back(gait);
         std::sort(result.actions.begin(),result.actions.end());
         result.actions.erase(std::unique(result.actions.begin(),result.actions.end()),result.actions.end());
-        result.gesture=GestureClass::Mixed;result.gestureConfidence=std::min(result.gestureConfidence,*walking);
+        result.gesture=result.actions.size()==1 ? gait:GestureClass::Mixed;
+        result.gestureConfidence=std::min(result.gestureConfidence,strength);
+    } else {
+        result.actions={gait};
+        result.gestureConfidence=std::min(result.gestureConfidence,strength);
     }
     result.headOnlyEvidence=false;
     const auto displacement=classify(window,start,end);
