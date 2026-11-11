@@ -33,6 +33,13 @@ namespace {
 QByteArray digest(QByteArray bytes){return QCryptographicHash::hash(bytes,QCryptographicHash::Sha256);}
 void write(const QString& path,const QByteArray& bytes){QDir().mkpath(QFileInfo(path).absolutePath());QFile f(path);if(f.open(QIODevice::WriteOnly))f.write(bytes);}
 QByteArray read(const QString& path){QFile f(path);return f.open(QIODevice::ReadOnly)?f.readAll():QByteArray{};}
+QByteArray incrementalZip(const QString& path) {
+    archive* a=archive_write_new();archive_write_set_format_zip(a);archive_write_open_filename(a,path.toUtf8().constData());
+    archive_entry* e=archive_entry_new();archive_entry_set_pathname(e,"ParallelFinder/ParallelFinder.exe");
+    const QByteArray content="new-application";archive_entry_set_size(e,content.size());archive_entry_set_filetype(e,AE_IFREG);archive_entry_set_perm(e,0644);
+    archive_write_header(a,e);archive_write_data(a,content.constData(),content.size());archive_entry_free(e);
+    archive_write_close(a);archive_write_free(a);return read(path);
+}
 struct Fixture {
     QTemporaryDir directory;
     std::unique_ptr<EVP_PKEY,decltype(&EVP_PKEY_free)> key{nullptr,EVP_PKEY_free};
@@ -60,6 +67,13 @@ struct Fixture {
     }
     QString root(){const auto path=directory.path()+"/installation";write(path+"/ParallelFinder.exe","old-application");write(path+"/unins000.exe","existing-installer-uninstaller");write(path+"/user-file.txt","portable-user-file");return path;}
     QString package(){const auto path=directory.path()+"/download.zip";write(path,zip);return path;}
+    QByteArray addIncremental() {
+        const auto delta=incrementalZip(directory.path()+"/incremental.zip");
+        object["incremental"]=QJsonArray{QJsonObject{{"baseVersion","0.1.0-rc.17"},{"asset","ParallelFinder-1.0.0-Incremental-x64.zip"},
+            {"size",delta.size()},{"sha256",QString::fromLatin1(digest(delta).toHex())},
+            {"reuse",QJsonArray{"ParallelFinderUpdater.exe","qml/test.qml"}}}};
+        resign();return delta;
+    }
     void repackage(const QMap<QString,QByteArray>& contents) {
         const auto path=directory.path()+"/process.zip";archive* a=archive_write_new();archive_write_set_format_zip(a);archive_write_open_filename(a,path.toUtf8().constData());QJsonArray files;
         for(auto it=contents.begin();it!=contents.end();++it) {
@@ -141,6 +155,10 @@ private slots:
     void dialogMatchesThemeAndShowsDownload();
     void unsignedReleaseRefused();
     void signedInventoryTamperingRejected();
+    void incrementalSelectionAndInstallation();
+    void incrementalRejectsDamagedBaseAndRollsBack();
+    void incrementalMetadataValidation();
+    void incrementalServiceDownloadsOnlyChangedFiles();
 #ifdef Q_OS_WIN
     void updaterProcessRestartsAndRollsBack_data();
     void updaterProcessRestartsAndRollsBack();
@@ -148,6 +166,58 @@ private slots:
     void lockedDirectoryRollsBack();
 #endif
 };
+void UpdateTests::incrementalSelectionAndInstallation() {
+    Fixture f;const auto delta=f.addIncremental();QString error;
+    const auto selected=pfupdate::verifyManifest(f.bytes,f.signature,f.publicKey,error,"ParallelFinder-1.0.0-Incremental-x64.zip","0.1.0-rc.17");
+    QVERIFY2(selected,qPrintable(error));QCOMPARE(selected->reuse.size(),2);QVERIFY(selected->size<f.manifest.size);
+    const auto root=f.root();write(root+"/ParallelFinderUpdater.exe","new-updater");write(root+"/qml/test.qml","new-qml");
+    QVERIFY(pfupdate::canReuseFiles(root,*selected,selected->reuse));
+    const auto path=f.directory.path()+"/delta.zip";write(path,delta);
+    pfupdate::UpdateTransaction transaction(root);QVERIFY2(transaction.install(path,*selected,{},error),qPrintable(error));
+    QCOMPARE(read(root+"/ParallelFinder.exe"),QByteArray("new-application"));
+    QCOMPARE(read(root+"/qml/test.qml"),QByteArray("new-qml"));
+    QCOMPARE(read(root+"/user-file.txt"),QByteArray("portable-user-file"));
+}
+void UpdateTests::incrementalRejectsDamagedBaseAndRollsBack() {
+    Fixture f;const auto delta=f.addIncremental();QString error;
+    const auto selected=pfupdate::verifyManifest(f.bytes,f.signature,f.publicKey,error,"ParallelFinder-1.0.0-Incremental-x64.zip","0.1.0-rc.17");
+    QVERIFY(selected);const auto root=f.root();write(root+"/ParallelFinderUpdater.exe","bad-updater");write(root+"/qml/test.qml","new-qml");
+    QVERIFY(!pfupdate::canReuseFiles(root,*selected,selected->reuse));
+    const auto path=f.directory.path()+"/delta.zip";write(path,delta);pfupdate::UpdateTransaction transaction(root);
+    QVERIFY(!transaction.install(path,*selected,{},error));QCOMPARE(read(root+"/ParallelFinder.exe"),QByteArray("old-application"));
+    QVERIFY(!QFileInfo::exists(root+".pf-stage"));
+    write(root+"/ParallelFinderUpdater.exe","new-updater");
+    pfupdate::InstallHooks hooks;hooks.restart=[](const QString&,QString& e){e="restart failed";return false;};
+    QVERIFY(!transaction.install(path,*selected,hooks,error));QCOMPARE(read(root+"/ParallelFinder.exe"),QByteArray("old-application"));
+}
+void UpdateTests::incrementalMetadataValidation() {
+    Fixture f;f.addIncremental();QString error;
+    QVERIFY(pfupdate::verifyManifest(f.bytes,f.signature,f.publicKey,error));
+    QVERIFY(!pfupdate::verifyManifest(f.bytes,f.signature,f.publicKey,error,"ParallelFinder-1.0.0-Incremental-x64.zip","0.2.0"));
+    QVERIFY(!pfupdate::verifyManifest(f.bytes,f.signature,f.publicKey,error,"unsigned.zip","0.1.0-rc.17"));
+    auto rows=f.object["incremental"].toArray();auto row=rows[0].toObject();row["reuse"]=QJsonArray{"../outside"};rows[0]=row;f.object["incremental"]=rows;f.resign();
+    QVERIFY(!pfupdate::verifyManifest(f.bytes,f.signature,f.publicKey,error));
+}
+void UpdateTests::incrementalServiceDownloadsOnlyChangedFiles() {
+    Fixture f;const auto delta=f.addIncremental();Server server;server.release(f);
+    const QString name="ParallelFinder-1.0.0-Incremental-x64.zip";server.body['/'+name.toUtf8()]=delta;
+    auto release=QJsonDocument::fromJson(server.body["/releases"]).array();auto item=release[0].toObject();auto assets=item["assets"].toArray();
+    assets.append(QJsonObject{{"name",name},{"size",delta.size()},{"browser_download_url",server.url('/'+name).toString()}});
+    item["assets"]=assets;release[0]=item;server.body["/releases"]=QJsonDocument(release).toJson();
+    const auto o=options(f,server);write(o.installationDirectory+"/ParallelFinderUpdater.exe","new-updater");write(o.installationDirectory+"/qml/test.qml","new-qml");
+    server.rangeEnabled=true;const auto deltaPath='/'+name.toUtf8();server.partial.insert(deltaPath);
+    qint64 saved=0;
+    {pfupdate::UpdateService service(o);service.check();QTRY_COMPARE(service.state(),QString("available"));QCOMPARE(service.totalBytes(),qint64(delta.size()));
+    service.download();QTRY_VERIFY(service.receivedBytes()>0);saved=service.receivedBytes();service.cancel();}
+    server.partial.clear();
+    {pfupdate::UpdateService restored(o);QCOMPARE(restored.state(),QString("available"));QCOMPARE(restored.totalBytes(),qint64(delta.size()));
+    restored.download();QTRY_COMPARE(restored.state(),QString("ready"));QCOMPARE(restored.receivedBytes(),qint64(delta.size()));
+    QCOMPARE(server.requestedRanges[deltaPath],saved);}
+    {pfupdate::UpdateService ready(o);QCOMPARE(ready.state(),QString("ready"));}
+    write(o.installationDirectory+"/qml/test.qml","modified-qml");
+    pfupdate::UpdateService fallback(o);fallback.check();QTRY_COMPARE(fallback.state(),QString("available"));
+    QCOMPARE(fallback.totalBytes(),qint64(f.zip.size()));
+}
 void UpdateTests::versions() {
     QVERIFY(pfupdate::compareVersions("v1.0.0","1.0.0-rc.17").value()>0);
     QVERIFY(pfupdate::compareVersions("v0.2.0.1","v0.2.0").value()>0);
@@ -181,7 +251,10 @@ void UpdateTests::legacyAcknowledgementUsesTrustedVersionSpelling(){Fixture f;f.
 void UpdateTests::signedReleaseArchiveInstalls(){
     const auto directory=qEnvironmentVariable("PF_UPDATE_PACKAGE_DIRECTORY");
     if(directory.isEmpty())QSKIP("Run after packaging with PF_UPDATE_PACKAGE_DIRECTORY");
-    QString error;const auto manifest=pfupdate::verifyManifest(read(directory+"/update.json"),read(directory+"/update.json.sig"),pfupdate::trustedPublicKey(),error);
+    const auto testKey=qEnvironmentVariable("PF_UPDATE_PACKAGE_TEST_PUBLIC_KEY");
+    QString error;const auto manifest=pfupdate::verifyManifest(read(directory+"/update.json"),read(directory+"/update.json.sig"),
+        testKey.isEmpty()?pfupdate::trustedPublicKey():read(testKey),error,
+        qEnvironmentVariable("PF_UPDATE_SELECTED_ASSET"),qEnvironmentVariable("PF_UPDATE_BASE_VERSION"));
     QVERIFY2(manifest.has_value(),qPrintable(error));QTemporaryDir temporary;QVERIFY(temporary.isValid());
     const auto root=temporary.path()+"/installation";
     const auto previousArchive=qEnvironmentVariable("PF_UPDATE_PREVIOUS_ARCHIVE");

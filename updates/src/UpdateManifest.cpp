@@ -8,9 +8,11 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QSet>
+#include <QDir>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <memory>
+#include <algorithm>
 
 namespace pfupdate {
 QByteArray trustedPublicKey() { return pfUpdatePublicKey; }
@@ -64,7 +66,8 @@ std::optional<QString> restartAcknowledgementVersion(const QByteArray& request,
     if(!manifest || compareVersions(manifest->version,currentVersion).value_or(-1)!=0)return {};
     return manifest->version;
 }
-std::optional<Manifest> verifyManifest(const QByteArray& bytes,const QByteArray& signature,const QByteArray& publicKey,QString& error) {
+std::optional<Manifest> verifyManifest(const QByteArray& bytes,const QByteArray& signature,const QByteArray& publicKey,QString& error,
+    const QString& selectedAsset,const QString& currentVersion) {
     auto fail=[&](QString message)->std::optional<Manifest>{error=message;return {};};
     if(bytes.isEmpty() || bytes.size()>2*1024*1024 || signature.size()!=64)return fail("Invalid signed manifest size");
     std::unique_ptr<BIO,decltype(&BIO_free)> bio(BIO_new_mem_buf(publicKey.constData(),static_cast<int>(publicKey.size())),BIO_free);
@@ -90,7 +93,57 @@ std::optional<Manifest> verifyManifest(const QByteArray& bytes,const QByteArray&
     if(!seen.contains("parallelfinder.exe") || !seen.contains("parallelfinderupdater.exe"))return fail("Missing application or updater");
     for(const auto& f:m.files)for(QString parent=f.path.section('/',0,-2);f.path.contains('/') && !parent.isEmpty();parent=parent.contains('/')?parent.section('/',0,-2):QString{})
         if(seen.contains(parent.toCaseFolded()))return fail("Conflicting update paths");
+    if(o.contains("incremental") && !o["incremental"].isArray())return fail("Invalid incremental metadata");
+    const auto variants=o["incremental"].toArray();
+    if(variants.size()>16)return fail("Too many incremental packages");
+    QSet<QString> assets{m.asset.toCaseFolded()};
+    for(const auto& value:variants) {
+        const auto v=value.toObject();
+        IncrementalPackage p;
+        p.baseVersion=v["baseVersion"].toString();p.asset=v["asset"].toString();
+        p.size=v["size"].toInteger(-1);p.sha256=QByteArray::fromHex(v["sha256"].toString().toLatin1());
+        if(!compareVersions(p.baseVersion,m.version) || compareVersions(p.baseVersion,m.version).value()>=0
+            || !safeRelativePath(p.asset) || p.asset.contains('/') || !p.asset.endsWith("-Incremental-x64.zip")
+            || assets.contains(p.asset.toCaseFolded()) || p.size<=0 || p.size>=m.size
+            || !hashValid(v["sha256"].toString()) || !v["reuse"].isArray())return fail("Invalid incremental package");
+        QSet<QString> reused;
+        for(const auto& path:v["reuse"].toArray()) {
+            const auto name=path.toString();
+            // Require the exact inventory spelling, also on case-insensitive Windows.
+            const bool exists=std::any_of(m.files.begin(),m.files.end(),[&](const auto& f){return f.path==name;});
+            if(!exists || reused.contains(name.toCaseFolded()))return fail("Invalid reused file inventory");
+            reused.insert(name.toCaseFolded());p.reuse.push_back(name);
+        }
+        if(p.reuse.isEmpty() || p.reuse.size()>=m.files.size())return fail("Empty incremental payload");
+        assets.insert(p.asset.toCaseFolded());m.incremental.push_back(std::move(p));
+    }
+    if(!selectedAsset.isEmpty() && selectedAsset!=m.asset) {
+        const auto found=std::find_if(m.incremental.begin(),m.incremental.end(),[&](const auto& p){return p.asset==selectedAsset;});
+        if(found==m.incremental.end() || compareVersions(found->baseVersion,currentVersion).value_or(-1)!=0)
+            return fail("Incremental package is incompatible with installed version");
+        m.asset=found->asset;m.size=found->size;m.sha256=found->sha256;
+        m.reuse=found->reuse;m.baseVersion=found->baseVersion;
+    }
     return m;
+}
+bool canReuseFiles(const QString& root,const Manifest& manifest,const QStringList& paths,const std::function<bool()>& cancelled) {
+    const QDir directory(root);
+    for(const auto& path:paths) {
+        if(cancelled && cancelled())return false;
+        const auto found=std::find_if(manifest.files.begin(),manifest.files.end(),[&](const auto& f){return f.path==path;});
+        if(found==manifest.files.end())return false;
+        QFile file(directory.filePath(path));
+        if(!file.open(QIODevice::ReadOnly) || file.size()!=found->size)return false;
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        while(!file.atEnd()) {
+            if(cancelled && cancelled())return false;
+            const auto block=file.read(1024*1024);
+            if(block.isEmpty() || file.error()!=QFileDevice::NoError)return false;
+            hash.addData(block);
+        }
+        if(hash.result()!=found->sha256)return false;
+    }
+    return true;
 }
 bool verifyPackage(const QString& path,const Manifest& m,QString& error) {
     QFile f(path);if(!f.open(QIODevice::ReadOnly) || f.size()!=m.size) {error="Update size mismatch";return false;}

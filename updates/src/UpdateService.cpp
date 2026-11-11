@@ -29,7 +29,7 @@ UpdateService::UpdateService(UpdateOptions options,QObject* parent):QObject(pare
         const auto o=QJsonDocument::fromJson(cached.readAll()).object();QString error;
         const auto bytes=QByteArray::fromBase64(o["manifest"].toString().toLatin1());
         const auto signature=QByteArray::fromBase64(o["signature"].toString().toLatin1());
-        const auto manifest=verifyManifest(bytes,signature,options_.publicKey,error);
+        const auto manifest=verifyManifest(bytes,signature,options_.publicKey,error,o["asset"].toString(),currentVersion());
         const QUrl url(o["url"].toString());
         if(manifest && compareVersions(manifest->version,currentVersion()).value_or(-1)>0
             && (channel_=="beta" || !o["prerelease"].toBool(true)) && allowedUrl(url)) {
@@ -45,7 +45,10 @@ UpdateService::UpdateService(UpdateOptions options,QObject* parent):QObject(pare
         result.close();QFile::remove(result.fileName());
     }
 }
-UpdateService::~UpdateService(){if(reply_){reply_->disconnect(this);reply_->abort();}}
+UpdateService::~UpdateService(){
+    if(reply_){reply_->disconnect(this);reply_->abort();}
+    if(selectionWorker_){selectionWorker_->requestInterruption();selectionWorker_->wait();}
+}
 void UpdateService::savePreferences() {
     QSaveFile file(options_.storageDirectory+"/preferences.json");
     const auto bytes=QJsonDocument(QJsonObject{{"channel",channel_},{"automaticCheck",automaticCheck_},{"automaticDownload",automaticDownload_},{"skipped",skipped_}}).toJson();
@@ -70,11 +73,11 @@ void UpdateService::fetch(const QUrl& url,qsizetype limit,std::function<void(QBy
     if(!allowedUrl(url)){transition("error","Untrusted update URL");return;}
     QNetworkRequest request(url);request.setRawHeader("User-Agent","ParallelFinder-Updater/1");request.setRawHeader("Accept","application/vnd.github+json");request.setTransferTimeout(20000);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::UserVerifiedRedirectPolicy);
-    auto* reply=network_.get(request);reply_=reply;const auto serial=serial_;auto bytes=std::make_shared<QByteArray>();
+    auto* reply=network_.get(request);reply->setReadBufferSize(limit+1);reply_=reply;const auto serial=serial_;auto bytes=std::make_shared<QByteArray>();
     connect(reply,&QNetworkReply::redirected,this,[this,reply](const QUrl& target){if(allowedUrl(target))reply->redirectAllowed();else reply->abort();});
-    connect(reply,&QNetworkReply::readyRead,this,[reply,bytes,limit]{bytes->append(reply->readAll());if(bytes->size()>limit)reply->abort();});
+    connect(reply,&QNetworkReply::readyRead,this,[reply,bytes,limit]{bytes->append(reply->read(std::max<qsizetype>(0,limit+1-bytes->size())));if(bytes->size()>limit)reply->abort();});
     connect(reply,&QNetworkReply::finished,this,[this,reply,bytes,limit,serial,done=std::move(done)] {
-        bytes->append(reply->readAll());reply->deleteLater();if(serial!=serial_)return;
+        bytes->append(reply->read(std::max<qsizetype>(0,limit+1-bytes->size())));reply->deleteLater();if(serial!=serial_)return;
         reply_=nullptr;
         if(reply->error()!=QNetworkReply::NoError || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()!=200 || bytes->size()>limit){transition("error","Network request failed: "+reply->errorString());return;}
         done(*bytes);
@@ -114,10 +117,40 @@ void UpdateService::chooseRelease() {
             signature_=signature;QString error;manifest_=verifyManifest(manifestBytes_,signature_,options_.publicKey,error);
             if(!manifest_){transition("error",error);return;}
             if(compareVersions(manifest_->version,version).value_or(-1)!=0 || !assets.contains(manifest_->asset) || sizes[manifest_->asset]!=manifest_->size){manifest_.reset();transition("error","Signed metadata does not match release");return;}
-            assetUrl_=assets[manifest_->asset];saveCache();visible_=true;
-            transition(reusePackage()?"ready":"available");if(automaticDownload_ && state_=="available")download();
+            selectPackage(assets,sizes);
         });
     });
+}
+void UpdateService::selectPackage(const QMap<QString,QUrl>& assets,const QMap<QString,qint64>& sizes) {
+    const auto finish=[this,assets] {
+        assetUrl_=assets[manifest_->asset];saveCache();visible_=true;
+        transition(reusePackage()?"ready":"available");
+        if(automaticDownload_ && state_=="available")download();
+    };
+    if(manifest_->incremental.isEmpty()){finish();return;}
+    if(selectionWorker_){selectionWorker_->requestInterruption();selectionWorker_->wait();}
+    const auto full=*manifest_;const auto root=options_.installationDirectory;
+    const auto version=currentVersion();const auto serial=serial_;
+    // Hash unchanged runtime/model files off the GUI thread. Cancellation and
+    // destruction join the one owned worker; no detached work outlives service.
+    selectionWorker_.reset(QThread::create([this,full,root,version,serial,assets,sizes,finish] {
+        auto selected=full;
+        const auto cancelled=[] {return QThread::currentThread()->isInterruptionRequested();};
+        for(const auto& p:full.incremental) {
+            if(cancelled())return;
+            if(p.size>=selected.size || compareVersions(p.baseVersion,version).value_or(-1)!=0
+                || !assets.contains(p.asset) || sizes[p.asset]!=p.size
+                || !canReuseFiles(root,full,p.reuse,cancelled))continue;
+            selected.asset=p.asset;selected.size=p.size;selected.sha256=p.sha256;
+            selected.reuse=p.reuse;selected.baseVersion=p.baseVersion;
+        }
+        if(cancelled())return;
+        QMetaObject::invokeMethod(this,[this,serial,selected=std::move(selected),finish] {
+            if(serial!=serial_)return;
+            manifest_=selected;finish();
+        },Qt::QueuedConnection);
+    }));
+    selectionWorker_->start();
 }
 QString UpdateService::cachePackagePath() const {
     return options_.storageDirectory+"/package-"+QString::fromLatin1(manifest_->sha256.toHex())+".zip";
@@ -125,7 +158,7 @@ QString UpdateService::cachePackagePath() const {
 void UpdateService::saveCache() {
     QSaveFile file(options_.storageDirectory+"/package-cache.json");
     const auto bytes=QJsonDocument(QJsonObject{{"manifest",QString::fromLatin1(manifestBytes_.toBase64())},
-        {"signature",QString::fromLatin1(signature_.toBase64())},{"url",assetUrl_.toString()},{"prerelease",releasePrerelease_}}).toJson();
+        {"signature",QString::fromLatin1(signature_.toBase64())},{"url",assetUrl_.toString()},{"asset",manifest_->asset},{"prerelease",releasePrerelease_}}).toJson();
     if(file.open(QIODevice::WriteOnly)){file.write(bytes);file.commit();}
 }
 bool UpdateService::reusePackage() {
@@ -163,7 +196,7 @@ void UpdateService::download() {
     received_=downloadFile_->size();const auto resumedBytes=received_;
     QNetworkRequest request(assetUrl_);request.setTransferTimeout(30000);request.setRawHeader("User-Agent","ParallelFinder-Updater/1");request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::UserVerifiedRedirectPolicy);
     if(resumedBytes>0)request.setRawHeader("Range", "bytes="+QByteArray::number(resumedBytes)+'-');
-    auto* reply=network_.get(request);reply_=reply;transferTimer_.start();uiTimer_.start();transition("downloading");
+    auto* reply=network_.get(request);reply->setReadBufferSize(1024*1024);reply_=reply;transferTimer_.start();uiTimer_.start();transition("downloading");
     connect(reply,&QNetworkReply::redirected,this,[this,reply](const QUrl& target){if(allowedUrl(target))reply->redirectAllowed();else reply->abort();});
     auto headersAccepted=std::make_shared<bool>(false);
     const auto consume=[this,reply,serial,resumedBytes,headersAccepted] {
@@ -178,9 +211,12 @@ void UpdateService::download() {
             } else {reply->abort();return;}
             *headersAccepted=true;
         }
-        const auto bytes=reply->readAll();received_+=bytes.size();
-        if(received_>totalBytes() || downloadFile_->write(bytes)!=bytes.size()){reply->abort();return;}
-        hash_.addData(bytes);speed_=(received_-(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()==206?resumedBytes:0))*1000.0/std::max<qint64>(1,transferTimer_.elapsed());
+        while(reply->bytesAvailable()>0) {
+            const auto bytes=reply->read(std::min<qint64>(1024*1024,totalBytes()-received_+1));received_+=bytes.size();
+            if(received_>totalBytes() || bytes.isEmpty() || downloadFile_->write(bytes)!=bytes.size()){reply->abort();return;}
+            hash_.addData(bytes);
+        }
+        speed_=(received_-(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()==206?resumedBytes:0))*1000.0/std::max<qint64>(1,transferTimer_.elapsed());
         if(uiTimer_.elapsed()>=100){uiTimer_.restart();emit changed();}
     };
     connect(reply,&QNetworkReply::readyRead,this,consume);
@@ -199,7 +235,9 @@ void UpdateService::download() {
 }
 void UpdateService::cancel() {
     if(state_=="installing")return;
+    if(state_=="checking"){manifest_.reset();assetUrl_=QUrl{};packagePath_.clear();}
     ++serial_;
+    if(selectionWorker_)selectionWorker_->requestInterruption();
     if(reply_){reply_->abort();reply_=nullptr;}downloadFile_.reset();
     speed_=0;transition("cancelled");
 }
@@ -221,7 +259,7 @@ void UpdateService::install() {
     if(state_!="ready" || !manifest_)return;
     if(!canInstall_()){transition("ready","Finish analysis and export before installing");return;}
     const auto requestPath=options_.storageDirectory+"/request-"+QUuid::createUuid().toString(QUuid::WithoutBraces)+".json";
-    QSaveFile file(requestPath);const auto bytes=QJsonDocument(QJsonObject{{"schema",1},{"root",options_.installationDirectory},{"package",packagePath_},{"manifest",QString::fromLatin1(manifestBytes_.toBase64())},{"signature",QString::fromLatin1(signature_.toBase64())},{"currentVersion",currentVersion()},{"parentPid",QCoreApplication::applicationPid()},{"consent",true}}).toJson();
+    QSaveFile file(requestPath);const auto bytes=QJsonDocument(QJsonObject{{"schema",1},{"root",options_.installationDirectory},{"package",packagePath_},{"manifest",QString::fromLatin1(manifestBytes_.toBase64())},{"signature",QString::fromLatin1(signature_.toBase64())},{"asset",manifest_->asset},{"currentVersion",currentVersion()},{"parentPid",QCoreApplication::applicationPid()},{"consent",true}}).toJson();
     if(!file.open(QIODevice::WriteOnly) || file.write(bytes)!=bytes.size() || !file.commit()){transition("error","Cannot persist updater request");return;}
     QString error;const bool launched=options_.launchUpdater?options_.launchUpdater(requestPath,error):launch(requestPath,error);
     if(!launched){transition("error",error);return;}

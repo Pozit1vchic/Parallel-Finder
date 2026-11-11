@@ -63,7 +63,7 @@ int main(int argc,char** argv) {
     // Compiled only into the separate test worker; production has no override.
     trustKey=QByteArray::fromBase64(o["testPublicKey"].toString().toLatin1());
 #endif
-    const auto manifest=pfupdate::verifyManifest(QByteArray::fromBase64(o["manifest"].toString().toLatin1()),QByteArray::fromBase64(o["signature"].toString().toLatin1()),trustKey,error);
+    const auto manifest=pfupdate::verifyManifest(QByteArray::fromBase64(o["manifest"].toString().toLatin1()),QByteArray::fromBase64(o["signature"].toString().toLatin1()),trustKey,error,o["asset"].toString(),o["currentVersion"].toString());
     if(o["schema"].toInt()!=1 || !o["consent"].toBool() || !manifest || !QFileInfo(root).isAbsolute()
         || pfupdate::compareVersions(manifest?manifest->version:QString{},o["currentVersion"].toString()).value_or(-1)<=0
         || !pfupdate::verifyPackage(o["package"].toString(),*manifest,error)) {record(storage,false,error.isEmpty()?"Invalid updater request":error);return 3;}

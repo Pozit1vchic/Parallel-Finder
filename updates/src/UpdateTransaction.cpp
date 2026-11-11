@@ -52,7 +52,8 @@ bool extract(const QString& package,const QString& stage,const Manifest& manifes
     const auto opened=archive_read_open_filename(reader.get(),package.toUtf8().constData(),64*1024);
 #endif
     if(opened!=ARCHIVE_OK){error="Cannot open update archive";return false;}
-    QMap<QString,FileRecord> expected;for(const auto& f:manifest.files)expected.insert(f.path,f);
+    QMap<QString,FileRecord> expected;
+    for(const auto& f:manifest.files)if(!manifest.reuse.contains(f.path))expected.insert(f.path,f);
     QSet<QString> extracted;
     archive_entry* entry=nullptr;int status;
     while((status=archive_read_next_header(reader.get(),&entry))==ARCHIVE_OK) {
@@ -62,7 +63,7 @@ bool extract(const QString& package,const QString& stage,const Manifest& manifes
         if(path.isEmpty() && archive_entry_filetype(entry)==AE_IFDIR)continue;
         if(!safeRelativePath(path) || archive_entry_symlink(entry) || archive_entry_hardlink(entry)) {error="Unsafe archive entry";return false;}
         if(archive_entry_filetype(entry)==AE_IFDIR) {
-            bool allowed=false;for(const auto& f:manifest.files)if(f.path.startsWith(path+'/')){allowed=true;break;}
+            bool allowed=false;for(const auto& f:expected)if(f.path.startsWith(path+'/')){allowed=true;break;}
             if(!allowed || !QDir().mkpath(stage+'/'+path)){error="Unexpected archive directory";return false;}continue;
         }
         if(archive_entry_filetype(entry)!=AE_IFREG || !expected.contains(path) || extracted.contains(path.toCaseFolded())) {error="Unexpected archive file";return false;}
@@ -120,6 +121,9 @@ bool UpdateTransaction::install(const QString& package,const Manifest& manifest,
     if(!journal("staging",error) || !QDir().mkpath(stage_))return false;
     auto fail=[&]{QString rollbackError;if(!rollback(rollbackError))error+="; "+rollbackError;return false;};
     if(!extract(package,stage_,manifest,error) || !preserveFiles(root_,stage_,error))return fail();
+    // The old installation is copied, never modified in place. Verify all
+    // reconstructed files after copying, closing the selection/install race.
+    if(!canReuseFiles(stage_,manifest,manifest.reuse)){error="Reconstructed update checksum mismatch";return fail();}
     if(hooks.healthCheck && !hooks.healthCheck(stage_+"/ParallelFinder.exe",error))return fail();
     if(!journal("prepared",error) || (hooks.beforeActivate && !hooks.beforeActivate(error)) || !journal("activating",error))return fail();
     if(!renameDirectory(root_,backup_)){error="Installation is locked or not writable";return fail();}

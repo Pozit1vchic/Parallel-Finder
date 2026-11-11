@@ -11,6 +11,7 @@
 #include <QJsonArray>
 #include <QCryptographicHash>
 #include <functional>
+#include <QThread>
 
 namespace pfupdate {
 struct UpdateOptions {
@@ -83,12 +84,14 @@ private:
     QUrl assetUrl_;
     QJsonArray releases_;
     std::function<bool()> canInstall_=[] {return true;};
+    std::unique_ptr<QThread> selectionWorker_;
     void savePreferences();
     void transition(const QString& state,const QString& error={});
     bool allowedUrl(const QUrl& url) const;
     void fetch(const QUrl& url,qsizetype limit,std::function<void(QByteArray)> done);
     void fetchPage(int page);
     void chooseRelease();
+    void selectPackage(const QMap<QString,QUrl>& assets,const QMap<QString,qint64>& sizes);
     void saveCache();
     bool reusePackage();
     QString cachePackagePath() const;

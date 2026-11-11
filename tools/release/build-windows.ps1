@@ -4,6 +4,8 @@ param(
     [string]$InnoSetup = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
     [string]$ReleaseTag = '0.2.0',
     [string]$GitHubTag = '',
+    [string]$PreviousPackage = '',
+    [string]$PreviousVersion = '',
     [string]$ReleaseNotes = 'docs/v0.2.0-release-notes.md',
     [string]$SigningKey = (Join-Path $env:LOCALAPPDATA 'ParallelFinder/release-signing/update-ed25519-private.pem'),
     [switch]$KeepStaging,
@@ -174,19 +176,37 @@ try {
     $zip = Join-Path $out "ParallelFinder-$tag-Portable-x64.zip"
     New-ReleaseArchive -Directory $stage -Archive $zip
     if (Test-Path -LiteralPath $SigningKey) {
-        & "$PSScriptRoot/sign-update.ps1" -Stage $stage -Package $zip -Version $(if ($GitHubTag) { $GitHubTag } else { $tag }) -SigningKey $SigningKey -OpenSSL "$bin/openssl.exe" -ChangelogPath "$stage/RELEASE-NOTES.md"
+        & "$PSScriptRoot/sign-update.ps1" -Stage $stage -Package $zip -Version $(if ($GitHubTag) { $GitHubTag } else { $tag }) -SigningKey $SigningKey -OpenSSL "$bin/openssl.exe" -ChangelogPath "$stage/RELEASE-NOTES.md" -PreviousPackage $PreviousPackage -PreviousVersion $PreviousVersion
     } else {
         throw 'Release signing key missing. Refusing to create an update-capable release without a trusted signature.'
     }
     if (!$SkipChecks) {
         $verification = Join-Path $out 'verification'
         New-Item -ItemType Directory -Force -Path $verification | Out-Null
-        $previousPackageDirectory = $env:PF_UPDATE_PACKAGE_DIRECTORY
+        $updateTestVariables = @('PF_UPDATE_PACKAGE_DIRECTORY','PF_UPDATE_PREVIOUS_ARCHIVE',
+            'PF_UPDATE_SELECTED_ASSET','PF_UPDATE_BASE_VERSION','PF_UPDATE_PACKAGE_TEST_PUBLIC_KEY')
+        $savedUpdateTestEnvironment = @{}
+        foreach ($name in $updateTestVariables) {
+            $savedUpdateTestEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+            [Environment]::SetEnvironmentVariable($name, '', 'Process')
+        }
         try {
             $env:PF_UPDATE_PACKAGE_DIRECTORY = $out
             & (Join-Path $root 'build/ucrt64-release/tests/pf_update_tests.exe') signedReleaseArchiveInstalls -o "$(Join-Path $verification 'archive-install-test.txt'),txt"
             if ($LASTEXITCODE) { throw 'Signed release archive failed updater extraction/health verification' }
-        } finally { $env:PF_UPDATE_PACKAGE_DIRECTORY = $previousPackageDirectory }
+            $signedUpdate = Get-Content -LiteralPath (Join-Path $out 'update.json') -Raw | ConvertFrom-Json
+            foreach ($incremental in $signedUpdate.incremental) {
+                $env:PF_UPDATE_PREVIOUS_ARCHIVE = (Resolve-Path -LiteralPath $PreviousPackage).Path
+                $env:PF_UPDATE_SELECTED_ASSET = $incremental.asset
+                $env:PF_UPDATE_BASE_VERSION = $incremental.baseVersion
+                & (Join-Path $root 'build/ucrt64-release/tests/pf_update_tests.exe') signedReleaseArchiveInstalls -o "$(Join-Path $verification 'incremental-install-test.txt'),txt"
+                if ($LASTEXITCODE) { throw 'Signed incremental archive failed reconstruction/health verification' }
+            }
+        } finally {
+            foreach ($name in $updateTestVariables) {
+                [Environment]::SetEnvironmentVariable($name, $savedUpdateTestEnvironment[$name], 'Process')
+            }
+        }
     }
     & $InnoSetup "/DStageDir=$stage" "/DOutputDir=$out" "/DAppVersion=$tag" "$PSScriptRoot/installer.iss"
     if ($LASTEXITCODE) { throw 'Installer compilation failed' }
