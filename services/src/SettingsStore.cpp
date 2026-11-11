@@ -17,9 +17,16 @@
 #include <deque>
 #include <mutex>
 #include <thread>
+#include <array>
+#include <shared_mutex>
 
 namespace pfservices {
 namespace {
+
+auto& settingsIoLocks() {
+    static std::array<std::shared_mutex,64> locks;
+    return locks;
+}
 
 class SettingsWriter {
 public:
@@ -88,10 +95,27 @@ private:
     std::jthread worker_;
 };
 
-SettingsWriter& settingsWriter() { static SettingsWriter writer; return writer; }
+SettingsWriter& settingsWriter() {
+    // The writer joins and drains before its I/O locks are destroyed, even
+    // when flushPendingWrites() is the first settings operation in a process.
+    (void)settingsIoLocks();
+    static SettingsWriter writer;return writer;
+}
 
 constexpr std::size_t kMaxCacheLimitBytes = 64ULL * 1024ULL * 1024ULL * 1024ULL;
 constexpr qsizetype kMaxSettingsBytes = 1 * 1024 * 1024;
+
+// Bounded lock striping avoids retaining one mutex for every settings path.
+// File handles must close before an atomic Windows replacement starts. JSON
+// conversion and asynchronous change callbacks stay outside the I/O lock.
+std::shared_mutex& settingsIoMutex(const std::string& path) {
+    auto& locks=settingsIoLocks();
+    auto normalized=QDir::cleanPath(QFileInfo(QString::fromStdString(path)).absoluteFilePath());
+#ifdef Q_OS_WIN
+    normalized=normalized.toCaseFolded();
+#endif
+    return locks[qHash(normalized)%locks.size()];
+}
 
 QJsonObject toJson(const Settings& settings)
 {
@@ -159,19 +183,27 @@ SettingsStore::SettingsStore(std::string path)
 
 Settings SettingsStore::load(std::string& error) const
 {
+    error.clear();
     Settings settings;
-    QFile file(QString::fromStdString(path_));
-    if (!file.exists()) return settings;
-    if (!file.open(QIODevice::ReadOnly)) {
-        error = "open settings: " + file.errorString().toStdString();
-        return settings;
-    }
-    if (file.size() < 0 || file.size() > kMaxSettingsBytes) {
-        error = "settings file is too large";
-        return settings;
+    QByteArray bytes;
+    {
+        std::shared_lock lock(settingsIoMutex(path_));
+        QFile file(QString::fromStdString(path_));
+        if(!file.exists())return settings;
+        if(!file.open(QIODevice::ReadOnly)) {
+            error="open settings: "+file.errorString().toStdString();return settings;
+        }
+        if(file.size()<0 || file.size()>kMaxSettingsBytes) {
+            error="settings file is too large";return settings;
+        }
+        bytes=file.read(kMaxSettingsBytes+1);
+        if(file.error()!=QFileDevice::NoError || bytes.size()>kMaxSettingsBytes) {
+            error="read settings: "+(bytes.size()>kMaxSettingsBytes?std::string("settings file is too large"):file.errorString().toStdString());
+            return settings;
+        }
     }
     QJsonParseError parseError;
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
         error = "parse settings: " + parseError.errorString().toStdString();
         return settings;
@@ -258,17 +290,19 @@ Settings SettingsStore::load(std::string& error) const
 
 bool SettingsStore::save(const Settings& settings, std::string& error) const
 {
+    error.clear();
     const QFileInfo info(QString::fromStdString(path_));
     if (!QDir().mkpath(info.absolutePath())) {
         error = "create settings directory failed: " + info.absolutePath().toStdString();
         return false;
     }
+    const QByteArray data = QJsonDocument(toJson(settings)).toJson(QJsonDocument::Indented);
+    std::unique_lock lock(settingsIoMutex(path_));
     QSaveFile file(QString::fromStdString(path_));
     if (!file.open(QIODevice::WriteOnly)) {
         error = "open settings for write: " + file.errorString().toStdString();
         return false;
     }
-    const QByteArray data = QJsonDocument(toJson(settings)).toJson(QJsonDocument::Indented);
     if (file.write(data) != data.size()) {
         error = "write settings: " + file.errorString().toStdString();
         file.cancelWriting();

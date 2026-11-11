@@ -10,8 +10,54 @@
 #include <filesystem>
 #include <atomic>
 #include <stdexcept>
+#include <thread>
+#include <mutex>
 
 namespace {
+TEST(SettingsStore, SuccessfulOperationsClearPreviousErrors)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    pfservices::SettingsStore store(directory.filePath("settings.json").toStdString());
+    std::string error="previous failure";
+    const auto defaults=store.load(error);EXPECT_TRUE(error.empty());
+    error="previous failure";ASSERT_TRUE(store.save(defaults,error));EXPECT_TRUE(error.empty());
+    error="previous failure";store.load(error);EXPECT_TRUE(error.empty());
+}
+
+TEST(SettingsStore, ConcurrentReadersAndAtomicCommitsKeepCompleteSnapshots)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    pfservices::SettingsStore store(directory.filePath("concurrent.json").toStdString());
+    pfservices::Settings initial;initial.processingThreads=1;initial.appearance.insert("marker",0);
+    std::string error;ASSERT_TRUE(store.save(initial,error))<<error;
+    std::atomic<bool> done=false;
+    std::atomic<unsigned> failures=0;
+    std::mutex diagnosticMutex;std::string firstError;
+    const auto fail=[&](const std::string& message) {
+        ++failures;std::lock_guard lock(diagnosticMutex);if(firstError.empty())firstError=message;
+    };
+    std::jthread writer([&] {
+        for(int i=1;i<=500;++i) {
+            auto next=initial;next.processingThreads=static_cast<std::size_t>(i%16+1);next.appearance.insert("marker",i);
+            std::string local;if(!store.save(next,local))fail(local);
+        }
+        done=true;
+    });
+    const auto reader=[&] {
+        unsigned reads=0;
+        do {
+            std::string local;const auto snapshot=store.load(local);
+            if(!local.empty())fail(local);
+            else if(snapshot.processingThreads!=static_cast<std::size_t>(snapshot.appearance.value("marker").toInt(-1)%16+1))
+                fail("A reader saw missing or inconsistent snapshot fields");
+            ++reads;
+        } while(!done || reads<1000);
+    };
+    std::jthread one(reader),two(reader);
+    writer.join();one.join();two.join();
+    EXPECT_EQ(failures.load(),0u)<<firstError;
+}
+
 TEST(SettingsStore, AllSixInterfaceLanguagesSurviveDiskRoundTrip)
 {
     QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
