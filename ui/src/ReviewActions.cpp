@@ -321,7 +321,7 @@ bool AnalysisController::startReviewPreview(int id, const QVariantMap& row, bool
                 pfcore::VideoDecodeOptions options;options.threads=2;
                 const auto review=reviewMatchedVideoActions(windows,{match},pose,actionContext->poseModel,
                     actionContext->actionModel,actionContext->cacheDirectory,actionContext->sourceNamespaces,
-                    actionContext->actionProvider,options,[&]{return stop.stop_requested();});
+                    actionContext->actionProvider,options,[&]{return stop.stop_requested();},{},actionContext->cacheBudget);
                 if(!review.error.empty())error=QString::fromStdString(review.error);
                 else if(!stop.stop_requested()) {
                     *actionEvidence={std::move(windows[0]),std::move(windows[1])};actionsUpdated=true;

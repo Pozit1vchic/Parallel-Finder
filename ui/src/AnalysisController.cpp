@@ -2521,6 +2521,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
         std::unique_ptr<pfservices::PfCache> analysisCache;
         QString cacheStorageError;
         QString cacheBudgetError;
+        std::shared_ptr<pfservices::CacheBudget> sharedCacheBudget;
         std::filesystem::path movementCacheRoot;
         std::shared_ptr<VideoActionReviewContext> actionContext;
         if (settings.cacheEnabled) try {
@@ -2533,14 +2534,17 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             if (QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
                 && !benchmarkCache.isEmpty())
                 cacheRoot = std::filesystem::u8path(benchmarkCache.toStdString());
-            analysisCache = std::make_unique<pfservices::PfCache>(cacheRoot, settings.cacheLimitBytes);
-            std::string budgetError;
-            if(!analysisCache->enforceLimit(budgetError))cacheBudgetError=QString::fromStdString(budgetError);
             movementCacheRoot=cacheRoot/"movement-refinement-v1";
             const QString benchmarkMovementCache=qEnvironmentVariable("PF_BENCHMARK_MOVEMENT_CACHE_ROOT");
             if(QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
                 && !benchmarkMovementCache.isEmpty())
                 movementCacheRoot=std::filesystem::u8path(benchmarkMovementCache.toStdString());
+            sharedCacheBudget=std::make_shared<pfservices::CacheBudget>(
+                std::vector<std::filesystem::path>{cacheRoot,movementCacheRoot,
+                    movementCacheRoot/"video-actions-v1",movementCacheRoot/"body-orientation-v1"},settings.cacheLimitBytes);
+            analysisCache=std::make_unique<pfservices::PfCache>(cacheRoot,settings.cacheLimitBytes,sharedCacheBudget);
+            std::string budgetError;
+            if(!analysisCache->enforceLimit(budgetError))cacheBudgetError=QString::fromStdString(budgetError);
         } catch (const std::exception& exception) {
             cacheStorageError=QString::fromUtf8(exception.what());
             // Cache is an optimization; analysis remains usable when its path
@@ -4267,7 +4271,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                                 QStringLiteral("Уточняем движения головы · %1 / %2").arg(done).arg(total),
                                 processedFrames,totalFramesEstimate);
                         },Qt::QueuedConnection);
-                    });
+                    },sharedCacheBudget);
                 if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS") || !headReview.error.empty())
                     std::fprintf(stderr,"PF_HEAD_REVIEW requested=%zu cached=%zu observed=%zu decoded=%zu prepare_us=%llu cache_us=%llu decode_us=%llu face_us=%llu orientation_us=%llu model_initializations=%zu error=%s\n",
                         headReview.requested,headReview.cached,headReview.observed,headReview.decoded,
@@ -4300,11 +4304,12 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                                 QStringLiteral("Уточняем типы действий · %1 / %2").arg(done).arg(total),
                                 processedFrames,totalFramesEstimate);
                         },Qt::QueuedConnection);
-                    });
+                    },sharedCacheBudget);
                 if(review.error.empty()) {
                     actionContext=std::make_shared<VideoActionReviewContext>();
                     actionContext->poseModel=model;actionContext->actionModel=*actionModel;
                     actionContext->cacheDirectory=cache;actionContext->sourceNamespaces=namespaces;
+                    actionContext->cacheBudget=sharedCacheBudget;
                     actionContext->poseProvider=resolved;actionContext->actionProvider=actionProvider;
                     const auto name=QString::fromStdString(pfcore::pathToUtf8(model.filename())).toLower();
                     for(const auto profile:{"b8","b4","b2"})
@@ -4343,7 +4348,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                             if(analysisCancel_==cancel&&!cancel->load())setProgress(.99,
                                 QStringLiteral("Уточняем направление корпуса · %1 / %2").arg(done).arg(total),processedFrames,totalFramesEstimate);
                         },Qt::QueuedConnection);
-                    });
+                    },sharedCacheBudget);
                 bodyReviewMs=resultTimer.elapsed()-started;
                 if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")||!bodyReview.error.empty())
                     std::fprintf(stderr,"PF_BODY_REVIEW requested=%zu cached=%zu observed=%zu decoded=%zu pose_inferences=%zu body_inferences=%zu raw_replays=%zu error=%s\n",

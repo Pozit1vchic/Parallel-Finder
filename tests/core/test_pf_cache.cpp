@@ -11,6 +11,84 @@
 #include <thread>
 #include <pfcore/PathEncoding.hpp>
 
+TEST(PfCache, SharedBudgetCountsOwnershipAndProtectsPrimaryAcrossDirectories)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString());
+    const auto refinement=root/"refinement";
+    auto budget=std::make_shared<pfservices::CacheBudget>(std::vector{root,refinement},900);
+    pfservices::PfCache primary(root,4096,budget),review(refinement,4096,budget);
+    std::string error;const std::vector<std::uint8_t> data(230,7);
+    ASSERT_TRUE(primary.resetSource("video",error));
+    ASSERT_TRUE(primary.putForSource("video","motion-v43|source=video",data,error))<<error;
+    const auto generation=primary.sourceGeneration("video");
+    ASSERT_TRUE(review.putForSource("video","head-orientation-v1|one",data,error))<<error;
+    ASSERT_TRUE(review.putForSource("video","head-orientation-v1|two",data,error))<<error;
+    EXPECT_TRUE(primary.get("motion-v43|source=video"));
+    EXPECT_FALSE(review.get("head-orientation-v1|one"));
+    EXPECT_TRUE(review.get("head-orientation-v1|two"));
+    EXPECT_LE(budget->bytesUsed(),900U);
+    std::uintmax_t actual=0;
+    for(const auto& dir:{root,refinement})for(const auto& entry:std::filesystem::directory_iterator(dir))
+        if(entry.is_regular_file())actual+=entry.file_size();
+    EXPECT_EQ(budget->bytesUsed(),actual);
+    EXPECT_EQ(primary.sourceGeneration("video"),generation);
+    EXPECT_THROW(pfservices::PfCache(root/"unregistered",4096,budget),std::invalid_argument);
+}
+
+TEST(PfCache, SharedBudgetCountsUnknownFilesButNeverDeletesThemOrGenerations)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString());
+    pfservices::PfCache initial(root,4096);std::string error;
+    ASSERT_TRUE(initial.resetSource("video",error));
+    const auto generation=initial.sourceGeneration("video");ASSERT_FALSE(generation.empty());
+    const auto unknown=root/"user-note.txt";
+    {std::ofstream output(unknown);output<<std::string(300,'x');}
+    pfservices::CacheBudget budget({root,root/"."},200);
+    EXPECT_FALSE(budget.enforceLimit(error));EXPECT_FALSE(error.empty());
+    EXPECT_TRUE(std::filesystem::exists(unknown));
+    EXPECT_EQ(initial.sourceGeneration("video"),generation);
+    EXPECT_GT(budget.bytesUsed(),300U);
+}
+
+TEST(PfCache, SharedBudgetSerializesConcurrentWritesAcrossDirectories)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString());
+    const auto other=root/"other";
+    auto budget=std::make_shared<pfservices::CacheBudget>(std::vector{root,other},800);
+    pfservices::PfCache primary(root,4096,budget);std::string error;
+    ASSERT_TRUE(primary.put("motion-v43|source=video",std::vector<std::uint8_t>(250,1),error));
+    std::vector<std::thread> threads;
+    for(int worker=0;worker<4;++worker)threads.emplace_back([&,worker]{
+        pfservices::PfCache cache(worker%2?other:root,4096,budget);
+        for(int i=0;i<25;++i){std::string ignored;cache.putForSource("video","preview-v1|"+std::to_string(worker)+"|"+std::to_string(i),std::vector<std::uint8_t>(130,2),ignored);}
+    });
+    for(auto& thread:threads)thread.join();
+    EXPECT_LE(budget->bytesUsed(),800U);
+    EXPECT_TRUE(primary.get("motion-v43|source=video"));
+}
+
+TEST(PfCache, SharedCapacityReplacesOldSubdirectoryCapsAndRetainsRefinementBeforePreviews)
+{
+    QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+    const auto root=std::filesystem::path(directory.path().toStdWString());
+    const auto refinement=root/"refinement";
+    auto budget=std::make_shared<pfservices::CacheBudget>(std::vector{root,refinement},800);
+    pfservices::PfCache primary(root,800,budget),review(refinement,64,budget);
+    EXPECT_EQ(review.limitBytes(),800U);
+    std::string error;const std::vector<std::uint8_t> data(270,2);
+    const std::string head="head-orientation-v1|one",preview="preview-v1|one";
+    ASSERT_TRUE(review.put(head,data,error))<<error;
+    ASSERT_TRUE(primary.put(preview,data,error))<<error;
+    const auto headPath=refinement/(QCryptographicHash::hash(QByteArray::fromStdString(head),QCryptographicHash::Sha256).toHex().toStdString()+".pfc");
+    std::filesystem::last_write_time(headPath,std::filesystem::file_time_type::clock::now()-std::chrono::hours(1));
+    ASSERT_TRUE(primary.put("matcher-results-v1|one",data,error))<<error;
+    EXPECT_TRUE(review.get(head));EXPECT_FALSE(primary.get(preview));
+    EXPECT_LE(budget->bytesUsed(),800U);
+}
+
 TEST(PfCache, UnicodePathsAndAtomicReplacementPreserveOtherSources)
 {
     QTemporaryDir directory; ASSERT_TRUE(directory.isValid());

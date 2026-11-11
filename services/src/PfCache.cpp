@@ -110,18 +110,159 @@ Retention retentionClass(const std::filesystem::path& path,std::uintmax_t fileSi
     const std::string_view key(prefix.data(),length);
     const bool observations=key.starts_with("motion-v") || key.starts_with("scene-sequence-v")
         || key.starts_with("matched-face-v");
-    return {observations?2U:key.starts_with("matcher-results-v")?1U:0U,key.starts_with("preview-v")};
+    const bool refinement=key.starts_with("head-orientation-v") || key.starts_with("video-actions-v")
+        || key.starts_with("body-orientation-v");
+    return {observations?2U:(key.starts_with("matcher-results-v") || refinement)?1U:0U,key.starts_with("preview-v")};
 }
 
 } // namespace
 
-PfCache::PfCache(std::filesystem::path root, std::size_t limitBytes)
-    : root_(std::move(root)), limitBytes_(limitBytes)
+CacheBudget::CacheBudget(std::vector<std::filesystem::path> roots,std::size_t limitBytes)
+    : limitBytes_(limitBytes)
+{
+    if(roots.empty() || !limitBytes_)throw std::invalid_argument("CacheBudget: roots and capacity required");
+    for(const auto& root:roots) {
+        std::error_code error;
+        const auto canonical=std::filesystem::weakly_canonical(root,error);
+        if(root.empty() || error)throw std::invalid_argument("CacheBudget: invalid managed root");
+        if(std::find(roots_.begin(),roots_.end(),canonical)==roots_.end())roots_.push_back(canonical);
+    }
+}
+
+namespace {
+struct BudgetFile {
+    std::filesystem::path path;
+    std::uintmax_t size=0;
+};
+bool scanBudget(const std::vector<std::filesystem::path>& roots,std::vector<BudgetFile>& files,
+                std::uintmax_t& total,std::string& error)
+{
+    for(const auto& root:roots) {
+        std::error_code ec;
+        if(!std::filesystem::exists(root,ec)) {
+            if(ec){error="inspect shared cache root: "+ec.message();return false;}
+            continue;
+        }
+        if(std::filesystem::is_symlink(root,ec) || ec) {
+            error="shared cache root must not be a symbolic link";return false;
+        }
+        for(auto it=std::filesystem::directory_iterator(root,ec);
+            !ec && it!=std::filesystem::directory_iterator{};it.increment(ec)) {
+            const auto& entry=*it;
+            if(entry.is_symlink(ec))continue;
+            if(ec)break;
+            if(!entry.is_regular_file(ec))continue;
+            if(ec)break;
+            const auto size=entry.file_size(ec);if(ec)break;
+            if(size>std::numeric_limits<std::uintmax_t>::max()-total) {
+                error="shared cache size overflow";return false;
+            }
+            total+=size;files.push_back({entry.path(),size});
+        }
+        if(ec){error="scan shared cache capacity: "+ec.message();return false;}
+    }
+    return true;
+}
+}
+
+std::size_t CacheBudget::bytesUsed() const
+{
+    std::lock_guard guard(mutex_);
+    std::vector<BudgetFile> files;std::uintmax_t total=0;std::string error;
+    if(!scanBudget(roots_,files,total,error))throw std::runtime_error(error);
+    return static_cast<std::size_t>(std::min<std::uintmax_t>(total,std::numeric_limits<std::size_t>::max()));
+}
+
+bool CacheBudget::enforceLimit(std::string& error) const
+{
+    std::lock_guard guard(mutex_);error.clear();return enforce({},error);
+}
+
+bool CacheBudget::enforce(const std::filesystem::path& protectedPath,std::string& error) const
+{
+    std::lock_guard guard(mutex_);
+    std::vector<BudgetFile> files;std::uintmax_t total=0;
+    if(!scanBudget(roots_,files,total,error))return false;
+    if(total<=limitBytes_)return true;
+    const auto remove=[&](const std::filesystem::path& path) {
+        const auto found=std::find_if(files.begin(),files.end(),[&](const auto& file){return file.path==path;});
+        if(found==files.end() || !found->size)return;
+        std::error_code ec;
+        if(std::filesystem::remove(path,ec) && !ec){total-=found->size;found->size=0;}
+    };
+    // Only recognized, correctly named cache files may be deleted. Unknown
+    // files still consume capacity; generation tombstones always survive.
+    for(const auto& file:files) {
+        if(file.path.extension()!=".owner")continue;
+        const auto key=storedEntryKey(file.path);
+        if(!key || !key->starts_with("source-owner-v1|"))continue;
+        auto expected=file.path.parent_path()/fileStem(*key);expected.replace_extension(".owner");
+        if(expected!=file.path)continue;
+        std::error_code ec;
+        const auto data=file.path.parent_path()/fileStem(key->substr(16));
+        if(!std::filesystem::exists(data,ec) && !ec)remove(file.path);
+    }
+    struct Candidate {std::filesystem::path path;std::string key;unsigned priority;bool preview;
+        std::filesystem::file_time_type time;std::uintmax_t size;};
+    std::vector<Candidate> candidates;
+    const auto recent=std::filesystem::file_time_type::clock::now()-std::chrono::hours(24*7);
+    for(const auto& file:files) {
+        if(!file.size || file.path.extension()!=".pfc")continue;
+        const auto key=storedEntryKey(file.path);
+        if(!key || file.path.filename()!=fileStem(*key))continue;
+        std::error_code ec;const auto time=std::filesystem::last_write_time(file.path,ec);
+        if(ec)continue;
+        const auto retention=retentionClass(file.path,file.size);
+        candidates.push_back({file.path,*key,time>=recent?retention.cost:0U,retention.preview,time,file.size});
+    }
+    std::sort(candidates.begin(),candidates.end(),[](const auto& a,const auto& b) {
+        if(a.priority!=b.priority)return a.priority<b.priority;
+        if(a.time!=b.time)return a.time<b.time;
+        if(a.size!=b.size)return a.size>b.size;
+        return a.path.native()<b.path.native();
+    });
+    std::error_code ec;
+    const auto protectedCanonical=protectedPath.empty()?std::filesystem::path{}:std::filesystem::weakly_canonical(protectedPath,ec);
+    const auto evict=[&](const Candidate& file) {
+        const auto before=total;remove(file.path);
+        if(total!=before) {
+            auto owner=file.path.parent_path()/fileStem("source-owner-v1|"+file.key);
+            owner.replace_extension(".owner");remove(owner);
+        }
+    };
+    for(const auto& file:candidates) {
+        if(total<=limitBytes_)break;
+        if(file.path==protectedCanonical && !file.preview)continue;
+        evict(file);
+    }
+    if(total>limitBytes_ && !protectedCanonical.empty()) {
+        for(const auto& file:candidates)if(file.path==protectedCanonical){evict(file);break;}
+    }
+    if(total>limitBytes_){error="shared cache capacity cannot be enforced; retained metadata or inaccessible files exceed limit";return false;}
+    if(!protectedCanonical.empty() && !std::filesystem::exists(protectedCanonical,ec)) {
+        error="cache entry was not retained under the shared capacity policy";return false;
+    }
+    return true;
+}
+
+PfCache::PfCache(std::filesystem::path root, std::size_t limitBytes, std::shared_ptr<CacheBudget> budget)
+    : root_(std::move(root)), limitBytes_(budget ? budget->limitBytes_:limitBytes), budget_(std::move(budget))
 {
     if (root_.empty() || limitBytes_ == 0) {
         throw std::invalid_argument("PfCache: root and limit must be valid");
     }
     coordinationSlot_=cacheCoordinationSlot(root_);
+    if(budget_) {
+        std::error_code error;
+        const auto canonical=std::filesystem::weakly_canonical(root_,error);
+        if(error || std::find(budget_->roots_.begin(),budget_->roots_.end(),canonical)==budget_->roots_.end())
+            throw std::invalid_argument("PfCache: root is outside shared budget");
+    }
+}
+
+std::recursive_mutex& PfCache::coordinationMutex() const
+{
+    return budget_ ? budget_->mutex_:cacheLocks()[coordinationSlot_];
 }
 
 std::filesystem::path PfCache::fileFor(const std::string& key) const
@@ -220,7 +361,7 @@ bool PfCache::evictIfNeeded(const std::filesystem::path& protectedPath,std::stri
         total += size;
     }
     if(filesystemError){error="inspect cache capacity: "+filesystemError.message();return false;}
-    if (total <= limitBytes_) return true;
+    if (total <= limitBytes_) return !budget_ || budget_->enforce(protectedPath,error);
     // Reclaim legacy ownership records only when their data file is absent.
     // Generation records deliberately survive eviction: deleting one could
     // reactivate observations from before an explicit source reset.
@@ -281,18 +422,18 @@ bool PfCache::evictIfNeeded(const std::filesystem::path& protectedPath,std::stri
         if(filesystemError){error="inspect retained cache entry: "+filesystemError.message();return false;}
         if(!retained){error="cache entry was not retained under the capacity policy";return false;}
     }
-    return true;
+    return !budget_ || budget_->enforce(protectedPath,error);
 }
 
 bool PfCache::enforceLimit(std::string& error) const
 {
-    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    std::lock_guard guard(coordinationMutex());
     error.clear();return evictIfNeeded({},error);
 }
 
 std::optional<std::vector<std::uint8_t>> PfCache::get(const std::string& key) const
 {
-    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    std::lock_guard guard(coordinationMutex());
     if (key.empty()) return std::nullopt;
     const auto path = fileFor(key);
     std::vector<std::uint8_t> payload;
@@ -305,7 +446,7 @@ std::optional<std::vector<std::uint8_t>> PfCache::get(const std::string& key) co
 bool PfCache::put(const std::string& key, const std::vector<std::uint8_t>& payload,
                   std::string& error)
 {
-    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    std::lock_guard guard(coordinationMutex());
     error.clear();
     if (!writeEntry(fileFor(key), key, payload, error)) return false;
     return evictIfNeeded(fileFor(key),error);
@@ -314,7 +455,7 @@ bool PfCache::put(const std::string& key, const std::vector<std::uint8_t>& paylo
 bool PfCache::putBatch(const std::vector<std::pair<std::string,std::vector<std::uint8_t>>>& entries,
                        std::string& error)
 {
-    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    std::lock_guard guard(coordinationMutex());
     error.clear();
     std::filesystem::path lastWritten;
     bool success = true;
@@ -339,7 +480,7 @@ bool PfCache::putBatch(const std::vector<std::pair<std::string,std::vector<std::
 bool PfCache::putForSourceBatch(const std::string& source,
     const std::vector<std::pair<std::string,std::vector<std::uint8_t>>>& entries,std::string& error)
 {
-    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    std::lock_guard guard(coordinationMutex());
     error.clear();
     if(source.empty()) { error="cache source must not be empty";return false; }
     std::filesystem::path lastWritten;
@@ -359,7 +500,7 @@ bool PfCache::putForSourceBatch(const std::string& source,
 bool PfCache::putForSource(const std::string& source,const std::string& key,
     const std::vector<std::uint8_t>& payload,std::string& error)
 {
-    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    std::lock_guard guard(coordinationMutex());
     if(!rememberSourceKey(source,key,error))return false;
     const bool stored=put(key,payload,error);
     if(!stored) {
@@ -371,7 +512,7 @@ bool PfCache::putForSource(const std::string& source,const std::string& key,
 
 bool PfCache::erase(const std::string& key, std::string& error)
 {
-    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    std::lock_guard guard(coordinationMutex());
     std::error_code filesystemError;
     if (!std::filesystem::remove(fileFor(key), filesystemError) && filesystemError) {
         error = "remove cache entry: " + filesystemError.message();
@@ -383,7 +524,7 @@ bool PfCache::erase(const std::string& key, std::string& error)
 
 std::string PfCache::sourceGeneration(const std::string& source) const
 {
-    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    std::lock_guard guard(coordinationMutex());
     const auto readGeneration = [&](const std::string& name) {
         const auto key = "source-generation-v1|" + name;
         auto path = fileFor(key);
@@ -400,7 +541,7 @@ std::string PfCache::sourceGeneration(const std::string& source) const
 
 bool PfCache::resetSource(const std::string& source, std::string& error)
 {
-    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    std::lock_guard guard(coordinationMutex());
     const auto key = "source-generation-v1|" + normalizeSource(source);
     auto path = fileFor(key);
     path.replace_extension(".generation");
@@ -422,19 +563,19 @@ bool PfCache::resetSource(const std::string& source, std::string& error)
         std::error_code removalError;std::filesystem::remove(owner,removalError);
         if(removalError) {error="remove cache ownership: "+removalError.message();return false;}
     }
-    return true;
+    return !budget_ || budget_->enforce({},error);
 }
 
 bool PfCache::rememberSourceKey(const std::string& source,const std::string& key,std::string& error)
 {
-    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    std::lock_guard guard(coordinationMutex());
     auto owner=fileFor("source-owner-v1|"+key);owner.replace_extension(".owner");
     return writeEntry(owner,"source-owner-v1|"+key,std::vector<std::uint8_t>(source.begin(),source.end()),error);
 }
 
 std::vector<std::string> PfCache::keysForSource(const std::string& source,std::string* outputError) const
 {
-    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    std::lock_guard guard(coordinationMutex());
     std::set<std::string> keys;std::error_code error;
     if(!std::filesystem::exists(root_,error)) {
         if(error && outputError)*outputError="inspect cache: "+error.message();
@@ -471,7 +612,7 @@ std::vector<std::string> PfCache::keysForSource(const std::string& source,std::s
 
 bool PfCache::clear(std::string& error)
 {
-    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    std::lock_guard guard(coordinationMutex());
     std::error_code filesystemError;
     if (!std::filesystem::exists(root_, filesystemError)) return true;
     for (const auto& entry : std::filesystem::directory_iterator(root_, filesystemError)) {
@@ -489,7 +630,7 @@ bool PfCache::clear(std::string& error)
 
 std::size_t PfCache::bytesUsed() const
 {
-    std::lock_guard guard(cacheLocks()[coordinationSlot_]);
+    std::lock_guard guard(coordinationMutex());
     std::error_code filesystemError;
     std::uintmax_t total = 0;
     if (!std::filesystem::exists(root_, filesystemError)) return 0;

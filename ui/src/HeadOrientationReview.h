@@ -1,10 +1,13 @@
 #pragma once
+#include <memory>
 #include <filesystem>
 #include <functional>
 #include <map>
 #include <pfcore/MotionMatcher.hpp>
 #include <pfcore/VideoDecoder.hpp>
 #include <pfgpu/Provider.hpp>
+
+namespace pfservices { class CacheBudget; }
 
 namespace pfui {
 struct HeadOrientationReviewStats {
@@ -23,5 +26,6 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(
     const std::filesystem::path& cacheDirectory,const std::map<std::string,std::string>& sourceNamespaces,
     pfgpu::Provider provider,pfcore::VideoDecodeOptions options,
     const std::function<bool()>& cancelled,
-    const std::function<void(std::size_t,std::size_t)>& progress);
+    const std::function<void(std::size_t,std::size_t)>& progress,
+    std::shared_ptr<pfservices::CacheBudget> budget={});
 }

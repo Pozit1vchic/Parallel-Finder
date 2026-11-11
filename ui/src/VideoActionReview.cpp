@@ -100,7 +100,7 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
     const std::filesystem::path& poseModel,const std::filesystem::path& actionModel,
     const std::filesystem::path& cacheDirectory,const std::map<std::string,std::string>& sourceNamespaces,
     pfgpu::Provider provider,pfcore::VideoDecodeOptions options,
-    const std::function<bool()>& cancelled,const std::function<void(std::size_t,std::size_t)>& progress) {
+    const std::function<bool()>& cancelled,const std::function<void(std::size_t,std::size_t)>& progress,std::shared_ptr<pfservices::CacheBudget> budget) {
     VideoActionReviewStats stats;const auto stopped=[&] {return cancelled && cancelled();};
     struct Request {pfcore::VideoActionEvidence evidence;pfcore::PoseFrame anchor;std::string key;
         std::vector<std::size_t> destinations;};
@@ -166,7 +166,7 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
         std::sort(requests.begin(),requests.end(),[](const auto& a,const auto& b) {
             return a.evidence.sourceId!=b.evidence.sourceId ? a.evidence.sourceId<b.evidence.sourceId:a.evidence.start<b.evidence.start;
         });
-        if(!cacheDirectory.empty())try {cache=std::make_unique<pfservices::PfCache>(cacheDirectory,64ULL*1024*1024);}catch(...) {}
+        if(!cacheDirectory.empty())try {cache=std::make_unique<pfservices::PfCache>(cacheDirectory,64ULL*1024*1024,budget);}catch(...) {}
         std::unique_ptr<pfgpu::VideoActionEstimator> actions;
         pfcore::VideoDecoder decoder;std::string opened;
         options.maxWidth=1280;options.maxHeight=720;options.preferNvidia=false;

@@ -4,11 +4,28 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace pfservices {
+
+// A flat, explicit set of managed cache directories shares one capacity and
+// one in-process coordination lock. Never discovers or traverses subfolders.
+class CacheBudget {
+public:
+    CacheBudget(std::vector<std::filesystem::path> roots, std::size_t limitBytes);
+    bool enforceLimit(std::string& error) const;
+    [[nodiscard]] std::size_t bytesUsed() const;
+private:
+    friend class PfCache;
+    bool enforce(const std::filesystem::path& protectedPath, std::string& error) const;
+    std::vector<std::filesystem::path> roots_;
+    std::size_t limitBytes_;
+    mutable std::recursive_mutex mutex_;
+};
 
 // Versioned disk cache used for intermediate pose/motion data. Every entry is
 // self-describing (PFCACHE1) and written through a temporary file before the
@@ -18,7 +35,8 @@ public:
     static constexpr std::size_t kDefaultLimitBytes = 8ULL * 1024ULL * 1024ULL * 1024ULL;
 
     explicit PfCache(std::filesystem::path root,
-                     std::size_t limitBytes = kDefaultLimitBytes);
+                     std::size_t limitBytes = kDefaultLimitBytes,
+                     std::shared_ptr<CacheBudget> budget = {});
 
     [[nodiscard]] std::optional<std::vector<std::uint8_t>> get(const std::string& key) const;
     bool put(const std::string& key, const std::vector<std::uint8_t>& payload,
@@ -56,10 +74,12 @@ private:
     bool writeEntry(const std::filesystem::path& path, const std::string& key,
                     const std::vector<std::uint8_t>& payload, std::string& error) const;
     bool evictIfNeeded(const std::filesystem::path& protectedPath, std::string& error) const;
+    std::recursive_mutex& coordinationMutex() const;
 
     std::filesystem::path root_;
     std::size_t limitBytes_;
     std::size_t coordinationSlot_=0;
+    std::shared_ptr<CacheBudget> budget_;
 };
 
 } // namespace pfservices

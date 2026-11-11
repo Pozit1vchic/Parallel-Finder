@@ -61,7 +61,7 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
     const std::filesystem::path& detector,const std::filesystem::path& cacheDirectory,
     const std::map<std::string,std::string>& sourceNamespaces,pfgpu::Provider provider,
     pfcore::VideoDecodeOptions options,const std::function<bool()>& cancelled,
-    const std::function<void(std::size_t,std::size_t)>& progress) {
+    const std::function<void(std::size_t,std::size_t)>& progress,std::shared_ptr<pfservices::CacheBudget> budget) {
     HeadOrientationReviewStats stats;
     struct TimeRange {double start=0,end=0;};
     std::map<std::size_t,std::vector<TimeRange>> rangesByWindow;
@@ -90,7 +90,7 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
         std::unique_ptr<pfservices::PfCache> cache;
         // This independent subtree can evict only its own inexpensive head
         // observations, never the user's forty-minute analysis entries.
-        if(!cacheDirectory.empty())try {cache=std::make_unique<pfservices::PfCache>(cacheDirectory,256ULL*1024*1024);}catch(...) {}
+        if(!cacheDirectory.empty())try {cache=std::make_unique<pfservices::PfCache>(cacheDirectory,256ULL*1024*1024,budget);}catch(...) {}
         std::vector<Request> requests;std::map<std::string,std::size_t> lookup;
         std::map<std::string,std::vector<std::pair<std::string,std::vector<std::uint8_t>>>> pendingCacheWrites;
         for(const auto& [wi,ranges]:rangesByWindow) {

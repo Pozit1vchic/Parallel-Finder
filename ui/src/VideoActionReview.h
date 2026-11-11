@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -6,9 +7,12 @@
 #include <pfcore/VideoDecoder.hpp>
 #include <pfgpu/PoseEstimator.hpp>
 
+namespace pfservices { class CacheBudget; }
+
 namespace pfui {
 struct VideoActionReviewContext {
     std::filesystem::path poseModel,actionModel,cacheDirectory;
+    std::shared_ptr<pfservices::CacheBudget> cacheBudget;
     std::map<std::string,std::string> sourceNamespaces;
     pfgpu::Provider poseProvider=pfgpu::Provider::Cpu,actionProvider=pfgpu::Provider::Cpu;
     std::string poseProfile="b1";
@@ -26,5 +30,6 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
     const std::filesystem::path& cacheDirectory,const std::map<std::string,std::string>& sourceNamespaces,
     pfgpu::Provider provider,pfcore::VideoDecodeOptions options,
     const std::function<bool()>& cancelled,
-    const std::function<void(std::size_t,std::size_t)>& progress={});
+    const std::function<void(std::size_t,std::size_t)>& progress={},
+    std::shared_ptr<pfservices::CacheBudget> budget={});
 }

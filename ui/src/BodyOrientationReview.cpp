@@ -64,7 +64,7 @@ BodyOrientationReviewStats reviewMatchedBodyOrientations(std::vector<pfcore::Mot
     const std::filesystem::path& model,const std::filesystem::path& cacheDirectory,
     const std::map<std::string,std::string>& sourceNamespaces,pfgpu::Provider provider,
     pfcore::VideoDecodeOptions options,const std::function<bool()>& cancelled,
-    const std::function<void(std::size_t,std::size_t)>& progress) {
+    const std::function<void(std::size_t,std::size_t)>& progress,std::shared_ptr<pfservices::CacheBudget> budget) {
     BodyOrientationReviewStats stats;const auto stopped=[&]{return cancelled&&cancelled();};
     if(stopped()||std::none_of(matches.begin(),matches.end(),[](const auto& match){return !match.headOnlyComparison;}))return stats;
     struct Request {std::string source,key;pfcore::PoseFrame frame;std::vector<std::pair<std::size_t,std::size_t>> destinations;};
@@ -72,7 +72,7 @@ BodyOrientationReviewStats reviewMatchedBodyOrientations(std::vector<pfcore::Mot
         if(hashFile(model)!=pfcore::kBodyOrientationModelHash)throw std::runtime_error("BODY_ORIENTATION_MODEL_UNVERIFIED");
         const auto poseHash=hashFile(pfcore::pathFromUtf8(pose.modelPath()));
         std::unique_ptr<pfservices::PfCache> cache;
-        if(!cacheDirectory.empty())cache=std::make_unique<pfservices::PfCache>(cacheDirectory,64ULL*1024*1024);
+        if(!cacheDirectory.empty())cache=std::make_unique<pfservices::PfCache>(cacheDirectory,64ULL*1024*1024,budget);
         std::vector<Request> requests;std::map<std::string,std::size_t> lookup;
         for(auto& window:windows)window.bodyOrientations.clear();
         const auto add=[&](std::size_t index,double start,double end) {

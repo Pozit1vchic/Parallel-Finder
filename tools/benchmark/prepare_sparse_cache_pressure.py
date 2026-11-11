@@ -20,6 +20,8 @@ def main():
     parser.add_argument("--source-cache", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--logical-gib", type=int, choices=range(15, 21), default=20)
+    parser.add_argument("--minimum-free-gib", type=int, choices=range(1, 21), default=5,
+                        help="Free-space reserve after copying real records; sparse fillers are independently capped at 64 MiB")
     args = parser.parse_args()
     if os.name != "nt":
         raise RuntimeError("This pressure control requires Windows sparse files")
@@ -32,8 +34,9 @@ def main():
         raise ValueError("The source has no PFC records")
     source_bytes = sum(p.stat().st_size for p in records)
     free_before = shutil.disk_usage(target.parent).free
-    if free_before < source_bytes + 5 * 1024**3:
-        raise RuntimeError("Not enough headroom for the real cache copy and 5 GiB free space")
+    reserve_bytes = args.minimum_free_gib * 1024**3
+    if free_before < source_bytes + reserve_bytes + 64 * 1024**2:
+        raise RuntimeError("Not enough headroom for the real cache copy, sparse allocation cap and requested free-space reserve")
     target.mkdir()
     for path in records:
         shutil.copy2(path, target / path.name)
@@ -92,6 +95,7 @@ def main():
         "pressureType": "NTFS sparse logical size; NOT physical disk-full testing",
         "fillerPfcFiles": count, "fillerLogicalBytes": count * chunk_bytes,
         "fillerAllocatedDataBytes": allocated, "freeBytesBefore": free_before,
+        "minimumFreeBytes": reserve_bytes,
         "freeBytesAfter": shutil.disk_usage(target).free,
         "scope": "PFC budget and retention only; no source video edits or model/matcher inference",
     }
