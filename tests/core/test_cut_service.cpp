@@ -1163,6 +1163,12 @@ TEST(CutService, ExactLosslessRealSourcePixelsAudioAndMontage)
 {
     const auto source=qEnvironmentVariable("PF_TEST_EXACT_LOSSLESS_SOURCE");
     if(source.isEmpty())GTEST_SKIP() << "Opt-in exact lossless real-source verification";
+    // Compatible native formats let us compare the complete decoded stream
+    // byte for byte across source boundaries, without canvas conversion.
+    QStringList sources{source};
+    sources.append(qEnvironmentVariable("PF_TEST_EXACT_LOSSLESS_ADDITIONAL_SOURCES")
+        .split(QDir::listSeparator(),Qt::SkipEmptyParts));
+    if(sources.size()==1)sources.append(source);
     const auto ffmpeg=QStandardPaths::findExecutable("ffmpeg");ASSERT_FALSE(ffmpeg.isEmpty());
     QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
     bool valid=false;double start=qEnvironmentVariable("PF_TEST_EXACT_LOSSLESS_START").toDouble(&valid);
@@ -1184,13 +1190,13 @@ TEST(CutService, ExactLosslessRealSourcePixelsAudioAndMontage)
         return QJsonDocument::fromJson(process.readAllStandardOutput()).object()["streams"].toArray().first().toObject();
     };
     const auto sourceMetadata=videoMetadata(source);
-    const auto checkMetadata=[&](const QString& path) {
+    const auto checkMetadata=[&](const QString& path,const QJsonObject& expectedMetadata) {
         const auto actual=videoMetadata(path);
         for(const auto* key:{"pix_fmt","color_range","color_space","color_transfer","color_primaries","sample_aspect_ratio"}) {
             // AVC and MOV may omit an explicit limited-range flag (the YUV
             // default). Full range and every explicit colour tag remain strict.
-            if (QString(key)=="color_range" && sourceMetadata[key]=="tv" && !actual.contains(key)) continue;
-            if(sourceMetadata.contains(key)){EXPECT_EQ(actual[key],sourceMetadata[key]) << key;}
+            if (QString(key)=="color_range" && expectedMetadata[key]=="tv" && !actual.contains(key)) continue;
+            if(expectedMetadata.contains(key)){EXPECT_EQ(actual[key],expectedMetadata[key]) << key;}
         }
     };
     const auto decode=[&](const QString& path,bool input,bool audio,double offset) {
@@ -1215,19 +1221,20 @@ TEST(CutService, ExactLosslessRealSourcePixelsAudioAndMontage)
     QStringList expectedVideo;QByteArray expectedAudio;
     std::vector<pfservices::CutRequest> jobs;
     pfservices::CutService cutter(ffmpeg.toStdString());
-    for(int index=0;index<2;++index) {
-        pfservices::CutRequest request;request.inputPath=source.toStdWString();
+    for(qsizetype index=0;index<sources.size();++index) {
+        const auto& input=sources[index];
+        pfservices::CutRequest request;request.inputPath=input.toStdWString();
         request.outputPath=directory.filePath(QString::number(index)+".mov").toStdWString();
         request.mode=pfservices::CutMode::ExactLossless;
         request.startSeconds=start+index;request.endSeconds=start+index+1;
-        const auto expected=hashes(decode(source,true,false,request.startSeconds));ASSERT_FALSE(expected.isEmpty());
+        const auto expected=hashes(decode(input,true,false,request.startSeconds));ASSERT_FALSE(expected.isEmpty());
         expectedVideo+=expected;
         const auto cut=cutter.cut(request);ASSERT_TRUE(cut.success) << cut.error;
         const auto output=QString::fromStdWString(request.outputPath.wstring());
-        checkMetadata(output);
+        checkMetadata(output,videoMetadata(input));
         EXPECT_EQ(hashes(decode(output,false,false,0)),expected);
         if(hasAudio) {
-            const auto samples=decode(source,true,true,request.startSeconds);ASSERT_FALSE(samples.isEmpty());
+            const auto samples=decode(input,true,true,request.startSeconds);ASSERT_FALSE(samples.isEmpty());
             EXPECT_EQ(decode(output,false,true,0),samples);expectedAudio+=samples;
         }
         jobs.push_back(request);
@@ -1235,7 +1242,7 @@ TEST(CutService, ExactLosslessRealSourcePixelsAudioAndMontage)
     const auto montagePath=directory.filePath("combined.mov");
     const auto montage=pfservices::exportChronologicalMontage(jobs,montagePath.toStdWString(),{},{},ffmpeg.toStdString(),true);
     ASSERT_TRUE(montage.success) << montage.error;
-    checkMetadata(montagePath);
+    checkMetadata(montagePath,sourceMetadata);
     EXPECT_EQ(hashes(decode(montagePath,false,false,0)),expectedVideo);
     if(hasAudio){EXPECT_EQ(decode(montagePath,false,true,0),expectedAudio);}
     pfcore::VideoDecoder combined;combined.open(montagePath.toStdString());
