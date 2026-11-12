@@ -69,6 +69,24 @@ the one-pair-per-shot policy based only on this evidence.
 
 Local localization evidence: `build/goal-031-missing-pair-raw-localization.json`.
 
+### Exact comparison of historical training index 25
+
+A native replay captured the current desktop policy and 35,934 prepared
+windows while reusing all 188 raw results. A streaming read selected the
+historical tracks and overlapping static windows (four on the left, seven on
+the right). The standalone comparison probe tested all 28 combinations using
+the captured desktop parameters. Native window indices 1041 and 5830 reproduced
+both old intervals and the exact historical similarity, 0.949890073851649,
+without a comparison rejection. This shows the pair remains admissible in
+direct comparison; it does not prove that full candidate retrieval proposes
+those indices or that selection keeps them.
+
+Evidence is under `build/goal-031-missing-pair-desktop-replay-01`: the captured
+parameter JSON and `case25-{windows,pairs,comparisons}.json`. A separate native
+run uses a copy of the primary cache without raw Matcher entries and enables
+the existing selection trace. That run is functional diagnostics only; it
+overlaps the Katniss character capture and is not a timing measurement.
+
 Local evidence: `build/goal-031-existing-pair-count-comparison.json`,
 `build/goal-031-missing-pairs-{training,heldout}-review`, and
 `build/goal-031-missing-pair-tracks-01`. Current reports are the same native
