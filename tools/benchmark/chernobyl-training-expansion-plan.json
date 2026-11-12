@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "split": "tuning: S01E01/S01E02 only",
+  "referenceReport": "build/goal-chernobyl-after-native-cold-01/cold.json",
+  "reportSha256": "7249935b33340c765c3cc35eca1217d6bb90ea9ec63eeb6e51e7bc39e7b60a5d",
+  "selectionFrozenBeforeReviewAndNewRankingChanges": true,
+  "returnedArrayIndices": [
+    16,
+    28,
+    29,
+    33,
+    36,
+    39,
+    41,
+    44,
+    45,
+    47,
+    49,
+    65,
+    80,
+    120,
+    124,
+    134,
+    139,
+    144,
+    168,
+    169,
+    170,
+    173,
+    184,
+    187
+  ],
+  "strata": {
+    "head_motion": [
+      28,
+      36,
+      39,
+      41,
+      44,
+      45,
+      47,
+      49
+    ],
+    "specific_body_posture": [
+      16,
+      29
+    ],
+    "body_motion": [
+      187,
+      170,
+      169,
+      168,
+      184,
+      173
+    ],
+    "generic_body_pose": [
+      120,
+      134,
+      144,
+      33,
+      65,
+      139,
+      80,
+      124
+    ]
+  },
+  "excludedPreviouslyReviewedIndices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    37,
+    64
+  ],
+  "selectionRule": "All previously unreviewed head-only pairs and named sitting/seated/arms-raised posture pairs; six non-head motion pairs and eight generic body-pose pairs selected by ascending SHA256 of ASCII pf-training-expansion-v1|<original returned index>. Explicitly stratified selected-output training audit; not prevalence or overall Precision.",
+  "rubric": {
+    "0": "Selected actors show clearly incompatible actions/postures.",
+    "1": "Weak, generic or redundant resemblance; partial similarity does not establish a useful parallel.",
+    "2": "Clear comparable distinctive action or posture supported by matched-track temporal evidence.",
+    "unknown": "Insufficient view/track/temporal evidence; abstain."
+  },
+  "reviewPolicy": "Inspect six temporal frames per side and native selected-track overlays before assigning a grade; scores/classifier labels hidden on sheets. Track identity must be verified for numeric grades. Assistant annotation, not independent human ground truth.",
+  "independence": "No held-out E03/E04 reports/labels used for sampling or fitting; no thresholds or ranker parameters will be fitted until expanded training annotations are frozen."
+}
