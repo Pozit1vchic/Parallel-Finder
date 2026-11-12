@@ -22,5 +22,7 @@
     "minimum of the two sides excursion/net-angle as separate within-head preference diagnostics; no fitted weights or thresholds"
   ],
   "missingEvidence": "No filling missing rotations with identity/frontal orientation and no interpolation over explicit gaps. Report raw time gaps and sample validity.",
-  "limits": "Diagnostic feature audit on already reviewed training judgments. Not independent accuracy, calibrated confidence, camera-motion disambiguation, new retrieval or a production ranking policy."
+  "limits": "Diagnostic feature audit on already reviewed training judgments. Not independent accuracy, calibrated confidence, camera-motion disambiguation, new retrieval or a production ranking policy.",
+  "rangePolicy": "Analyze half-open [start,end) exactly as the core head classifier. Cached exclusive-end records remain in replay provenance but cannot supply motion evidence.",
+  "rotationValidation": "Use the existing core criterion: all entries finite, row orthogonality and determinant errors <=0.002. Invalid matrices become missing evidence, without repair or projection."
 }
