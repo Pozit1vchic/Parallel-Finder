@@ -4,18 +4,86 @@
 #include <pfservices/MotionWindowCache.hpp>
 #include <pfservices/CharacterAnalysisCache.hpp>
 #include <QFile>
+#include <QSaveFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QStringList>
 #include <fstream>
 #include <iostream>
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <set>
 #include <filesystem>
 #include <array>
 
 namespace {
+double prototypeCosine(const std::vector<float>& a,const std::vector<float>& b) {
+    if(a.empty()||a.size()!=b.size())return -1.;
+    double dot=0,aa=0,bb=0;
+    for(std::size_t i=0;i<a.size();++i) {
+        const double x=a[i],y=b[i];dot+=x*y;aa+=x*x;bb+=y*y;
+    }
+    return aa>0&&bb>0?dot/std::sqrt(aa*bb):-1.;
+}
+
+int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStringList& arguments) {
+    bool leftValid=false,rightValid=false;
+    const auto leftId=arguments[4].toULongLong(&leftValid),rightId=arguments[5].toULongLong(&rightValid);
+    if(!leftValid||!rightValid||leftId==rightId)return 2;
+    const auto find=[&](qulonglong id) {
+        return std::find_if(analysis.candidates.begin(),analysis.candidates.end(),[&](const auto& candidate) {return candidate.id==id;});
+    };
+    const auto left=find(leftId),right=find(rightId);
+    if(left==analysis.candidates.end()||right==analysis.candidates.end())return 8;
+    const auto details=[](const pfcore::CharacterCandidate& c) {
+        return QJsonObject{{"id",static_cast<qint64>(c.id)},{"tracks",static_cast<qint64>(c.trackIds.size())},
+            {"observations",static_cast<qint64>(c.observationCount)},{"presenceSeconds",c.presenceSeconds},
+            {"distinctIdentity",c.distinctIdentity},{"faceEvidence",c.prototype.faceEvidence},{"bodyEvidence",c.prototype.bodyEvidence}};
+    };
+    auto a=left->prototype.observationTimes,b=right->prototype.observationTimes;
+    std::sort(a.begin(),a.end());std::sort(b.begin(),b.end());
+    QJsonArray times;std::size_t shared=0,i=0,j=0;
+    while(i<a.size()&&j<b.size()) {
+        if(std::abs(a[i]-b[j])<=1e-6) {
+            if(times.size()<32)times.append(a[i]);
+            ++shared;++i;++j;
+        } else if(a[i]<b[j])++i;
+        else ++j;
+    }
+    const std::set<std::size_t> leftTracks(left->trackIds.begin(),left->trackIds.end());
+    const std::set<std::size_t> rightTracks(right->trackIds.begin(),right->trackIds.end());
+    struct Sample { const pfcore::PoseFrame* frame=nullptr; std::size_t track=0; };
+    std::map<double,std::array<Sample,2>> windowSamples;
+    for(const auto& window:analysis.windows) {
+        const int side=leftTracks.contains(window.trackId)?0:rightTracks.contains(window.trackId)?1:-1;
+        if(side<0)continue;
+        for(const auto& frame:window.frames)if(std::isfinite(frame.timestampSeconds)&&!frame.keypoints.empty())
+            windowSamples[frame.timestampSeconds][side]={&frame,window.trackId};
+    }
+    QJsonArray pairedWindowSamples;std::size_t pairedWindowCount=0;
+    for(const auto& [time,pair]:windowSamples) {
+        if(!pair[0].frame||!pair[1].frame)continue;
+        ++pairedWindowCount;
+        if(pairedWindowSamples.size()>=32)continue;
+        const auto nose=[](const Sample& sample) {
+            const auto& p=sample.frame->keypoints.front();
+            return QJsonObject{{"track",static_cast<qint64>(sample.track)},{"x",p.x},{"y",p.y},{"confidence",p.confidence}};
+        };
+        pairedWindowSamples.append(QJsonObject{{"time",time},{"left",nose(pair[0])},{"right",nose(pair[1])}});
+    }
+    QSaveFile output(arguments[3]);
+    if(QFile::exists(arguments[3])||!output.open(QIODevice::WriteOnly))return 6;
+    const auto bytes=QJsonDocument(QJsonObject{{"scope","Cached candidates before repeated-scene merge; shared sample times are not a person-conflict verdict"},
+        {"left",details(*left)},{"right",details(*right)},
+        {"facePrototypeCosine",prototypeCosine(left->prototype.face,right->prototype.face)},
+        {"bodyPrototypeCosine",prototypeCosine(left->prototype.body,right->prototype.body)},
+        {"sharedPrototypeSampleTimes",static_cast<qint64>(shared)},{"firstSharedPrototypeTimes",times},
+        {"sharedWindowSampleTimes",static_cast<qint64>(pairedWindowCount)},{"firstSharedWindowSamples",pairedWindowSamples}}).toJson();
+    return output.write(bytes)==bytes.size()&&output.commit()?0:6;
+}
+
 std::vector<pfcore::VideoActionEvidence> readVideoActionCache(const std::filesystem::path& root) {
     std::vector<pfcore::VideoActionEvidence> result;
     std::error_code error;
@@ -77,14 +145,16 @@ std::vector<pfcore::VideoActionEvidence> readVideoActionCache(const std::filesys
 // Read-only replay of existing observations and cut boundaries. No model,
 // decoder, matcher, cache writes or eviction runs in this review tool.
 int main(int argc,char** argv) {
-    if(argc<4 || argc>6) {std::cerr<<"Usage: pf_grouping_probe MOTION.pfc RESULTS.json REVIEW.json [VERIFIED-CUTS.json|VIDEO-ACTION-CACHE] [VIDEO-ACTION-CACHE]\n";return 2;}
+    if(argc<4 || argc>6) {std::cerr<<"Usage: pf_grouping_probe MOTION.pfc RESULTS.json REVIEW.json [VERIFIED-CUTS.json|VIDEO-ACTION-CACHE] [VIDEO-ACTION-CACHE]\n"
+        <<"   or: pf_grouping_probe CHARACTER.pfc --character-pair REVIEW.json LEFT_ID RIGHT_ID\n";return 2;}
+    const bool characterPair=argc==6&&std::string_view(argv[2])=="--character-pair";
     std::filesystem::path cutsPath,actionCachePath;
-    if(argc>=5) {
+    if(!characterPair&&argc>=5) {
         std::error_code error;
         if(std::filesystem::is_directory(argv[4],error) && !error)actionCachePath=argv[4];
         else cutsPath=argv[4];
     }
-    if(argc==6)actionCachePath=argv[5];
+    if(!characterPair&&argc==6)actionCachePath=argv[5];
     const auto videoActions=actionCachePath.empty()?std::vector<pfcore::VideoActionEvidence>{}
         :readVideoActionCache(actionCachePath);
     std::ifstream input(argv[1],std::ios::binary);char magic[8];std::uint32_t version=0,keySize=0;std::uint64_t size=0;
@@ -100,8 +170,12 @@ int main(int argc,char** argv) {
     if(characterArtifact) {
         pfservices::CharacterAnalysis analysis;
         if(!pfservices::deserializeCharacterAnalysis(bytes,analysis))return 4;
+        if(characterPair) {
+            QStringList arguments;for(int i=0;i<argc;++i)arguments.append(QString::fromLocal8Bit(argv[i]));
+            return characterPairReport(analysis,arguments);
+        }
         windows=std::move(analysis.windows);scenes=analysis.sceneCount;
-    }else if(!pfservices::deserializeMotionWindows(bytes,windows,scenes))return 4;
+    }else if(characterPair||!pfservices::deserializeMotionWindows(bytes,windows,scenes))return 4;
     QFile results(argv[2]);if(!results.open(QIODevice::ReadOnly))return 5;
     auto report=QJsonDocument::fromJson(results.readAll()).object();QJsonArray reviewed;
     report["observationArtifact"]=characterArtifact?"PFCH":"motion-windows";

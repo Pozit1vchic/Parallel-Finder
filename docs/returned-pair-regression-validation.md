@@ -87,6 +87,15 @@ run uses a copy of the primary cache without raw Matcher entries and enables
 the existing selection trace. That run is functional diagnostics only; it
 overlaps the Katniss character capture and is not a timing measurement.
 
+The full trace subsequently completed and reproduced all 188 final rows
+exactly except session preview URLs. Historical index 25 reaches the internal
+selection loop at 250.860/1123.689 with score 0.949890, so retrieval and exact
+comparison are not the reason this pair disappears. The earlier
+974.678/1123.689 candidate (score 0.994000) survives and uses the same right
+shot. This is consistent with the single-use shot limit; the trace does not
+log individual skip reasons, so it cannot exclude additional internal vetoes.
+Evidence: `build/goal-031-selection-trace-01/warm-01.json.stderr.log`.
+
 Local evidence: `build/goal-031-existing-pair-count-comparison.json`,
 `build/goal-031-missing-pairs-{training,heldout}-review`, and
 `build/goal-031-missing-pair-tracks-01`. Current reports are the same native
