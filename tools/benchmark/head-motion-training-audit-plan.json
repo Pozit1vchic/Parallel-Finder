@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "split": "training only: S01E01/E02",
+  "returnedArrayIndices": [
+    28,
+    36,
+    37,
+    39,
+    41,
+    44,
+    45,
+    47,
+    49
+  ],
+  "selection": "All nine head-only results of the frozen original training report; exact selected-track pose frames from prior native PFCH probes. No new or held-out examples selected.",
+  "requestSha256": "31a7eca058e8e09eaef37b7eefc64fcc0a247912f8e756fbaac993fd57aacff3",
+  "metricsFrozenBeforeMeasurement": [
+    "valid observed coverage and missing/invalid samples",
+    "first-to-last SO(3) geodesic angle only when both requested endpoints are valid",
+    "maximum pairwise SO(3) geodesic angle within each contiguous valid requested-sample run",
+    "sum of consecutive geodesic step angles within each valid run (noise-sensitive diagnostic)",
+    "minimum of the two sides excursion/net-angle as separate within-head preference diagnostics; no fitted weights or thresholds"
+  ],
+  "missingEvidence": "No filling missing rotations with identity/frontal orientation and no interpolation over explicit gaps. Report raw time gaps and sample validity.",
+  "limits": "Diagnostic feature audit on already reviewed training judgments. Not independent accuracy, calibrated confidence, camera-motion disambiguation, new retrieval or a production ranking policy."
+}
