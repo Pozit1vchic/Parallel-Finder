@@ -56,6 +56,24 @@ class UiSmokeTests : public QObject {
     Q_OBJECT
 
 private slots:
+    void automaticBackendRetriesInstalledRuntimeAfterCpuFallback() {
+        auto environment=QProcessEnvironment::systemEnvironment();
+        environment.insert("PF_TEST_BACKEND_SELECTION","1");
+        environment.insert("PF_ORT_DLL","cpu-only.dll");
+        const auto executable=QCoreApplication::applicationFilePath();
+        const auto probe=pfui::probeAutomaticBackends(executable,{},
+            {"cpu-only.dll","broken.dll","cuda-working.dll"},environment);
+        QCOMPARE(QString::fromStdString(probe.selectedRuntimePath),QStringLiteral("cuda-working.dll"));
+        QVERIFY(probe.backends.front().available);
+        QCOMPARE(probe.backends.front().provider,pfgpu::Provider::Cuda);
+        const auto fallback=pfui::probeAutomaticBackends(executable,{}, {"broken.dll"},environment);
+        QVERIFY(fallback.selectedRuntimePath.empty());
+        QCOMPARE(fallback.backends.front().provider,pfgpu::Provider::Cpu);
+        environment.insert("PF_ORT_DLL","cuda-working.dll");
+        const auto unchanged=pfui::probeAutomaticBackends(executable,{}, {"broken.dll"},environment);
+        QVERIFY(unchanged.selectedRuntimePath.empty());
+        QCOMPARE(unchanged.backends.front().provider,pfgpu::Provider::Cuda);
+    }
     void nativeHeadRankingMatchesFrozenAudit() {
         const auto path=qEnvironmentVariable("PF_HEAD_RANKING_UI_FIXTURE");
         if(path.isEmpty())QSKIP("Set a verified native head ranking fixture");
@@ -3645,6 +3663,17 @@ void UiSmokeTests::nativeSourceDialogKeepsUiResponsive()
 
 int main(int argc, char** argv)
 {
+    if(argc==2 && std::strcmp(argv[1],"--pf-backend-probe")==0
+        && qEnvironmentVariableIsSet("PF_TEST_BACKEND_SELECTION")) {
+        QCoreApplication app(argc,argv);
+        const auto runtime=qEnvironmentVariable("PF_ORT_DLL");
+        if(runtime=="broken.dll")return 3;
+        pfgpu::BackendProbe probe;probe.ortLoaded=true;
+        if(runtime=="cuda-working.dll")probe.backends.push_back({pfgpu::Provider::Cuda,true,"","Test CUDA"});
+        probe.backends.push_back({pfgpu::Provider::Cpu,true,"","Test CPU"});
+        std::printf("PF_BACKENDS_JSON=%s\n",pfui::backendProbeJson(probe).constData());
+        return 0;
+    }
     if (argc>2 && std::strcmp(argv[1],"--pf-test-backend-child")==0) {
         QCoreApplication app(argc,argv);
         const auto mode=app.arguments()[2];

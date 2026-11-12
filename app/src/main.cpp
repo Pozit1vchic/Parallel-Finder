@@ -172,10 +172,12 @@ int main(int argc, char* argv[])
     QGuiApplication::setApplicationVersion(QStringLiteral(PF_VERSION));
 
     // Downloaded runtimes live in writable per-user storage, not Program Files.
+    bool allowAutomaticRuntimeFallback=false;
     if (!qEnvironmentVariableIsSet("PF_PROVIDER_ROOT") && !qEnvironmentVariableIsSet("PF_ORT_DLL")) {
         const auto root = QString::fromStdString(pfservices::SettingsStore::defaultDirectory()) + QStringLiteral("/providers");
         std::string settingsError;
         const auto chosen = pfservices::SettingsStore().load(settingsError).provider;
+        allowAutomaticRuntimeFallback=chosen=="auto";
         const auto appRoot = QCoreApplication::applicationDirPath() + QStringLiteral("/providers/");
         const auto name = QString::fromStdString(chosen);
         const auto activate = [&](const QString& provider) {
@@ -395,10 +397,10 @@ int main(int argc, char* argv[])
             window->setProperty("startupPresented", true);
             window->setOpacity(1);
         },Qt::SingleShotConnection);
-        QObject::connect(window, &QQuickWindow::frameSwapped, &app, [args] {
+        QObject::connect(window, &QQuickWindow::frameSwapped, &app, [args,allowAutomaticRuntimeFallback] {
             if (args.contains("--pf-startup-profile") && args.contains("--pf-profile-local-probe"))
                 pfui::AppInfo::instance()->initializeBackendsAsync();
-            else pfui::AppInfo::instance()->initializeBackendsIsolated();
+            else pfui::AppInfo::instance()->initializeBackendsIsolated(allowAutomaticRuntimeFallback);
         }, Qt::SingleShotConnection);
     }
     if (qEnvironmentVariableIsSet("PF_DEBUG_STARTUP")) {

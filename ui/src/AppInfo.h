@@ -65,7 +65,7 @@ public:
     bool backendInitializing() const { return backendInitializing_; }
     void prepareBackendInitialization();
     void initializeBackendsAsync(std::function<pfgpu::BackendProbe()> probe = {});
-    void initializeBackendsIsolated();
+    void initializeBackendsIsolated(bool allowAutomaticRuntimeFallback = false);
     void publishBackendProbe(const pfgpu::BackendProbe& probe);
     Q_INVOKABLE bool backendAvailable(const QString& backend) const;
     Q_INVOKABLE QString backendReason(const QString& backend) const;

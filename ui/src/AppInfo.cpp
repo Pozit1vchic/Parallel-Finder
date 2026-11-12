@@ -111,10 +111,23 @@ void AppInfo::initializeBackendsAsync(std::function<pfgpu::BackendProbe()> probe
     startBackendProbe([probe = std::move(probe)](std::stop_token) { return probe ? probe() : pfgpu::probeBackends(); });
 }
 
-void AppInfo::initializeBackendsIsolated()
+void AppInfo::initializeBackendsIsolated(bool allowAutomaticRuntimeFallback)
 {
     const auto executable = QCoreApplication::applicationFilePath();
-    startBackendProbe([executable](std::stop_token stop) { return probeBackendProcess(executable, stop); });
+    const auto environment=QProcessEnvironment::systemEnvironment();
+    const QStringList roots{
+        QString::fromStdString(pfservices::SettingsStore::defaultDirectory()) + "/providers",
+        QCoreApplication::applicationDirPath() + "/providers"};
+    startBackendProbe([executable,environment,roots,allowAutomaticRuntimeFallback](std::stop_token stop) {
+        if(!allowAutomaticRuntimeFallback) return probeBackendProcess(executable,stop);
+        QStringList runtimes;
+        for(const auto* name:{"tensorrt","cuda","dml"}) {
+            if(stop.stop_requested())break;
+            const auto runtime=pfservices::ProviderManager::locateRuntime(roots,QString::fromLatin1(name));
+            if(!runtime.isEmpty())runtimes.push_back(runtime);
+        }
+        return probeAutomaticBackends(executable,stop,runtimes,environment);
+    });
 }
 
 void AppInfo::startBackendProbe(std::function<pfgpu::BackendProbe(std::stop_token)> probe)
@@ -134,6 +147,19 @@ void AppInfo::startBackendProbe(std::function<pfgpu::BackendProbe(std::stop_toke
 
 void AppInfo::publishBackendProbe(const pfgpu::BackendProbe& probe)
 {
+    if(!probe.selectedRuntimePath.empty()) {
+        // Analysis is gated on backend readiness. Bind the tested runtime
+        // before publishing readiness, while the GUI has no ORT sessions.
+        const auto runtime=QString::fromStdString(probe.selectedRuntimePath);
+        const auto directory=QFileInfo(runtime).absolutePath();
+        qputenv("PF_ORT_DLL",runtime.toUtf8());
+        qputenv("PF_PROVIDER_ROOT",directory.toUtf8());
+#ifdef Q_OS_WIN
+        const auto oldPath=qgetenv("PATH");
+        qputenv("PATH",QDir::toNativeSeparators(directory).toUtf8()
+            +(oldPath.isEmpty()?QByteArray{}:QByteArray(";")+oldPath));
+#endif
+    }
     backendStatuses_.clear();
     backendStatuses_.insert(QStringLiteral("auto"), QVariantMap{{"available", probe.ortLoaded},
         {"reason", QString::fromStdString(probe.ortError)}});

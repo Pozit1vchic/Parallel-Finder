@@ -4,6 +4,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
+#include <QFileInfo>
 #include <algorithm>
 #include <set>
 #include <stdexcept>
@@ -51,10 +52,11 @@ pfgpu::BackendProbe backendProbeFromJson(const QByteArray& json)
 }
 
 pfgpu::BackendProbe probeBackendProcess(const QString& executable, std::stop_token stop,
-    const QStringList& arguments, int timeoutMs)
+    const QStringList& arguments, int timeoutMs,const QProcessEnvironment& environment)
 {
     if (stop.stop_requested()) throw std::runtime_error("Backend probe cancelled");
     QProcess process;
+    process.setProcessEnvironment(environment);
 #ifdef Q_OS_WIN
     process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args) {
         args->flags |= CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS;
@@ -76,5 +78,37 @@ pfgpu::BackendProbe probeBackendProcess(const QString& executable, std::stop_tok
     const auto index = output.lastIndexOf(marker);
     if (index < 0) throw std::runtime_error("Backend probe returned no status");
     return backendProbeFromJson(output.mid(index + marker.size()).split('\n').first().trimmed());
+}
+
+pfgpu::BackendProbe probeAutomaticBackends(const QString& executable,std::stop_token stop,
+    const QStringList& runtimes,const QProcessEnvironment& environment)
+{
+    const QStringList arguments{QStringLiteral("--pf-backend-probe")};
+    const auto gpuUsable=[](const pfgpu::BackendProbe& probe) {
+        return std::any_of(probe.backends.begin(),probe.backends.end(),[](const auto& backend) {
+            return backend.available && backend.provider!=pfgpu::Provider::Cpu;
+        });
+    };
+    pfgpu::BackendProbe initial;
+    try { initial=probeBackendProcess(executable,stop,arguments,120000,environment); }
+    catch(const std::exception& error) { initial.ortError=error.what(); }
+    if(gpuUsable(initial))return initial;
+    const auto original=environment.value(QStringLiteral("PF_ORT_DLL"));
+    for(const auto& runtime:runtimes) {
+        if(stop.stop_requested())break;
+        if(runtime.isEmpty()||runtime==original)continue;
+        auto candidateEnvironment=environment;
+        candidateEnvironment.insert(QStringLiteral("PF_ORT_DLL"),runtime);
+        candidateEnvironment.insert(QStringLiteral("PF_PROVIDER_ROOT"),QFileInfo(runtime).absolutePath());
+        try {
+            auto candidate=probeBackendProcess(executable,stop,arguments,120000,candidateEnvironment);
+            if(!gpuUsable(candidate))continue;
+            candidate.selectedRuntimePath=runtime.toStdString();
+            return candidate;
+        } catch(const std::exception&) {
+            // A failed bundle is confined to its diagnostic child.
+        }
+    }
+    return initial;
 }
 }

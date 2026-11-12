@@ -28,6 +28,8 @@ struct BackendProbe {
     std::uint32_t ortApiVersion = 0;
     std::string ortError;                // runtime-level failure, when any
     std::vector<BackendStatus> backends; // kFallbackOrder, CPU last
+    // Local startup selection, never read from child-process JSON.
+    std::string selectedRuntimePath;
 };
 
 // Probes the machine once per process and memoizes the result. The probe
