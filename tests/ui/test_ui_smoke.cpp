@@ -56,6 +56,31 @@ class UiSmokeTests : public QObject {
     Q_OBJECT
 
 private slots:
+    void automaticBackendSelectsRealCudaBundle() {
+        const auto executable=qEnvironmentVariable("PF_TEST_AUTO_BACKEND_EXE");
+        const auto cpu=qEnvironmentVariable("PF_TEST_AUTO_BACKEND_CPU_DLL");
+        const auto cuda=qEnvironmentVariable("PF_TEST_AUTO_BACKEND_CUDA_DLL");
+        if(executable.isEmpty()||cpu.isEmpty()||cuda.isEmpty())
+            QSKIP("Set the executable and both runtime paths for the real CUDA fallback check");
+        QVERIFY(QFileInfo(executable).isFile());
+        QVERIFY(QFileInfo(cpu).isFile());
+        QVERIFY(QFileInfo(cuda).isFile());
+        QTemporaryDir cache;QVERIFY(cache.isValid());
+        auto environment=QProcessEnvironment::systemEnvironment();
+        environment.insert("PF_TRT_CACHE_PATH",cache.path());
+        environment.insert("PF_ORT_DLL",cpu);
+        environment.insert("PF_PROVIDER_ROOT",QFileInfo(cpu).absolutePath());
+        const auto initial=pfui::probeBackendProcess(executable,{}, {"--pf-backend-probe"},30000,environment);
+        QVERIFY(initial.ortLoaded);
+        QVERIFY(std::none_of(initial.backends.begin(),initial.backends.end(),[](const auto& backend) {
+            return backend.available&&backend.provider!=pfgpu::Provider::Cpu;
+        }));
+        const auto selected=pfui::probeAutomaticBackends(executable,{}, {cuda},environment);
+        QCOMPARE(QString::fromStdString(selected.selectedRuntimePath),cuda);
+        QVERIFY(std::any_of(selected.backends.begin(),selected.backends.end(),[](const auto& backend) {
+            return backend.available&&backend.provider==pfgpu::Provider::Cuda;
+        }));
+    }
     void automaticBackendRetriesInstalledRuntimeAfterCpuFallback() {
         auto environment=QProcessEnvironment::systemEnvironment();
         environment.insert("PF_TEST_BACKEND_SELECTION","1");
