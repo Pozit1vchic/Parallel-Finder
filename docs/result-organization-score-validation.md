@@ -26,5 +26,9 @@ The native application used by the ongoing uncached benchmark was not relinked:
 its SHA-256 remains
 `5565a0a048e1f37a950961ad80883a2663c6f395eded4607543b0a5ec286e74d`,
 matching the run's contract. Its measurements therefore describe the previously
-frozen application, not this new guard. Full application integration and the
-full regression suite must be rerun after the uncached measurement sequence.
+frozen application, not this new guard. After that measurement sequence stopped
+on a disk-full failure, full application integration was completed with the
+companion identity-policy and preview-lifetime changes: 15/15 CTest suites passed
+in 142.16 seconds and three native compatible-warm repeats preserved all 188
+measured/classified pair identities. Their order/score policy intentionally
+changed, as documented in `identity-independent-ranking-validation.md`.

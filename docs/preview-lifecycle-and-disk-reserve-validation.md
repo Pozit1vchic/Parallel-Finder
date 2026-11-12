@@ -49,9 +49,14 @@ impossible reserve without launching analysis or creating a successful report;
 both benchmark scripts passed the existing parsing/finite-value checks.
 
 The latest successful three-run control did not perform harness-side deletion:
-the zero retained files come from application ownership release. A controlled
-in-flight reserve-loss check remains to be executed; the real disk-full incident
-is preserved as a failure, not substituted for that controlled test.
+the zero retained files come from application ownership release. A subsequent
+controlled in-flight reserve-loss check also passed in
+`build/goal-disk-reserve-loss-01`: a separate 64 MiB allocation crossed an
+artificial reserve threshold while about 7.9 GB remained free. The harness
+stopped the native process, created failure metadata and no successful report,
+and all four primary cached files retained their SHA-256 hashes. This verifies
+the harness guard, not physical disk-full writes or interrupted-write recovery.
+The real disk-full incident remains a failure, not a substituted success.
 
 ## Space reclaimed without deleting data
 
