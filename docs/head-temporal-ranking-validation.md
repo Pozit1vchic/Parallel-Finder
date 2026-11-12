@@ -101,8 +101,25 @@ the fixed head-slot rule reproduced 10/18 versus 18/18 training preferences;
 `best-head-preferences.json` records both original-index orders. This verifies
 integration on training predictions rather than adding independent validation.
 This is functional evidence, not a timing median or independent accuracy claim.
-The production row integration has not yet been rerun against the held-out
-episodes; the held-out preference table above remains an offline rule audit.
+The production integration was subsequently rerun on held-out episodes E03/E04
+under `build/goal-head-ranking-heldout-native-02`. All 153 pair identities and
+measured/classification fields were preserved; the earlier identity-independent
+score policy explains 104 changed report positions relative to the historical
+report. All eight native angular values matched the frozen audit. All eight
+head predictions are in the strong tier; within that tier Best ordering changed
+8/15 correct preferences to 15/15. The possible tier has no judged preferences.
+The real ResultsRail component passed both tier orders and retained its input
+rows unchanged (`ui-test-final.txt`). This remains prediction-scope assistant
+review, not independent human confirmation or full-episode recall.
+
+The first held-out orchestration attempt stopped before analysis because the
+historical contract lacked an added metadata property; its directory is retained.
+The second completed analysis but its wrapper incorrectly required an existing
+raw Matcher cache hit. Observations were cached, while Matcher ran and populated
+its cache. The wrapper therefore failed after producing a complete report.
+`verify_head_ranking.py` separately validated that report and generated the UI
+fixture; neither the wrapper nor the single run is counted as a performance
+median or an all-stages-cache-hit test. No dataset or rule was changed.
 
 The final integrated application rebuilt successfully and passed **16/16**
 CTest suites in **141.47 seconds**. The UI suite reported 62 passed, zero failed,

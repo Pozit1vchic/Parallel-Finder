@@ -56,6 +56,36 @@ class UiSmokeTests : public QObject {
     Q_OBJECT
 
 private slots:
+    void nativeHeadRankingMatchesFrozenAudit() {
+        const auto path=qEnvironmentVariable("PF_HEAD_RANKING_UI_FIXTURE");
+        if(path.isEmpty())QSKIP("Set a verified native head ranking fixture");
+        QFile file(path);QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto fixture=QJsonDocument::fromJson(file.readAll()).object();
+        QVERIFY(!fixture.value("provenance").toObject().isEmpty());
+        const auto rows=fixture.value("results").toArray().toVariantList();
+        QVERIFY(!rows.empty());
+        pfui::AppInfo::registerQmlTypes();
+        QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nimport PfUi\nResultsRail { width:300; height:600; sortCriterion: \"best\" }",QUrl());
+        std::unique_ptr<QObject> rail(component.create());
+        QVERIFY2(rail!=nullptr,qPrintable(component.errorString()));
+        rail->setProperty("results",rows);
+        const auto ids=[&] {
+            const auto visible=rail->property("visibleResults").value<QJSValue>().toVariant().toList();
+            QList<int> result;for(const auto& row:visible)result.push_back(row.toMap().value("id").toInt());
+            return result;
+        };
+        for(const auto value:fixture.value("expectedBestOrders").toArray()) {
+            const auto order=value.toObject();
+            rail->setProperty("matchTierFilter",order.value("tier").toString());
+            QList<int> expected;for(const auto id:order.value("ids").toArray())expected.push_back(id.toInt());
+            QTRY_COMPARE(ids(),expected);
+        }
+        const auto retained=rail->property("results");
+        QCOMPARE(retained.metaType()==QMetaType::fromType<QJSValue>()
+            ? retained.value<QJSValue>().toVariant().toList():retained.toList(),rows);
+    }
     void bestHeadRankingKeepsMixedResultSlots() {
         pfui::AppInfo::registerQmlTypes();
         QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
