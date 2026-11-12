@@ -11,6 +11,31 @@
 #include <thread>
 #include <pfcore/PathEncoding.hpp>
 
+TEST(PfCache, NewCheaperEntriesCannotDisplaceRecentPrimaryObservations)
+{
+    for(const bool shared:{false,true})for(const std::string cheaper:{
+        "matcher-results-v1|new","head-orientation-v1|new",
+        "video-actions-v1|new","body-orientation-v1|new"}) {
+        SCOPED_TRACE(cheaper+ (shared?" shared":" local"));
+        QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
+        const auto root=std::filesystem::path(directory.path().toStdWString());
+        const auto reviewRoot=shared?root/"review":root;
+        auto budget=shared?std::make_shared<pfservices::CacheBudget>(std::vector{root,reviewRoot},400):nullptr;
+        pfservices::PfCache primary(root,400,budget),review(reviewRoot,400,budget);
+        std::string error;const std::string observations="motion-v43|source=video";
+        const std::vector<std::uint8_t> data(220,7);
+        ASSERT_TRUE(primary.putForSource("video",observations,data,error))<<error;
+        const auto path=root/(QCryptographicHash::hash(QByteArray::fromStdString(observations),QCryptographicHash::Sha256).toHex().toStdString()+".pfc");
+        std::filesystem::last_write_time(path,std::filesystem::file_time_type::clock::now()-std::chrono::hours(72));
+        EXPECT_FALSE(review.putForSource("video",cheaper,data,error));
+        EXPECT_FALSE(error.empty());
+        EXPECT_EQ(primary.get(observations),std::optional(data));
+        EXPECT_FALSE(review.get(cheaper));
+        EXPECT_EQ(review.keysForSource("video"),shared?std::vector<std::string>{}:std::vector<std::string>{observations});
+        EXPECT_LE(shared?budget->bytesUsed():primary.bytesUsed(),400U);
+    }
+}
+
 TEST(PfCache, SharedBudgetCountsOwnershipAndProtectsPrimaryAcrossDirectories)
 {
     QTemporaryDir directory;ASSERT_TRUE(directory.isValid());

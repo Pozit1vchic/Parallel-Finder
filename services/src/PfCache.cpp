@@ -215,14 +215,17 @@ bool CacheBudget::enforce(const std::filesystem::path& protectedPath,std::string
         const auto retention=retentionClass(file.path,file.size);
         candidates.push_back({file.path,*key,time>=recent?retention.cost:0U,retention.preview,time,file.size});
     }
-    std::sort(candidates.begin(),candidates.end(),[](const auto& a,const auto& b) {
+    std::error_code ec;
+    const auto protectedCanonical=protectedPath.empty()?std::filesystem::path{}:std::filesystem::weakly_canonical(protectedPath,ec);
+    std::sort(candidates.begin(),candidates.end(),[&](const auto& a,const auto& b) {
         if(a.priority!=b.priority)return a.priority<b.priority;
+        const bool keepA=a.path==protectedCanonical && !a.preview;
+        const bool keepB=b.path==protectedCanonical && !b.preview;
+        if(keepA!=keepB)return !keepA;
         if(a.time!=b.time)return a.time<b.time;
         if(a.size!=b.size)return a.size>b.size;
         return a.path.native()<b.path.native();
     });
-    std::error_code ec;
-    const auto protectedCanonical=protectedPath.empty()?std::filesystem::path{}:std::filesystem::weakly_canonical(protectedPath,ec);
     const auto evict=[&](const Candidate& file) {
         const auto before=total;remove(file.path);
         if(total!=before) {
@@ -232,7 +235,10 @@ bool CacheBudget::enforce(const std::filesystem::path& protectedPath,std::string
     };
     for(const auto& file:candidates) {
         if(total<=limitBytes_)break;
-        if(file.path==protectedCanonical && !file.preview)continue;
+        // A fresh write only wins ties within its retention tier. Protecting
+        // a cheaper new result must not evict the observations it depends on.
+        if(file.path==protectedCanonical && !file.preview
+            && file.priority==candidates.back().priority)continue;
         evict(file);
     }
     if(total>limitBytes_ && !protectedCanonical.empty()) {
@@ -386,17 +392,21 @@ bool PfCache::evictIfNeeded(const std::filesystem::path& protectedPath,std::stri
         file.priority=file.time>=protectSince ? retention.cost:0U;
         file.preview=retention.preview;
     }
-    std::sort(files.begin(), files.end(), [](const File& left, const File& right) {
+    std::sort(files.begin(), files.end(), [&](const File& left, const File& right) {
         if(left.priority!=right.priority)return left.priority<right.priority;
+        const bool keepLeft=left.path==protectedPath && !left.preview;
+        const bool keepRight=right.path==protectedPath && !right.preview;
+        if(keepLeft!=keepRight)return !keepLeft;
         if(left.time!=right.time)return left.time<right.time;
         if(left.size!=right.size)return left.size>right.size;
         return left.path.native()<right.path.native();
     });
     for (const auto& file : files) {
         if (total <= limitBytes_) break;
-        // A new preview is expendable too: keeping it must not evict the
-        // expensive observations it will be rebuilt from on the next run.
-        if (file.path == protectedPath && !file.preview) continue;
+        // Preserve a fresh write only within the highest available tier;
+        // derived results and previews cannot displace costlier observations.
+        if (file.path == protectedPath && !file.preview
+            && file.priority == files.back().priority) continue;
         const auto key=storedEntryKey(file.path);
         const bool removed=std::filesystem::remove(file.path, filesystemError);
         if (removed && !filesystemError) {

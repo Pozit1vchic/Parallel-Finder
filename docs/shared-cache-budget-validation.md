@@ -78,5 +78,35 @@ this does not establish cross-process coordination or physical disk-full safety.
   refinement copy. This is separate from physical disk-full robustness testing.
 - After the pressure analysis finished, three full uncached native runs were
   started in `build/goal-chernobyl-cache-disabled-01` with `cacheEnabled=false`
-  in isolated settings. Their completion and comparisons remain pending; they
-  must not be inferred from the successful warm or pressure controls.
+  in isolated settings. Only the first completed (functional equivalence only);
+  the second failed when the disk filled, and the third never started. There is
+  no valid uncached timing median; see `uncached-analysis-functional-validation.md`.
+
+## Admission priority regression (2026-11-12)
+
+A new non-preview entry was unconditionally protected during eviction. Under a
+tight budget, admitting a raw Matcher result or head/action/body refinement
+could therefore evict recent primary observations, even though those have a
+higher recomputation cost. This affected both local and shared budgets.
+
+`PfCache.NewCheaperEntriesCannotDisplaceRecentPrimaryObservations` reproduces
+the defect with four actual production key families in local and separate-root
+shared caches. A 400-byte budget can retain the primary record and its ownership
+metadata, but cannot retain both records. The test requires rejection of the
+cheaper incoming record, unchanged primary bytes, removal of the rejected
+record's ownership metadata, and capacity compliance. It failed before the fix.
+
+Admission protection now breaks ties only within the incoming entry's retention
+tier. Older entries of that tier are reclaimed first; an incoming lower-tier
+entry is reclaimed before any higher-tier record. Preview admission and the
+existing seven-day protection window retain their policies. This is a bounded
+eviction regression, not a new full-episode performance or accuracy measurement.
+
+Validation: the complete application rebuilt successfully; all 26 `PfCache`
+tests passed (1847 ms), followed by all 15 CTest suites (141.94 s). Evidence:
+`build/goal-cache-cost-priority-before.log`,
+`build/goal-cache-cost-priority-after.log`, and
+`build/goal-cache-cost-priority-final-ctest.log`. The intermediate CTest log is
+not the final result: it ran the first revision, which failed an existing
+same-tier replacement assertion. Attempted linking while that run was alive
+was rejected by Windows file locks; final build and tests ran sequentially.
