@@ -2,11 +2,19 @@
 
 #include <array>
 #include <span>
+#include <optional>
 
 #include "pfcore/MovementClassifier.hpp"
 #include "pfcore/HeadOrientationSample.hpp"
 
 namespace pfcore {
+
+// Largest geodesic separation inside an uninterrupted run of observed proper
+// rotations. Missing/invalid observations break runs. This measures angular
+// extent, not action confidence or agreement between two movements.
+// A lone observation is unknown; two identical observations measure zero.
+[[nodiscard]] std::optional<double> headRotationExcursion(
+    std::span<const HeadOrientationSample> samples, double start, double end);
 
 // Temporal action evidence, not an identity measurement or calibrated accuracy.
 // It deliberately has no Euler-angle input: full rotations remain continuous

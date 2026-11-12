@@ -89,6 +89,33 @@ bool supportedMotion(const std::vector<Vector>& path,int axis,double extent,doub
 }
 } // namespace
 
+std::optional<double> headRotationExcursion(std::span<const HeadOrientationSample> input,
+    double start,double end) {
+    if (!std::isfinite(start)||!std::isfinite(end)||end<=start) return std::nullopt;
+    std::vector<const HeadOrientationSample*> run;
+    std::optional<double> largest;
+    double previousTime=-std::numeric_limits<double>::infinity();
+    for (const auto& sample:input) {
+        if (!std::isfinite(sample.time)||sample.time<=previousTime) return std::nullopt;
+        previousTime=sample.time;
+        if (sample.time<start-1e-6||sample.time>=end-1e-6) continue;
+        if (!sample.observed||!validRotation(sample.rotation)) {
+            run.clear();
+            continue;
+        }
+        for (const auto* previous:run) {
+            double trace=0;
+            for (std::size_t k=0;k<sample.rotation.size();++k)
+                trace+=sample.rotation[k]*previous->rotation[k];
+            const double angle=std::acos(std::clamp((trace-1.)/2.,-1.,1.))
+                *180./std::numbers::pi;
+            largest=std::max(largest.value_or(0.),angle);
+        }
+        run.push_back(&sample);
+    }
+    return largest;
+}
+
 MovementClassification classifyHeadOrientation(std::span<const HeadOrientationSample> input,
     double start,double end) {
     MovementClassification result;

@@ -29,6 +29,41 @@ template<class Action> auto trajectory(Action action,const Matrix& initial=axisR
 }
 auto classify(const auto& samples) {return pfcore::classifyHeadOrientation(samples,0,2).gesture;}
 
+TEST(HeadRotationExcursion, WrapAndReturningMotionUseGeodesicExtent) {
+    std::vector<pfcore::HeadOrientationSample> samples{
+        {0,axisRotation(1,179),true}, {.2,axisRotation(1,-169),true},
+        {.4,axisRotation(1,179),true}};
+    const auto extent=pfcore::headRotationExcursion(samples,0,1);
+    ASSERT_TRUE(extent);
+    EXPECT_NEAR(*extent,12.,1e-8);
+}
+
+TEST(HeadRotationExcursion, MissingAndInvalidObservationsBreakRuns) {
+    std::vector<pfcore::HeadOrientationSample> samples{
+        {0,axisRotation(1,0),true}, {.2,axisRotation(1,10),true},
+        {.4,{},false}, {.6,axisRotation(1,50),true}, {.8,axisRotation(1,60),true}};
+    ASSERT_TRUE(pfcore::headRotationExcursion(samples,0,1));
+    EXPECT_NEAR(*pfcore::headRotationExcursion(samples,0,1),10.,1e-8);
+    samples[2].observed=true; // A zero matrix is not a frontal head pose.
+    EXPECT_NEAR(*pfcore::headRotationExcursion(samples,0,1),10.,1e-8);
+    samples[2].rotation={1,0,0,0,1,0,0,0,-1}; // Reflection, not SO(3).
+    EXPECT_NEAR(*pfcore::headRotationExcursion(samples,0,1),10.,1e-8);
+}
+
+TEST(HeadRotationExcursion, ExclusiveBoundaryAndUnknownAreDistinctFromZero) {
+    std::vector<pfcore::HeadOrientationSample> samples{
+        {0,axisRotation(1,0),true}, {.5,axisRotation(1,0),true},
+        {1-.5e-6,axisRotation(1,70),true}, {1,axisRotation(1,90),true}};
+    ASSERT_TRUE(pfcore::headRotationExcursion(samples,0,1));
+    EXPECT_NEAR(*pfcore::headRotationExcursion(samples,0,1),0.,1e-8);
+    EXPECT_FALSE(pfcore::headRotationExcursion(samples,0,.5));
+    EXPECT_FALSE(pfcore::headRotationExcursion(samples,1,0));
+    samples[3].time=.4;
+    EXPECT_FALSE(pfcore::headRotationExcursion(samples,0,1));
+    samples[3].time=std::numeric_limits<double>::quiet_NaN();
+    EXPECT_FALSE(pfcore::headRotationExcursion(samples,0,1));
+}
+
 TEST(HeadOrientation, SeparatesTurnTiltAndReturningNodAcrossStartingPoses) {
     for(const double initialYaw:{0.,70.,170.})for(const double sign:{-1.,1.}) {
         const auto initial=multiply(axisRotation(1,initialYaw),axisRotation(0,25));
