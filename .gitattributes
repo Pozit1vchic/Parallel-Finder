@@ -13,6 +13,8 @@ CMakeLists.txt text
 /tools/benchmark/chernobyl-prediction-review-labels.json text eol=lf
 /tools/benchmark/chernobyl-training-ranking-plan.json text eol=lf
 /tools/benchmark/chernobyl-training-ranking-labels.json text eol=lf
+/tools/benchmark/chernobyl-training-expansion-plan.json text eol=lf
+/tools/benchmark/chernobyl-training-expansion-labels.json text eol=lf
 *.qml text
 *.yml text
 *.yaml text
