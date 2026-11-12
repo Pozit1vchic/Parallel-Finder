@@ -45,6 +45,30 @@ assistant observations, not independent annotations. The old-only plausible
 pairs warrant tracing candidate generation and admission; restoring all old
 rows or loosening thresholds from this sample would not be justified.
 
+## Where the two plausible pairs disappear
+
+All four historical observation entries have the same SHA-256 as their current
+counterparts. This rules out differences in the stored observations for these
+comparisons; it does not prove that later window preparation is identical.
+The read-only localization check verified the cache container and payload
+hashes, then bound each raw Matcher payload to its final report by complete
+source/range membership (188/188 training rows and 153/153 held-out rows).
+Neither plausible pair has a temporal counterpart in the corresponding raw
+Matcher output. A results-list filter or ordering change cannot explain these
+two absences.
+
+In both cases the exact right-hand interval appears with a different partner:
+training old index 25 uses right interval 1123.689–1125.170 (historical score
+0.9499, new counterpart 0.9940); held-out old index 9 uses right interval
+2450.538–2452.178 (historical score 0.9799, new counterpart 0.8569).
+The scores are for different partners and do not establish preference. Both
+observations make competition for a scene a plausible explanation, but the
+raw cache is written after Matcher selection, so it does not distinguish
+candidate retrieval, exact comparison, and internal selection. Do not change
+the one-pair-per-shot policy based only on this evidence.
+
+Local localization evidence: `build/goal-031-missing-pair-raw-localization.json`.
+
 Local evidence: `build/goal-031-existing-pair-count-comparison.json`,
 `build/goal-031-missing-pairs-{training,heldout}-review`, and
 `build/goal-031-missing-pair-tracks-01`. Current reports are the same native
