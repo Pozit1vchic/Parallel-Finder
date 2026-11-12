@@ -22,6 +22,7 @@ namespace pfservices { class RuntimeScratch; }
 
 namespace pfui {
 struct VideoActionReviewContext;
+class ResultPreviewImages;
 
 class AnalysisController final : public QObject {
     Q_OBJECT
@@ -239,6 +240,7 @@ private:
     std::map<int, std::shared_ptr<QTemporaryDir>> reviewOriginalDirectories_;
     std::shared_ptr<QTemporaryDir> reviewDraftDirectory_;
     std::shared_ptr<pfservices::RuntimeScratch> analysisPreviewDirectory_;
+    std::shared_ptr<ResultPreviewImages> resultPreviewImages_;
     struct ReviewUndoRow {
         int id;
         QVariantMap record;

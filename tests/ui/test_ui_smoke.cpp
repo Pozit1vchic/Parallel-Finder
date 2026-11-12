@@ -1,3 +1,4 @@
+#include <ResultPreviewImages.h>
 #include <pfcore/VideoDecoder.hpp>
 #include <BackendProbeProcess.h>
 #include <cstring>
@@ -195,7 +196,7 @@ void UiSmokeTests::realSoldierDefaultDiscoveryColdAndWarm()
     const auto cold = analysis->results();
     qInfo("PF_REAL_SOLDIER cold_pairs=%d", analysis->matchCount());
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));
     QVERIFY(!engine.rootObjects().isEmpty());
     auto* window = engine.rootObjects().constFirst();
@@ -224,7 +225,7 @@ void UiSmokeTests::realSoldierDefaultDiscoveryColdAndWarm()
 void UiSmokeTests::reviewShortcutsAndMultiSelection()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));
     QVERIFY(!engine.rootObjects().isEmpty());
     auto* review = engine.singletonInstance<QObject*>(qmlTypeId("PfUi", 1, 0, "Review"));
@@ -335,7 +336,7 @@ void UiSmokeTests::realWalkingClassificationTrimAndOrderedExport()
     QTRY_VERIFY_WITH_TIMEOUT(!analysis->reviewBusy(),30000);
     QCOMPARE(analysis->results()[walk].toMap().value("classification").toString().section('/',0,0),QString("step"));
     QVERIFY(!analysis->results()[walk].toMap().value("classificationManual").toBool());
-    QQmlApplicationEngine engine;pfui::AppInfo::registerQmlTypes();
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);pfui::AppInfo::registerQmlTypes();
     engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));QVERIFY(!engine.rootObjects().isEmpty());
     auto* rail=engine.rootObjects().constFirst()->findChild<QObject*>("resultsRail");QVERIFY(rail);
     const auto variant=[](const QVariant& value) {return value.metaType()==QMetaType::fromType<QJSValue>() ? value.value<QJSValue>().toVariant():value;};
@@ -477,7 +478,7 @@ void UiSmokeTests::realReviewAdjustAndFindings()
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(), 300000);
     }
     QVERIFY(analysis->results().size() >= 2);
-    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml")); QVERIFY(!engine.rootObjects().isEmpty());
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst()); QVERIFY(window);
     window->show(); window->requestActivate(); QTest::qWait(450);
@@ -651,14 +652,18 @@ void UiSmokeTests::realReviewAdjustAndFindings()
     QVERIFY(std::abs(decoded.info().durationSeconds - 7.5) < 0.1);
     QVERIFY(analysis->resetResultRange(first)); QTRY_VERIFY_WITH_TIMEOUT(!analysis->reviewBusy(), 20000);
     QCOMPARE(analysis->results()[first].toMap().value("leftClipStart").toDouble(), start);
-    const auto ownedPreview = QUrl(analysis->results()[first].toMap().value("leftPreview").toString()).toLocalFile();
-    QVERIFY(QFileInfo::exists(ownedPreview));
+    const auto previewUrl=QUrl(analysis->results()[first].toMap().value("leftPreview").toString());
+    const bool lazy=previewUrl.scheme()=="image";
+    const auto ownedPreview=previewUrl.toLocalFile();
+    if(lazy)QVERIFY(!pfui::ResultPreviewImages::resolve(previewUrl.path().mid(1)).isNull());
+    else QVERIFY(QFileInfo::exists(ownedPreview));
     for (int i = 0; i < 20; ++i) analysis->setResultReview({first}, "reviewed", i % 2 == 0);
     int undone = 0; while (analysis->canUndoReview()) { QVERIFY(!analysis->undoResultEdit().isEmpty()); ++undone; }
     QCOMPARE(undone,16);
     analysis->inspectFiles({});
     QVERIFY(analysis->results().isEmpty());
-    QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(QFileInfo(ownedPreview).absolutePath()), 4000);
+    if(lazy)QVERIFY(pfui::ResultPreviewImages::resolve(previewUrl.path().mid(1)).isNull());
+    else QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(QFileInfo(ownedPreview).absolutePath()), 4000);
 }
 
 void UiSmokeTests::idleWindowAndDiscordMemoryPlateau()
@@ -667,7 +672,7 @@ void UiSmokeTests::idleWindowAndDiscordMemoryPlateau()
     const int seconds = qEnvironmentVariableIntValue("PF_IDLE_MEMORY_SECONDS");
     if (seconds < 90) QSKIP("Opt-in long idle-memory test");
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));
     QVERIFY(!engine.rootObjects().isEmpty());
     auto* discord = engine.singletonInstance<pfui::DiscordPresence*>(qmlTypeId("PfUiBridge", 1, 0, "Discord"));
@@ -721,7 +726,7 @@ void UiSmokeTests::isolatedBackendProbeHandlesFailureTimeoutAndCancellation()
 void UiSmokeTests::mainQmlLoadsFromResources()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
     engine.load(QUrl(QStringLiteral("qrc:/qt/qml/PfUi/qml/Main.qml")));
     QVERIFY2(!engine.rootObjects().isEmpty(), "PfUi.Main failed to load");
@@ -740,7 +745,7 @@ void UiSmokeTests::manualSortAndComposeDialogs()
 {
     const auto variant=[](const QVariant& value) { return value.metaType()==QMetaType::fromType<QJSValue>() ? value.value<QJSValue>().toVariant() : value; };
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine; engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine); engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));
     QVERIFY(!engine.rootObjects().isEmpty());
     auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().first()); QVERIFY(window);
     auto* manual=window->findChild<QObject*>("manualSortDialog"); QVERIFY(manual);
@@ -806,7 +811,7 @@ void UiSmokeTests::manualSortAndComposeDialogs()
 void UiSmokeTests::updateDialogDragsWithinWindow()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     QQmlComponent component(&engine);
     component.setData(R"(
 import QtQuick
@@ -858,7 +863,7 @@ Window {
 
 void UiSmokeTests::revealSettlesAndReducedMotionStops()
 {
-    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;QQmlComponent component(&engine);
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);QQmlComponent component(&engine);
     component.setData(R"(
 import QtQuick
 import PfUi
@@ -894,6 +899,7 @@ PfReveal {
 namespace {
 QQuickWindow* loadWindow(QQmlApplicationEngine& engine)
 {
+    pfui::installResultPreviewImages(engine);
     // See app/main.cpp: explicit import path + URL load for static-module
     // resources under shared Qt.
     engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
@@ -915,7 +921,7 @@ void UiSmokeTests::nestedComUsersDoNotInvalidateQtLocale()
     // apartment while Qt still holds a cached WinRT globalization factory.
     QCOMPARE(QLocale::system().uiLanguages(),before);
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     QVERIFY(loadWindow(engine));
 #endif
 }
@@ -923,7 +929,7 @@ void UiSmokeTests::nestedComUsersDoNotInvalidateQtLocale()
 void UiSmokeTests::themeSingletonResolves()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     if (!loadWindow(engine)) {
         QSKIP("Main.qml unavailable in this environment");
     }
@@ -945,7 +951,7 @@ void UiSmokeTests::themeSingletonResolves()
 void UiSmokeTests::appInfoBridgeResolves()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     if (!loadWindow(engine)) {
         QSKIP("Main.qml unavailable in this environment");
     }
@@ -1076,7 +1082,7 @@ void UiSmokeTests::gpuInfoPropagatesToQml()
                                           QStringLiteral("NVIDIA GeForce RTX 4070"), true,
                                           QStringLiteral("1.26.0"));
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     if (!loadWindow(engine)) {
         QSKIP("Main.qml unavailable in this environment");
     }
@@ -1109,7 +1115,7 @@ void UiSmokeTests::repeatSearchTogglesFromTheActualSidebar()
     auto* analysis=pfui::AnalysisController::instance();
     const bool original=analysis->expandedSearch();
     analysis->setExpandedSearch(false);
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window=loadWindow(engine);
     QVERIFY(window);
     auto* sources=window->findChild<QObject*>("sourcesRail");
@@ -1134,7 +1140,7 @@ void UiSmokeTests::repeatSearchTogglesFromTheActualSidebar()
 void UiSmokeTests::settingsAndNumericTypography()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     QStringList warnings;
     // Disconnect before the captured list is destroyed. Engine teardown can
     // emit warnings after later-declared local variables have left scope.
@@ -1210,7 +1216,7 @@ void UiSmokeTests::appearancePersistsAndRejectsMissingFonts()
         ~RestorePreferences() { pfui::AppInfo::instance()->savePreferences(value); }
     } restore{saved};
     for (int pass = 0; pass < 2; ++pass) {
-        QQmlApplicationEngine engine;
+        QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
         auto* window = loadWindow(engine);
         QVERIFY(window);
         auto* popup = window->findChild<QObject*>("settingsDialog");
@@ -1257,7 +1263,7 @@ void UiSmokeTests::languageTabOffersSixPersistentChoices()
     pfui::AppInfo::registerQmlTypes();
     const auto saved = pfui::AppInfo::instance()->loadPreferences();
     struct Restore { QVariantMap value; ~Restore() { pfui::AppInfo::instance()->savePreferences(value); } } restore{saved};
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window = loadWindow(engine); QVERIFY(window);
     auto* popup = window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
     auto* tabs = popup->findChild<QObject*>("settingsTabs"); QVERIFY(tabs);
@@ -1280,7 +1286,7 @@ void UiSmokeTests::rc23PresetsTranslationsAndFlagMotion()
     pfui::AppInfo::registerQmlTypes();
     const auto saved=pfui::AppInfo::instance()->loadPreferences();
     const auto restore=qScopeGuard([saved]{pfui::AppInfo::instance()->savePreferences(saved);});
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window=loadWindow(engine);QVERIFY(window);
     auto* popup=window->findChild<QObject*>("settingsDialog");QVERIFY(popup);
     QVERIFY(QMetaObject::invokeMethod(popup,"open"));
@@ -1411,7 +1417,7 @@ void UiSmokeTests::customAccentPaletteUpdatesImmediatelyAndPersists()
     const auto saved = pfui::AppInfo::instance()->loadPreferences();
     struct Restore { QVariantMap value; ~Restore() { pfui::AppInfo::instance()->savePreferences(value); } } restore{saved};
     for (int pass = 0; pass < 2; ++pass) {
-        QQmlApplicationEngine engine;
+        QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
         auto* window = loadWindow(engine); QVERIFY(window);
         auto* popup = window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
         QQmlComponent component(&engine);
@@ -1463,7 +1469,7 @@ void UiSmokeTests::customAccentPaletteUpdatesImmediatelyAndPersists()
 void UiSmokeTests::idleWorkspaceStopsRequestingFrames()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window = loadWindow(engine);
     QVERIFY(window);
     QEventLoop idleLoop;
@@ -1477,7 +1483,7 @@ void UiSmokeTests::idleWorkspaceStopsRequestingFrames()
 void UiSmokeTests::finiteAnimationsRespectReducedMotion()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     QQmlComponent component(&engine);
     component.setData(R"(
 import QtQuick
@@ -1533,7 +1539,7 @@ Window {
 void UiSmokeTests::sourcesLiveInsideDropAreaAboveActions()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window = loadWindow(engine);
     QVERIFY(window);
     auto* sources = window->findChild<QObject*>("sourcesRail");
@@ -1575,7 +1581,7 @@ void UiSmokeTests::sourcesLiveInsideDropAreaAboveActions()
 
 void UiSmokeTests::sourceWheelDoesNotMoveSettingsRail()
 {
-    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window=loadWindow(engine);QVERIFY(window);
     auto* sources=window->findChild<QObject*>("sourcesRail");
     QStringList files;for(int i=0;i<30;++i)files<<QString("D:/source-%1.mp4").arg(i);
@@ -1596,7 +1602,7 @@ void UiSmokeTests::sourceWheelDoesNotMoveSettingsRail()
 
 void UiSmokeTests::movementClassesAndExportOrder()
 {
-    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window = loadWindow(engine); QVERIFY(window);
     auto* rail = window->findChild<QObject*>("resultsRail"); QVERIFY(rail);
     const QVariantList records{
@@ -2098,7 +2104,7 @@ void UiSmokeTests::previewRequestsRenderBySourceAndTimeWithoutReindexing()
 
 void UiSmokeTests::mcpSettingsExposeWorkingConnection()
 {
-    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;auto* window=loadWindow(engine);QVERIFY(window);
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);auto* window=loadWindow(engine);QVERIFY(window);
     auto* dialog=window->findChild<QObject*>("settingsDialog");QVERIFY(dialog);
     auto* tabs=window->findChild<QObject*>("settingsTabs");QVERIFY(tabs);tabs->setProperty("currentIndex",0);
     QVERIFY(QMetaObject::invokeMethod(dialog,"open"));
@@ -2116,7 +2122,7 @@ void UiSmokeTests::mcpSettingsExposeWorkingConnection()
 
 void UiSmokeTests::largeResultSetKeepsClassesContiguous()
 {
-    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window=loadWindow(engine); QVERIFY(window);
     auto* rail=window->findChild<QObject*>("resultsRail"); QVERIFY(rail);
     auto* popup=window->findChild<QObject*>("exportDialog"); QVERIFY(popup);
@@ -2226,7 +2232,7 @@ void UiSmokeTests::exportClassOrderControlsFileNumbering()
 
 void UiSmokeTests::settingsDragAndScrollKeepRendering()
 {
-    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window=loadWindow(engine); QVERIFY(window);
     auto* popup=window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
     auto* handle=window->findChild<QQuickItem*>("settingsDragArea"); QVERIFY(handle);
@@ -2268,7 +2274,7 @@ void UiSmokeTests::settingsDragAndScrollKeepRendering()
 
 void UiSmokeTests::appearanceRefreshesBackdropBeforeClosing()
 {
-    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window=loadWindow(engine); QVERIFY(window);
     auto* popup=window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
     auto* button=window->findChild<QQuickItem*>("sourcePrimaryAction"); QVERIFY(button);
@@ -2303,7 +2309,7 @@ void UiSmokeTests::appearanceRefreshesBackdropBeforeClosing()
 
 void UiSmokeTests::modalCloseKeepsNativeBordersAndFades()
 {
-    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window=loadWindow(engine); QVERIFY(window);
     auto* popup=window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
     auto* backdrop=window->findChild<QQuickItem*>("modalBackdrop"); QVERIFY(backdrop);
@@ -2347,7 +2353,7 @@ void UiSmokeTests::modalCloseKeepsNativeBordersAndFades()
 
 void UiSmokeTests::dialogFramesAdvanceDuringRealEventLoop()
 {
-    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window = loadWindow(engine); QVERIFY(window);
     auto* popup = window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
     QElapsedTimer elapsed; elapsed.start();
@@ -2423,7 +2429,7 @@ void UiSmokeTests::slowSettingsWritesDoNotBlockUiAndKeepOtherSections()
 void UiSmokeTests::appearanceAndVideoInspectionKeepUiResponsive()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window = loadWindow(engine); QVERIFY(window);
     auto* popup = window->findChild<QObject*>("settingsDialog"); QVERIFY(popup);
     QVERIFY(QMetaObject::invokeMethod(popup, "open"));
@@ -2472,7 +2478,7 @@ void UiSmokeTests::appearanceAndVideoInspectionKeepUiResponsive()
 void UiSmokeTests::resultNavigationStopsAtEnds()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     QQmlComponent component(&engine);
     component.setData("import QtQuick\nimport PfUi\nResultsRail { width: 280; height: 500; results: [{id: 1, similarity: 0.8}, {id: 2, similarity: 0.9}]; onResultSelected: function(index) { selectedIndex = index } }", QUrl());
     std::unique_ptr<QObject> rail(component.create());
@@ -2503,7 +2509,7 @@ void UiSmokeTests::resultNavigationStopsAtEnds()
 void UiSmokeTests::reviewRemovalKeepsNeighborAndColorsRefresh()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     QQmlComponent component(&engine);
     component.setData("import QtQuick\nimport PfUi\nResultsRail { width: 280; height: 500; onResultSelected: function(id) { selectedIndex = id } }", QUrl());
     std::unique_ptr<QObject> rail(component.create());
@@ -2536,7 +2542,7 @@ void UiSmokeTests::reviewRemovalKeepsNeighborAndColorsRefresh()
 
 void UiSmokeTests::resultCardsContainAllRows()
 {
-    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine; QQmlComponent component(&engine);
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine); QQmlComponent component(&engine);
     component.setData(R"(import QtQuick
 import PfUi
 Window { width: 300; height: 1800; visible: true
@@ -2567,7 +2573,7 @@ Window { width: 300; height: 1800; visible: true
 
 void UiSmokeTests::sourceSearchAndUnreviewedNavigation()
 {
-    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine; QQmlComponent component(&engine);
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine); QQmlComponent component(&engine);
     component.setData("import QtQuick\nimport PfUi\nResultsRail { width: 286; height: 800; onResultSelected: function(id) { selectedIndex = id } }",QUrl());
     std::unique_ptr<QObject> rail(component.create()); QVERIFY2(rail,qPrintable(component.errorString()));
     const auto values = [](const QVariant& value) { return value.metaType() == QMetaType::fromType<QJSValue>() ? value.value<QJSValue>().toVariant() : value; };
@@ -2621,7 +2627,7 @@ void UiSmokeTests::sourceSearchAndUnreviewedNavigation()
 void UiSmokeTests::resultArrowKeysWorkAfterSourceButtonFocus()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
     auto* window = loadWindow(engine);
     QVERIFY(window);
@@ -2691,7 +2697,7 @@ void UiSmokeTests::resultArrowKeysWorkAfterSourceButtonFocus()
 void UiSmokeTests::selectsAllResultsWithoutDisplayLimit()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
     QQmlComponent component(&engine);
     component.setData("import QtQuick\nimport PfUi\nResultsRail { width: 280; height: 500; onExportSelectionChanged: function(rows) { selectedRows = rows } }", QUrl());
@@ -2736,7 +2742,7 @@ void UiSmokeTests::selectsAllResultsWithoutDisplayLimit()
 void UiSmokeTests::exportModesAreSelectable()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window = loadWindow(engine);
     QVERIFY(window);
     auto* popup = window->findChild<QObject*>("exportDialog");
@@ -2774,7 +2780,7 @@ void UiSmokeTests::exportModesAreSelectable()
 
 void UiSmokeTests::exportReopenClearsCancelledStatus()
 {
-    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window = loadWindow(engine); QVERIFY(window);
     auto* popup = window->findChild<QObject*>("exportDialog"); QVERIFY(popup);
     QVERIFY(QMetaObject::invokeMethod(popup, "open"));
@@ -2790,7 +2796,7 @@ void UiSmokeTests::exportReopenClearsCancelledStatus()
 
 void UiSmokeTests::movementFilterRespectsSelectionAndVisibleRows()
 {
-    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window=loadWindow(engine); QVERIFY(window);
     auto* rail=window->findChild<QObject*>("resultsRail"); QVERIFY(rail);
     rail->setProperty("results",QVariantList{
@@ -2810,7 +2816,7 @@ void UiSmokeTests::movementFilterRespectsSelectionAndVisibleRows()
 }
 void UiSmokeTests::structuredEvidenceFiltersPreserveUncertaintyAndExportSelection()
 {
-    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window=loadWindow(engine);QVERIFY(window);
     auto* rail=window->findChild<QObject*>("resultsRail");QVERIFY(rail);
     const QVariantMap standing{{"posture",1},{"postureEvidence",3}},sitting{{"posture",2},{"postureEvidence",3}},
@@ -2845,7 +2851,7 @@ void UiSmokeTests::structuredEvidenceFiltersPreserveUncertaintyAndExportSelectio
 
 void UiSmokeTests::orientationFiltersKeepIndependentEvidenceAndRemovedSides()
 {
-    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window=loadWindow(engine);QVERIFY(window);
     auto* rail=window->findChild<QObject*>("resultsRail");QVERIFY(rail);
     auto* l10n=engine.singletonInstance<QObject*>(qmlTypeId("PfUi",1,0,"L10n"));QVERIFY(l10n);
@@ -2991,7 +2997,7 @@ void UiSmokeTests::orientationFiltersKeepIndependentEvidenceAndRemovedSides()
 
 void UiSmokeTests::sceneFamilyInspectionKeepsResultsAndCleansUpPlayback()
 {
-    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window=loadWindow(engine);QVERIFY(window);
     auto* center=window->findChild<QObject*>("motionCenter");QVERIFY(center);
     auto* inspector=window->findChild<QObject*>("sceneFamilyInspector");QVERIFY(inspector);
@@ -3033,7 +3039,7 @@ void UiSmokeTests::sceneFamilyInspectionKeepsResultsAndCleansUpPlayback()
 
 void UiSmokeTests::bodyDirectionReadoutPreservesAnglesUnknownsAndPopupGeometry()
 {
-    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes();QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window=loadWindow(engine);QVERIFY(window);
     auto* center=window->findChild<QObject*>("motionCenter");QVERIFY(center);
     auto* popup=window->findChild<QObject*>("matchExplanation");QVERIFY(popup);
@@ -3098,7 +3104,7 @@ void UiSmokeTests::bodyDirectionReadoutPreservesAnglesUnknownsAndPopupGeometry()
 
 void UiSmokeTests::largeExportBackdropKeepsWorkspaceGeometry()
 {
-    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;
+    pfui::AppInfo::registerQmlTypes(); QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window = loadWindow(engine); QVERIFY(window);
     auto* rail = window->findChild<QQuickItem*>("resultsRail"); QVERIFY(rail);
     auto* sources = window->findChild<QQuickItem*>("sourcesRail"); QVERIFY(sources);
@@ -3135,7 +3141,7 @@ void UiSmokeTests::analysisControlsAreUnifiedAndStatusTranslates()
     const auto originalProvider = analysis->providerChoice();
     analysis->setProviderChoice("cpu");
     const auto restoreProvider = qScopeGuard([&] { analysis->setProviderChoice(originalProvider); });
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window = loadWindow(engine);
     QVERIFY(window);
     auto* sources = window->findChild<QObject*>("sourcesRail");
@@ -3217,7 +3223,7 @@ Item {
 void UiSmokeTests::resultLabelsFollowMatchTypeAndLanguage()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
     QQmlComponent component(&engine);
     component.setData(R"(
@@ -3260,7 +3266,7 @@ Item {
 void UiSmokeTests::staticResultsShowPlaybackControls()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
     QQmlComponent component(&engine);
     component.setData("import QtQuick\nimport PfUi\nComparisonView { width: 300; height: 500; record: ({matchType: 'pose', leftSource: 'C:/video.mp4', leftStart: 1, leftEnd: 1, leftSceneEnd: 3}) }", QUrl());
@@ -3316,7 +3322,7 @@ MotionCenter {
 void UiSmokeTests::previewIsEmbeddedAndStopsOnRecordChange()
 {
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
     QQmlComponent component(&engine);
     component.setData("import QtQuick\nimport PfUi\nComparisonView { width: 300; height: 500 }", QUrl());
@@ -3355,7 +3361,7 @@ void UiSmokeTests::inlinePairActuallyDecodesAndStopsAtClipEnd()
     QVERIFY(encoder.waitForFinished(30000));
     QCOMPARE(encoder.exitCode(), 0);
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
     QQmlComponent component(&engine);
     component.setData("import QtQuick\nimport PfUi\nMotionCenter { width: 900; height: 600 }", QUrl());
@@ -3456,7 +3462,7 @@ void UiSmokeTests::sourceStatisticsFollowSelectionAndInspectionScope()
         paths.push_back(path);
     }
     paths.insert(1, directory.filePath("missing.mp4"));
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window = loadWindow(engine);
     QVERIFY(window);
     window->setProperty("sourceFiles", paths);
@@ -3535,7 +3541,7 @@ void UiSmokeTests::firstAddingRealVideosKeepsUiResponsive()
     if (paths.isEmpty()) QSKIP("Set PF_TEST_SOURCE_VIDEOS to exercise actual files");
     for (const auto& path : paths) QVERIFY(QFileInfo::exists(path));
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window = loadWindow(engine);
     QVERIFY(window);
     auto* analysis = pfui::AnalysisController::instance();
@@ -3561,7 +3567,7 @@ void UiSmokeTests::nativeSourceDialogKeepsUiResponsive()
 {
     if (!qEnvironmentVariableIsSet("PF_TEST_NATIVE_SOURCE_DIALOG")) QSKIP("Opt-in native dialog test");
     pfui::AppInfo::registerQmlTypes();
-    QQmlApplicationEngine engine;
+    QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window = loadWindow(engine);
     QVERIFY(window);
     auto* dialog = window->findChild<QObject*>("sourceFileDialog");

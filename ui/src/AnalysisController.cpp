@@ -10,7 +10,6 @@
 #include "HeadOrientationReview.h"
 #include "BodyOrientationReview.h"
 #include "VideoActionReview.h"
-#include "PreviewRequestOrder.h"
 #include <QTimer>
 #include <pfgpu/SessionCache.hpp>
 #include <QCryptographicHash>
@@ -88,6 +87,8 @@
 #include "pfservices/PreviewMemo.hpp"
 #include "pfservices/CachedPreview.hpp"
 #include "pfservices/PreviewWriter.hpp"
+#include "ResultPreviewImages.h"
+#include "PreviewRequestOrder.h"
 #include "pfservices/PreviewImage.hpp"
 #include <pfcore/PoseSupport.hpp>
 #include "pfexporters/ExportOptions.hpp"
@@ -1153,6 +1154,7 @@ void AnalysisController::registerQmlTypes()
 
 AnalysisController::~AnalysisController()
 {
+    if(resultPreviewImages_)resultPreviewImages_->close();
     if (analysisCancel_) analysisCancel_->store(true);
     if (inspectionCancel_) inspectionCancel_->store(true);
     workerThreads_.finish();
@@ -2130,6 +2132,8 @@ QVariantMap AnalysisController::summaryForSource(const QString& path) const
 
 void AnalysisController::discardReviewPreviewsAsync()
 {
+    if(resultPreviewImages_)resultPreviewImages_->close();
+    resultPreviewImages_.reset();
     // Removing a session can involve thousands of preview files. Do not do
     // filesystem cleanup on the GUI thread while adding or reanalysing video.
     auto previews = std::move(reviewPreviewDirectories_);
@@ -2424,6 +2428,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
         int poseDetections = 0;
         int matches = 0;
         QVariantList resultRecords;
+        std::shared_ptr<ResultPreviewImages> resultPreviewImages;
         QVariantMap summaries;
         std::vector<pfcore::MotionMatch> foundMatches;
         std::vector<ResultPoseEvidence> resultPoseEvidence;
@@ -2524,7 +2529,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             emit summaryChanged();
             setProgress(0.0, QStringLiteral("Читаем кадры"), 0, totalFramesEstimate);
         }, Qt::QueuedConnection);
-        std::unique_ptr<pfservices::PfCache> analysisCache;
+        std::shared_ptr<pfservices::PfCache> analysisCache;
         QString cacheStorageError;
         QString cacheBudgetError;
         std::shared_ptr<pfservices::CacheBudget> sharedCacheBudget;
@@ -2548,7 +2553,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             sharedCacheBudget=std::make_shared<pfservices::CacheBudget>(
                 std::vector<std::filesystem::path>{cacheRoot,movementCacheRoot,
                     movementCacheRoot/"video-actions-v1",movementCacheRoot/"body-orientation-v1"},settings.cacheLimitBytes);
-            analysisCache=std::make_unique<pfservices::PfCache>(cacheRoot,settings.cacheLimitBytes,sharedCacheBudget);
+            analysisCache=std::make_shared<pfservices::PfCache>(cacheRoot,settings.cacheLimitBytes,sharedCacheBudget);
             std::string budgetError;
             if(!analysisCache->enforceLimit(budgetError))cacheBudgetError=QString::fromStdString(budgetError);
         } catch (const std::exception& exception) {
@@ -4370,14 +4375,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             const QStringList windowPreviewB = previewB;
             previewA.clear();
             previewB.clear();
-            std::size_t renderedPreviews = 0;
-            std::size_t cachedPreviews = 0;
             std::unordered_map<std::string, std::string> previewFingerprints;
-            // Bound codec frame pools and GPU decode surfaces independently of source count.
-            EstimatorCache<pfcore::VideoDecoder> previewDecoders(2);
-            // In particular, an empty warm result must not create a temporary
-            // session or scan old preview folders for files it will never save.
-            const QString previewDirectory = foundMatches.empty() ? QString{} : previewSessionPath();
             const auto previewKey = [&](const std::string& path, double seconds) {
                 if (!std::isfinite(seconds)) return std::string{};
                 auto [fingerprint, inserted] = previewFingerprints.try_emplace(path);
@@ -4390,109 +4388,61 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 std::string source;
                 double seconds;
                 QString url;
-                std::shared_future<QString> encoded;
+                QString fallback;
             };
             std::vector<PreviewRequest> requests;
             std::vector<std::string> previewKeys;
             std::unordered_map<std::string, std::size_t> requestIndex;
-            const auto requestPreview = [&](const std::string& path, double seconds) {
+            const auto requestPreview = [&](const std::string& path, double seconds,const QString& fallback) {
                 const auto key = previewKey(path, seconds);
                 if (key.empty()) return;
                 const auto [entry, inserted] = requestIndex.try_emplace(key, requests.size());
                 (void)entry;
                 if (inserted) {
-                    requests.push_back({path, std::max(0.0, seconds), {}, {}});
+                    requests.push_back({path, std::max(0.0, seconds), {},fallback});
                     previewKeys.push_back(key);
                 }
             };
-            // Preserve first-use ordering/timestamps. Only PNG validation and
-            // saving overlap; decoder ownership and all matcher data stay serial.
+            // Preserve first-use ordering/timestamps; register requests without
+            // reading, decoding or materializing images before publication.
             for (const auto& item : foundMatches) {
                 if (isCancelled()) break;
-                requestPreview(item.leftSourceId, item.leftStartSeconds);
-                requestPreview(item.rightSourceId, item.rightStartSeconds);
+                requestPreview(item.leftSourceId, item.leftStartSeconds,
+                    item.leftIndex<static_cast<std::size_t>(windowPreviewA.size())?windowPreviewA.at(static_cast<int>(item.leftIndex)):QString{});
+                requestPreview(item.rightSourceId, item.rightStartSeconds,
+                    item.rightIndex<static_cast<std::size_t>(windowPreviewB.size())?windowPreviewB.at(static_cast<int>(item.rightIndex)):QString{});
             }
-            const auto previewWorkers = QThread::idealThreadCount() >= 8 ? 4U : 1U;
             const auto previewCacheStartedMs=resultTimer.elapsed();
-            const auto cachedUrls = pfservices::materializeCachedPreviews(analysisCache.get(), previewKeys,
-                previewDirectory, isCancelled, previewWorkers);
-            const auto cacheStageMs = resultTimer.elapsed();
-            const auto previewCacheMs=cacheStageMs-previewCacheStartedMs;
-            std::vector<pfui::PreviewRequestOrderKey> previewOrderKeys;
-            previewOrderKeys.reserve(requests.size());
-            for (const auto& request : requests)
-                previewOrderKeys.push_back({request.source, request.seconds});
-            const auto renderOrder = pfui::previewRenderOrder(previewOrderKeys);
-            // No encoder thread is needed when every still is cached (or the
-            // result set is empty). Start it only for the first decoded miss.
-            std::unique_ptr<pfservices::PreviewWriter> previewWriter;
-            const auto previewRenderStartedMs=resultTimer.elapsed();
-            for (const std::size_t i : renderOrder) {
-                if (previewDirectory.isEmpty()) break;
-                if (isCancelled()) break;
-                auto& request = requests[i];
-                if(analysisCache) {
-                    std::string ownershipError;
-                    analysisCache->rememberSourceKey(request.source,previewKeys[i],ownershipError);
-                }
-                if (!cachedUrls[i].isEmpty()) {
-                    request.url = cachedUrls[i]; ++cachedPreviews; continue;
-                }
-                try {
-                    const auto decoder = previewDecoders.getOrCreate(request.source, [&] {
-                        auto decoder = std::make_shared<pfcore::VideoDecoder>();
-                        pfcore::VideoDecodeOptions options;
-                        options.threads = static_cast<int>(std::min<std::size_t>(settings.processingThreads, 8));
-                        options.maxWidth = 1920; options.maxHeight = 1080;
-                        options.minimumNvidiaPixels = 1920ULL * 1080ULL + 1;
-                        options.preferNvidia = providerChoice == QStringLiteral("cuda")
-                            || providerChoice == QStringLiteral("tensorrt")
-                            || (providerChoice == QStringLiteral("auto") && !cpuOnly && requestedProvider
-                                && (pfgpu::resolveProvider(*requestedProvider) == pfgpu::Provider::Cuda
-                                    || pfgpu::resolveProvider(*requestedProvider) == pfgpu::Provider::TensorRt));
-                        const auto override = qEnvironmentVariable("PF_VIDEO_DECODE").toLower();
-                        if (override == QStringLiteral("cpu")) options.preferNvidia = false;
-                        else if (override == QStringLiteral("nvdec")) {
-                            options.preferNvidia = true; options.minimumNvidiaPixels = 0;
-                        }
-                        decoder->open(request.source, options);
-                        decoder->setRgbaMaxDimensions(1920, 1080);
-                        return decoder;
-                    });
-                    savePreviewAt(*decoder, request.seconds,
-                        QStringLiteral("%1_match_frame_%2.png").arg(previewToken).arg(renderedPreviews++),
-                        [&](const pfcore::DecodedFrame& exact, const QString& name) {
-                            // QImage wraps borrowed decoder bytes; an owned copy
-                            // must cross the encoder thread boundary.
-                            QImage image(exact.rgba.data(), exact.width, exact.height, QImage::Format_RGBA8888);
-                            if (image.width() > 1920 || image.height() > 1080)
-                                image = image.scaled(1920, 1080, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                            else image = image.copy();
-                            const auto path = previewDirectory + QLatin1Char('/') + name;
-                            if (!previewWriter)
-                                previewWriter = std::make_unique<pfservices::PreviewWriter>(analysisCache.get());
-                            request.encoded = previewWriter->submit(std::move(image), path, previewKeys[i]);
-                            return QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
-                        });
-                    if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
-                        const auto stats = decoder->diagnostics();
-                        std::fprintf(stderr, "PF_PREVIEW_DECODE backend=%s decoded=%llu retained=%zu source=%s\n",
-                            stats.backend.c_str(), static_cast<unsigned long long>(stats.decodedFrames),
-                            previewDecoders.size(), request.source.c_str());
-                    }
-                } catch (...) { /* Use the existing fallback preview on decode failure. */ }
+            pfcore::VideoDecodeOptions previewOptions;
+            previewOptions.threads=static_cast<int>(std::min<std::size_t>(settings.processingThreads,8));
+            previewOptions.maxWidth=1920;previewOptions.maxHeight=1080;
+            previewOptions.minimumNvidiaPixels=1920ULL*1080ULL+1;
+            previewOptions.preferNvidia=providerChoice==QStringLiteral("cuda")
+                || providerChoice==QStringLiteral("tensorrt")
+                || (providerChoice==QStringLiteral("auto") && !cpuOnly && requestedProvider
+                    && (pfgpu::resolveProvider(*requestedProvider)==pfgpu::Provider::Cuda
+                        || pfgpu::resolveProvider(*requestedProvider)==pfgpu::Provider::TensorRt));
+            const auto decodeOverride=qEnvironmentVariable("PF_VIDEO_DECODE").toLower();
+            if(decodeOverride==QStringLiteral("cpu"))previewOptions.preferNvidia=false;
+            else if(decodeOverride==QStringLiteral("nvdec")) {
+                previewOptions.preferNvidia=true;previewOptions.minimumNvidiaPixels=0;
             }
-            if (previewWriter) previewWriter->finish(); // All PNG/cache writes complete before publication.
-            for (auto& request : requests)
-                if (request.encoded.valid()) request.url = request.encoded.get();
-            const auto previewRenderMs=resultTimer.elapsed()-previewRenderStartedMs;
-            if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
-                std::fprintf(stderr, "PF_DEBUG_TIMING postrank_preview_prepare_ms=%lld preview_workers=%u unique_previews=%zu\n",
-                    static_cast<long long>(cacheStageMs), previewWorkers, requests.size());
+            std::vector<ResultPreviewImages::Request> lazyRequests;
+            lazyRequests.reserve(requests.size());
+            for(std::size_t i=0;i<requests.size();++i)
+                lazyRequests.push_back({requests[i].source,previewKeys[i],sourceGenerations[requests[i].source],requests[i].seconds,requests[i].fallback});
+            if(!lazyRequests.empty() && !isCancelled())
+                resultPreviewImages=ResultPreviewImages::create(std::move(lazyRequests),analysisCache,previewOptions);
+            for(std::size_t i=0;i<requests.size();++i)
+                if(resultPreviewImages)requests[i].url=resultPreviewImages->url(i);
+            const auto previewCacheMs=resultTimer.elapsed()-previewCacheStartedMs;
+            constexpr qint64 previewRenderMs=0;
+            constexpr std::size_t renderedPreviews=0,cachedPreviews=0;
+            if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
+                std::fprintf(stderr,"PF_RESULT_PREVIEWS policy=lazy requested=%zu eager_reads=0 eager_writes=0\n",requests.size());
             pfservices::PreviewMemo exactPreviews([&](const QString& source, double seconds) {
-                if (isCancelled()) return QString{};
-                const auto found = requestIndex.find(previewKey(source.toStdString(), seconds));
-                return found == requestIndex.end() ? QString{} : requests[found->second].url;
+                const auto found=requestIndex.find(previewKey(source.toStdString(),seconds));
+                return found==requestIndex.end()?QString{}:requests[found->second].url;
             });
             const auto recordBuildStartedMs=resultTimer.elapsed();
             std::map<std::string,QVariantMap> familyPresentation;
@@ -4639,7 +4589,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             summary.insert("matchCount", count);
             entry.value() = summary;
         }
-        QMetaObject::invokeMethod(this, [this, cancel, files, frames, duration, scenes, poseDetections, matches, resultRecords = std::move(resultRecords), foundMatches = std::move(foundMatches), resultPoseEvidence = std::move(resultPoseEvidence), actionContext, error, processedFrames, totalFramesEstimate, decodedFrames, analyzedFrames, sourceFps, reidStatus, debugSummary, summaries = std::move(summaries), expandedSearch, previewScratch = std::move(threadPreviewScratch)]() mutable {
+        QMetaObject::invokeMethod(this, [this, cancel, files, frames, duration, scenes, poseDetections, matches, resultRecords = std::move(resultRecords), foundMatches = std::move(foundMatches), resultPoseEvidence = std::move(resultPoseEvidence), actionContext, error, processedFrames, totalFramesEstimate, decodedFrames, analyzedFrames, sourceFps, reidStatus, debugSummary, summaries = std::move(summaries), expandedSearch, previewScratch = std::move(threadPreviewScratch), resultPreviewImages = std::move(resultPreviewImages)]() mutable {
             if (pendingInspectionPaths_) {
                 busy_ = false;
                 emit busyChanged();
@@ -4654,6 +4604,8 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             matchCount_ = matches;
             results_ = std::move(resultRecords);
             analysisPreviewDirectory_ = previewScratch;
+            if(resultPreviewImages_)resultPreviewImages_->close();
+            resultPreviewImages_ = std::move(resultPreviewImages);
             matches_ = std::move(foundMatches);
             resultPoseEvidence_ = std::move(resultPoseEvidence);
             videoActionContext_=std::move(actionContext);

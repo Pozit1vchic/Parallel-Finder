@@ -87,6 +87,7 @@ qt_add_qml_module(pfui
 # (AppInfo::registerQmlTypes) by the app/tests. See AppInfo.h.
 target_sources(pfui PRIVATE
     src/UiRuntime.cpp
+    src/ResultPreviewImages.cpp
     src/BackendProbeProcess.cpp
     src/AppInfo.cpp
     src/DiscordPresence.cpp

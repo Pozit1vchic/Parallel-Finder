@@ -12,6 +12,7 @@
 #include <QUrl>
 #include <QQuickWindow>
 #include <UiRuntime.h>
+#include <ResultPreviewImages.h>
 
 #include <pfgpu/DeviceInfo.hpp>
 #include <pfservices/SettingsStore.hpp>
@@ -360,6 +361,7 @@ int main(int argc, char* argv[])
     }
 
     QQmlApplicationEngine engine;
+    pfui::installResultPreviewImages(engine);
     QObject::connect(&engine, &QQmlApplicationEngine::warnings, [](const QList<QQmlError>& warnings) {
         for (const QQmlError& warning : warnings) {
             std::fprintf(stderr, "QML: %s\n", qPrintable(warning.toString()));

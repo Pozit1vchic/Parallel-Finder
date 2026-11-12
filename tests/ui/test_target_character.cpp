@@ -1,3 +1,4 @@
+#include <ResultPreviewImages.h>
 #include <AnalysisController.h>
 #include <AppInfo.h>
 #include <UiRuntime.h>
@@ -327,7 +328,7 @@ private slots:
         pfui::AppInfo::registerQmlTypes();auto* appInfo=pfui::AppInfo::instance();appInfo->initializeBackendsAsync();
         QTRY_VERIFY_WITH_TIMEOUT(!appInfo->backendInitializing(),30000);
         auto* analysis=pfui::AnalysisController::instance();analysis->setProviderChoice("cuda");analysis->setAnalysisMode("combined");
-        QQmlApplicationEngine engine;engine.addImportPath("qrc:/qt/qml");engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));
+        QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);engine.addImportPath("qrc:/qt/qml");engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));
         QVERIFY(!engine.rootObjects().isEmpty());auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().front());QVERIFY(window);
         window->setProperty("sourceFiles",QVariantList{source});
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),10000);
@@ -427,7 +428,7 @@ private slots:
         analysis->setCachePath(directory.filePath("cache"));
         analysis->setCacheEnabled(true);
         const QString source=QStringLiteral(PF_TARGET_VIDEO);
-        QQmlApplicationEngine engine;
+        QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
         engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
         engine.load(QUrl(QStringLiteral("qrc:/qt/qml/PfUi/qml/Main.qml")));
         QVERIFY(!engine.rootObjects().isEmpty());

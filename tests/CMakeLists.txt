@@ -7,6 +7,11 @@ set_tests_properties(pf_discord_tests PROPERTIES TIMEOUT 60)
 
 find_package(GTest CONFIG REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Test)
+add_executable(pf_result_preview_tests ui/test_result_preview_images.cpp)
+target_link_libraries(pf_result_preview_tests PRIVATE pfui pfui_module_import Qt6::Test)
+target_compile_definitions(pf_result_preview_tests PRIVATE PF_PREVIEW_TEST_VIDEO="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/tiny.mp4")
+add_test(NAME pf_result_preview_tests COMMAND pf_result_preview_tests -o "${CMAKE_CURRENT_BINARY_DIR}/result-preview-results.txt,txt")
+set_tests_properties(pf_result_preview_tests PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 add_executable(pf_target_character_tests ui/test_target_character.cpp)
 target_link_libraries(pf_target_character_tests PRIVATE pfui pfui_module_import Qt6::Test)
 target_compile_definitions(pf_target_character_tests PRIVATE
@@ -141,6 +146,7 @@ set_tests_properties(app_smoke PROPERTIES
 
 foreach(target IN ITEMS
         pf_discord_tests
+        pf_result_preview_tests
         pf_target_character_tests
         pf_head_review_tests
         pf_body_review_tests
@@ -162,7 +168,7 @@ endforeach()
 # must explicitly use the SDK's offscreen plugin rather than showing a fatal
 # Windows dialog because that plugin is absent from the distributable.
 if(TARGET Qt6::QOffscreenIntegrationPlugin)
-    set_property(TEST pf_update_tests pf_mcp_tests pfui_tests pf_target_character_tests app_smoke APPEND PROPERTY ENVIRONMENT
+    set_property(TEST pf_result_preview_tests pf_update_tests pf_mcp_tests pfui_tests pf_target_character_tests app_smoke APPEND PROPERTY ENVIRONMENT
         "QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QOffscreenIntegrationPlugin>")
 endif()
 
