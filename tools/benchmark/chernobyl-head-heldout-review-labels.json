@@ -1,0 +1,264 @@
+{
+  "schemaVersion": 1,
+  "split": "held-out-predictions",
+  "reviewer": "Assistant temporal and selected-track overlay review, frozen before cached angular score extraction; no independent human confirmation",
+  "plan": "tools/benchmark/chernobyl-head-heldout-review-plan.json",
+  "planSha256": "4e2e9f8a071de147fc530d7cded7d3f2085e77d5d239b07526d1deb7550e8ace",
+  "reportSha256": "5735df40ad3b6183271574809fecc0dc91b5a451a457de6f22597ca59bd989bd",
+  "selection": "Complete eight-head after subset and exact six-head before subset; not full-episode or matcher-independent ground truth.",
+  "judgments": [
+    {
+      "returnedArrayIndex": 34,
+      "grade": 2,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 34,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 198,
+        "rightTrackId": 233,
+        "leftStart": 270.182,
+        "leftEnd": 271.342,
+        "rightStart": 363.029,
+        "rightEnd": 364.029,
+        "matchType": "motion",
+        "headOnlyComparison": true
+      },
+      "notes": "The selected shopkeeper visibly brings a tilted head back toward upright/front in both segments. The two head-level movements are comparable despite different hand gestures and camera setups in the same shop conversation; no shared arm action or whole-frame copy is claimed. A denser temporal sheet confirms the shared tilted-to-upright motion; the hand movements remain different.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\temporal\\pair-034.jpg",
+          "sha256": "1f1c3cc2400764dc9c8a00884c31baddc8cb110ccc5f9aafdcc77d6f689baab6"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\pair-034\\overlay\\review-001.jpg",
+          "sha256": "cb6af7566e0e2b3d624488418897aa79b13031f38314b02ee617965bc43d06ef"
+        },
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\dense-34\\pair-034.jpg",
+          "sha256": "0a436870bd6790e075545f76194b78364a2c58d6bce0c0638a4b91f055ad68ef"
+        }
+      ]
+    },
+    {
+      "returnedArrayIndex": 35,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 35,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 63,
+        "rightTrackId": 1028,
+        "leftStart": 65.365,
+        "leftEnd": 66.845,
+        "rightStart": 1493.679,
+        "rightEnd": 1494.839,
+        "matchType": "motion",
+        "headOnlyComparison": true
+      },
+      "notes": "The matched head is the front passenger in both car views, not the rear passenger or driver. He speaks with a mostly maintained sideward/head-tilted pose and only slight shifts. Weak returning-car head resemblance without a clear distinctive shared movement.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\temporal\\pair-035.jpg",
+          "sha256": "adf4727af396689cba210aeee302d90cd30d92bd3c5986736b241296dc4ba508"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\pair-035\\overlay\\review-001.jpg",
+          "sha256": "31f590e701305f7e9bfd3a2d0030297b2469dbe676325cd3a5ac6a65bb96a09a"
+        }
+      ]
+    },
+    {
+      "returnedArrayIndex": 36,
+      "grade": 2,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 36,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 435,
+        "rightTrackId": 978,
+        "leftStart": 570.525,
+        "leftEnd": 572.006,
+        "rightStart": 1414.0330000000001,
+        "rightEnd": 1415.513,
+        "matchType": "motion",
+        "headOnlyComparison": true
+      },
+      "notes": "The selected blond man visibly turns from a screen-left side look toward front in both the exterior shot and the driving shot. The onset is later in each interval, but both trajectories are clear in the temporal and selected-head overlays. Comparable head rotation across settings.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\temporal\\pair-036.jpg",
+          "sha256": "28929e7e99e10eeb8867076ea54a264dcd9280b5fc5993d8e554f9c8da79cd5c"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\pair-036\\overlay\\review-001.jpg",
+          "sha256": "07175af41945af240f37be8da7ae5d80b998cc474e3d8871945659aa0eb52261"
+        }
+      ]
+    },
+    {
+      "returnedArrayIndex": 38,
+      "grade": 2,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 38,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 31,
+        "rightTrackId": 659,
+        "leftStart": 37.363,
+        "leftEnd": 38.683,
+        "rightStart": 900.032,
+        "rightEnd": 901.5120000000001,
+        "matchType": "motion",
+        "headOnlyComparison": true
+      },
+      "notes": "Both selected driver head tracks visibly rotate from front toward a side look. The image yaw directions are opposite, so this is a mirrored head-turn parallel, not evidence of identical left/right camera-relative direction or the same complete physical trajectory. The head action itself is clear on both sides.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\temporal\\pair-038.jpg",
+          "sha256": "67f2f9d2c46afe5916b5417511ffd1bf1bc5fe3346904c85253b75a361eae90c"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\pair-038\\overlay\\review-001.jpg",
+          "sha256": "1d497e6bef3d5331cee07cee6116a74510a609e3a50f8640fbd08bd9fbc5c06d"
+        }
+      ]
+    },
+    {
+      "returnedArrayIndex": 39,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 39,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 766,
+        "rightTrackId": 1340,
+        "leftStart": 1080.2060000000001,
+        "leftEnd": 1081.2060000000001,
+        "rightStart": 1973.1970000000001,
+        "rightEnd": 1974.1970000000001,
+        "matchType": "motion",
+        "headOnlyComparison": true
+      },
+      "notes": "The matched glasses-wearing man holds a largely sideward head pose in the car; the exterior head makes a modest speaking/gaze adjustment. The driver's laughter and rear passengers are not the selected tracks. Weak head-pose resemblance without a clear distinctive shared trajectory.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\temporal\\pair-039.jpg",
+          "sha256": "a920740d85a3fb70d9044ed5737a16391c0d5b43f9a1cb1025fc9c518c9effcb"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\pair-039\\overlay\\review-001.jpg",
+          "sha256": "7205a8b9a7a185ccd060a2f5e3755a4c7f41ddedda9c15bf42fd86366094aa31"
+        }
+      ]
+    },
+    {
+      "returnedArrayIndex": 40,
+      "grade": 2,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 40,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1797,
+        "rightTrackId": 1521,
+        "leftStart": 2454.035,
+        "leftEnd": 2455.195,
+        "rightStart": 2207.368,
+        "rightEnd": 2208.5280000000002,
+        "matchType": "motion",
+        "headOnlyComparison": true
+      },
+      "notes": "The selected blond man turns his head away from a downward/front look toward a side look outside and from front toward a side look indoors. Both head rotations are clear; their image directions and pitch components differ, so this supports a broad/mirrored head-turn parallel rather than identical directional phases.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\temporal\\pair-040.jpg",
+          "sha256": "88a93aa31a21c89df95c87cc1705f3bd9d5989391f9496cab87e320f6ce7b567"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\pair-040\\overlay\\review-001.jpg",
+          "sha256": "8de274b152df91a5d446b113d95f4de41e7794852701b3c83a9dccae11c73fc6"
+        }
+      ]
+    },
+    {
+      "returnedArrayIndex": 41,
+      "grade": 1,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 41,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(04.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 304,
+        "rightTrackId": 325,
+        "leftStart": 454.178,
+        "leftEnd": 455.338,
+        "rightStart": 480.85900000000004,
+        "rightEnd": 482.019,
+        "matchType": "motion",
+        "headOnlyComparison": true
+      },
+      "notes": "The matched rear-seat man keeps a similar turned-back speaking pose in two returning car shots. Small facial/gaze shifts do not establish a clear distinctive shared head movement; the adjacent foreground passenger is not the matched track.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\temporal\\pair-041.jpg",
+          "sha256": "76fc7182d3765a3c03a7ff0af08464325c6da06b1f687c4f22769fce708b6572"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\pair-041\\overlay\\review-001.jpg",
+          "sha256": "149910674fd63b6c43eae2fd07edb6c1efbd93430d617bcbf7574c970f67a296"
+        }
+      ]
+    },
+    {
+      "returnedArrayIndex": 42,
+      "grade": 2,
+      "trackAssociationVerified": true,
+      "record": {
+        "id": 42,
+        "leftSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "rightSource": "D:/Торрент/Chernobyl.Zona.otchuzhdeniya.S.01-02.2014-2017.WEB-DL.(1080p).Nikolspup/Chernobyl.Zona.otchuzhdeniya.S.01.(03.seriya.iz.08).2014.WEB-DL(1080p).Nikolspup.mkv",
+        "leftTrackId": 1068,
+        "rightTrackId": 1335,
+        "leftStart": 1576.366,
+        "leftEnd": 1577.366,
+        "rightStart": 1969.517,
+        "rightEnd": 1970.517,
+        "matchType": "motion",
+        "headOnlyComparison": true
+      },
+      "notes": "The selected blond man visibly rotates from a screen-right side look toward front in both the driving and exterior group shots. Both temporal sequences and head overlays support a comparable side-to-front head turn; body motion and exact amplitude equality are not claimed.",
+      "visualArtifacts": [
+        {
+          "kind": "temporal",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\temporal\\pair-042.jpg",
+          "sha256": "79b160abc2bbbcd0828125d6415a3e027bc549ca58a52586f645a1091a7f85ff"
+        },
+        {
+          "kind": "matchedTrackOverlay",
+          "path": "D:\\Parallel-Finder\\build\\goal-head-heldout-review-01\\pair-042\\overlay\\review-001.jpg",
+          "sha256": "d12fbee7976c1256970624cb381aef4b81fe5698919a337e0c38d6c5e3f245d6"
+        }
+      ]
+    }
+  ]
+}
