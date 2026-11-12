@@ -10,10 +10,62 @@
 #include <pfservices/PfCache.hpp>
 #include <HeadOrientationReview.h>
 #include <ResultClassification.h>
+#include <QJSEngine>
+#include <cmath>
+#include <numbers>
 
 class HeadReviewTests:public QObject {
     Q_OBJECT
 private slots:
+    void angularExtentRefreshesWithTrimAndDisabledSide() {
+        pfcore::MotionWindow window;window.sceneStartSeconds=0;window.sceneEndSeconds=1;
+        for(int i=0;i<5;++i) {
+            const double angle=i*10.*std::numbers::pi/180.;
+            window.headOrientations.push_back({i*.2,
+                {std::cos(angle),0,std::sin(angle),0,1,0,-std::sin(angle),0,std::cos(angle)},true});
+        }
+        pfcore::MotionMatch match;match.headOnlyComparison=true;
+        match.leftEndSeconds=match.rightEndSeconds=1;
+        QVariantMap row;
+        pfui::classifyResultRange(row,match,{window,window});
+        QVERIFY(std::abs(row.value("headMotionExcursionDegrees").toDouble()-40.)<1e-7);
+        match.leftEndSeconds=.4;
+        pfui::classifyResultRange(row,match,{window,window});
+        QVERIFY(std::abs(row.value("headMotionExcursionDegrees").toDouble()-10.)<1e-7);
+        match.rightEnabled=false;
+        pfui::classifyResultRange(row,match,{window,window});
+        QCOMPARE(row.value("headMotionExcursionDegrees").toDouble(),-1.);
+        match.rightEnabled=true;match.leftEndSeconds=1.1;
+        pfui::classifyResultRange(row,match,{window,window});
+        QCOMPARE(row.value("headMotionExcursionDegrees").toDouble(),-1.);
+        match.leftEndSeconds=1;window.staticFrameSet=true;
+        pfui::classifyResultRange(row,match,{window,window});
+        QCOMPARE(row.value("headMotionExcursionDegrees").toDouble(),-1.);
+    }
+    void headRankingPreservesOtherSlotsScoresAndStableTies() {
+        QFile script(QStringLiteral(PF_HEAD_RANKING_SCRIPT));
+        QVERIFY(script.open(QIODevice::ReadOnly));
+        QString source=QString::fromUtf8(script.readAll());source.remove(".pragma library");
+        QJSEngine engine;
+        QVERIFY(!engine.evaluate(source).isError());
+        const auto result=engine.evaluate(R"JS(
+            function head(id, extent) {return {id:id,evidenceScope:'head',matchType:'motion',
+                headMotionExcursionDegrees:extent,similarity:.91}}
+            var rows=[{id:0,evidenceScope:'body'},head(1,5),head(2,-1),
+                {id:3,evidenceScope:'body'},head(4,40),head(5,40),head(6,NaN),
+                head(7,'80'),head(8,181),head(9,100),head(10,100),head(11,100)];
+            rows[9].manualPair=true;rows[10].leftRemoved=true;rows[11].matchType='pose';
+            var before=JSON.stringify(rows);
+            var sorted=rerankBestHeadSlots(rows);
+            JSON.stringify({ids:sorted.map(function(r){return r.id}),
+                unchanged:before===JSON.stringify(rows),
+                sameRows:sorted.every(function(r){return rows.indexOf(r)>=0})})
+        )JS");
+        QVERIFY2(!result.isError(),qPrintable(result.toString()));
+        const auto object=QJsonDocument::fromJson(result.toString().toUtf8()).object();
+        QCOMPARE(object.value("ids").toArray(),QJsonArray({0,4,2,3,5,1,6,7,8,9,10,11}));
+        QVERIFY(object.value("unchanged").toBool());QVERIFY(object.value("sameRows").toBool());
+    }
     void evidenceRefreshRetainsAllPeoplePolicyAcrossRangeEdits() {
         const std::vector<pfcore::Keypoint> pose={{0,-.5,1},{-.1,-.5,1},{.1,-.5,1},{-.2,-.4,1},{.2,-.4,1},
             {-.5,0,1},{.5,0,1},{-.6,.5,1},{.6,.5,1},{-.6,1,1},{.6,1,1},

@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import PfUi
 import PfUiBridge
 import "OrientationEvidence.js" as Orientation
+import "HeadMotionRanking.js" as HeadMotionRanking
 
 Rectangle {
     id: root
@@ -604,7 +605,7 @@ Rectangle {
         classChoices = nextClassChoices
         suppressFilterRebuild = false
         classificationCounts = nextClassCounts
-        const next = []
+        let next = []
         for (const item of (results || [])) {
             if (reviewFilter === "hidden" ? !item.hidden : item.hidden) continue
             if (reviewFilter === "favorites" && !item.favorite) continue
@@ -620,6 +621,7 @@ Rectangle {
             next.push(item)
         }
         next.sort(compareValues)
+        if (sortCriterion === "best") next = HeadMotionRanking.rerankBestHeadSlots(next)
         const wanted = {}
         const nextGroupCounts = {}
         for (const item of next) {

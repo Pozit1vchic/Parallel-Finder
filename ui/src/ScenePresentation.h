@@ -1,6 +1,7 @@
 #pragma once
 #include <pfcore/SceneDescriptor.hpp>
 #include <pfcore/MotionRanker.hpp>
+#include <pfcore/HeadOrientation.hpp>
 #include <QVariantMap>
 #include <QVariantList>
 #include <cmath>
@@ -49,6 +50,21 @@ inline QVariantMap sceneDescriptorMap(const pfcore::SceneDescriptor& d) {
 }
 inline void updateSceneEvidence(QVariantMap& row,pfcore::MotionMatch& match,
     const pfcore::MotionWindow& left,const pfcore::MotionWindow& right) {
+    row.insert("headMotionExcursionDegrees",-1.);
+    const auto extent=[](const pfcore::MotionWindow& window,double start,double end) {
+        if(window.staticFrameSet
+            || (std::isfinite(window.sceneStartSeconds)&&window.sceneStartSeconds>=0
+                && start<window.sceneStartSeconds-1e-6)
+            || (std::isfinite(window.sceneEndSeconds)&&window.sceneEndSeconds>=0
+                && end>window.sceneEndSeconds+1e-6)) return std::optional<double>{};
+        return pfcore::headRotationExcursion(window.headOrientations,start,end);
+    };
+    if(match.headOnlyComparison&&match.leftEnabled&&match.rightEnabled) {
+        const auto leftExtent=extent(left,match.leftStartSeconds,match.leftEndSeconds);
+        const auto rightExtent=extent(right,match.rightStartSeconds,match.rightEndSeconds);
+        if(leftExtent&&rightExtent)
+            row.insert("headMotionExcursionDegrees",std::min(*leftExtent,*rightExtent));
+    }
     const auto a=pfcore::describeScene(left,match.leftStartSeconds,match.leftEndSeconds);
     const auto b=pfcore::describeScene(right,match.rightStartSeconds,match.rightEndSeconds);
     match.evidenceQuality=pfcore::comparisonEvidenceQuality(a,b,match.headOnlyComparison);

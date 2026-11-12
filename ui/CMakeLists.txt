@@ -8,6 +8,7 @@ set(PFUI_QML_FILES
     qml/L10n.qml
     qml/Translations.js
     qml/OrientationEvidence.js
+    qml/HeadMotionRanking.js
     qml/Review.qml
     qml/ReviewDialog.qml
     qml/HotkeysPage.qml

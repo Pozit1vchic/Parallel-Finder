@@ -37,6 +37,7 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
         single.leftEndSeconds = single.rightEndSeconds = left ? match.leftEndSeconds : match.rightEndSeconds;
         const auto& observed = evidence[left ? 0 : 1];
         classifyResultRange(row,single,{observed,observed});
+        row.insert("headMotionExcursionDegrees",-1.);
         match.directionLabel=single.directionLabel; match.gestureLabel=single.gestureLabel;
         return;
     }

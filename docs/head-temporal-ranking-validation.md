@@ -70,8 +70,43 @@ ordering, breaks runs at missing or invalid observations, and returns unknown
 when no valid pair exists. Two identical valid observations measure zero.
 Its value is an angular measurement, not a classification confidence.
 
-At this stage the measurement is not connected to result ordering. No claim is
-made that the native interface has adopted the candidate ranking or that raw
-Matcher similarity scores have improved. Integration must preserve body/static
-positions, record membership, and measured similarity fields, and verify range
-edits and unavailable evidence before being reported as complete.
+The result row now publishes `headMotionExcursionDegrees`, with -1 denoting
+unavailable or inapplicable evidence. Range edits recompute it from retained
+observations without inference. Static windows, disabled sides, and intervals
+extending beyond known scene bounds cannot supply paired-motion evidence.
+
+Only the explicit **Best** sort applies `HeadMotionRanking.js` after the existing
+score/diversity sort and active filters. Measurable head-motion rows exchange
+their own slots in descending extent order; body, static, manual, removed-side,
+and unknown-evidence slots remain fixed. Stable ties preserve the previous
+order. Similarity and classification fields are not modified. Default category
+sorting and all other explicit sort criteria retain their existing behavior.
+
+The two new Qt head-review tests passed, covering trimming, disabled-side
+recursion, scene bounds, static windows, mixed-scope slots, stable ties, invalid
+measurements, and unchanged input rows. A real `ResultsRail` component test
+passed for Best sorting, switching to another criterion, and head filtering.
+The core measurement passed three new tests plus ten existing head-orientation
+tests; the independent Python audit passed five tests.
+
+A native warm run under `build/goal-head-ranking-native-01` preserved all 188
+rows and all prior non-preview fields exactly. The nine new physical
+measurements matched the frozen training audit within 1e-6 degrees; all 179
+other rows carried the inapplicable sentinel. The row mapping uses frozen
+`currentPosition`, not original `returnedArrayIndex`, because earlier ranking
+policy work had already reordered the report. Evidence: `field-parity.json`.
+The harness confirmed cache-only review stages and zero retained runtime bytes.
+Applying the explicit Best score/diversity order to these native rows and then
+the fixed head-slot rule reproduced 10/18 versus 18/18 training preferences;
+`best-head-preferences.json` records both original-index orders. This verifies
+integration on training predictions rather than adding independent validation.
+This is functional evidence, not a timing median or independent accuracy claim.
+The production row integration has not yet been rerun against the held-out
+episodes; the held-out preference table above remains an offline rule audit.
+
+The final integrated application rebuilt successfully and passed **16/16**
+CTest suites in **141.47 seconds**. The UI suite reported 62 passed, zero failed,
+and nine opt-in skips; the native episode run above is separate evidence.
+Logs: `build/goal-head-ranking-full-build.log` and
+`build/goal-head-ranking-ctest.log`. The user's original settings SHA-256
+remained `dcfb88623f1853df9a5bf004d95dc1500362504a40dae02e567a9514996915d1`.

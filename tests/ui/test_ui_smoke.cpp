@@ -56,6 +56,34 @@ class UiSmokeTests : public QObject {
     Q_OBJECT
 
 private slots:
+    void bestHeadRankingKeepsMixedResultSlots() {
+        pfui::AppInfo::registerQmlTypes();
+        QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import PfUi
+ResultsRail { width: 300; height: 600; sortCriterion: "best"
+    results: [
+        {id:0,bestMatchScore:.99,evidenceScope:"body",matchType:"motion"},
+        {id:1,bestMatchScore:.98,evidenceScope:"head",matchType:"motion",headMotionExcursionDegrees:5},
+        {id:2,bestMatchScore:.97,evidenceScope:"head",matchType:"motion",headMotionExcursionDegrees:-1},
+        {id:3,bestMatchScore:.96,evidenceScope:"body",matchType:"pose"},
+        {id:4,bestMatchScore:.95,evidenceScope:"head",matchType:"motion",headMotionExcursionDegrees:40}]
+})",QUrl());
+        std::unique_ptr<QObject> rail(component.create());
+        QVERIFY2(rail!=nullptr,qPrintable(component.errorString()));
+        const auto ids=[&] {
+            const auto rows=rail->property("visibleResults").value<QJSValue>().toVariant().toList();
+            QList<int> result;for(const auto& row:rows)result.push_back(row.toMap().value("id").toInt());
+            return result;
+        };
+        QTRY_COMPARE(ids(),(QList<int>{0,4,2,3,1}));
+        rail->setProperty("sortCriterion","pose");
+        QTRY_COMPARE(ids(),(QList<int>{0,1,2,3,4}));
+        rail->setProperty("sortCriterion","best");
+        rail->setProperty("scopeFilter","head");
+        QTRY_COMPARE(ids(),(QList<int>{4,2,1}));
+    }
     void initTestCase() {
         QCoreApplication::setOrganizationName("ParallelFinderTests");
         QCoreApplication::setOrganizationDomain("test.invalid");
