@@ -4,6 +4,7 @@ add_library(pfservices STATIC
     src/MotionWindowCache.cpp
     src/CharacterAnalysisCache.cpp
     src/MatcherResultCache.cpp
+    src/HeadOrientationCache.cpp
     src/SettingsStore.cpp
     src/ModelStore.cpp
     src/ProviderStore.cpp

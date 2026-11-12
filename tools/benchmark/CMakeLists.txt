@@ -73,6 +73,9 @@ target_link_libraries(pf_view_probe PRIVATE pf::core)
 add_executable(pf_grouping_probe grouping_probe.cpp)
 set_target_properties(pf_grouping_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(pf_grouping_probe PRIVATE pf::core pf::services Qt6::Core)
+add_executable(pf_head_cache_replay head_cache_replay.cpp)
+set_target_properties(pf_head_cache_replay PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_link_libraries(pf_head_cache_replay PRIVATE pf::core pf::services Qt6::Core)
 add_executable(pf_cut_probe cut_probe.cpp)
 set_target_properties(pf_cut_probe PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(pf_cut_probe PRIVATE pf::core Qt6::Core)
@@ -106,6 +109,7 @@ foreach(target IN ITEMS
         pf_scene_memory_probe
         pf_view_probe
         pf_grouping_probe
+        pf_head_cache_replay
         pf_cut_probe
         pf_scene_candidates_probe
         pf_cuda_graph_probe

@@ -3,11 +3,9 @@
 #include <pfgpu/FaceEstimator.hpp>
 #include <pfgpu/HeadPoseEstimator.hpp>
 #include <pfservices/PfCache.hpp>
+#include <pfservices/HeadOrientationCache.hpp>
 #include <QCryptographicHash>
 #include <QFile>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -23,37 +21,7 @@ std::string hashFile(const std::filesystem::path& path) {
     if(!hash.addData(&file))throw std::runtime_error("Cannot fingerprint head-orientation model");
     return hash.result().toHex().toStdString();
 }
-std::string requestKey(const pfcore::MotionWindow& window,const pfcore::PoseFrame& frame,
-    const std::string& nameSpace,const std::string& modelIdentity,pfgpu::Provider provider) {
-    QJsonArray points;
-    for(const auto& p:frame.keypoints)points.append(QJsonArray{p.x,p.y,p.confidence});
-    const auto data=QJsonDocument(QJsonObject{{"source",QString::fromStdString(window.sourceId)},
-        {"namespace",QString::fromStdString(nameSpace)},{"time",frame.timestampSeconds},
-        {"pose",points},{"model",QString::fromStdString(modelIdentity)},
-        {"provider",static_cast<int>(provider)}}).toJson(QJsonDocument::Compact);
-    return "head-orientation-v1|PIL-resize256-center224|unaligned-yunet-nose|fp32|"
-        +QCryptographicHash::hash(data,QCryptographicHash::Sha256).toHex().toStdString();
-}
-std::optional<pfcore::HeadOrientationSample> readSample(const std::vector<std::uint8_t>& bytes,double time) {
-    QJsonParseError error;
-    const auto document=QJsonDocument::fromJson(QByteArray(reinterpret_cast<const char*>(bytes.data()),bytes.size()),&error);
-    if(error.error!=QJsonParseError::NoError || !document.isObject())return {};
-    const auto object=document.object();
-    if(!object["observed"].isBool() || !object["time"].isDouble() || object["time"].toDouble()!=time)return {};
-    pfcore::HeadOrientationSample sample{time,{},object["observed"].toBool()};
-    const auto rotation=object["rotation"].toArray();
-    if(sample.observed && rotation.size()!=9)return {};
-    if(sample.observed)for(int i=0;i<9;++i) {
-        if(!rotation[i].isDouble() || !std::isfinite(rotation[i].toDouble()))return {};
-        sample.rotation[i]=rotation[i].toDouble();
-    }
-    return sample;
-}
-std::vector<std::uint8_t> serialize(const pfcore::HeadOrientationSample& sample) {
-    QJsonArray matrix;if(sample.observed)for(const auto v:sample.rotation)matrix.append(v);
-    const auto bytes=QJsonDocument(QJsonObject{{"time",sample.time},{"observed",sample.observed},{"rotation",matrix}}).toJson(QJsonDocument::Compact);
-    return {reinterpret_cast<const std::uint8_t*>(bytes.constData()),reinterpret_cast<const std::uint8_t*>(bytes.constData())+bytes.size()};
-}
+
 }
 
 HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::MotionWindow>& windows,
@@ -109,7 +77,7 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
                 if(!needed)continue;
                 const auto source=sourceNamespaces.find(window.sourceId);
                 // No source-generation evidence means no persistent cache reuse.
-                const auto key=requestKey(window,frame,source==sourceNamespaces.end() ? "uncached":source->second,identity,provider);
+                const auto key=pfservices::headOrientationCacheKey(window.sourceId,frame,source==sourceNamespaces.end() ? "uncached":source->second,identity,static_cast<int>(provider));
                 const auto [entry,inserted]=lookup.try_emplace(key,requests.size());
                 if(inserted)requests.push_back({window.sourceId,key,frame,{}});
                 requests[entry->second].destinations.push_back({wi,slot});
@@ -135,7 +103,7 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
             if(cache && sourceKnown) {
                 const auto cacheReadStarted=std::chrono::steady_clock::now();
                 if(const auto bytes=cache->get(request.key))
-                    if(const auto cached=readSample(*bytes,sample.time)) {sample=*cached;fromCache=true;++stats.cached;}
+                    if(const auto cached=pfservices::deserializeHeadOrientationSample(*bytes,sample.time)) {sample=*cached;fromCache=true;++stats.cached;}
                 stats.cacheMicros+=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now()-cacheReadStarted).count());
             }
@@ -207,7 +175,7 @@ HeadOrientationReviewStats reviewMatchedHeadOrientations(std::vector<pfcore::Mot
                     }
                 } else cacheable=true;
                 if(cache && sourceKnown && cacheable && !cancelled()) {
-                    pendingCacheWrites[request.source].emplace_back(request.key,serialize(sample));
+                    pendingCacheWrites[request.source].emplace_back(request.key,pfservices::serializeHeadOrientationSample(sample));
                 }
             }
             stats.observed+=sample.observed;

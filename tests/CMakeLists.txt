@@ -78,6 +78,7 @@ add_executable(pf_tests
     core/test_head_orientation.cpp
     core/test_video_action_evidence.cpp
     core/test_pf_cache.cpp
+    core/test_head_orientation_cache.cpp
     core/test_matcher_result_cache.cpp
     core/test_thumbnail_cache.cpp
     core/test_exporters.cpp
