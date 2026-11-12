@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "split": "held-out S01E03/E04 head prediction-scope audit; no independent human confirmation",
+  "reports": {
+    "before": {
+      "path": "build\\goal-chernobyl-holdout-full-01\\before\\cold.json",
+      "sha256": "768170eb060473951e7666cf0f6c65fff488f188b720ac8c4d4e0674c1c523b2",
+      "returnedArrayIndices": [
+        32,
+        33,
+        35,
+        36,
+        37,
+        38
+      ]
+    },
+    "after": {
+      "path": "build\\goal-chernobyl-holdout-full-01\\after\\cold.json",
+      "sha256": "5735df40ad3b6183271574809fecc0dc91b5a451a457de6f22597ca59bd989bd",
+      "returnedArrayIndices": [
+        34,
+        35,
+        36,
+        38,
+        39,
+        40,
+        41,
+        42
+      ]
+    }
+  },
+  "selection": "Complete head-only prediction subset from each already frozen native report. All six before identities are an exact oriented subset of the eight after identities; review all eight, reusing only identical source/track/range/scope judgments. No selection by motion magnitude or visual grade.",
+  "candidateFrozenBeforeReview": {
+    "primaryOrdering": "Descending minimum of the two sides maximum SO(3) excursion within contiguous valid requested-sample runs; fixed from the training audit. No fitted weights or amplitude threshold.",
+    "abstention": "Keep unmeasurable head candidates in their existing head-list slots; reorder only measurable slots. Ties preserve baseline head order.",
+    "secondarySignals": "Endpoint and within-run path lengths are descriptive diagnostics only; do not choose a different signal after viewing held-out results."
+  },
+  "metrics": [
+    "Partial grade preferences within the complete head subset, with unknown judgments abstaining.",
+    "Strict and lenient P@3/P@5 unresolved-label bounds for baseline/candidate within the eight-head after list.",
+    "Complete head-subset grade counts for six-before/eight-after; not full-episode Precision, Recall, or retrieval Recall@K."
+  ],
+  "review": "Up to six source-PTS frames per side plus three selected-track native pose overlays. Use a denser review for ambiguous trajectories. Scores, classes and rotation magnitudes remain off the sheets; assistant judgments retain uncertainty and are not independent human ground truth.",
+  "rubric": {
+    "0": "Clearly incompatible visible selected-head actions/postures.",
+    "1": "Weak, generic or redundant head resemblance without a clear distinctive parallel.",
+    "2": "Clear comparable distinctive selected-head action supported by temporal and track evidence.",
+    "unknown": "Insufficient visible/temporal/track evidence."
+  },
+  "limits": "This freezes an output-scope audit, not a matcher-independent positive-control dataset. No production ranker or classifier policy is approved by the training result alone. Do not tune on these judgments."
+}
