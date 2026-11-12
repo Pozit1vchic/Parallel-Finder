@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstdio>
+#include <thread>
 
 #include "pfgpu/DeviceInfo.hpp"
 #include "pfgpu/OrtRuntime.hpp"
@@ -61,11 +62,16 @@ std::string buildCacheKey(const ModelRef& model, const SessionKey& key, Provider
 
 std::size_t effectiveThreadCount(const SessionKey& key, Provider resolved)
 {
+    if (key.intraOpThreads != 0) return key.intraOpThreads;
+    // Leave capacity for decoding and other model sessions. Letting every
+    // CPU session create its own default pool can be slower than a bounded
+    // pool, even though both run the same model on the same input frames.
+    if (resolved == Provider::Cpu)
+        return std::clamp(std::thread::hardware_concurrency() / 2, 1u, 8u);
     // Auto must not create an all-core CPU pool for every NVIDIA model. GPU work
     // is submitted by the calling thread; unused pools steal decode resources.
-    // Explicit user counts and the CPU provider retain their existing policy.
     const bool nvidia = resolved == Provider::Cuda || resolved == Provider::TensorRt;
-    return key.intraOpThreads == 0 && nvidia ? 1 : key.intraOpThreads;
+    return nvidia ? 1 : 0;
 }
 
 } // namespace
