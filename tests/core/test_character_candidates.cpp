@@ -94,6 +94,24 @@ TEST(CharacterCandidates, RepeatedSeparatePeopleEstablishDistinctnessWithoutStro
     EXPECT_FALSE(brief[1].distinctIdentity);
 }
 
+TEST(CharacterCandidates, ScatteredCollisionsDoNotConfirmTwoPeople)
+{
+    auto anchor=track(1,0,{1,0},16);
+    for(auto& observation:anchor.observations)observation.box={0,0,100,200};
+    std::vector tracks{anchor};
+    for(std::size_t i=0;i<3;++i) {
+        auto fragment=track(i+2,static_cast<double>(i),{.25F,.9682458F},2);
+        fragment.observations.back().timestampSeconds=static_cast<double>(i)+.125;
+        for(auto& observation:fragment.observations)observation.box={200,0,300,200};
+        tracks.push_back(std::move(fragment));
+    }
+    const auto candidates=pfcore::characterCandidates(tracks);
+    ASSERT_EQ(candidates.size(),2);
+    EXPECT_TRUE(candidates[0].distinctIdentity);
+    EXPECT_EQ(candidates[1].trackIds,(std::vector<std::size_t>{2,3,4}));
+    EXPECT_FALSE(candidates[1].distinctIdentity);
+}
+
 TEST(CharacterCandidates, AMeasuredFaceCannotBeBorrowedByAnOverlappingBystander) {
     const pfcore::ObservedFaceLandmarks face{true,{100,100,140,100,120,120,105,140,135,140}};
     pfcore::PersonDetection actual,back;

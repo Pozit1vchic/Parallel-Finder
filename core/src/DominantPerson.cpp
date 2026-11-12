@@ -1593,20 +1593,22 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
     std::map<std::size_t,std::size_t> owner;
     for (std::size_t i=0;i<result.size();++i)
         for (auto id:result[i].trackIds) owner[id]=i;
-    std::map<double,std::map<std::size_t,const PersonDetection*>> frames;
+    struct ObservedTrack { std::size_t id; const PersonDetection* observation; };
+    std::map<double,std::map<std::size_t,ObservedTrack>> frames;
     for (const auto& track:tracks) {
         const auto found=owner.find(track.id);
         if (found==owner.end()) continue;
         for (const auto& observation:track.observations)
             if (std::isfinite(observation.timestampSeconds))
-                frames[observation.timestampSeconds].try_emplace(found->second,&observation);
+                frames[observation.timestampSeconds].try_emplace(found->second,ObservedTrack{track.id,&observation});
     }
     struct Separation { int count=0; double first=0,last=0; };
-    std::map<std::pair<std::size_t,std::size_t>,Separation> separation;
+    std::map<std::array<std::size_t,4>,Separation> separation;
+    std::set<std::pair<std::size_t,std::size_t>> confirmedSeparation;
     for (const auto& [time,people]:frames) {
         if (control.cancelled && control.cancelled()) return {};
         for (auto a=people.begin();a!=people.end();++a) for (auto b=std::next(a);b!=people.end();++b) {
-            const auto& x=*a->second; const auto& y=*b->second;
+            const auto& x=*a->second.observation; const auto& y=*b->second.observation;
             if (x.box.area()<=0 || y.box.area()<=0) continue;
             bool separate=x.keypointConfidence>=.6 && y.keypointConfidence>=.6
                 && (x.box.right<y.box.left || y.box.right<x.box.left);
@@ -1617,9 +1619,14 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
                     && std::hypot(nx.x-ny.x,nx.y-ny.y)>headScale;
             }
             if (!separate) continue;
-            auto& evidence=separation[{a->first,b->first}];
+            // Several unrelated collisions between two large components do
+            // not demonstrate two people appearing together. The repeated
+            // separation has to be supported by the same two tracks.
+            auto& evidence=separation[{a->first,b->first,a->second.id,b->second.id}];
             if (!evidence.count++) evidence.first=time;
             evidence.last=time;
+            if(evidence.count>=3&&evidence.last-evidence.first>=.25)
+                confirmedSeparation.emplace(a->first,b->first);
         }
     }
     std::vector<std::size_t> order(result.size()),confirmed;
@@ -1631,9 +1638,7 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
             && !(candidate.trackIds.size()>1 && candidate.prototype.bodyEvidence>=.45)) continue;
         const bool distinct=std::all_of(confirmed.begin(),confirmed.end(),[&](auto other){
             const auto pair=std::minmax(i,other);
-            const auto found=separation.find({pair.first,pair.second});
-            if (found!=separation.end() && found->second.count>=3
-                && found->second.last-found->second.first>=.25) return true;
+            if(confirmedSeparation.contains({pair.first,pair.second}))return true;
             const auto& face=result[other].prototype;
             return candidate.prototype.faceEvidence>=.65 && face.faceEvidence>=.65
                 && !candidate.prototype.face.empty() && !face.face.empty()
