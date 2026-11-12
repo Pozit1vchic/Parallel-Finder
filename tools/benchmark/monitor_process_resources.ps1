@@ -10,6 +10,7 @@ $ErrorActionPreference='Stop'
 $writer=[IO.StreamWriter]::new($OutputPath,$false,[Text.UTF8Encoding]::new($false))
 $writer.AutoFlush=$true
 $samples=0
+$reportVolume=[IO.DriveInfo]::new([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($OutputPath)))
 try {
     while($true) {
         $process=Get-CimInstance Win32_Process -Filter "ProcessId=$TargetProcessId"
@@ -19,6 +20,8 @@ try {
             privateBytes=[long]$process.PrivatePageCount
             cpu100ns=([long]$process.KernelModeTime+[long]$process.UserModeTime)
             ioReadBytes=[long]$process.ReadTransferCount;ioWriteBytes=[long]$process.WriteTransferCount}
+        try {$sample.reportVolumeFreeBytes=$reportVolume.AvailableFreeSpace}
+        catch {$sample.diskError=$_.Exception.Message}
         try {
             $gpuMemory=@(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUProcessMemory |
                 Where-Object Name -Like "pid_${TargetProcessId}_*")

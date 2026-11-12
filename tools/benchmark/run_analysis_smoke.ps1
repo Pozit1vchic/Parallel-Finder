@@ -13,10 +13,12 @@ param(
     [double]$ExpectedOffsetSec = -1,
     [string]$ReportPath = "",
     [string[]]$Modes = @("motion", "static", "combined"),
-    [switch]$ResourceTelemetry
+    [switch]$ResourceTelemetry,
+    [long]$MinimumFreeDiskBytes=1GB
 )
 
 $ErrorActionPreference = "Stop"
+if($MinimumFreeDiskBytes -lt 0){throw 'MinimumFreeDiskBytes must be nonnegative'}
 if (-not (Test-Path -LiteralPath $Exe)) { throw "Executable not found: $Exe" }
 if (-not (Test-Path -LiteralPath $Video)) { throw "Video not found: $Video" }
 foreach ($additionalVideo in $AdditionalVideos) {
@@ -75,6 +77,17 @@ foreach ($mode in $Modes) {
     $psi.EnvironmentVariables['PF_ANALYSIS_TIMEOUT_SEC'] = [string]$TimeoutSec
     $psi.EnvironmentVariables['PF_ANALYSIS_MIN_PAIRS'] = [string]$MinimumPairs
     $psi.EnvironmentVariables['PF_ANALYSIS_JSON'] = '1'
+    $runtimeRoot=$null;$reportVolume=$null;$freeAtStart=$null;$minimumFreeSeen=$null
+    if($ReportPath) {
+        $absoluteReport=[IO.Path]::GetFullPath($ReportPath)
+        $reportVolume=[IO.DriveInfo]::new([IO.Path]::GetPathRoot($absoluteReport))
+        $freeAtStart=$reportVolume.AvailableFreeSpace;$minimumFreeSeen=$freeAtStart
+        if($freeAtStart -lt $MinimumFreeDiskBytes){throw 'Benchmark disk reserve unavailable before process launch'}
+        $runtimeRoot=$absoluteReport+'.runtime-'+[guid]::NewGuid().ToString('N')
+        [void][IO.Directory]::CreateDirectory($runtimeRoot)
+        $psi.EnvironmentVariables['TEMP']=$runtimeRoot
+        $psi.EnvironmentVariables['TMP']=$runtimeRoot
+    }
     if ($env:PF_DEBUG_ANALYSIS) { $psi.EnvironmentVariables['PF_DEBUG_ANALYSIS'] = $env:PF_DEBUG_ANALYSIS }
     if ($env:PF_DEBUG_POSE) { $psi.EnvironmentVariables['PF_DEBUG_POSE'] = $env:PF_DEBUG_POSE }
     if ($env:PF_DEBUG_MATCHER) { $psi.EnvironmentVariables['PF_DEBUG_MATCHER'] = $env:PF_DEBUG_MATCHER }
@@ -126,6 +139,7 @@ foreach ($mode in $Modes) {
     $sampledPeakWorkingSetBytes = [long]0
     $sampledPeakPrivateBytes = [long]0
     $memorySamples = 0
+    $diskGuardStop=$null;$diskProbeClock=[Diagnostics.Stopwatch]::StartNew()
     do {
         try {
             $process.Refresh()
@@ -137,6 +151,19 @@ foreach ($mode in $Modes) {
                 ++$memorySamples
             }
         } catch { # Exit can race the final sample; earlier live samples survive.
+        }
+        if($reportVolume -and $diskProbeClock.ElapsedMilliseconds -ge 1000) {
+            $diskProbeClock.Restart()
+            try {
+                $free=$reportVolume.AvailableFreeSpace
+                $minimumFreeSeen=[Math]::Min($minimumFreeSeen,$free)
+                if($free -lt $MinimumFreeDiskBytes) {$diskGuardStop='Benchmark disk reserve exhausted; run aborted and is not a valid timing result'}
+            } catch {$diskGuardStop='Benchmark report volume unavailable: '+$_.Exception.Message}
+            if($diskGuardStop) {
+                try {if(-not $process.HasExited){$process.Kill()}} catch {}
+                $exited=$true
+                break
+            }
         }
         $exited = $process.WaitForExit(50)
     } while (-not $exited -and $processClock.ElapsedMilliseconds -lt ($TimeoutSec + 45) * 1000)
@@ -156,6 +183,12 @@ foreach ($mode in $Modes) {
         $stderr = [IO.File]::ReadAllText($stderrCapturePath, [Text.UTF8Encoding]::new($false))
     } else {
         $stderr = $stderrTask.GetAwaiter().GetResult()
+    }
+    if($diskGuardStop) {
+        @{reason=$diskGuardStop;processId=$process.Id;minimumFreeSeenBytes=$minimumFreeSeen;runtimeRoot=$runtimeRoot} |
+            ConvertTo-Json | Set-Content -LiteralPath ($ReportPath+'.failure.json') -Encoding UTF8
+        $process.Dispose()
+        throw $diskGuardStop
     }
     Write-Host $stdout
     if ($stderr) { Write-Warning $stderr }
@@ -189,7 +222,14 @@ foreach ($mode in $Modes) {
             }
             $cpuTimeMs = $null
             try { $cpuTimeMs = [math]::Round($process.TotalProcessorTime.TotalMilliseconds, 1) } catch {}
+            $runtimeFootprint=$null
+            if($runtimeRoot) {
+                $runtimeFiles=@(Get-ChildItem -LiteralPath $runtimeRoot -File -Recurse)
+                $runtimeFootprint=@{fileCount=$runtimeFiles.Count;bytes=[long](($runtimeFiles|Measure-Object Length -Sum).Sum)}
+            }
             $report = @{ video=$Video; inputVideos=@($Video) + $AdditionalVideos; mode=$mode; results=$pairs;
+                temporaryRuntimeRoot=$runtimeRoot;diskFreeAtStartBytes=$freeAtStart;minimumDiskFreeSeenBytes=$minimumFreeSeen;
+                temporaryRuntimeFootprintAfterProcess=$runtimeFootprint;
                 debugFlags=@{analysis=$psi.EnvironmentVariables['PF_DEBUG_ANALYSIS']; matcher=$psi.EnvironmentVariables['PF_DEBUG_MATCHER']; pose=$psi.EnvironmentVariables['PF_DEBUG_POSE']};
                 processWallMs=$processClock.ElapsedMilliseconds;
                 cpuTimeMs=$cpuTimeMs;

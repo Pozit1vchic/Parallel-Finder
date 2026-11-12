@@ -426,6 +426,11 @@ QStringList normalizedPaths(const QStringList& values)
 // Each analysis thread lazily owns its temporary previews. Publication transfers
 // that owner to the controller; replacing results releases the previous run.
 thread_local std::shared_ptr<pfservices::RuntimeScratch> threadPreviewScratch;
+struct PreviewScratchScope {
+    // Qt-created Windows threads must not retain the session through a TLS
+    // owner after publication or cancellation. Published results own it.
+    ~PreviewScratchScope() { threadPreviewScratch.reset(); }
+};
 QString previewSessionPath()
 {
     if (!threadPreviewScratch) threadPreviewScratch = std::make_shared<pfservices::RuntimeScratch>(
@@ -2407,6 +2412,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                                         sameFileGap, crossFileGap, duplicateWindow, noiseFactor,
                                         maxUniqueResults, timeWeight, providerChoice,
                                         qualityProfile, analysisMode, runControls, expandedSearch, normalizeSize, mirrorPoses, previewToken, forceTargetSource, targetChoice, allPeople] () mutable {
+        PreviewScratchScope previewScratchScope;
         try {
         const bool interactiveTargets = allPeople || !QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
             || qEnvironmentVariableIsSet("PF_SMOKE_TARGET_ID");
@@ -4633,7 +4639,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             summary.insert("matchCount", count);
             entry.value() = summary;
         }
-        QMetaObject::invokeMethod(this, [this, cancel, files, frames, duration, scenes, poseDetections, matches, resultRecords = std::move(resultRecords), foundMatches = std::move(foundMatches), resultPoseEvidence = std::move(resultPoseEvidence), actionContext, error, processedFrames, totalFramesEstimate, decodedFrames, analyzedFrames, sourceFps, reidStatus, debugSummary, summaries = std::move(summaries), expandedSearch, previewScratch = threadPreviewScratch]() mutable {
+        QMetaObject::invokeMethod(this, [this, cancel, files, frames, duration, scenes, poseDetections, matches, resultRecords = std::move(resultRecords), foundMatches = std::move(foundMatches), resultPoseEvidence = std::move(resultPoseEvidence), actionContext, error, processedFrames, totalFramesEstimate, decodedFrames, analyzedFrames, sourceFps, reidStatus, debugSummary, summaries = std::move(summaries), expandedSearch, previewScratch = std::move(threadPreviewScratch)]() mutable {
             if (pendingInspectionPaths_) {
                 busy_ = false;
                 emit busyChanged();
