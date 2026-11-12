@@ -4359,7 +4359,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 const auto id=it.value().toMap().value("targetCharacterId").toString().toULongLong();
                 if(id)targetIds[it.key().toStdString()]=static_cast<std::size_t>(id);
             }
-            if(!pfcore::MotionRanker::organize(foundMatches,windows,targetIds,isCancelled)) markCancelled();
+            if(!pfcore::MotionRanker::organize(foundMatches,windows,targetIds,isCancelled,!allPeople)) markCancelled();
             const QStringList windowPreviewA = previewA;
             const QStringList windowPreviewB = previewB;
             previewA.clear();
@@ -4512,7 +4512,8 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 record.insert("evidenceQuality",item.evidenceQuality);
                 record.insert("poseSimilarity",item.poseSimilarity);
                 record.insert("continuityRank",static_cast<qulonglong>(item.continuityRank));
-                record.insert("matchTier",item.evidenceQuality>=.45 && (item.faceVerified||item.appearanceVerified)
+                record.insert("identityEvidenceRequired",!allPeople);
+                record.insert("matchTier",pfcore::MotionRanker::strongOrganizationEvidence(item,!allPeople)
                     ? QStringLiteral("strong") : QStringLiteral("possible"));
                 record.insert("leftSceneFamily",QString::fromStdString(item.leftSceneFamily));
                 record.insert("rightSceneFamily",QString::fromStdString(item.rightSceneFamily));
