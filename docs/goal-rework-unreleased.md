@@ -1,4 +1,4 @@
-# Unreleased engineering changes after 0.2.5
+# Engineering changes after 0.2.5
 
 - Classify the matched portion of each movement rather than borrowing a later action from the entire window. Preserve uncertain results.
 - Make result ranking exact and deterministic for near ties and unavailable numeric scores.
@@ -7,6 +7,12 @@
 - Support signed file-level incremental update archives with compatible-base checking, unchanged-file verification, resumed downloads and recoverable installation. Keep complete Portable archives for older clients and modified installations.
 - Extend release packaging with `PreviousPackage` / `PreviousVersion` and reconstruction health checks.
 - Report classification macro-F1 and unknown rate alongside accuracy.
+- Correct bilinear enlargement for small pose inputs and invalidate only affected observation caches.
+- Keep the Windows GUI apartment alive through Qt teardown; synchronize concurrent settings reads and atomic commits.
+- Add independently frozen KTH action controls and temporal/frozen video-model comparisons.
+- Add conservative associated temporal running evidence to classification, existing category controls and six-language labels; retain independent simultaneous actions and unknown matches.
 
-No visual redesign, new model, threshold tuning or release publication is included.
+These changes are included in the 0.3.0 release preparation. See
+[the release notes](v0.3.0-release-notes.md) for shipped behavior and limitations.
+No unrelated visual redesign is included.
 The full architectural objective remains incomplete. See [measurements, tests and open gates](goal-rework-audit-2026-11-11.md).

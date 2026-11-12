@@ -190,3 +190,110 @@ Remove-Item Env:PF_PREVIEW_ORDER_REPORT, Env:PF_PREVIEW_ORDER_LIMIT
 
 Без `PF_PREVIEW_ORDER_REPORT` этот тест пропускается и обычный набор не открывает
 видеофайлы пользователя.
+
+## Независимые KTH controls и маленькие входные кадры
+
+Протокол и измеренные ограничения: [отчёт KTH](../../docs/low-resolution-pose-validation.md).
+Разделение по людям зафиксировано в `kth-validation-plan.json`; правила walk/run —
+в `kth-semantic-policy.json`. Holdout запрещено использовать для подбора порогов.
+Это шесть действий на статичной камере, а не разметка монтажных параллелей.
+Условия официального источника — некоммерческое использование. Видео и
+сгенерированные observations остаются локально в игнорируемом `build`.
+
+Загрузчик читает только нужные ZIP members через HTTP Range, проверяет CRC,
+размер и полноту запланированного split; сохраняет SHA-256 и исходные границы.
+Пример одного split (повтори отдельно для tuning/development/holdout):
+
+```powershell
+python tools/benchmark/fetch_kth_controls.py --destination build/goal-kth --split holdout
+$env:PATH = 'D:\msys2\ucrt64\bin;' + $env:PATH
+# Для CUDA явно укажи установленный runtime и каталог его зависимостей:
+$env:PF_ORT_DLL = 'C:\path\to\cuda\onnxruntime.dll'
+$env:PF_PROVIDER_ROOT = Split-Path -Parent $env:PF_ORT_DLL
+$env:PATH = $env:PF_PROVIDER_ROOT + ';' + $env:PATH
+build/ucrt64-release/tools/pf_pose_observation_probe.exe `
+    release-models/yolo26m-pose.onnx build/goal-kth/manifest-holdout.json `
+    build/goal-kth-poses-after-holdout 12 cuda 4
+python tools/benchmark/evaluate_kth_controls.py `
+    --dataset-manifest build/goal-kth/manifest-holdout.json `
+    --observations build/goal-kth-poses-after-holdout `
+    --probe build/ucrt64-release/tools/pf_matcher_probe.exe `
+    --output build/goal-kth-after-holdout-evaluation
+```
+
+Для A/B сохраняй **разные** extractor executables до/после исправления, одинаковые
+модель/provider/fps/threads и отдельные output directories. Для сравнения только
+матчера передавай одинаковые observations. Эксперимент с изменением preprocessing
+по определению меняет observations: он не изолирует эффект одного matcher fix.
+Не пересоздавай baseline текущим бинарным файлом. Исторические исходники
+`MovementClassifier.cpp`, `MotionIndex.cpp`, `MotionRanker.cpp` доступны в ревизии
+`6374789`; benchmark adapter для точных границ и supported runs должен совпадать
+между сторонами. Все evaluation outputs сохраняют hash probe и входных контрактов.
+
+Проверка существующей AVA-модели использует только первый опубликованный интервал
+каждого видео. Подготовка не смотрит на predicted action; ROI берётся из реальной
+single-person detection. Это явно помеченная dataset selection, без доказательства
+выбора нужной личности в многолюдном видео.
+
+```powershell
+python tools/benchmark/prepare_kth_action_cases.py `
+    --dataset-manifest build/goal-kth/manifest-holdout.json `
+    --observations build/goal-kth-poses-after-holdout `
+    --output build/goal-kth-ava-holdout
+$actionManifest = Get-Content build/goal-kth-ava-holdout/manifest.json -Raw | ConvertFrom-Json
+foreach ($batch in $actionManifest.batches) {
+    $batchName = [IO.Path]::GetFileNameWithoutExtension($batch).Replace('cases-', '')
+    build/ucrt64-release/tools/pf_video_action_probe.exe `
+        "build/goal-kth-ava-holdout/$batch" models/ava-slowfast-r50.onnx cuda `
+        "build/goal-kth-ava-holdout/predictions-$batchName.json"
+    if ($LASTEXITCODE -ne 0) { throw "Probe failed: $batch" }
+}
+python tools/benchmark/evaluate_kth_video_actions.py `
+    --cases-root build/goal-kth-ava-holdout `
+    --output build/goal-kth-ava-holdout-evaluation.json
+```
+
+Probe не перезаписывает готовый output. Для воспроизведения используй новый
+каталог, сверяй model hash, source hashes и policy hash. Оценщик удерживает
+недоступные случаи в знаменателе. Forward/reverse/repeated-midpoint — три вида
+входа одной модели, а не три новые модели; высокие raw scores не являются
+калиброванными вероятностями. Поиск по 80 scores здесь диагностический, с известным
+человеком и cross-scenario кандидатами; production reranker из него автоматически
+не получается. `pf_kth_controls` проверяет загрузку, границы, отсутствие утечек
+split, сохранение пропусков и зафиксированные semantic gates без скачивания видео.
+
+## Полные реальные серии и изоляция настроек
+
+[Протокол серий и текущий аудит кеширования](../../docs/chernobyl-cache-validation.md)
+отделяет полные эпизоды от маленьких контрольных отрывков. Split зафиксирован в
+`chernobyl-validation-plan.json`. Сами серии, извлечённые кадры, observations и
+токены не коммитятся и не включаются в релиз.
+
+`PF_BENCHMARK_SETTINGS_PATH` работает только при `--pf-analysis-smoke`: он задаёт
+отдельный JSON настроек, не изменяя путь обычного приложения. Явный путь
+`SettingsStore` также сохраняет своё поведение. `PF_SMOKE_ALL_PEOPLE=1` вызывает
+существующий `analyzeAllPeople` и использует полную ветку UI для всех персонажей,
+включая character artifacts. Без этого флага диагностический запуск сохраняет
+прежнюю политику выбора одного человека.
+
+Для сборки сравнимой исходной версии используй отдельный checkout `6374789`
+и `baseline-6374789-smoke.patch`. Он добавляет только доступ к одинаковым
+настройкам и существующему workflow; не переносит исправленные классификатор,
+ранкер или preprocessing в baseline. SHA-256 каждого реально запущенного EXE
+обязателен в контракте.
+
+`run_pipeline_comparison.ps1` запускает чередующиеся before/after повторы,
+создаёт отдельный профиль и новый кеш для каждой версии/повтора, затем запускает
+новый процесс с тёплым кешем. `-AllPeople` выбирает полный соответствующий режим.
+Холодным называется пустой кеш приложения: файловый кеш Windows не сбрасывается.
+Нельзя писать «warm hit», пока диагностические счётчики не подтвердили чтение
+совместимых observations. Не объединяй результаты разных mode/quality/contracts.
+
+Для длинных серий запускай `run_analysis_smoke.ps1` с явным `-TimeoutSec`, одним
+режимом в `-Modes`, отдельным `-ReportPath` и `-ResourceTelemetry`. Дополнительный
+скрытый процесс `monitor_process_resources.ps1` сохраняет JSONL: CPU time, live
+working/private memory, логические process I/O, per-process WDDM dedicated/shared
+GPU allocations и отдельные engine utilization. Общую память устройства нельзя
+подставлять вместо памяти процесса, а проценты разных engines нельзя просто
+складывать. Частота CIM-снимков ограничена; кратковременные пики могут быть
+пропущены. Зафиксируй одинаковую телеметрию и внешний фон на обеих версиях.

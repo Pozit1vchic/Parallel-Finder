@@ -47,11 +47,11 @@ This audit is not completion of the objective. Precision/recall, macro-F1, cold/
 
 ## Measurements
 
-Windows 11, UCRT64 GCC 16.2, Release `-O3 -DNDEBUG`. Baseline code is revision `6374789`; source snapshots and raw logs are under ignored `build/goal-*`. No new model or threshold tuning was used.
+Windows 11, UCRT64 GCC 16.2, Release `-O3 -DNDEBUG`. Baseline code is revision `6374789`; source snapshots and raw logs are under ignored `build/goal-*`. No new model or threshold tuning was used. The table below records the initial engineering controls; independent KTH results are reported separately to avoid mixing protocols.
 
 | Metric | Before | After | Scope / limit |
 |---|---:|---:|---|
-| Total analysis time | Unavailable | Unavailable | Original fixture videos are absent; no complete fixed-video/model baseline established |
+| Total analysis time | Unavailable | Unavailable | Original fixture videos are absent; KTH extraction is not a complete application baseline |
 | Interval classification, 100,000 calls | 520.282 ms median | 12.5685 ms median | Five alternating runs, 240 synthetic frames, 120-frame interval; checksums identical at 1,200,000; not whole-video performance |
 | Matcher Recall@1 | 1.0 | 1.0 | Two query directions of one previously developed positive pair; no blind holdout |
 | Matcher Precision@1 | 1.0 | 1.0 | Same tiny control, no labelled negatives or competing candidates; does not establish false-positive rate |
@@ -64,30 +64,42 @@ The 98.85% update-byte reduction is measured on that release pair only. Binary d
 
 ## Validation and unresolved gates
 
-- Unmodified build succeeded (`goal-baseline-build.log`, no pending work). Baseline CTest: 13/14 passed in 120.35 seconds; `pfui_tests` crashed during `resultArrowKeysWorkAfterSourceButtonFocus`, with the stack in `qt_localeFromLCID` while a QML engine loaded.
-- Integrated build succeeded. First integrated CTest repeated the same failure: 13/14, 118.94 seconds. This is a pre-existing reproducible suite failure; its root cause is not established by the Qt stack alone.
-- The affected UI test passes separately with CTest's `offscreen` platform (3 QtTest phases passed, 1,427 ms). A native isolated attempt failed to open its popup; that attempt is not counted as a passing UI check.
-- Targeted classifier/grouping/ranker run: 65 passed, one opt-in performance test skipped. Index/ranking run before the matched-interval addition: 13 passed. New regressions were verified failing before their fixes.
-- Initial incremental update tests: all four methods passed (six QtTest phases). They cover trusted selection, reconstruction, corrupted base refusal, restart rollback, incompatible versions, unsafe reuse inventory and cached package reuse. Subsequent checks extend the download test with interruption, Range resume and full-package fallback.
-- Real archive reconstruction over 0.2.3 with the 5,035,600-byte incremental package passed the packaged application's actual health check (18,176 ms; three QtTest phases).
-- Eight quality-metric unit tests passed. PowerShell release scripts parse successfully. Final post-change checks are recorded below when complete.
+The unchanged supported build passed; baseline CTest was **13/14**, with the UI suite crashing while Qt initialized Windows locale state. Early integrated runs reproduced it. A separate warning-collector lifetime fix did not resolve the crash and is not credited as its root-cause correction.
 
-Final available regression gates: all 13 CTest targets outside the already-failing `pfui_tests` suite passed in **87.28 seconds** (`goal-latest-ctest.log`); the exclusion is explicit and is not a full green CTest claim. A separate run from the failing UI method through the remainder of that suite passed **20 QtTest phases**, with **one optional skip**, in **14,906 ms** (`goal-ui-remaining.txt`). The full-suite order-dependent crash remains unresolved. The final supported Release build succeeded without new warnings in its rebuild log. No installer was published or clean-machine certified.
+A minimal QtCore process then reproduced the access violation: initialize COM STA, request system UI languages, release the final COM reference, request languages again. Qt 6.11.2 caches a WinRT locale object. Holding an owned `RoInitialize` reference before QGuiApplication construction until after Qt teardown removes this condition; failed initialization is never uninitialized by us. A new nested COM/locale/UI regression protects this lifecycle. Full UI suites subsequently passed twice, then the integrated **15/15 CTest targets passed in 138.91 seconds**, including `pfui_tests` in 46.21 seconds (`goal-final3-ctest.log`). This supersedes the earlier unresolved suite status. See [Microsoft's initialization contract](https://learn.microsoft.com/en-us/windows/win32/api/roapi/nf-roapi-roinitialize) and [Qt's locale implementation](https://raw.githubusercontent.com/qt/qtbase/v6.11.2/src/corelib/text/qlocale_win.cpp).
 
-Additional UI diagnosis: the first and second halves of the preceding sequence each pass when followed by the affected test (19 phases plus eight skips, and 27 phases respectively). A warning collector captured a local list while its connection used the longer-lived test object as context; its connection now dies with a local context before the list. This is a separate lifetime correction, **not a demonstrated fix for the crash**: the full UI suite still fails after this change (`goal-ui-lifetime-ctest.log`, 32.06 seconds). A debugger run also stopped inside QtCore while initializing another QML engine (`goal-ui-debugger.txt`), so the apparent test name is not a stable root-cause location. Further diagnosis must distinguish application memory corruption from dependency/runtime behavior. The [Qt 6.11.2 Windows locale implementation](https://raw.githubusercontent.com/qt/qtbase/v6.11.2/src/corelib/text/qlocale_win.cpp) was inspected to interpret the stack; it does not establish causation.
+The first integrated run after the UI correction exposed a separate Windows settings race. An atomic QSaveFile commit could conflict with an in-process reader. The new two-reader/500-save control reproduced 656 errors before correction. Bounded shared-mutex striping now covers only file I/O, keeping JSON work and callbacks outside the lock. All 11 settings tests pass; the targeted UI responsiveness check recorded a maximum heartbeat gap of 37 ms. Successful load/save also clear stale error strings.
+
+Real Windows updater-process tests now cover full and incremental success, failed-health rollback and damaged-base handling, alongside download interruption/Range resume and full-archive fallback. The actual 0.2.3 reconstruction with the 5,035,600-byte payload passed the packaged app health check in 18,176 ms. Production signing trust remains unchanged.
+
+Independent controls are now available: 216 held-out KTH videos, 863 pose intervals and a separately frozen 216-clip temporal action evaluation. [The detailed protocol and results](low-resolution-pose-validation.md) document confirmed low-resolution preprocessing failure, a 0.249% → 91.491% detection-coverage improvement, conservative gait classification gains, temporal-versus-frozen representation controls and substantial remaining recall limitations. These are action proxies, not cinematic editing truth. No model weights or classification thresholds were tuned on the holdout. The original application footage is still absent.
+
+The Release build succeeded. Its log also contains existing C++ range-copy and deprecated filesystem conversion warnings; they are not suppressed and a warning-free clean build is not claimed. Tests after the semantic run-label integration are recorded in the detailed report when complete. No installer was published or clean-machine certified.
 
 ## Changed modules and commits
 
 - Core: `MotionIndex.cpp/.hpp`, `MotionRanker.cpp`, `MovementClassifier.cpp`; regressions in `test_motion_index.cpp` and `test_movement_classifier.cpp`.
 - Measurement: `classifier_interval_bench.cpp`, benchmark CMake/README, `evaluate_quality.py`, `test_quality_metrics.py`.
 - Updater: manifest types/parser, `UpdateService`, `UpdateTransaction`, `updater_main`, updater tests. Release scripts: `sign-update.ps1`, `build-windows.ps1` and release instructions.
-- Documentation: update architecture, this evidence report, unreleased notes and documentation index. No QML, palette, layout, fonts, model weights or user cache files were changed.
+- GPU preprocessing and cache contracts; native pose/action benchmark probes and frozen KTH protocols.
+- Windows GUI apartment lifetime and settings I/O synchronization.
+- Documentation and additive run labels in existing localization/category catalogs. Palette, layout, fonts and model weights are preserved; stale small-source observations receive explicit cache invalidation.
 
 Focused implementation commits:
 
 - `412e5aa` — Fix matched-interval classification and deterministic ranking.
 - `d11be72` — Add signed file-level incremental updates and release validation.
+- `b16750d` — Bound UI warning collector lifetime (separate issue).
+- `1780437` — Fix low-resolution pose enlargement and freeze independent action controls.
+- `dc39037` — Freeze temporal action validation policy and reuse native AVA probe.
+- `09619ea` — Serialize settings file replacement against concurrent readers.
+- `bdbb54f` — Keep the GUI apartment alive and exercise process-level update rollback.
+- `ed4341a` — Classify associated temporal running evidence with frozen validation gates.
 
-Recommended next work depends on independent labels: compare existing pose, visual and video-action representations on a blind action/viewpoint split, fit confidence calibration on tuning data only, then rerun a separate holdout. Profile a fixed set of original videos with pinned models/providers using the existing cold/warm pipeline tools before selecting further retrieval or GPU optimizations. Investigate the baseline UI-suite crash with a minimized test sequence before release approval. None of these recommendations is presented as completed implementation.
+The run-label integration passed all **15/15 CTest targets in 140.34 seconds** (`goal-running-ctest.log`), followed by 8/8 targeted video-action evidence tests. The later benchmark settings-isolation change passed 12/12 settings tests; the native all-people smoke regression passed three QtTest phases. Subsequent test additions are not covered by those earlier logs and await their next full integration run.
 
-The objective is **partially implemented, not complete and not release-ready**. No independent labelled positive/negative movement corpus or calibrated confidence model is available. The fixture report explicitly records `sourceVideosAvailable: false`; its original `D:/for_tests_pf` directory is absent. The user has been asked for data/model paths. Walking/running and viewpoint-invariant semantic recall improvements, confidence calibration, independent precision/recall/F1 gains, full CPU/GPU resource profiling, clean-machine installer validation and the complete UI-suite failure remain open. Existing ONNX models were neither replaced nor newly trained. The changes do not justify claiming those requirements as completed.
+The user has now supplied real series for the next validation stage. All 16 files were probed, and a full baseline all-people analysis of two episodes is running with isolated settings/cache and process/GPU telemetry. [The new protocol and cache audit](chernobyl-cache-validation.md) supersede any implication that no real footage is available; earlier fixture paths remain absent but no longer prevent this work.
+
+Further work requires cinematic positive/negative judgements and separate confidence-calibration data, full cold/warm application and CPU/GPU resource profiling, and clean-machine package validation. Existing ONNX models were reused, not replaced or newly trained. The low-resolution and KTH controls are reproducible progress; they do not establish complete semantic matching or professional movement accuracy.
+
+The objective remains **partially implemented and not release-certified**. Full UI regression is now green; confidence calibration, production semantic retrieval/reranking, independent editing-parallel precision/recall, broad camera/occlusion controls and full resource comparisons remain open. See the linked validation report for current evidence rather than treating the earlier tiny regression fixture as independent validation.
