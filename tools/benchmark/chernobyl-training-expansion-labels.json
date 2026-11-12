@@ -3,7 +3,7 @@
   "split": "tuning",
   "reviewer": "Assistant temporal review and native selected-track overlays; no independent human confirmation",
   "plan": "tools/benchmark/chernobyl-training-expansion-plan.json",
-  "planSha256": "102eb7e5c6842351de37b412c6e6125691ee83525714a4cda1d761aec073c246",
+  "planSha256": "033190402460c27f5baa784d67e1cc2c8081182845eecf5428526dd5951f3dbd",
   "reportSha256": "7249935b33340c765c3cc35eca1217d6bb90ea9ec63eeb6e51e7bc39e7b60a5d",
   "selection": "Frozen stratified expansion of previously unreviewed training predictions; not prevalence, Precision or independent ground truth.",
   "reviewMethod": "Up to six actual-PTS temporal frames per side (short intervals sometimes produce five), plus three selected-track overlay frames per side. Missing/cropped body evidence remains partial or unknown.",
@@ -765,5 +765,11 @@
     "oldGrade": 2,
     "newGrade": 1,
     "reason": "Conservative reassessment using up-to-twelve-frame-per-side dense temporal sheet before any ranking fit or implementation change. Small head adjustments do not establish a clear shared distinctive turn."
+  },
+  "planHashNormalization": {
+    "originalWindowsWorkingTreeSha256": "102eb7e5c6842351de37b412c6e6125691ee83525714a4cda1d761aec073c246",
+    "committedLfPlanSha256": "033190402460c27f5baa784d67e1cc2c8081182845eecf5428526dd5951f3dbd",
+    "frozenCommit": "0634bfe",
+    "reason": "Hash LF bytes identical to the pre-review committed plan; only Windows working-tree line endings changed. Selection and review policy are unchanged."
   }
 }

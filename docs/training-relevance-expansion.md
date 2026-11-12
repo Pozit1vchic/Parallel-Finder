@@ -21,6 +21,10 @@ under `build/goal-training-expansion-review-01`; media is excluded from Git.
 
 `chernobyl-training-expansion-labels.json` records the exact report, frozen-plan
 hash, source/track/ranges/scope, notes and hashes of the reviewed visual files.
+The plan hash uses LF bytes verified identical to commit `0634bfe`, rather than
+Windows-converted CRLF working-tree bytes. Both hashes and that normalization
+are recorded; selection and rubric did not change. Git attributes preserve LF
+for the plan and labels on future checkouts.
 There is no independent human confirmation. The review concerns the matched
 track, including partially hidden background actors, rather than whichever
 foreground actor has the most conspicuous movement.
@@ -107,7 +111,7 @@ regression tests cover a misleading cross-scope-only gain, unknown abstention,
 missing/non-finite/-1 measurements, ties, invalid scope, exact-identity transfer,
 changed/missing comparisons and duplicate identities. All passed. The
 existing provenance validator checked all final annotations and image hashes.
-Final current-implementation evidence: `current-ranking-audit-final.json`; the
+Final current-implementation evidence: `current-ranking-audit-canonical.json`; the
 original-report scoped result is `ranking-audit-by-scope.json`. Earlier provisional audits remain
 preserved and must not be cited as the final two-positive result.
 
