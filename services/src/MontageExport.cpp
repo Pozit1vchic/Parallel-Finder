@@ -1,5 +1,6 @@
 #include "MontageGeometry.hpp"
 #include "ExportDestination.hpp"
+#include "InstallExport.hpp"
 #include <pfservices/MontageExport.hpp>
 #include <pfservices/ExportQueue.hpp>
 #include <pfcore/VideoDecoder.hpp>
@@ -9,7 +10,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
-#include <QSaveFile>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <algorithm>
@@ -311,23 +311,13 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             result.error = "montage mux: " + errors.right(65536).toStdString(); return result;
         }
         detail::ExportDestination destinationName(output);
-        QFile combined(combinedPath);
-        QSaveFile finalFile(QString::fromStdWString(destinationName.path().wstring()));
-        if (!combined.open(QIODevice::ReadOnly) || combined.size() == 0 || !finalFile.open(QIODevice::WriteOnly)) {
-            result.error = "cannot install completed montage"; return result;
-        }
-        while (!combined.atEnd()) {
-            if (cancelled()) return result;
-            const auto bytes = combined.read(1024 * 1024);
-            if (bytes.isEmpty() || finalFile.write(bytes) != bytes.size()) {
-                result.error = "cannot copy completed montage"; return result;
-            }
-            const int percent = 95 + static_cast<int>(combined.pos() * 5 / combined.size());
-            if (progress && percent != lastPercent) progress(clips.size(), clips.size() + 1, percent);
-            lastPercent = percent;
+        if (QFileInfo(combinedPath).size() <= 0) {
+            result.error = "montage mux produced no video"; return result;
         }
         if (cancelled()) return result;
-        if (!finalFile.commit()) { result.error = finalFile.errorString().toStdString(); return result; }
+        std::error_code installError;
+        detail::installExport(std::filesystem::path(combinedPath.toStdWString()), destinationName.path(), installError);
+        if (installError) { result.error = "install completed montage: " + installError.message(); return result; }
         destinationName.commit();
         result.outputPath = destinationName.path();
         result.success = true;
