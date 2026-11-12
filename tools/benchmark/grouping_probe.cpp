@@ -54,22 +54,28 @@ int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStr
     }
     const std::set<std::size_t> leftTracks(left->trackIds.begin(),left->trackIds.end());
     const std::set<std::size_t> rightTracks(right->trackIds.begin(),right->trackIds.end());
-    struct Sample { const pfcore::PoseFrame* frame=nullptr; std::size_t track=0; };
+    struct Sample { const pfcore::PoseFrame* frame=nullptr; const pfcore::MotionWindow* window=nullptr; };
     std::map<double,std::array<Sample,2>> windowSamples;
     for(const auto& window:analysis.windows) {
         const int side=leftTracks.contains(window.trackId)?0:rightTracks.contains(window.trackId)?1:-1;
         if(side<0)continue;
         for(const auto& frame:window.frames)if(std::isfinite(frame.timestampSeconds)&&!frame.keypoints.empty())
-            windowSamples[frame.timestampSeconds][side]={&frame,window.trackId};
+            windowSamples[frame.timestampSeconds][side]={&frame,&window};
     }
     QJsonArray pairedWindowSamples;std::size_t pairedWindowCount=0;
     for(const auto& [time,pair]:windowSamples) {
         if(!pair[0].frame||!pair[1].frame)continue;
         ++pairedWindowCount;
         if(pairedWindowSamples.size()>=32)continue;
-        const auto nose=[](const Sample& sample) {
+        const auto nose=[&](const Sample& sample) {
             const auto& p=sample.frame->keypoints.front();
-            return QJsonObject{{"track",static_cast<qint64>(sample.track)},{"x",p.x},{"y",p.y},{"confidence",p.confidence}};
+            const auto& w=*sample.window;
+            return QJsonObject{{"track",static_cast<qint64>(w.trackId)},{"x",p.x},{"y",p.y},{"confidence",p.confidence},
+                {"faceConfidence",w.faceConfidence},{"bodyConfidence",w.appearanceConfidence},
+                {"faceToLeftPrototype",prototypeCosine(w.faceEmbedding,left->prototype.face)},
+                {"faceToRightPrototype",prototypeCosine(w.faceEmbedding,right->prototype.face)},
+                {"bodyToLeftPrototype",prototypeCosine(w.appearanceEmbedding,left->prototype.body)},
+                {"bodyToRightPrototype",prototypeCosine(w.appearanceEmbedding,right->prototype.body)}};
         };
         pairedWindowSamples.append(QJsonObject{{"time",time},{"left",nose(pair[0])},{"right",nose(pair[1])}});
     }
