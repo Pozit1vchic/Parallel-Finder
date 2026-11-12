@@ -1173,6 +1173,12 @@ TEST(CutService, ExactLosslessRealSourcePixelsAudioAndMontage)
     QTemporaryDir directory;ASSERT_TRUE(directory.isValid());
     bool valid=false;double start=qEnvironmentVariable("PF_TEST_EXACT_LOSSLESS_START").toDouble(&valid);
     if(!valid)start=.715;
+    const auto requestedDuration=qEnvironmentVariable("PF_TEST_EXACT_LOSSLESS_CLIP_SECONDS");
+    double clipDuration=1.;
+    if(!requestedDuration.isEmpty()) {
+        clipDuration=requestedDuration.toDouble(&valid);
+        ASSERT_TRUE(valid&&std::isfinite(clipDuration)&&clipDuration>=1.&&clipDuration<=15.);
+    }
     const auto run=[&](QStringList args) {
         QProcess process;process.start(ffmpeg,QStringList{"-v","error","-threads","4"}+args);
         EXPECT_TRUE(process.waitForFinished(90000));
@@ -1202,10 +1208,10 @@ TEST(CutService, ExactLosslessRealSourcePixelsAudioAndMontage)
     const auto decode=[&](const QString& path,bool input,bool audio,double offset) {
         QStringList args;
         if(input)args << "-copyts" << "-ss" << QString::number(std::max(0.,offset-.5),'f',9)
-            << "-t" << "1.75";
+            << "-t" << QString::number(clipDuration+.75,'f',9);
         args << "-i" << path;
         if(input)args << (audio?"-af":"-vf") << QString("%1trim=start=%2:end=%3,%1setpts=PTS-STARTPTS")
-            .arg(audio?"a":"").arg(offset,0,'f',9).arg(offset+1,0,'f',9);
+            .arg(audio?"a":"").arg(offset,0,'f',9).arg(offset+clipDuration,0,'f',9);
         if(audio)args << "-map" << "0:a:0" << "-vn" << "-c:a" << "pcm_f64le" << "-f" << "f64le" << "-";
         else args << "-map" << "0:v:0" << "-an" << "-fps_mode" << "passthrough" << "-f" << "framemd5" << "-";
         return run(args);
@@ -1226,7 +1232,7 @@ TEST(CutService, ExactLosslessRealSourcePixelsAudioAndMontage)
         pfservices::CutRequest request;request.inputPath=input.toStdWString();
         request.outputPath=directory.filePath(QString::number(index)+".mov").toStdWString();
         request.mode=pfservices::CutMode::ExactLossless;
-        request.startSeconds=start+index;request.endSeconds=start+index+1;
+        request.startSeconds=start+index*clipDuration;request.endSeconds=request.startSeconds+clipDuration;
         const auto expected=hashes(decode(input,true,false,request.startSeconds));ASSERT_FALSE(expected.isEmpty());
         expectedVideo+=expected;
         const auto cut=cutter.cut(request);ASSERT_TRUE(cut.success) << cut.error;
