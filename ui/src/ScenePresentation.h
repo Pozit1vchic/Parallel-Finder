@@ -1,5 +1,6 @@
 #pragma once
 #include <pfcore/SceneDescriptor.hpp>
+#include <pfcore/MotionRanker.hpp>
 #include <QVariantMap>
 #include <QVariantList>
 #include <cmath>
@@ -52,15 +53,15 @@ inline void updateSceneEvidence(QVariantMap& row,pfcore::MotionMatch& match,
     const auto b=pfcore::describeScene(right,match.rightStartSeconds,match.rightEndSeconds);
     match.evidenceQuality=pfcore::comparisonEvidenceQuality(a,b,match.headOnlyComparison);
     match.poseSimilarity=pfcore::comparisonPoseSimilarity(a,b,match.headOnlyComparison).value_or(-1.);
-    match.bestMatchScore=match.similarity*(.55+.45*match.evidenceQuality)
-        *((match.faceVerified||match.appearanceVerified)?1.:.85);
+    const bool requireIdentity=row.value("identityEvidenceRequired",true).toBool();
+    match.bestMatchScore=pfcore::MotionRanker::organizationScore(match,requireIdentity);
     row.insert("leftDescriptor",sceneDescriptorMap(a));row.insert("rightDescriptor",sceneDescriptorMap(b));
     row.insert("evidenceQuality",match.evidenceQuality);row.insert("poseSimilarity",match.poseSimilarity);
     row.insert("bestMatchScore",match.bestMatchScore);
     row.insert("evidenceScope",match.headOnlyComparison?QStringLiteral("head"):QStringLiteral("body"));
     row.insert("visibilityCoverage",match.headOnlyComparison?std::min(a.headVisibleCoverage,b.headVisibleCoverage):std::min(a.visibleCoverage,b.visibleCoverage));
     row.insert("temporalCoverage",match.headOnlyComparison?std::min(a.headTemporalCoverage,b.headTemporalCoverage):std::min(a.temporalCoverage,b.temporalCoverage));
-    row.insert("matchTier",match.evidenceQuality>=.45&&(match.headOnlyComparison?match.faceVerified:(match.faceVerified||match.appearanceVerified))
+    row.insert("matchTier",pfcore::MotionRanker::strongOrganizationEvidence(match,requireIdentity)
         ? QStringLiteral("strong"):QStringLiteral("possible"));
 }
 }

@@ -9,6 +9,8 @@ namespace pfcore {
 
 class MotionRanker {
 public:
+    static double organizationScore(const MotionMatch& match,bool requireIdentityEvidence=true) noexcept;
+    static bool strongOrganizationEvidence(const MotionMatch& match,bool requireIdentityEvidence=true) noexcept;
     // Adds deterministic labels and rank scores, then orders strongest pairs
     // first. The input vector is intentionally mutable so export/UI consumers
     // receive the same order and metadata.
@@ -17,7 +19,8 @@ public:
     static bool organize(std::vector<MotionMatch>& matches,
         const std::vector<MotionWindow>& windows,
         const std::map<std::string,std::size_t>& selectedIdentities = {},
-        const std::function<bool()>& cancelled = {});
+        const std::function<bool()>& cancelled = {},
+        bool requireIdentityEvidence = true);
 };
 
 } // namespace pfcore

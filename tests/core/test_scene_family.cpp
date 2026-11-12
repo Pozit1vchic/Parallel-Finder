@@ -158,6 +158,15 @@ TEST(SceneFamily, ProductionOrganizationDeduplicatesPairsAndPreservesDeterminist
     pfcore::MotionMatch a;a.leftIndex=0;a.rightIndex=1;a.leftSourceId="a";a.rightSourceId="b";
     a.leftStartSeconds=10;a.leftEndSeconds=12.5;a.rightStartSeconds=20;a.rightEndSeconds=22.5;
     a.similarity=.95;a.appearanceVerified=true;
+    auto unverified=a;unverified.appearanceVerified=false;
+    std::vector verifiedIdentity{a},unverifiedIdentity{unverified};
+    ASSERT_TRUE(pfcore::MotionRanker::organize(verifiedIdentity,windows));
+    ASSERT_TRUE(pfcore::MotionRanker::organize(unverifiedIdentity,windows));
+    EXPECT_GT(verifiedIdentity[0].bestMatchScore,unverifiedIdentity[0].bestMatchScore);
+    std::vector verifiedAllPeople{a},unverifiedAllPeople{unverified};
+    ASSERT_TRUE(pfcore::MotionRanker::organize(verifiedAllPeople,windows,{}, {},false));
+    ASSERT_TRUE(pfcore::MotionRanker::organize(unverifiedAllPeople,windows,{}, {},false));
+    EXPECT_DOUBLE_EQ(verifiedAllPeople[0].bestMatchScore,unverifiedAllPeople[0].bestMatchScore);
     auto b=a;b.leftStartSeconds+=.2;b.leftEndSeconds+=.2;b.rightStartSeconds+=.2;b.rightEndSeconds+=.2;b.similarity=.99;
     std::vector first{a,b},second{b,a};
     ASSERT_TRUE(pfcore::MotionRanker::organize(first,windows));

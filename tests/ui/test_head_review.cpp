@@ -14,6 +14,32 @@
 class HeadReviewTests:public QObject {
     Q_OBJECT
 private slots:
+    void evidenceRefreshRetainsAllPeoplePolicyAcrossRangeEdits() {
+        const std::vector<pfcore::Keypoint> pose={{0,-.5,1},{-.1,-.5,1},{.1,-.5,1},{-.2,-.4,1},{.2,-.4,1},
+            {-.5,0,1},{.5,0,1},{-.6,.5,1},{.6,.5,1},{-.6,1,1},{.6,1,1},
+            {-.3,1,1},{.3,1,1},{-.3,1.8,1},{.3,1.8,1},{-.3,2.6,1},{.3,2.6,1}};
+        pfcore::MotionWindow left;left.sourceId="left";left.trackId=1;left.staticFrameSet=true;
+        for(int i=0;i<5;++i)left.frames.push_back({i*.2,pose});
+        auto right=left;right.sourceId="right";
+        pfcore::MotionMatch match;match.leftIndex=0;match.rightIndex=1;
+        match.leftSourceId=left.sourceId;match.rightSourceId=right.sourceId;
+        match.leftEndSeconds=match.rightEndSeconds=1;match.similarity=.9;
+        std::vector matches{match};
+        QVERIFY(pfcore::MotionRanker::organize(matches,{left,right},{},{},false));
+        const double organizedScore=matches[0].bestMatchScore;
+        QVariantMap row{{"identityEvidenceRequired",false}};
+        pfui::updateSceneEvidence(row,matches[0],left,right);
+        QCOMPARE(matches[0].bestMatchScore,organizedScore);
+        QCOMPARE(row.value("matchTier").toString(),QStringLiteral("strong"));
+        matches[0].leftStartSeconds=matches[0].rightStartSeconds=.2;
+        matches[0].leftEndSeconds=matches[0].rightEndSeconds=.8;
+        pfui::updateSceneEvidence(row,matches[0],left,right);
+        QCOMPARE(matches[0].bestMatchScore,pfcore::MotionRanker::organizationScore(matches[0],false));
+        row.insert("identityEvidenceRequired",true);
+        pfui::updateSceneEvidence(row,matches[0],left,right);
+        QCOMPARE(matches[0].bestMatchScore,pfcore::MotionRanker::organizationScore(matches[0],true));
+        QCOMPARE(row.value("matchTier").toString(),QStringLiteral("possible"));
+    }
     void cachedObservationsDoNotInitializeInferenceModels() {
         const auto model=qEnvironmentVariable("PF_HEAD_REVIEW_MODEL");
         if(model.isEmpty())QSKIP("Set audited head model path for cache-only producer integration");

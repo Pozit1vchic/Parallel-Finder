@@ -8,8 +8,17 @@
 #include <tuple>
 
 namespace pfcore {
+double MotionRanker::organizationScore(const MotionMatch& match,bool requireIdentityEvidence) noexcept {
+    return match.similarity*(.55+.45*match.evidenceQuality)
+        *((!requireIdentityEvidence||match.appearanceVerified||match.faceVerified)?1.:.85);
+}
+bool MotionRanker::strongOrganizationEvidence(const MotionMatch& match,bool requireIdentityEvidence) noexcept {
+    return match.evidenceQuality>=.45 && (!requireIdentityEvidence
+        || (match.headOnlyComparison?match.faceVerified:(match.faceVerified||match.appearanceVerified)));
+}
 bool MotionRanker::organize(std::vector<MotionMatch>& matches,const std::vector<MotionWindow>& windows,
-    const std::map<std::string,std::size_t>& selectedIdentities,const std::function<bool()>& cancelled) {
+    const std::map<std::string,std::size_t>& selectedIdentities,const std::function<bool()>& cancelled,
+    bool requireIdentityEvidence) {
     std::vector<SceneOccurrence> occurrences;occurrences.reserve(matches.size()*2);
     auto working=matches;
     if(cancelled&&cancelled())return false;
@@ -38,8 +47,7 @@ bool MotionRanker::organize(std::vector<MotionMatch>& matches,const std::vector<
         const auto& b=occurrences.back().descriptor;
         match.evidenceQuality=comparisonEvidenceQuality(a,b,match.headOnlyComparison);
         match.poseSimilarity=comparisonPoseSimilarity(a,b,match.headOnlyComparison).value_or(-1.);
-        match.bestMatchScore=match.similarity*(.55+.45*match.evidenceQuality)
-            *((match.appearanceVerified||match.faceVerified)?1.:.85);
+        match.bestMatchScore=organizationScore(match,requireIdentityEvidence);
     }
     using Shot=std::pair<std::string,std::size_t>;
     std::map<Shot,const MotionWindow*> sequences;
