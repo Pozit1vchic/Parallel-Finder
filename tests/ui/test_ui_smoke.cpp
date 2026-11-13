@@ -1891,6 +1891,13 @@ void UiSmokeTests::movementClassesAndExportOrder()
     rail->setProperty("matchTierFilter","possible");QTest::qWait(100);
     const auto possibleRows=values(rail->property("visibleResults")).toList();
     QCOMPARE(possibleRows.size(),1);QCOMPARE(possibleRows[0].toMap().value("id").toInt(),0);
+    rail->setProperty("matchTierFilter","all");
+    QTRY_COMPARE(values(rail->property("visibleResults")).toList().size(),4);
+    const auto allRows=values(rail->property("visibleResults")).toList();
+    QCOMPARE(allRows[0].toMap().value("id").toInt(),1);
+    QCOMPARE(allRows[1].toMap().value("id").toInt(),0);
+    QCOMPARE(allRows[2].toMap().value("id").toInt(),2);
+    QCOMPARE(allRows[3].toMap().value("id").toInt(),3);
     rail->setProperty("matchTierFilter","strong");
     popup->setProperty("results",continuityRows);
     popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true}});

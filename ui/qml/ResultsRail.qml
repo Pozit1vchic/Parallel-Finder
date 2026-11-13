@@ -308,9 +308,10 @@ Rectangle {
                 PfComboBox {
                     objectName: "matchTierFilter"; Layout.fillWidth: true
                     model: [L10n.t("matches.strong")+" · "+root.results.filter(function(row) { return !row.hidden && (row.matchTier || "strong") === "strong" }).length,
-                        L10n.t("matches.possible")+" · "+root.results.filter(function(row) { return !row.hidden && row.matchTier === "possible" }).length]
-                    selectionIndex: root.matchTierFilter === "possible" ? 1 : 0
-                    onActivated: function(index) { root.matchTierFilter=index === 1 ? "possible" : "strong" }
+                        L10n.t("matches.possible")+" · "+root.results.filter(function(row) { return !row.hidden && row.matchTier === "possible" }).length,
+                        L10n.t("matches.all")+" · "+root.results.filter(function(row) { return !row.hidden }).length]
+                    selectionIndex: root.matchTierFilter === "all" ? 2 : root.matchTierFilter === "possible" ? 1 : 0
+                    onActivated: function(index) { root.matchTierFilter=index === 2 ? "all" : index === 1 ? "possible" : "strong" }
                     Accessible.name: L10n.t("matches.tier")
                 }
                 PfComboBox {
@@ -617,7 +618,7 @@ Rectangle {
                 if(postureFilter === "uncertain" ? !postures.some(Boolean) : !postures.every(Boolean)) continue
             }
             if (!Orientation.matches(item,"body",bodyViewFilter) || !Orientation.matches(item,"head",headViewFilter)) continue
-            if (!item.manualPair && (item.matchTier || "strong") !== matchTierFilter) continue
+            if (matchTierFilter !== "all" && !item.manualPair && (item.matchTier || "strong") !== matchTierFilter) continue
             next.push(item)
         }
         next.sort(compareValues)
