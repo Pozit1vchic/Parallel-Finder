@@ -141,6 +141,21 @@ sample. The last row shows why score and additional result count alone are
 insufficient to judge the new pass. Local annotated frames are in
 `build/goal-031-expanded-full-replay-02/pose-review-01.jpg`.
 
+Exact comparison of the weak 1418.193/2182.014 pair reproduces the
+0.9404 score. Its direct DTW and whole-body shape scores are only 0.4984
+and 0.1935. The identity-verified articulation branch overrides both
+with 0.9404. The midpoint shoulder-to-hip axis is nearly vertical in
+both projections, so an image-plane torso-angle gate would miss the
+visible forward bend. Across frames with confident shoulders, hips
+and knees, median projected shoulder-to-hip length divided by
+hip-to-knee length was 0.870 versus 1.343 for this pair, compared with
+1.463 versus 1.325 and 1.421 versus 1.381 for two plausible full-body
+pairs. Another plausible pair had no shared confident knee support.
+Projected ratios are also affected by camera angle. These four checks
+identify the scoring override but do not establish a safe global
+cutoff. Local exact replay: `visual-controls.json` and
+`visual-controls.stderr.log` in the same evidence directory.
+
 Local evidence: `build/goal-031-existing-pair-count-comparison.json`,
 `build/goal-031-missing-pairs-{training,heldout}-review`, and
 `build/goal-031-missing-pair-tracks-01`. Current reports are the same native
