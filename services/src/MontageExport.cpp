@@ -194,7 +194,15 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         std::set<std::filesystem::path> canonicalOutputs;
         for (std::size_t i = 0; i < batch.completed.size(); ++i) {
             result = batch.completed[i];
-            if (!result.success) return result;
+            if (!result.success) {
+                const auto& clip = clips[i];
+                result.error = QStringLiteral("montage clip %1/%2 (%3, %4–%5 s): %6")
+                    .arg(i + 1).arg(clips.size())
+                    .arg(QString::fromStdWString(clip.inputPath.filename().wstring()))
+                    .arg(clip.startSeconds, 0, 'f', 3).arg(clip.endSeconds, 0, 'f', 3)
+                    .arg(QString::fromStdString(result.error)).toStdString();
+                return result;
+            }
             const auto& request = prepared[i];
             if (!request.canonicalSceneId.empty() && !canonicalOutputs.insert(result.outputPath).second) continue;
             const QString name = QString::fromStdWString(result.outputPath.wstring());
@@ -269,7 +277,10 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args) { args->flags |= CREATE_NO_WINDOW; });
 #endif
         process.start();
-        if (!process.waitForStarted(5000)) { result.error = process.errorString().toStdString(); return result; }
+        if (!process.waitForStarted(5000)) {
+            result.error = "start montage mux: " + process.errorString().toStdString();
+            return result;
+        }
         QElapsedTimer timer;
         timer.start();
         QByteArray errors;
@@ -308,7 +319,10 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
         reportProgress();
         if (cancelled()) return result;
         if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
-            result.error = "montage mux: " + errors.right(65536).toStdString(); return result;
+            const auto detail = errors.trimmed();
+            result.error = "montage mux (exit " + std::to_string(process.exitCode()) + ")"
+                + (detail.isEmpty() ? "" : ": " + detail.toStdString());
+            return result;
         }
         detail::ExportDestination destinationName(output);
         if (QFileInfo(combinedPath).size() <= 0) {
