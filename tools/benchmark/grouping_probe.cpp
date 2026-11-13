@@ -63,9 +63,11 @@ int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStr
             windowSamples[frame.timestampSeconds][side]={&frame,&window};
     }
     QJsonArray pairedWindowSamples;std::size_t pairedWindowCount=0;
+    std::map<std::pair<std::size_t,std::size_t>,std::vector<double>> sharedTrackTimes;
     for(const auto& [time,pair]:windowSamples) {
         if(!pair[0].frame||!pair[1].frame)continue;
         ++pairedWindowCount;
+        sharedTrackTimes[{pair[0].window->trackId,pair[1].window->trackId}].push_back(time);
         if(pairedWindowSamples.size()>=32)continue;
         const auto nose=[&](const Sample& sample) {
             const auto& p=sample.frame->keypoints.front();
@@ -79,6 +81,14 @@ int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStr
         };
         pairedWindowSamples.append(QJsonObject{{"time",time},{"left",nose(pair[0])},{"right",nose(pair[1])}});
     }
+    QJsonArray repeatedTrackPairs;
+    for(const auto& [ids,sharedTimes]:sharedTrackTimes) {
+        if(sharedTimes.size()<3 || sharedTimes.back()-sharedTimes.front()<.25)continue;
+        QJsonArray times;
+        for(double time:sharedTimes)times.append(time);
+        repeatedTrackPairs.append(QJsonObject{{"leftTrack",static_cast<qint64>(ids.first)},
+            {"rightTrack",static_cast<qint64>(ids.second)},{"times",times}});
+    }
     QSaveFile output(arguments[3]);
     if(QFile::exists(arguments[3])||!output.open(QIODevice::WriteOnly))return 6;
     const auto bytes=QJsonDocument(QJsonObject{{"scope","Cached candidates before repeated-scene merge; shared sample times are not a person-conflict verdict"},
@@ -86,7 +96,8 @@ int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStr
         {"facePrototypeCosine",prototypeCosine(left->prototype.face,right->prototype.face)},
         {"bodyPrototypeCosine",prototypeCosine(left->prototype.body,right->prototype.body)},
         {"sharedPrototypeSampleTimes",static_cast<qint64>(shared)},{"firstSharedPrototypeTimes",times},
-        {"sharedWindowSampleTimes",static_cast<qint64>(pairedWindowCount)},{"firstSharedWindowSamples",pairedWindowSamples}}).toJson();
+        {"sharedWindowSampleTimes",static_cast<qint64>(pairedWindowCount)},{"firstSharedWindowSamples",pairedWindowSamples},
+        {"repeatedTrackPairsInWindows",repeatedTrackPairs}}).toJson();
     return output.write(bytes)==bytes.size()&&output.commit()?0:6;
 }
 

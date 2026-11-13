@@ -71,3 +71,16 @@ separated tracks and compare their face evidence with each group before
 changing selection or merging membership.
 
 Local comparison: `build/goal-031-katniss-confirmation-after-02/card-comparison.json`.
+
+The same run's character artifact again shows 39 shared window timestamps
+and a face-prototype cosine of 0.97830. Four pairs of stored tracks share
+at least three samples spanning 0.25 s or more. Frame review includes
+Katniss with another person (1740.7 s and 4999.9 s), a close-up with the
+previously observed duplicate head detections (3312.5 s), and a cut to
+hands and legs where head localization is unreliable (3934.2 s). These
+are candidates for checking the confirmation evidence. The artifact
+contains prepared windows, so it does not record which raw observations
+actually triggered the separation decision.
+
+Local evidence: `repeated-track-pairs.json` and
+`repeated-track-scenes.jpg` in the same directory.
