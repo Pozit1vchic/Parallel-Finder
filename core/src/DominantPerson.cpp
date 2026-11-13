@@ -1605,6 +1605,7 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
     struct Separation { int count=0; double first=0,last=0; };
     std::map<std::array<std::size_t,4>,Separation> separation;
     std::set<std::pair<std::size_t,std::size_t>> confirmedSeparation;
+    const bool traceSeparation = std::getenv("PF_DEBUG_CHARACTER_SEPARATION") != nullptr;
     for (const auto& [time,people]:frames) {
         if (control.cancelled && control.cancelled()) return {};
         for (auto a=people.begin();a!=people.end();++a) for (auto b=std::next(a);b!=people.end();++b) {
@@ -1627,6 +1628,15 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
             evidence.last=time;
             if(evidence.count>=3&&evidence.last-evidence.first>=.25)
                 confirmedSeparation.emplace(a->first,b->first);
+        }
+    }
+    if (traceSeparation) {
+        for (const auto& [key,evidence] : separation) {
+            if (evidence.count<3 || evidence.last-evidence.first<.25) continue;
+            std::fprintf(stderr,
+                "PF_CHARACTER_SEPARATION candidates=%zu/%zu tracks=%zu/%zu observations=%d first=%.9f last=%.9f\n",
+                result[key[0]].id,result[key[1]].id,key[2],key[3],
+                evidence.count,evidence.first,evidence.last);
         }
     }
     std::vector<std::size_t> order(result.size()),confirmed;
