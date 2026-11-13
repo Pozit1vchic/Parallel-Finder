@@ -28,8 +28,14 @@ separate those cases rather than merge all 651 tracks on prototype similarity.
 Local evidence: `build/goal-031-katniss-first-source-capture-01/candidates.json`,
 `identity-pair-window-samples.json`, and the `review` subdirectory. The native
 diagnostic is `pf_grouping_probe CHARACTER.pfc --character-pair REVIEW.json 2 45`.
-No media or embedding vectors are published in this report. The four-source
-capture remains a separate, unfinished test.
+No media or embedding vectors are published in this report.
+
+The published build also reached the selection screen with all four original
+sources (3,141 detected scenes). The capture stopped there by design and
+saved 40 candidates. The first two numbered cards were again IDs 2 and 45,
+with the same 404 and 247 tracks as in the first-source capture. This confirms
+that adding the other films does not remove the duplicate numbered cards.
+Local evidence: `build/goal-031-katniss-four-source-capture-02/candidates.json`.
 
 ## Confirmation rule correction
 
