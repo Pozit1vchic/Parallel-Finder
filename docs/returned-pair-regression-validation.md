@@ -156,6 +156,17 @@ identify the scoring override but do not establish a safe global
 cutoff. Local exact replay: `visual-controls.json` and
 `visual-controls.stderr.log` in the same evidence directory.
 
+For expanded shot reuse only, the selector now also requires DTW alignment
+of at least 0.55 on the existing 0–1 scale. The full 35,934-window replay
+kept 269 results and all 187 primary rows byte-equivalent as parsed data.
+Seven expanded rows were replaced, including the weak 1418.193/2182.014
+pair. All three visually plausible controls in the table stayed present.
+Replacement rows still need visual review, and this is a repeat of the
+development replay, not independent validation of the cutoff.
+All 136 focused Matcher and result-cache tests passed.
+
+Local evidence: `build/goal-031-expanded-alignment-replay-01/comparison.json`.
+
 Local evidence: `build/goal-031-existing-pair-count-comparison.json`,
 `build/goal-031-missing-pairs-{training,heldout}-review`, and
 `build/goal-031-missing-pair-tracks-01`. Current reports are the same native
