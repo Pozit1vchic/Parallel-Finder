@@ -4152,6 +4152,35 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         });
         for (const auto& match:selected) if (portrait(match) && !viewConflict(match)) unique.push_back(match);
     }
+    if(params_.expandedSearch&&params_.individualPairs&&params_.recoverUnusedShots
+        && params_.maxResultsPerShot>=2) {
+        // Keep the established one-to-one selection. Expanded search can
+        // bring an otherwise unused shot into the list as a second static
+        // body-pose option, without forming chains of recycled shots.
+        std::vector<std::size_t> uses(shotIds.size());
+        std::size_t poses=0;
+        for(const auto& match:unique) {
+            ++uses[shotOf[match.leftIndex]];++uses[shotOf[match.rightIndex]];
+            if(windows[match.leftIndex].staticFrameSet)++poses;
+        }
+        const auto primaryUses=uses;
+        for(const auto& match:matches) {
+            if(cancelled())return {};
+            if(poses>=params_.maxUniqueResults)break;
+            const auto& left=windows[match.leftIndex];const auto& right=windows[match.rightIndex];
+            if(!left.staticFrameSet||!right.staticFrameSet||!left.hasSceneIndex||!right.hasSceneIndex
+                || portrait(match)||match.similarity<params_.similarityThreshold)continue;
+            const auto a=shotOf[match.leftIndex],b=shotOf[match.rightIndex];
+            const auto unusedWithPrimary=[&](std::size_t unused,std::size_t primary) {
+                return uses[unused]==0&&primaryUses[primary]==1&&uses[primary]==1;
+            };
+            if(a==b||(!unusedWithPrimary(a,b)&&!unusedWithPrimary(b,a))||returningBodyView(match))continue;
+            if(requiresMeasuredIdentity(params_)
+                && (!measuredIdentityCompatible(left,match.leftStartSeconds,match.leftEndSeconds,false)
+                    || !measuredIdentityCompatible(right,match.rightStartSeconds,match.rightEndSeconds,false)))continue;
+            unique.push_back(match);++uses[a];++uses[b];++poses;
+        }
+    }
     // Retrieval policy must not change the public descending-score ordering.
     std::sort(unique.begin(), unique.end(), strongestFirst);
     matches = std::move(unique);
@@ -4239,6 +4268,10 @@ std::optional<std::array<std::uint8_t,32>> motionSearchInputFingerprint(
     PF_SEARCH_PARAMETER(reuseCameraConflicts);
     PF_SEARCH_PARAMETER(reuseRejectedComparisons);
     PF_SEARCH_PARAMETER(expandedSearch);
+    if(params.expandedSearch&&params.individualPairs&&params.recoverUnusedShots&&params.maxResultsPerShot>=2) {
+        constexpr std::uint32_t expandedSelectionVersion=1;
+        value(expandedSelectionVersion);
+    }
     PF_SEARCH_PARAMETER(timeWeight);
     PF_SEARCH_PARAMETER(normalizeSize);
     PF_SEARCH_PARAMETER(mirrorInvariant);

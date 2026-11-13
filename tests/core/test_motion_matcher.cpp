@@ -3250,6 +3250,40 @@ TEST(MotionMatcher, UnusedShotRecoveryPreservesEstablishedMotionAndBodyPairs)
     EXPECT_DOUBLE_EQ(recovered[0].similarity,original[0].similarity);
 }
 
+TEST(MotionMatcher, ExpandedSearchRetainsPrimaryPairAndOffersUnusedShotAlternative)
+{
+    auto a=deanAimingPoseFixture()[0],b=a,c=a;
+    a.sourceId=b.sourceId=c.sourceId="expanded-alternative-control";
+    a.hasSceneIndex=b.hasSceneIndex=c.hasSceneIndex=true;
+    a.sceneIndex=0;b.sceneIndex=1;c.sceneIndex=2;
+    for(auto& frame:b.frames)frame.timestampSeconds+=100;
+    for(auto& frame:c.frames)frame.timestampSeconds+=200;
+    const std::vector windows{a,b,c};
+    pfcore::MotionMatcherParams params;
+    params.individualPairs=params.allowStaticFrames=params.requireAppearance=true;
+    params.recoverUnusedShots=true;
+    const auto standard=pfcore::MotionMatcher(params).findAllPairs(windows);
+    ASSERT_EQ(standard.size(),1U);
+    params.expandedSearch=true;
+    params.maxResultsPerShot=1;
+    const auto primary=pfcore::MotionMatcher(params).findAllPairs(windows);
+    ASSERT_EQ(primary.size(),1U);
+    params.maxResultsPerShot=2;
+    const auto expanded=pfcore::MotionMatcher(params).findAllPairs(windows);
+    ASSERT_EQ(expanded.size(),2U);
+    EXPECT_TRUE(std::any_of(expanded.begin(),expanded.end(),[&](const auto& match) {
+        return match.leftIndex==primary[0].leftIndex&&match.rightIndex==primary[0].rightIndex
+            && match.similarity==primary[0].similarity;
+    }));
+    std::array<int,3> degree{};
+    for(const auto& match:expanded) {
+        EXPECT_FALSE(match.headOnlyComparison);
+        ++degree[match.leftIndex];++degree[match.rightIndex];
+    }
+    std::sort(degree.begin(),degree.end());
+    EXPECT_EQ(degree,(std::array<int,3>{1,1,2}));
+}
+
 TEST(MotionMatcher, OverlappingEditsShareTheLongCopiedShotQuota)
 {
     auto a=deanAimingPoseFixture()[0],b=a,longCopy=a;

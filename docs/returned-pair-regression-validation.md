@@ -96,6 +96,23 @@ shot. This is consistent with the single-use shot limit; the trace does not
 log individual skip reasons, so it cannot exclude additional internal vetoes.
 Evidence: `build/goal-031-selection-trace-01/warm-01.json.stderr.log`.
 
+On a four-window replay containing the two competing edges, the standard
+selector and general selector with a one-use quota returned only 0.994000.
+The general selector with a two-use quota returned both edges. Switching to
+that general selector in a full native run was not a satisfactory fix: it
+returned 157 rows, retained only 27 of the previous 188 exact track/range
+identities, and did not recover the target pair. That switch changes other
+selection rules as well as the quota.
+
+Instead, the existing Expanded search first completes its ordinary selection
+and then admits an additional static body pair only if it connects an unused
+shot to a primary shot that has not received another alternative. It keeps
+the existing similarity, camera and identity gates and pose budget. The
+ordinary search is unchanged. The new expanded policy returned both real
+edges in the four-window replay and passed 136 focused tests. The full
+expanded replay (same captured windows, with and without the additional
+selection pass) is still running; there is no full-set quality claim yet.
+
 Local evidence: `build/goal-031-existing-pair-count-comparison.json`,
 `build/goal-031-missing-pairs-{training,heldout}-review`, and
 `build/goal-031-missing-pair-tracks-01`. Current reports are the same native
