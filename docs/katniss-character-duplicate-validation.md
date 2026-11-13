@@ -84,3 +84,12 @@ actually triggered the separation decision.
 
 Local evidence: `repeated-track-pairs.json` and
 `repeated-track-scenes.jpg` in the same directory.
+
+The raw separation trace identifies one qualifying pair for candidate IDs
+2 and 45: tracks 6275 and 6277 at three samples spanning 4999.703–5000.037 s.
+The frames show Katniss entering from the right while Peeta stands at the
+left. The other three overlaps in the prepared-window report did not
+qualify in the raw trace. The remaining question is which observations
+link each track to its candidate's face gallery. This trace establishes
+the confirmation trigger without establishing the identity of every
+track in either candidate. Local trace: `build/goal-031-katniss-separation-trace-01/trace.json.stderr.log`.
