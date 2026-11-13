@@ -124,6 +124,23 @@ specific edge in the full candidate pool.
 
 Local replay evidence: `build/goal-031-expanded-full-replay-02/comparison.json`.
 
+A first visual review used three frames per interval and the matched track's
+keypoints on its midpoint observation. The overlay uses the 1280×720
+inference size limit and displays only keypoints with confidence at least
+0.4. Examples among the first 12 additions:
+
+| Time ranges starting at (seconds) | Visual observation |
+| --- | --- |
+| 1385.870 / 1630.010 | The same man stands upright with his arms lowered in both shots. |
+| 650.012 / 1048.523 | The same woman is upright with a similar arm position at two different shot scales. |
+| 1123.369 / 1509.840 | The same man holds bent elbows with his hands close together in both shots. |
+| 1418.193 / 2182.014 | The man bent forward with hands on his knees is paired with a more upright figure. |
+
+These are illustrative observations from one replay, not a labeled precision
+sample. The last row shows why score and additional result count alone are
+insufficient to judge the new pass. Local annotated frames are in
+`build/goal-031-expanded-full-replay-02/pose-review-01.jpg`.
+
 Local evidence: `build/goal-031-existing-pair-count-comparison.json`,
 `build/goal-031-missing-pairs-{training,heldout}-review`, and
 `build/goal-031-missing-pair-tracks-01`. Current reports are the same native
