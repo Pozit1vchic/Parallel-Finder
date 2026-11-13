@@ -58,3 +58,16 @@ Additional cache evidence (`identity-pair-evidence.json`) records similarities
 of the sampled tracks to both prototypes. For example, the foreground object
 at 3057.846 s has body similarity above 0.86 to both prototypes and no
 observed face. Body resemblance alone is not a safe way to resolve this case.
+
+## Native verification after the correction
+
+A fresh CUDA run of the first original source with commit `28fd954`
+again produced numbered cards 1 and 2 (candidate IDs 2 and 45). Both were
+still confirmed, with exactly 404 and 247 tracks and 7,034 and 3,797
+observations, respectively. The track-pair correction therefore fixes
+its synthetic false-confirmation case but does not resolve the reported
+duplicate. A further investigation must identify the actual repeatedly
+separated tracks and compare their face evidence with each group before
+changing selection or merging membership.
+
+Local comparison: `build/goal-031-katniss-confirmation-after-02/card-comparison.json`.
