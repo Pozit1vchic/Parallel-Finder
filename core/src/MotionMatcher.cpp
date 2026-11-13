@@ -4164,12 +4164,16 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             if(windows[match.leftIndex].staticFrameSet)++poses;
         }
         const auto primaryUses=uses;
+        // Joint angles can agree even when the visible body configurations
+        // differ. Require some independent alignment before reusing a shot.
+        constexpr double minimumAlternativeAlignment = 0.55;
         for(const auto& match:matches) {
             if(cancelled())return {};
             if(poses>=params_.maxUniqueResults)break;
             const auto& left=windows[match.leftIndex];const auto& right=windows[match.rightIndex];
             if(!left.staticFrameSet||!right.staticFrameSet||!left.hasSceneIndex||!right.hasSceneIndex
                 || portrait(match)||match.similarity<params_.similarityThreshold)continue;
+            if(std::exp(-4.0 * match.dtwDistance) < minimumAlternativeAlignment)continue;
             const auto a=shotOf[match.leftIndex],b=shotOf[match.rightIndex];
             const auto unusedWithPrimary=[&](std::size_t unused,std::size_t primary) {
                 return uses[unused]==0&&primaryUses[primary]==1&&uses[primary]==1;
@@ -4269,7 +4273,7 @@ std::optional<std::array<std::uint8_t,32>> motionSearchInputFingerprint(
     PF_SEARCH_PARAMETER(reuseRejectedComparisons);
     PF_SEARCH_PARAMETER(expandedSearch);
     if(params.expandedSearch&&params.individualPairs&&params.recoverUnusedShots&&params.maxResultsPerShot>=2) {
-        constexpr std::uint32_t expandedSelectionVersion=1;
+        constexpr std::uint32_t expandedSelectionVersion=2;
         value(expandedSelectionVersion);
     }
     PF_SEARCH_PARAMETER(timeWeight);
