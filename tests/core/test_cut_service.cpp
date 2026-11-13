@@ -592,6 +592,19 @@ TEST(MontageExport, LosslessClipsAndCombinedVideoKeepOriginalVideoAndAudioPacket
         "-map", "0:v", "-map", "1:a", "-map", "2:a", "-c:v", "libx264", "-g", "24", "-threads", "2",
         "-c:a", "aac", "-shortest", source});
     ASSERT_TRUE(generator.waitForFinished(30000)); ASSERT_EQ(generator.exitCode(), 0);
+    pfservices::CutRequest rejected;
+    rejected.inputPath = source.toStdWString();
+    rejected.startSeconds = 1;
+    rejected.endSeconds = 2;
+    rejected.mode = pfservices::CutMode::ExactLossless;
+    rejected.prepare = [](auto&) { throw std::runtime_error("clip preparation failed"); };
+    const auto failedMontage = directory.filePath("failed.mov");
+    const auto failed = pfservices::exportChronologicalMontage({rejected},
+        failedMontage.toStdWString(), {}, {}, ffmpeg.toStdString());
+    ASSERT_FALSE(failed.success);
+    EXPECT_NE(failed.error.find("montage clip 1/1 (original.mp4, 1.000"), std::string::npos);
+    EXPECT_NE(failed.error.find("clip preparation failed"), std::string::npos);
+    EXPECT_FALSE(QFileInfo::exists(failedMontage));
     const auto packets = [&](const QString& path) {
         QProcess probe;
         probe.start(ffprobe, {"-v", "error", "-show_packets", "-show_data_hash", "sha256",
