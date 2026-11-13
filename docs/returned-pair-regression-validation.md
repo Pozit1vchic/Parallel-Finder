@@ -161,8 +161,18 @@ of at least 0.55 on the existing 0–1 scale. The full 35,934-window replay
 kept 269 results and all 187 primary rows byte-equivalent as parsed data.
 Seven expanded rows were replaced, including the weak 1418.193/2182.014
 pair. All three visually plausible controls in the table stayed present.
-Replacement rows still need visual review, and this is a repeat of the
-development replay, not independent validation of the cutoff.
+Midpoint keypoint overlays for all seven removals and replacements show
+mixed results. At 302.184/394.671, the replacement shows similar lowered
+arms and upright shoulders under different lighting. At
+1418.033/1681.534, the woman braced with both hands on her knees is now
+paired with a woman leaning over a seated person whose forearms are
+partly obscured. This remains ambiguous as an editing parallel. At
+951.036/1217.337, the match aligns the upper body but one shot obscures
+the lower body, so standing versus sitting cannot be resolved from the
+overlay. These are observations from the development replay, not
+independent validation of the cutoff. Local overlays are
+`pose-review-01.jpg` (removed) and `pose-review-02.jpg` (replacements)
+in the alignment replay directory.
 All 136 focused Matcher and result-cache tests passed.
 
 Local evidence: `build/goal-031-expanded-alignment-replay-01/comparison.json`.
