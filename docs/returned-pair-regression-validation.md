@@ -109,9 +109,20 @@ and then admits an additional static body pair only if it connects an unused
 shot to a primary shot that has not received another alternative. It keeps
 the existing similarity, camera and identity gates and pose budget. The
 ordinary search is unchanged. The new expanded policy returned both real
-edges in the four-window replay and passed 136 focused tests. The full
-expanded replay (same captured windows, with and without the additional
-selection pass) is still running; there is no full-set quality claim yet.
+edges in the four-window replay and passed 136 focused tests.
+
+On the full 35,934-window replay, Expanded search returned 269 rows with
+the additional pass and 187 without it. All 187 primary rows were preserved
+exactly. All 82 additions were body comparisons and no exact source interval
+appeared more than twice. The probe flagged 27 additions as identity-verified
+and 23 as face-verified. Those are algorithm outputs, so the 82 additions
+measure additional candidates; independent precision is still unmeasured.
+The historical 250.860/1123.689 edge remains absent. The replay instead
+returned 250.860/1214.697 (0.9724), while retaining 974.678/1123.689
+(0.9940). The four-window result therefore does not generalize to that
+specific edge in the full candidate pool.
+
+Local replay evidence: `build/goal-031-expanded-full-replay-02/comparison.json`.
 
 Local evidence: `build/goal-031-existing-pair-count-comparison.json`,
 `build/goal-031-missing-pairs-{training,heldout}-review`, and
