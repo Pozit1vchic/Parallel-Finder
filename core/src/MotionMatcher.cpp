@@ -4173,6 +4173,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
             const auto& left=windows[match.leftIndex];const auto& right=windows[match.rightIndex];
             if(!left.staticFrameSet||!right.staticFrameSet||!left.hasSceneIndex||!right.hasSceneIndex
                 || portrait(match)||match.similarity<params_.similarityThreshold)continue;
+            if(!prepared[match.leftIndex].bodyObserved || !prepared[match.rightIndex].bodyObserved)continue;
             if(std::exp(-4.0 * match.dtwDistance) < minimumAlternativeAlignment)continue;
             const auto a=shotOf[match.leftIndex],b=shotOf[match.rightIndex];
             const auto unusedWithPrimary=[&](std::size_t unused,std::size_t primary) {
@@ -4273,7 +4274,7 @@ std::optional<std::array<std::uint8_t,32>> motionSearchInputFingerprint(
     PF_SEARCH_PARAMETER(reuseRejectedComparisons);
     PF_SEARCH_PARAMETER(expandedSearch);
     if(params.expandedSearch&&params.individualPairs&&params.recoverUnusedShots&&params.maxResultsPerShot>=2) {
-        constexpr std::uint32_t expandedSelectionVersion=2;
+        constexpr std::uint32_t expandedSelectionVersion=3;
         value(expandedSelectionVersion);
     }
     PF_SEARCH_PARAMETER(timeWeight);
