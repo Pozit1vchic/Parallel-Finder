@@ -1,6 +1,7 @@
 #include <pfcore/MovementClassifier.hpp>
 #include <pfcore/VideoActionEvidence.hpp>
 #include <pfcore/SceneWindow.hpp>
+#include <pfcore/PoseAssociation.hpp>
 #include <pfservices/MotionWindowCache.hpp>
 #include <pfservices/CharacterAnalysisCache.hpp>
 #include <QFile>
@@ -105,12 +106,36 @@ int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStr
         if(error.error!=QJsonParseError::NoError || !input.object()["observations"].isArray())return 5;
         for(const auto value:input.object()["observations"].toArray()) {
             const auto frame=value.toObject();
-            for(const auto detection:frame["people"].toArray()) {
+            const auto people=frame["people"].toArray();
+            const double time=frame["time"].toDouble(-1);
+            std::vector<pfcore::PoseFrame> poses;
+            for(const auto detection:people) {
+                pfcore::PoseFrame pose;
+                pose.timestampSeconds=time;
+                for(const auto point:detection.toObject()["points"].toArray()) {
+                    const auto coordinates=point.toArray();
+                    if(coordinates.size()!=3)return 5;
+                    pose.keypoints.push_back({coordinates[0].toDouble(),coordinates[1].toDouble(),coordinates[2].toDouble()});
+                }
+                poses.push_back(std::move(pose));
+            }
+            std::map<std::size_t,std::set<std::size_t>> tracksByDetection;
+            for(const auto& window:analysis.windows) {
+                for(const auto& cached:window.frames) {
+                    if(std::abs(cached.timestampSeconds-time)>1e-6)continue;
+                    const auto match=pfcore::associateObservedPose(cached,poses,frame["width"].toInt(),frame["height"].toInt());
+                    if(match)tracksByDetection[match->candidate].insert(window.trackId);
+                }
+            }
+            for(qsizetype index=0;index<people.size();++index) {
+                const auto detection=people[index];
                 const auto person=detection.toObject();
                 if(!person["faceAccepted"].toBool())continue;
                 std::vector<float> face;
                 for(const auto coordinate:person["face"].toArray())face.push_back(coordinate.toDouble());
-                refreshedFaces.append(QJsonObject{{"time",frame["time"]},{"box",person["box"]},
+                QJsonArray tracks;
+                for(const auto track:tracksByDetection[index])tracks.append(static_cast<qint64>(track));
+                refreshedFaces.append(QJsonObject{{"time",frame["time"]},{"box",person["box"]},{"cachedTracks",tracks},
                     {"leftPrototype",prototypeCosine(face,left->prototype.face)},
                     {"rightPrototype",prototypeCosine(face,right->prototype.face)}});
             }
