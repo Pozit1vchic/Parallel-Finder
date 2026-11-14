@@ -123,3 +123,13 @@ windows from 397 tracks. It retained two windows from the Peeta track
 therefore does not fix the underlying target admission on this scene.
 Use those two tracks as positive/negative controls for later recovery
 and exclusion changes.
+
+The selected-character desktop run completed with 20 returned pairs.
+The cached windows covering the three confirmation timestamps contain
+zero direct face samples for either track. The aggregate window face
+scores reported above cannot be treated as per-frame identity evidence
+for this scene. A subsequent correction needs evidence from other
+observations or a targeted face recheck.
+
+Local evidence: `build/goal-031-katniss-face-backed-01/direct-face-overlap.json`
+and `selected.json`.

@@ -71,8 +71,15 @@ int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStr
         const auto nose=[&](const Sample& sample) {
             const auto& p=sample.frame->keypoints.front();
             const auto& w=*sample.window;
+            QJsonArray directFaces;
+            for(const auto& face:w.directFaces) {
+                directFaces.append(QJsonObject{{"time",face.timestampSeconds},
+                    {"leftPrototype",prototypeCosine(face.embedding,left->prototype.face)},
+                    {"rightPrototype",prototypeCosine(face.embedding,right->prototype.face)}});
+            }
             return QJsonObject{{"track",static_cast<qint64>(w.trackId)},{"x",p.x},{"y",p.y},{"confidence",p.confidence},
                 {"faceConfidence",w.faceConfidence},{"bodyConfidence",w.appearanceConfidence},
+                {"directFaces",directFaces},
                 {"faceToLeftPrototype",prototypeCosine(w.faceEmbedding,left->prototype.face)},
                 {"faceToRightPrototype",prototypeCosine(w.faceEmbedding,right->prototype.face)},
                 {"bodyToLeftPrototype",prototypeCosine(w.appearanceEmbedding,left->prototype.body)},
