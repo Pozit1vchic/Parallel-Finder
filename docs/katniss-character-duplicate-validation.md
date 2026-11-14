@@ -173,3 +173,13 @@ the right after the cut. This directs the fix toward cut detection
 and track continuity before identity voting.
 Local evidence: `track-transition-scenes.json` in the face-backed run,
 and `transition-frames.jpg` in the prior first-film confirmation run.
+
+The existing native interval detector found exactly one boundary on
+4998.9–5002.1 s, at 4999.703041667 s, with score 1.82536 relative to
+its threshold. The desktop first proposes cuts from sparse scene
+samples, then refines already proposed boundaries and retracks. This
+interval demonstrates a boundary that the native detector can resolve
+but which is absent from the final desktop scene assignment. It does
+not yet isolate whether the initial sampled detection or its refinement
+lost the cut.
+Local evidence: `control-native-cut.json` in the face-backed run.
