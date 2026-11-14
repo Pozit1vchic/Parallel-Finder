@@ -116,3 +116,10 @@ without resolving the split in track membership. Selecting candidate 2
 still needs coverage verification.
 
 Local evidence: `build/goal-031-katniss-face-backed-01/verification.json`.
+
+The desktop search after selecting candidate 2 prepared 2,629 Matcher
+windows from 397 tracks. It retained two windows from the Peeta track
+6275 and none from the Katniss track 6277. The numbered-card correction
+therefore does not fix the underlying target admission on this scene.
+Use those two tracks as positive/negative controls for later recovery
+and exclusion changes.
