@@ -192,3 +192,12 @@ second side. The split invalidated inherited identity evidence for
 can isolate the samples, while identity must be recomputed before
 either side can be admitted as the selected person.
 Local evidence: `native-cut-cache-replay.json` in the face-backed run.
+
+A denser scene sequence provides a short proposal for this cut. The
+4 Hz cached sequence in scene 862 proposes 4999.536–4999.786 s
+(score 1.637); native decoding within that bracket confirms exactly
+4999.703 s. Across 898 cached sequences the proposal pass returned 453
+brackets. Only the control bracket was decoded in this check; the
+remaining candidates are unverified and the count is not a count of
+missed cuts. Local evidence: `sequence-cut-candidates.json` and
+`sequence-bracket-native-cut.json`.
