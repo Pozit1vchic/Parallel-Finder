@@ -96,6 +96,26 @@ int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStr
         repeatedTrackPairs.append(QJsonObject{{"leftTrack",static_cast<qint64>(ids.first)},
             {"rightTrack",static_cast<qint64>(ids.second)},{"times",times}});
     }
+    QJsonArray refreshedFaces;
+    if (arguments.size()==7) {
+        QFile refresh(arguments[6]);
+        if (!refresh.open(QIODevice::ReadOnly))return 5;
+        QJsonParseError error;
+        const auto input=QJsonDocument::fromJson(refresh.readAll(),&error);
+        if(error.error!=QJsonParseError::NoError || !input.object()["observations"].isArray())return 5;
+        for(const auto value:input.object()["observations"].toArray()) {
+            const auto frame=value.toObject();
+            for(const auto detection:frame["people"].toArray()) {
+                const auto person=detection.toObject();
+                if(!person["faceAccepted"].toBool())continue;
+                std::vector<float> face;
+                for(const auto coordinate:person["face"].toArray())face.push_back(coordinate.toDouble());
+                refreshedFaces.append(QJsonObject{{"time",frame["time"]},{"box",person["box"]},
+                    {"leftPrototype",prototypeCosine(face,left->prototype.face)},
+                    {"rightPrototype",prototypeCosine(face,right->prototype.face)}});
+            }
+        }
+    }
     QSaveFile output(arguments[3]);
     if(QFile::exists(arguments[3])||!output.open(QIODevice::WriteOnly))return 6;
     const auto bytes=QJsonDocument(QJsonObject{{"scope","Cached candidates before repeated-scene merge; shared sample times are not a person-conflict verdict"},
@@ -104,7 +124,7 @@ int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStr
         {"bodyPrototypeCosine",prototypeCosine(left->prototype.body,right->prototype.body)},
         {"sharedPrototypeSampleTimes",static_cast<qint64>(shared)},{"firstSharedPrototypeTimes",times},
         {"sharedWindowSampleTimes",static_cast<qint64>(pairedWindowCount)},{"sharedWindowSamples",pairedWindowSamples},
-        {"repeatedTrackPairsInWindows",repeatedTrackPairs}}).toJson();
+        {"repeatedTrackPairsInWindows",repeatedTrackPairs},{"refreshedFaces",refreshedFaces}}).toJson();
     return output.write(bytes)==bytes.size()&&output.commit()?0:6;
 }
 
@@ -169,9 +189,9 @@ std::vector<pfcore::VideoActionEvidence> readVideoActionCache(const std::filesys
 // Read-only replay of existing observations and cut boundaries. No model,
 // decoder, matcher, cache writes or eviction runs in this review tool.
 int main(int argc,char** argv) {
-    if(argc<4 || argc>6) {std::cerr<<"Usage: pf_grouping_probe MOTION.pfc RESULTS.json REVIEW.json [VERIFIED-CUTS.json|VIDEO-ACTION-CACHE] [VIDEO-ACTION-CACHE]\n"
-        <<"   or: pf_grouping_probe CHARACTER.pfc --character-pair REVIEW.json LEFT_ID RIGHT_ID\n";return 2;}
-    const bool characterPair=argc==6&&std::string_view(argv[2])=="--character-pair";
+    const bool characterPair=(argc==6||argc==7)&&std::string_view(argv[2])=="--character-pair";
+    if(argc<4 || (argc>6&&!characterPair)) {std::cerr<<"Usage: pf_grouping_probe MOTION.pfc RESULTS.json REVIEW.json [VERIFIED-CUTS.json|VIDEO-ACTION-CACHE] [VIDEO-ACTION-CACHE]\n"
+        <<"   or: pf_grouping_probe CHARACTER.pfc --character-pair REVIEW.json LEFT_ID RIGHT_ID [REFRESH.json]\n";return 2;}
     std::filesystem::path cutsPath,actionCachePath;
     if(!characterPair&&argc>=5) {
         std::error_code error;

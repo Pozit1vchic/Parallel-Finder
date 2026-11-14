@@ -133,3 +133,13 @@ observations or a targeted face recheck.
 
 Local evidence: `build/goal-031-katniss-face-backed-01/direct-face-overlap.json`
 and `selected.json`.
+
+Targeted re-detection found a usable face on Katniss at all three
+timestamps and none on Peeta. Katniss's fresh samples scored
+0.607/0.614, 0.641/0.660 and 0.467/0.477 against galleries 2/45.
+Both galleries agree with the visible Katniss samples, and their
+score differences remain below 0.02. Recovery based on choosing
+whichever gallery scores slightly higher would still split her
+appearances; an absent face on Peeta is also insufficient to
+reject his track by itself.
+Local evidence: `build/goal-031-katniss-face-backed-01/refresh-gallery-scores.json`.
