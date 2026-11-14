@@ -153,3 +153,13 @@ contradictory face evidence. The diagnostic re-detected people by
 frame; it did not yet associate those later observations to cached
 track IDs or alter Matcher admission.
 Local evidence: `build/goal-031-katniss-face-backed-01/refresh-nearby-gallery-scores.json`.
+
+An experimental pre-Matcher face recheck sampled 1,568 frames on the
+first film and took about 50 seconds with the prepared analysis cache.
+It proposed 188 additional track/shot admissions and no exclusions. In
+the control scene it produced three positive votes on 6275 and no
+qualifying decision on 6277. Earlier diagnostics linked a Katniss
+observation just before co-visibility to 6275, so aggregating by
+track and shot may cross a tracking switch. This policy did not pass
+the control and is disabled by default. The opt-in diagnostic flag
+is `PF_AUDIT_TARGET_FACE_RECHECK=1`.

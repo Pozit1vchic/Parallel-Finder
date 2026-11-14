@@ -765,11 +765,13 @@ class MatchedFaceVerifier {
     bool preferNvidia_;
     bool forwardAlignmentAudit_ = false;
     std::function<bool()> cancelled_;
+public:
     static double cosine(const std::vector<float>& a,const std::vector<float>& b) {
         if (a.empty() || a.size()!=b.size())return 0;
         double dot=0,x=0,y=0;for (std::size_t i=0;i<a.size();++i) {dot+=a[i]*b[i];x+=a[i]*a[i];y+=b[i]*b[i];}
         return x>0 && y>0 ? dot/std::sqrt(x*y) : 0;
     }
+private:
     static QString noteKey(std::size_t track,double time) {
         return QString::number(track)+"|"+QString::number(std::llround(time*1e6));
     }
@@ -806,20 +808,30 @@ class MatchedFaceVerifier {
         return added;
     }
 public:
+    struct Interval {
+        std::size_t windowIndex;
+        double start;
+        double end;
+    };
     MatchedFaceVerifier(std::vector<pfcore::MotionWindow>& windows,
         const std::unordered_map<std::string,std::string>& keys,pfservices::PfCache* cache,
         std::shared_ptr<pfgpu::FaceEstimator> estimator,bool nvidia,std::function<bool()> cancelled,
-        bool forwardAlignmentAudit = false)
+        bool forwardAlignmentAudit = false,
+        const std::map<std::string,std::vector<float>>* targetFaces = nullptr)
         :cache_(cache),estimator_(std::move(estimator)),preferNvidia_(nvidia),
          forwardAlignmentAudit_(forwardAlignmentAudit),cancelled_(std::move(cancelled)) {
         if (!estimator_)return;
-        std::map<std::string,std::map<std::size_t,const pfcore::MotionWindow*>> anchors;
-        for (const auto& w:windows) if (w.faceConfidence>=.45 && cosine(w.faceEmbedding,w.faceEmbedding)>.99) {
-            auto& slot=anchors[w.sourceId][w.sceneIndex];if (!slot || w.faceConfidence>slot->faceConfidence)slot=&w;
+        std::set<std::string> sources;
+        if(targetFaces) {
+            for(const auto& [source,face]:*targetFaces)
+                if(cosine(face,face)>.99)sources.insert(source);
+        } else {
+            for(const auto& w:windows)
+                if(w.faceConfidence>=.45 && cosine(w.faceEmbedding,w.faceEmbedding)>.99)sources.insert(w.sourceId);
         }
-        for (const auto& [source,shots]:anchors) {
+        for (const auto& source:sources) {
             auto& s=sources_[source];
-            s.face=sourceFaceCentroid(windows,source);
+            s.face=targetFaces ? targetFaces->at(source) : sourceFaceCentroid(windows,source);
             s.key=matchedFaceCacheKey(keys.at(source),s.face);
             if(cache_) {std::string ownerError;cache_->rememberSourceKey(source,s.key,ownerError);}
             if (cache_)if(const auto data=cache_->get(s.key)) {
@@ -831,13 +843,22 @@ public:
     }
     std::size_t verify(std::vector<pfcore::MotionWindow>& windows,const std::vector<pfcore::MotionMatch>& matches,
         const std::function<void(std::size_t,std::size_t)>& progress={}) {
+        std::vector<Interval> intervals;
+        intervals.reserve(matches.size()*2);
+        for (const auto& match:matches) {
+            intervals.push_back({match.leftIndex,match.leftStartSeconds,match.leftEndSeconds});
+            intervals.push_back({match.rightIndex,match.rightStartSeconds,match.rightEndSeconds});
+        }
+        return verifyIntervals(windows,intervals,progress);
+    }
+    std::size_t verifyIntervals(std::vector<pfcore::MotionWindow>& windows,const std::vector<Interval>& intervals,
+        const std::function<void(std::size_t,std::size_t)>& progress={}) {
         if (!estimator_)return 0;
         struct Request {std::size_t track;pfcore::PoseFrame frame;};
         std::map<std::string,std::map<QString,Request>> requested;
-        for (const auto& match:matches)for(const bool left:{true,false}) {
-            const auto& w=windows[left?match.leftIndex:match.rightIndex];
+        for (const auto& [index,start,end]:intervals) {
+            const auto& w=windows[index];
             if(!sources_.contains(w.sourceId))continue;
-            const double start=left?match.leftStartSeconds:match.rightStartSeconds,end=left?match.leftEndSeconds:match.rightEndSeconds;
             for(const double t:{start,start+(end-start)*.25,(start+end)/2,start+(end-start)*.75,end}) {
                 const pfcore::PoseFrame* closest=nullptr;
                 for(const auto& f:w.frames)if(f.timestampSeconds>=start-.001 && f.timestampSeconds<=end+.001
@@ -3695,6 +3716,8 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             }
             std::optional<pfcore::CharacterCandidate> batchTarget;
             std::map<std::string,std::set<std::size_t>> selectedTracks;
+            std::map<std::string,std::set<std::size_t>> competingTracks;
+            std::map<std::string,std::vector<float>> selectedFaces;
             std::vector<std::string> targetSourceOrder;
             // The first explicit selection is the one anchor for the whole
             // batch. Prefer a saved anchor when adding files, never independent
@@ -3871,6 +3894,13 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 if (chosen==candidates.end()) { error=QStringLiteral("TARGET_SELECTION_INVALID"); break; }
                 if (!batchTarget) batchTarget=*chosen;
                 selectedTracks[source].insert(chosen->trackIds.begin(),chosen->trackIds.end());
+                for(const auto& alternate:candidates) {
+                    if(alternate.id==chosen->id || alternate.distinctIdentity
+                        || alternate.prototype.faceEvidence<.65 || chosen->prototype.faceEvidence<.65
+                        || MatchedFaceVerifier::cosine(alternate.prototype.face,chosen->prototype.face)<.90)continue;
+                    competingTracks[source].insert(alternate.trackIds.begin(),alternate.trackIds.end());
+                    selectedFaces[source]=chosen->prototype.face;
+                }
                 auto summary=summaries.value(QString::fromStdString(source)).toMap();
                 summary.insert("targetCharacterId",QString::number(selected));
                 summary.insert("targetPresenceSeconds",chosen->presenceSeconds);
@@ -3890,6 +3920,54 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                         selected,suggestion.automatic,static_cast<int>(suggestion.reason),suggestion.similarity,
                         suggestion.margin,chosen->trackIds.size(),chosen->presenceSeconds,source.c_str());
             }
+            using TrackShot=std::tuple<std::string,std::size_t,std::size_t>;
+            std::set<TrackShot> recoveredTrackShots,excludedTrackShots;
+            if (!allPeople && face && !competingTracks.empty() && !isCancelled()
+                && qEnvironmentVariableIntValue("PF_AUDIT_TARGET_FACE_RECHECK")==1) {
+                using Shot=std::pair<std::string,std::size_t>;
+                std::set<Shot> disputedShots;
+                for(const auto& w:windows) {
+                    const auto competing=competingTracks.find(w.sourceId);
+                    if(w.hasSceneIndex && competing!=competingTracks.end() && competing->second.contains(w.trackId))
+                        disputedShots.emplace(w.sourceId,w.sceneIndex);
+                }
+                std::map<TrackShot,MatchedFaceVerifier::Interval> review;
+                for(std::size_t i=0;i<windows.size();++i) {
+                    const auto& w=windows[i];
+                    if(w.frames.empty() || !w.hasSceneIndex || !disputedShots.contains({w.sourceId,w.sceneIndex})
+                        || (!competingTracks.at(w.sourceId).contains(w.trackId)
+                            && !selectedTracks.at(w.sourceId).contains(w.trackId)))continue;
+                    const MatchedFaceVerifier::Interval interval{i,w.frames.front().timestampSeconds,w.frames.back().timestampSeconds};
+                    auto [entry,inserted]=review.try_emplace({w.sourceId,w.sceneIndex,w.trackId},interval);
+                    if(!inserted && interval.end-interval.start>entry->second.end-entry->second.start)entry->second=interval;
+                }
+                std::vector<MatchedFaceVerifier::Interval> intervals;
+                for(const auto& [_,interval]:review)intervals.push_back(interval);
+                MatchedFaceVerifier verifier(windows,sequenceCacheKeys,analysisCache.get(),face,
+                    providerChoice=="cuda"||providerChoice=="tensorrt",isCancelled,forwardFaceAlignmentAudit,&selectedFaces);
+                verifier.verifyIntervals(windows,intervals,[&](auto done,auto total) {
+                    reportPreparation(QStringLiteral("Проверяем спорные появления персонажа"),done,total);
+                });
+                std::size_t recovered=0,excluded=0;
+                for(const auto& [key,interval]:review) {
+                    const auto& [source,scene,track]=key;
+                    unsigned positive=0,negative=0;
+                    for(const auto& note:windows[interval.windowIndex].measuredFaces) {
+                        if(!note.observed)continue;
+                        positive+=note.similarity>=.55;
+                        negative+=note.similarity<.30;
+                    }
+                    if(positive>=2 && negative==0 && !selectedTracks[source].contains(track))
+                        recovered+=recoveredTrackShots.insert(key).second;
+                    if(negative>=2 && positive==0 && selectedTracks[source].contains(track))
+                        excluded+=excludedTrackShots.insert(key).second;
+                    if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS") && (positive>=2 || negative>=2))
+                        std::fprintf(stderr,"PF_TARGET_REVIEW scene=%zu track=%zu positive=%u negative=%u\n",scene,track,positive,negative);
+                }
+                for(auto& w:windows)w.measuredFaces.clear();
+                if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
+                    std::fprintf(stderr,"PF_TARGET_REVIEW recovered=%zu excluded=%zu\n",recovered,excluded);
+            }
             // Shot context belongs to the scene, independent of which actor
             // happened to own its first window before target filtering.
             using ShotKey=std::pair<std::string,std::size_t>;
@@ -3899,8 +3977,12 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     std::move(window.sceneSequence),std::move(window.sceneSequenceTimes));
             std::vector<pfcore::MotionWindow> targetWindows;
             QStringList targetA,targetB;
-            for (std::size_t i=0;i<windows.size();++i) if (!allPeople && selectedTracks[windows[i].sourceId].contains(windows[i].trackId)
-                && (analysisMode==QStringLiteral("combined") || (analysisMode==QStringLiteral("static"))==windows[i].staticFrameSet)) {
+            for (std::size_t i=0;i<windows.size() && !allPeople;++i) {
+                const auto& w=windows[i];
+                const TrackShot key{w.sourceId,w.sceneIndex,w.trackId};
+                if ((!selectedTracks[w.sourceId].contains(w.trackId) && !recoveredTrackShots.contains(key))
+                    || excludedTrackShots.contains(key)
+                    || (analysisMode!=QStringLiteral("combined") && (analysisMode==QStringLiteral("static"))!=w.staticFrameSet))continue;
                 if (auto found=shotSequences.find({windows[i].sourceId,windows[i].sceneIndex});found!=shotSequences.end()) {
                     windows[i].sceneSequence=std::move(found->second.first);
                     windows[i].sceneSequenceTimes=std::move(found->second.second);
