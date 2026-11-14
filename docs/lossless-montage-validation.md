@@ -25,3 +25,10 @@ with `PF_TEST_EXACT_LOSSLESS_SOURCE`, the three other paths in
 `PF_TEST_EXACT_LOSSLESS_START=74.115`, and
 `PF_TEST_EXACT_LOSSLESS_CLIP_SECONDS=8`. The log is
 `build/goal-031-long-katniss-lossless.log`; no media is tracked.
+
+A separate first-film run used two two-second clips, starting at 4998.9
+and 5000.9 seconds. The first crosses the hard cut at 4999.703 seconds
+that the character pipeline missed. Exact lossless export passed the
+decoded-frame, audio and metadata checks at this transition. This rules
+out that cut alone as a reproducer under the tested export settings.
+Local log: `build/goal-031-lossless-katniss-cut.log`.
