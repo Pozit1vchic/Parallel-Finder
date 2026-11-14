@@ -1594,6 +1594,8 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
     for (std::size_t i=0;i<result.size();++i)
         for (auto id:result[i].trackIds) owner[id]=i;
     struct ObservedTrack { std::size_t id; const PersonDetection* observation; };
+    std::map<std::size_t,const IdentitySummary*> trackIdentity;
+    for (std::size_t i=0;i<indices.size();++i) trackIdentity.emplace(tracks[indices[i]].id,&summaries[i]);
     std::map<double,std::map<std::size_t,ObservedTrack>> frames;
     for (const auto& track:tracks) {
         const auto found=owner.find(track.id);
@@ -1626,17 +1628,29 @@ std::vector<CharacterCandidate> characterCandidates(const std::vector<PersonTrac
             auto& evidence=separation[{a->first,b->first,a->second.id,b->second.id}];
             if (!evidence.count++) evidence.first=time;
             evidence.last=time;
-            if(evidence.count>=3&&evidence.last-evidence.first>=.25)
-                confirmedSeparation.emplace(a->first,b->first);
         }
     }
-    if (traceSeparation) {
-        for (const auto& [key,evidence] : separation) {
-            if (evidence.count<3 || evidence.last-evidence.first<.25) continue;
+    for (const auto& [key,evidence] : separation) {
+        if (evidence.count<3 || evidence.last-evidence.first<.25) continue;
+        const auto& left=result[key[0]].prototype;
+        const auto& right=result[key[1]].prototype;
+        // For highly similar candidate faces, seeing two people together
+        // only distinguishes the candidates if both tracks support their
+        // own gallery over the other one.
+        const bool similarFaces=left.faceEvidence>=.65 && right.faceEvidence>=.65
+            && embeddingScore(left.face,right.face)>=.90;
+        const auto supports=[](const IdentitySummary& track,const IdentitySummary& own,const IdentitySummary& other) {
+            const double match=embeddingScore(track.face,own.face);
+            return track.faceEvidence>=.45 && match>=.60 && match-embeddingScore(track.face,other.face)>=.04;
+        };
+        const bool confirmed=!similarFaces
+            || (supports(*trackIdentity.at(key[2]),left,right) && supports(*trackIdentity.at(key[3]),right,left));
+        if (confirmed) confirmedSeparation.emplace(key[0],key[1]);
+        if (traceSeparation) {
             std::fprintf(stderr,
-                "PF_CHARACTER_SEPARATION candidates=%zu/%zu tracks=%zu/%zu observations=%d first=%.9f last=%.9f\n",
+                "PF_CHARACTER_SEPARATION candidates=%zu/%zu tracks=%zu/%zu observations=%d first=%.9f last=%.9f confirmed=%d\n",
                 result[key[0]].id,result[key[1]].id,key[2],key[3],
-                evidence.count,evidence.first,evidence.last);
+                evidence.count,evidence.first,evidence.last,confirmed);
         }
     }
     std::vector<std::size_t> order(result.size()),confirmed;
