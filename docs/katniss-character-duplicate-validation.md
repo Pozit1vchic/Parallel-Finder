@@ -207,3 +207,11 @@ sequence starts from a different time origin and uses a different
 descriptor and proposal rule. This comparison therefore establishes
 that the cached sequence can propose the cut, but does not show that
 raising the desktop sampling rate would solve the issue.
+
+The full first-film diagnostic with native candidate confirmation found
+the same cut at 4999.703042 s before building Matcher windows. It checked
+6,137 proposals and produced 1,560 distinct boundaries after merging
+with the 938 original boundaries. The confirmation step took roughly
+233 seconds on this run. The outcome confirms cut detection in the
+diagnostic configuration; the selected-character admission comparison
+is pending. Local evidence: `build/goal-031-katniss-native-cuts-01/native.json.stderr.log`.
