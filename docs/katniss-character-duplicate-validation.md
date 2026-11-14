@@ -213,5 +213,10 @@ the same cut at 4999.703042 s before building Matcher windows. It checked
 6,137 proposals and produced 1,560 distinct boundaries after merging
 with the 938 original boundaries. The confirmation step took roughly
 233 seconds on this run. The outcome confirms cut detection in the
-diagnostic configuration; the selected-character admission comparison
-is pending. Local evidence: `build/goal-031-katniss-native-cuts-01/native.json.stderr.log`.
+diagnostic configuration. After selecting candidate 2, the Matcher input
+contained 15 checked Katniss observations after the cut, up from zero,
+and zero checked Peeta observations, down from three. The two windows
+crossing the cut disappeared. The four checked pre-cut Katniss
+observations also disappeared. This isolates the identity switch but
+does not yet preserve all known target coverage. Local evidence:
+`build/goal-031-katniss-native-cuts-01/cut-control.json`.
