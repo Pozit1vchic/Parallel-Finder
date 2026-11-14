@@ -220,3 +220,13 @@ crossing the cut disappeared. The four checked pre-cut Katniss
 observations also disappeared. This isolates the identity switch but
 does not yet preserve all known target coverage. Local evidence:
 `build/goal-031-katniss-native-cuts-01/cut-control.json`.
+
+The diagnostic search finished with 26 results versus 20 in the
+earlier selected-character run. The unfiltered diagnostic cache still
+contains static windows 4999.036–4999.536 (track 6565) and
+4998.702–4999.536 (track 6566). The pre-cut interval therefore still
+has prepared pose windows, even though none of the four reference
+observations survived selected-character admission. The remaining
+issue is identifying the correct pre-cut track and recovering it for
+selection. Local evidence: `all-track-window-review.json` and
+`native.json` in the native-cuts run.
