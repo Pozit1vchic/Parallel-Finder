@@ -230,3 +230,13 @@ observations survived selected-character admission. The remaining
 issue is identifying the correct pre-cut track and recovering it for
 selection. Local evidence: `all-track-window-review.json` and
 `native.json` in the native-cuts run.
+
+A targeted replay of six pre-cut timestamps found an accepted Katniss
+face on each frame, with similarities of 0.810–0.856 to the selected
+gallery. The strict same-frame pose association independently linked
+only the 4999.036 s detection to cached track 6565 (similarity 0.841).
+Thus the footage contains strong face evidence, but copying the other
+five embeddings from a separate pose inference run would lack a
+verified track association. The next useful check is to score the
+decoded faces using the cached pose coordinates directly.
+Local evidence: `precut-admission.json` in the native-cuts run.
