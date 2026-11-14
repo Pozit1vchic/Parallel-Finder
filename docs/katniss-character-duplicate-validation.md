@@ -250,3 +250,11 @@ The face recheck proposed 109 additional track/shot admissions across
 the film; those have not been fully reviewed. Both passes still require
 diagnostic flags. Local evidence: `cut-control.json` and
 `rechecked.json.stderr.log` in the native-cuts run.
+
+The face recheck increased the final result count from 26 to 32 in
+the cut-enabled run. Eleven pairs retained both exact track IDs and
+time ranges, 15 no longer had an exact counterpart, and 21 had new
+track/range keys. Track 6565 reached the Matcher input but appeared in
+none of the final results. Increased result count is therefore not
+evidence that this particular shot has a useful returned parallel.
+Local evidence: `returned-pair-comparison.json`.
