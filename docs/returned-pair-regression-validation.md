@@ -184,6 +184,17 @@ comparisons. This confirms additional coverage on footage outside the
 cutoff-development replay. The additions still need visual quality review.
 Local evidence: `build/goal-031-heldout-expanded-01/comparison.json`.
 
+A midpoint review exposed pairs based on face and shoulders alone. The
+additional static reuse pass now requires an observed limb chain on both
+ends. On the same replay, this removed 43 unsupported additions and
+admitted one replacement. All 154 primary rows remained identical, and
+29 additional pairs remained, bringing the total to 183. A separate
+check of the recorded window keypoints found that all 29 additions met
+the limb-support criterion. Visual usefulness of the remaining additions
+has not been measured exhaustively.
+Local evidence: `build/goal-031-heldout-expanded-body-01/comparison.json`
+and `body-evidence.json`.
+
 Local evidence: `build/goal-031-existing-pair-count-comparison.json`,
 `build/goal-031-missing-pairs-{training,heldout}-review`, and
 `build/goal-031-missing-pair-tracks-01`. Current reports are the same native
