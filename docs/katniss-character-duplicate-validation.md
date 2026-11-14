@@ -93,3 +93,17 @@ qualify in the raw trace. The remaining question is which observations
 link each track to its candidate's face gallery. This trace establishes
 the confirmation trigger without establishing the identity of every
 track in either candidate. Local trace: `build/goal-031-katniss-separation-trace-01/trace.json.stderr.log`.
+
+The cached pose coordinates place track 6275 on Peeta (left) and track
+6277 on Katniss (right) at all three triggering timestamps. Peeta's
+prepared-window face vector scores 0.85177 against its assigned gallery
+(candidate 2) and 0.86300 against candidate 45. Katniss's scores are
+0.69833 and 0.69857, respectively. The two track vectors score 0.57572
+against each other. Their positions establish two people, but neither
+track's cached face score distinguishes the two candidate galleries:
+the assignment margins are −0.01123 and +0.00024. These are prepared
+window vectors, not independent face observations at each timestamp.
+The result supports testing a requirement for track-to-gallery evidence
+when near-identical galleries are confirmed by co-visibility.
+
+Local evidence: `build/goal-031-katniss-confirmation-after-02/full-overlap-face-review.json`.

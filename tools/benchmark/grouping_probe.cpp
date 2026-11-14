@@ -68,7 +68,6 @@ int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStr
         if(!pair[0].frame||!pair[1].frame)continue;
         ++pairedWindowCount;
         sharedTrackTimes[{pair[0].window->trackId,pair[1].window->trackId}].push_back(time);
-        if(pairedWindowSamples.size()>=32)continue;
         const auto nose=[&](const Sample& sample) {
             const auto& p=sample.frame->keypoints.front();
             const auto& w=*sample.window;
@@ -79,7 +78,8 @@ int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStr
                 {"bodyToLeftPrototype",prototypeCosine(w.appearanceEmbedding,left->prototype.body)},
                 {"bodyToRightPrototype",prototypeCosine(w.appearanceEmbedding,right->prototype.body)}};
         };
-        pairedWindowSamples.append(QJsonObject{{"time",time},{"left",nose(pair[0])},{"right",nose(pair[1])}});
+        pairedWindowSamples.append(QJsonObject{{"time",time},{"left",nose(pair[0])},{"right",nose(pair[1])},
+            {"faceBetweenTracks",prototypeCosine(pair[0].window->faceEmbedding,pair[1].window->faceEmbedding)}});
     }
     QJsonArray repeatedTrackPairs;
     for(const auto& [ids,sharedTimes]:sharedTrackTimes) {
@@ -96,7 +96,7 @@ int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStr
         {"facePrototypeCosine",prototypeCosine(left->prototype.face,right->prototype.face)},
         {"bodyPrototypeCosine",prototypeCosine(left->prototype.body,right->prototype.body)},
         {"sharedPrototypeSampleTimes",static_cast<qint64>(shared)},{"firstSharedPrototypeTimes",times},
-        {"sharedWindowSampleTimes",static_cast<qint64>(pairedWindowCount)},{"firstSharedWindowSamples",pairedWindowSamples},
+        {"sharedWindowSampleTimes",static_cast<qint64>(pairedWindowCount)},{"sharedWindowSamples",pairedWindowSamples},
         {"repeatedTrackPairsInWindows",repeatedTrackPairs}}).toJson();
     return output.write(bytes)==bytes.size()&&output.commit()?0:6;
 }
