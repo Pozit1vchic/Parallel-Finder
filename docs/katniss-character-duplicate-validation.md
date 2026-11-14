@@ -107,3 +107,12 @@ The result supports testing a requirement for track-to-gallery evidence
 when near-identical galleries are confirmed by co-visibility.
 
 Local evidence: `build/goal-031-katniss-confirmation-after-02/full-overlap-face-review.json`.
+
+The first-film CUDA run with the face-backed separation rule rejected
+6275/6277 as evidence of distinct identities. Candidate 2 stayed numbered;
+candidate 45 became an unresolved appearance. Their track counts remained
+404 and 247 respectively, so this removes the duplicate numbered entry
+without resolving the split in track membership. Selecting candidate 2
+still needs coverage verification.
+
+Local evidence: `build/goal-031-katniss-face-backed-01/verification.json`.
