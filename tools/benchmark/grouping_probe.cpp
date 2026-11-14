@@ -98,13 +98,31 @@ int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStr
             {"rightTrack",static_cast<qint64>(ids.second)},{"times",times}});
     }
     QJsonArray refreshedFaces;
+    QJsonArray cachedPosesNearRefresh;
     if (arguments.size()==7) {
         QFile refresh(arguments[6]);
         if (!refresh.open(QIODevice::ReadOnly))return 5;
         QJsonParseError error;
         const auto input=QJsonDocument::fromJson(refresh.readAll(),&error);
         if(error.error!=QJsonParseError::NoError || !input.object()["observations"].isArray())return 5;
-        for(const auto value:input.object()["observations"].toArray()) {
+        const auto observations=input.object()["observations"].toArray();
+        if(!observations.isEmpty()) {
+            const double start=observations.first().toObject()["time"].toDouble();
+            const double end=observations.last().toObject()["time"].toDouble();
+            std::set<std::pair<std::size_t,double>> seen;
+            for(const auto& window:analysis.windows) {
+                if(!leftTracks.contains(window.trackId) && !rightTracks.contains(window.trackId))continue;
+                for(const auto& pose:window.frames) {
+                    if(pose.timestampSeconds<start || pose.timestampSeconds>end || pose.keypoints.empty()
+                        || !seen.emplace(window.trackId,pose.timestampSeconds).second)continue;
+                    const auto& nose=pose.keypoints.front();
+                    cachedPosesNearRefresh.append(QJsonObject{{"track",static_cast<qint64>(window.trackId)},
+                        {"scene",static_cast<qint64>(window.sceneIndex)},
+                        {"time",pose.timestampSeconds},{"x",nose.x},{"y",nose.y},{"confidence",nose.confidence}});
+                }
+            }
+        }
+        for(const auto value:observations) {
             const auto frame=value.toObject();
             const auto people=frame["people"].toArray();
             const double time=frame["time"].toDouble(-1);
@@ -149,7 +167,8 @@ int characterPairReport(const pfservices::CharacterAnalysis& analysis,const QStr
         {"bodyPrototypeCosine",prototypeCosine(left->prototype.body,right->prototype.body)},
         {"sharedPrototypeSampleTimes",static_cast<qint64>(shared)},{"firstSharedPrototypeTimes",times},
         {"sharedWindowSampleTimes",static_cast<qint64>(pairedWindowCount)},{"sharedWindowSamples",pairedWindowSamples},
-        {"repeatedTrackPairsInWindows",repeatedTrackPairs},{"refreshedFaces",refreshedFaces}}).toJson();
+        {"repeatedTrackPairsInWindows",repeatedTrackPairs},{"refreshedFaces",refreshedFaces},
+        {"cachedPosesNearRefresh",cachedPosesNearRefresh}}).toJson();
     return output.write(bytes)==bytes.size()&&output.commit()?0:6;
 }
 

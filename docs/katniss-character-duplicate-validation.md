@@ -163,3 +163,13 @@ observation just before co-visibility to 6275, so aggregating by
 track and shot may cross a tracking switch. This policy did not pass
 the control and is disabled by default. The opt-in diagnostic flag
 is `PF_AUDIT_TARGET_FACE_RECHECK=1`.
+
+Decoded frames locate the switch at a real hard cut between sampled
+timestamps 4999.536 and 4999.703 s. Track 6275 follows Katniss in a
+close-up before the cut and Peeta on the left after it. The prepared
+cache assigns both sides of this cut to scene 862, so a track/scene key
+cannot isolate the two people here. Track 6277 starts on Katniss on
+the right after the cut. This directs the fix toward cut detection
+and track continuity before identity voting.
+Local evidence: `track-transition-scenes.json` in the face-backed run,
+and `transition-frames.jpg` in the prior first-film confirmation run.
