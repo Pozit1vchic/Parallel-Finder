@@ -3277,8 +3277,15 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     poseTimes.erase(std::unique(poseTimes.begin(),poseTimes.end()),poseTimes.end());
                     const pfcore::SceneDetector nativeDetector(settings.sceneThreshold,
                         std::max<std::size_t>(1,settings.sceneMinFrames),settings.sceneAdaptiveMultiplier);
+                    QElapsedTimer candidateUpdates;
+                    candidateUpdates.start();
                     const auto confirmed = nativeDetector.refineSupportedBoundaries(decoder,proposals,
-                        sceneTimestamps,poseTimes,isCancelled,{},true);
+                        sceneTimestamps,poseTimes,isCancelled,[&](std::size_t done,std::size_t total) {
+                            if (done==0 || done==total || candidateUpdates.elapsed()>=150) {
+                                reportPreparation(QStringLiteral("Проверяем дополнительные границы сцен"),done,total);
+                                candidateUpdates.restart();
+                            }
+                        },true);
                     if (isCancelled()) {markCancelled();break;}
                     sceneBoundaries.insert(sceneBoundaries.end(),confirmed.begin(),confirmed.end());
                     std::sort(sceneBoundaries.begin(),sceneBoundaries.end(),[](const auto& a,const auto& b) {
