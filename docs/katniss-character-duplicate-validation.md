@@ -183,3 +183,12 @@ but which is absent from the final desktop scene assignment. It does
 not yet isolate whether the initial sampled detection or its refinement
 lost the cut.
 Local evidence: `control-native-cut.json` in the face-backed run.
+
+A read-only replay split the cached windows at that confirmed timestamp.
+Track 6275's static window split into 4999.036–4999.536 s and
+4999.703–5000.037 s in different scenes; track 6277 remained on the
+second side. The split invalidated inherited identity evidence for
+22 affected windows. This verifies that the existing split primitive
+can isolate the samples, while identity must be recomputed before
+either side can be admitted as the selected person.
+Local evidence: `native-cut-cache-replay.json` in the face-backed run.
