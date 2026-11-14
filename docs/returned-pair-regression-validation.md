@@ -177,6 +177,13 @@ All 136 focused Matcher and result-cache tests passed.
 
 Local evidence: `build/goal-031-expanded-alignment-replay-01/comparison.json`.
 
+On the separate S01E03/E04 replay, the expanded reuse policy returned
+225 results versus 154 on the same 24,403 prepared windows without reuse.
+All 154 primary rows were identical, and all 71 additions were body
+comparisons. This confirms additional coverage on footage outside the
+cutoff-development replay. The additions still need visual quality review.
+Local evidence: `build/goal-031-heldout-expanded-01/comparison.json`.
+
 Local evidence: `build/goal-031-existing-pair-count-comparison.json`,
 `build/goal-031-missing-pairs-{training,heldout}-review`, and
 `build/goal-031-missing-pair-tracks-01`. Current reports are the same native
