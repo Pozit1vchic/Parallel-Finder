@@ -112,6 +112,25 @@ TEST(CharacterCandidates, ScatteredCollisionsDoNotConfirmTwoPeople)
     EXPECT_FALSE(candidates[1].distinctIdentity);
 }
 
+TEST(CharacterCandidates, SimilarFaceGalleriesNeedDiscriminatingTracks)
+{
+    auto a=track(1,0,{1,0},8);
+    auto b=track(2,0,{.98F,.1989975F});
+    for(auto& observation:a.observations)observation.box={0,0,100,200};
+    for(auto& observation:b.observations)observation.box={200,0,300,200};
+    const auto ambiguous=pfcore::characterCandidates({a,b});
+    ASSERT_EQ(ambiguous.size(),2);
+    EXPECT_TRUE(ambiguous[0].distinctIdentity);
+    EXPECT_FALSE(ambiguous[1].distinctIdentity);
+    EXPECT_EQ(ambiguous[1].trackIds,(std::vector<std::size_t>{2}));
+
+    for(auto& observation:b.observations)observation.faceEmbedding={.94F,.3411744F};
+    const auto distinct=pfcore::characterCandidates({a,b});
+    ASSERT_EQ(distinct.size(),2);
+    EXPECT_TRUE(distinct[0].distinctIdentity);
+    EXPECT_TRUE(distinct[1].distinctIdentity);
+}
+
 TEST(CharacterCandidates, AMeasuredFaceCannotBeBorrowedByAnOverlappingBystander) {
     const pfcore::ObservedFaceLandmarks face{true,{100,100,140,100,120,120,105,140,135,140}};
     pfcore::PersonDetection actual,back;
