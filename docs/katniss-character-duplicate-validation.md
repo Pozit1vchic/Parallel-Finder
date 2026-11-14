@@ -240,3 +240,13 @@ five embeddings from a separate pose inference run would lack a
 verified track association. The next useful check is to score the
 decoded faces using the cached pose coordinates directly.
 Local evidence: `precut-admission.json` in the native-cuts run.
+
+With both diagnostic passes enabled, the face recheck on the split
+windows recorded four positive observations and no contradictions for
+track 6565. The selected Matcher input now contains all four checked
+pre-cut Katniss observations and all 15 post-cut ones, with zero
+checked Peeta observations and zero windows crossing the cut.
+The face recheck proposed 109 additional track/shot admissions across
+the film; those have not been fully reviewed. Both passes still require
+diagnostic flags. Local evidence: `cut-control.json` and
+`rechecked.json.stderr.log` in the native-cuts run.
