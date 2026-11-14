@@ -143,3 +143,13 @@ whichever gallery scores slightly higher would still split her
 appearances; an absent face on Peeta is also insufficient to
 reject his track by itself.
 Local evidence: `build/goal-031-katniss-face-backed-01/refresh-gallery-scores.json`.
+
+Nearby frames from the same shot provide both sides of the control.
+Between 5000.787 and 5002.039 s, three frames have accepted face crops
+for both people: the right-hand Katniss scores 0.630, 0.689 and 0.604
+against gallery 2; the left-hand Peeta scores 0.206, 0.239 and 0.157.
+These checks support testing a shot-local recheck with positive and
+contradictory face evidence. The diagnostic re-detected people by
+frame; it did not yet associate those later observations to cached
+track IDs or alter Matcher admission.
+Local evidence: `build/goal-031-katniss-face-backed-01/refresh-nearby-gallery-scores.json`.
