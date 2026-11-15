@@ -72,3 +72,19 @@ No end-to-end speed, peak RAM or VRAM improvement is inferred from extraction ti
 An additional five alternating full smoke runs on the same four development KTH videos (2035 source frames, fast/6 FPS, CUDA, four CPU threads, fresh application caches and separate processes) measured cold analysis medians **5324 → 5711 ms**, process wall **6179 → 6563 ms**, and live-sampled peak working set **1,307,635,712 → 1,619,562,496 bytes**. Warm analysis medians were **21 → 74 ms**, with all four observation/window cache hits and zero main-pipeline pose samples. Cache capacity was the benchmark's default 8 GiB; actual footprint must not be confused with that capacity. Raw contracts and 20 run records are under `build/goal-pipeline-ab-02`.
 
 This is a measured cost increase, not a whole-application speedup: the original extracted virtually no people, while the correction executes identity/tracking work and carries valid observations. Both versions returned zero final matches under normal identity admission on this small low-resolution corpus, so these measurements do not exercise nonempty result export or establish cinematic quality. A separate native all-people smoke adapter now exercises the exact UI branch; the first diagnostic-only attempt incorrectly used an empty single-person admission mask, was diagnosed in the debugger and corrected. Its failed output is retained and is not counted as a successful run. [Real-series validation](chernobyl-cache-validation.md) proceeds separately with the user-supplied footage.
+
+## Current holdout replay
+
+The matcher and classifier from `c17cc34` were checked on the same frozen
+observations and settings. All 863 ranked query lists equal the historical
+holdout output. A correct first result appeared for 108/144 waving and
+112/144 clapping queries. All 575 walking, jogging, running and boxing
+queries returned empty lists in the cross-scenario search.
+
+Direct comparison of same-action windows across scenarios locates an
+earlier gate for locomotion. Motion evidence was the recorded first
+rejection for 850/864 walking, 863/864 jogging and 864/864 running pairs.
+Boxing recorded motion evidence for 343/852 pairs and score rejection for
+509/852. These counts bypass candidate retrieval and describe the first
+recorded gate only. The data is low resolution and the evaluation assumes
+the subject is known. Artifacts are under `build/reference-soldier/kth-current`.
