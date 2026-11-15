@@ -1031,7 +1031,12 @@ std::vector<Descriptor> describe(const std::vector<NormalizedPose>& normalized,
 {
     std::vector<Descriptor> result;
     result.reserve(normalized.size());
+    const auto firstRoot = !window.staticFrameSet && !window.frames.empty()
+        ? frameRoot(window.frames.front()) : FrameRoot{};
+    auto currentRoot = firstRoot;
     for (std::size_t frameIndex = 0; frameIndex < normalized.size(); ++frameIndex) {
+        const auto previousRoot = currentRoot;
+        if (frameIndex > 0 && !window.staticFrameSet) currentRoot = frameRoot(window.frames[frameIndex]);
         const auto& pose = normalized[frameIndex];
         if (pose.empty()) { result.emplace_back(); continue; }
         if (window.staticFrameSet) {
@@ -1056,6 +1061,11 @@ std::vector<Descriptor> describe(const std::vector<NormalizedPose>& normalized,
         // indistinguishable from a static pose.  The root is normalized by
         // the initial body scale, so it remains comparable across resolutions.
         descriptor.reserve(pose.size() * 4 + 4);
+        const auto begin = frameIndex > 2 ? frameIndex - 2 : 0;
+        const auto end = std::min(normalized.size(), frameIndex + 3);
+        std::array<double, 5> timeOffsets{};
+        for (std::size_t sample = begin; sample < end; ++sample)
+            timeOffsets[sample - begin] = window.frames[sample].timestampSeconds - window.frames[frameIndex].timestampSeconds;
         for (std::size_t pointIndex = 0; pointIndex < pose.size(); ++pointIndex) {
             double velocityX = std::numeric_limits<double>::quiet_NaN();
             double velocityY = velocityX;
@@ -1069,13 +1079,10 @@ std::vector<Descriptor> describe(const std::vector<NormalizedPose>& normalized,
             if (validPoint(pose[pointIndex])) {
                 double sumT = 0, sumTT = 0, sumX = 0, sumY = 0, sumTX = 0, sumTY = 0;
                 std::size_t count = 0;
-                const auto begin = frameIndex > 2 ? frameIndex - 2 : 0;
-                const auto end = std::min(normalized.size(), frameIndex + 3);
                 for (std::size_t sample = begin; sample < end; ++sample) {
                     if (normalized[sample].size() != pose.size()
                         || !validPoint(normalized[sample][pointIndex])) continue;
-                    const double t = window.frames[sample].timestampSeconds
-                        - window.frames[frameIndex].timestampSeconds;
+                    const double t = timeOffsets[sample - begin];
                     if (std::abs(t) > 0.25) continue;
                     const auto& p = normalized[sample][pointIndex];
                     sumT += t; sumTT += t * t;
@@ -1101,10 +1108,7 @@ std::vector<Descriptor> describe(const std::vector<NormalizedPose>& normalized,
             descriptor.push_back(std::isfinite(accelerationY) ? std::clamp(accelerationY, -8.0, 8.0)
                                                               : accelerationY);
         }
-        const FrameRoot currentRoot = frameRoot(window.frames[frameIndex]);
-        const FrameRoot previousRoot = frameIndex > 0
-            ? frameRoot(window.frames[frameIndex - 1]) : currentRoot;
-        const double rootScale = std::max({frameRoot(window.frames.front()).scale,
+        const double rootScale = std::max({firstRoot.scale,
                                            currentRoot.scale, previousRoot.scale, 1e-6});
         const double rootDt = frameIndex > 0
             ? std::max(1e-3, window.frames[frameIndex].timestampSeconds
