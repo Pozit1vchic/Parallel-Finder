@@ -165,6 +165,7 @@ struct BatchCharacterMember {
 
 struct BatchCharacterGroup {
     std::vector<BatchCharacterMember> members;
+    std::size_t sourceCount = 0;
     double presenceSeconds = 0;
     double sharedPresenceSeconds = 0;
 };

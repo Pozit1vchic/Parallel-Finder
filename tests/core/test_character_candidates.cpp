@@ -708,6 +708,24 @@ TEST(CharacterCandidates, BatchRejectsTransitiveAgreementBetweenDifferentPeople)
     EXPECT_EQ(groups.back().members.size(), 1);
 }
 
+TEST(CharacterCandidates, BatchJoinsCorroboratedFragmentsWithoutCountingASourceTwice)
+{
+    const auto make = [](std::size_t id, std::vector<float> face) {
+        return pfcore::characterCandidates({track(id, 0, std::move(face), 32)}).front();
+    };
+    const std::vector first{make(1, {1, 0, 0}), make(2, {.98f, .18f, 0}),
+        make(3, {.80f, .60f, 0})};
+    const std::vector second{make(4, {.98f, .12f, 0})};
+    const std::vector third{make(5, {.97f, .10f, .12f})};
+    const std::span<const pfcore::CharacterCandidate> sources[]{first, second, third};
+    const auto groups = pfcore::groupBatchCharacters(sources);
+    ASSERT_EQ(groups.size(), 2);
+    EXPECT_EQ(groups.front().sourceCount, 3);
+    ASSERT_EQ(groups.front().members.size(), 4);
+    EXPECT_DOUBLE_EQ(groups.front().sharedPresenceSeconds, 8);
+    EXPECT_EQ(groups.back().members.front().candidateIndex, 2);
+}
+
 TEST(CharacterCandidates, CancelDoesNotPublishPartialCandidates)
 {
     pfcore::DominantSelectionControl control;

@@ -1745,12 +1745,14 @@ std::vector<BatchCharacterGroup> groupBatchCharacters(
         if (cancelled && cancelled()) return {};
         const auto first = owner[link.first], second = owner[link.second];
         if (first == second) continue;
-        // One representative per source. Face agreement across every pair
-        // prevents a chain of partial matches from connecting different people.
+        // Independent cross-source matches can join fragments from one source
+        // only when those fragments themselves have strong face agreement.
         const bool compatible = std::all_of(groups[first].begin(), groups[first].end(),
             [&](std::size_t a) {
                 return std::all_of(groups[second].begin(), groups[second].end(), [&](std::size_t b) {
-                    return members[a].sourceIndex != members[b].sourceIndex && score(a, b) >= .50;
+                    if (members[a].sourceIndex != members[b].sourceIndex) return score(a, b) >= .50;
+                    return candidate(a).prototype.faceEvidence >= .65
+                        && candidate(b).prototype.faceEvidence >= .65 && score(a, b) >= .94;
                 });
             });
         if (!compatible) continue;
@@ -1766,17 +1768,20 @@ std::vector<BatchCharacterGroup> groupBatchCharacters(
         if (group.empty()) continue;
         std::sort(group.begin(), group.end());
         BatchCharacterGroup entry;
-        entry.sharedPresenceSeconds = candidate(group.front()).presenceSeconds;
+        std::map<std::size_t,double> presenceBySource;
         for (const auto index : group) {
             entry.members.push_back(members[index]);
             const auto seconds = candidate(index).presenceSeconds;
             entry.presenceSeconds += seconds;
-            entry.sharedPresenceSeconds = std::min(entry.sharedPresenceSeconds, seconds);
+            presenceBySource[members[index].sourceIndex] += seconds;
         }
+        entry.sourceCount = presenceBySource.size();
+        entry.sharedPresenceSeconds = std::min_element(presenceBySource.begin(), presenceBySource.end(),
+            [](const auto& a, const auto& b) { return a.second < b.second; })->second;
         result.push_back(std::move(entry));
     }
     std::stable_sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
-        if (a.members.size() != b.members.size()) return a.members.size() > b.members.size();
+        if (a.sourceCount != b.sourceCount) return a.sourceCount > b.sourceCount;
         if (a.sharedPresenceSeconds != b.sharedPresenceSeconds)
             return a.sharedPresenceSeconds > b.sharedPresenceSeconds;
         return a.presenceSeconds > b.presenceSeconds;

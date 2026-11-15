@@ -3748,7 +3748,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
                     std::fprintf(stderr,"PF_REPEATED_SCENE_IDENTITIES source=%s merged=%zu\n",source.c_str(),merged);
             }
-            std::map<std::string,std::size_t> batchSelections;
+            std::map<std::string,std::vector<std::size_t>> batchSelections;
             const bool batchSelection = paths.size() > 1;
             std::shared_ptr<ResultPreviewImages> batchThumbnails;
             if (batchSelection && !isCancelled()) {
@@ -3772,14 +3772,19 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 };
                 std::vector<std::vector<BatchAppearance>> appearances(displayCount);
                 for (std::size_t i=0;i<displayCount;++i) {
+                    std::map<std::size_t,pfcore::CharacterAppearance> bestBySource;
                     for (const auto& member:groups[i].members) {
                         const auto& entries=candidates[member.sourceIndex][member.candidateIndex].appearances;
                         const auto best=std::max_element(entries.begin(),entries.end(),[](const auto& a,const auto& b) {
                             return a.quality<b.quality;
                         });
                         if (best==entries.end()) continue;
-                        appearances[i].push_back({requests.size(),member.sourceIndex,*best});
-                        requests.push_back({sources[member.sourceIndex],{},{},best->timestampSeconds,{}});
+                        auto [slot,inserted]=bestBySource.try_emplace(member.sourceIndex,*best);
+                        if (!inserted && best->quality>slot->second.quality) slot->second=*best;
+                    }
+                    for (const auto& [sourceIndex,best]:bestBySource) {
+                        appearances[i].push_back({requests.size(),sourceIndex,best});
+                        requests.push_back({sources[sourceIndex],{},{},best.timestampSeconds,{}});
                     }
                 }
                 pfcore::VideoDecodeOptions options;
@@ -3815,7 +3820,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                         tracks+=entry.trackIds.size();
                     }
                     rows.push_back(QVariantMap{{"id",QString::number(i+1)},{"number",static_cast<int>(i+1)},
-                        {"unresolved",false},{"sourceCount",static_cast<int>(group.members.size())},{"sourceTotal",paths.size()},
+                        {"unresolved",false},{"sourceCount",static_cast<int>(group.sourceCount)},{"sourceTotal",paths.size()},
                         {"presence",group.presenceSeconds},{"observations",static_cast<qulonglong>(observations)},
                         {"tracks",static_cast<qulonglong>(tracks)},{"previews",previews},{"representative",representative}});
                 }
@@ -3837,7 +3842,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                         for (const auto& member:groups[selected-1].members) {
                             const auto& source=sources[member.sourceIndex];
                             const auto& candidate=candidates[member.sourceIndex][member.candidateIndex];
-                            batchSelections.emplace(source,candidate.id);
+                            batchSelections[source].push_back(candidate.id);
                         }
                     }
                 }
@@ -3845,6 +3850,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             std::map<std::string,std::set<std::size_t>> selectedTracks;
             std::map<std::string,std::set<std::size_t>> competingTracks;
             std::map<std::string,std::vector<float>> selectedFaces;
+            std::map<std::string,std::vector<const pfcore::IdentitySummary*>> joinedFaceReferences;
             std::vector<std::string> targetSourceOrder;
             for (const auto& path:paths)
                 if(sourceCandidates.contains(path.toStdString()))targetSourceOrder.push_back(path.toStdString());
@@ -3857,7 +3863,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     summaries.insert(QString::fromStdString(source),summary);
                     continue;
                 }
-                std::size_t selected = batchSelection ? batchSelections.at(source) : 0;
+                std::size_t selected = batchSelection ? batchSelections.at(source).front() : 0;
                 const auto selectionKey = sequenceCacheKeys.at(source) + "|selected-target-v2";
                 if (!batchSelection && analysisCache && QString::fromStdString(source) != forceTargetSource) {
                     if (const auto saved=analysisCache->get(selectionKey)) {
@@ -3999,9 +4005,24 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 if(selected==std::numeric_limits<std::size_t>::max()) {allPeople=true;break;}
                 const auto chosen=std::find_if(candidates.begin(),candidates.end(),[&](const auto& c){return c.id==selected;});
                 if (chosen==candidates.end()) { error=QStringLiteral("TARGET_SELECTION_INVALID"); break; }
-                selectedTracks[source].insert(chosen->trackIds.begin(),chosen->trackIds.end());
+                auto& tracks=selectedTracks[source];
+                tracks.insert(chosen->trackIds.begin(),chosen->trackIds.end());
+                double presence=chosen->presenceSeconds;
+                QStringList selectedIds{QString::number(selected)};
+                if (batchSelection) {
+                    const auto& ids=batchSelections.at(source);
+                    if (ids.size()>1) joinedFaceReferences[source].push_back(&chosen->prototype);
+                    for (const auto& fragment:candidates) {
+                        if (fragment.id==selected || std::find(ids.begin(),ids.end(),fragment.id)==ids.end()) continue;
+                        tracks.insert(fragment.trackIds.begin(),fragment.trackIds.end());
+                        joinedFaceReferences[source].push_back(&fragment.prototype);
+                        presence+=fragment.presenceSeconds;
+                        selectedIds.push_back(QString::number(fragment.id));
+                    }
+                }
                 for(const auto& alternate:candidates) {
-                    if(alternate.id==chosen->id || alternate.distinctIdentity
+                    if(std::any_of(alternate.trackIds.begin(),alternate.trackIds.end(),[&](auto id){return tracks.contains(id);})
+                        || alternate.distinctIdentity
                         || alternate.prototype.faceEvidence<.65 || chosen->prototype.faceEvidence<.65
                         || MatchedFaceVerifier::cosine(alternate.prototype.face,chosen->prototype.face)<.90)continue;
                     competingTracks[source].insert(alternate.trackIds.begin(),alternate.trackIds.end());
@@ -4009,7 +4030,8 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 }
                 auto summary=summaries.value(QString::fromStdString(source)).toMap();
                 summary.insert("targetCharacterId",QString::number(selected));
-                summary.insert("targetPresenceSeconds",chosen->presenceSeconds);
+                summary.insert("targetPresenceSeconds",presence);
+                if (batchSelection) summary.insert("targetCharacterIds",selectedIds);
                 summary.insert("characterCount",static_cast<int>(candidates.size()));
                 summary.insert("targetAutomatic",false);
                 summaries.insert(QString::fromStdString(source),summary);
@@ -4020,7 +4042,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 }
                 if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
                     std::fprintf(stderr,"PF_TARGET_SELECTED id=%zu batch=%d tracks=%zu presence=%.3f source=%s\n",
-                        selected,batchSelection,chosen->trackIds.size(),chosen->presenceSeconds,source.c_str());
+                        selected,batchSelection,tracks.size(),presence,source.c_str());
             }
             using TrackShot=std::tuple<std::string,std::size_t,std::size_t>;
             std::set<TrackShot> recoveredTrackShots,excludedTrackShots;
@@ -4079,12 +4101,26 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     std::move(window.sceneSequence),std::move(window.sceneSequenceTimes));
             std::vector<pfcore::MotionWindow> targetWindows;
             QStringList targetA,targetB;
+            std::map<std::string,std::size_t> contradictoryWindows;
             for (std::size_t i=0;i<windows.size() && !allPeople;++i) {
                 const auto& w=windows[i];
                 const TrackShot key{w.sourceId,w.sceneIndex,w.trackId};
                 if ((!selectedTracks[w.sourceId].contains(w.trackId) && !recoveredTrackShots.contains(key))
                     || excludedTrackShots.contains(key)
                     || (analysisMode!=QStringLiteral("combined") && (analysisMode==QStringLiteral("static"))!=w.staticFrameSet))continue;
+                // A joined identity can still contain a mismatched track.
+                // Veto a reliable contradictory shot face; missing faces
+                // keep the pose evidence from occluded/profile appearances.
+                const auto references=joinedFaceReferences.find(w.sourceId);
+                if (references!=joinedFaceReferences.end() && w.faceConfidence>=.65
+                    && MatchedFaceVerifier::cosine(w.faceEmbedding,w.faceEmbedding)>.99
+                    && std::all_of(references->second.begin(),references->second.end(),[&](const auto* reference) {
+                        return reference->face.size()==w.faceEmbedding.size()
+                            && MatchedFaceVerifier::cosine(w.faceEmbedding,reference->face)<.25;
+                    })) {
+                    ++contradictoryWindows[w.sourceId];
+                    continue;
+                }
                 if (auto found=shotSequences.find({windows[i].sourceId,windows[i].sceneIndex});found!=shotSequences.end()) {
                     windows[i].sceneSequence=std::move(found->second.first);
                     windows[i].sceneSequenceTimes=std::move(found->second.second);
@@ -4092,6 +4128,12 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 }
                 targetWindows.push_back(std::move(windows[i]));
                 targetA.push_back(previewA[static_cast<qsizetype>(i)]); targetB.push_back(previewB[static_cast<qsizetype>(i)]);
+            }
+            for (const auto& [source,count]:contradictoryWindows) {
+                const auto path=QString::fromStdString(source);
+                auto summary=summaries.value(path).toMap();
+                summary.insert("targetContradictoryWindows",static_cast<qulonglong>(count));
+                summaries.insert(path,summary);
             }
             if(!allPeople) {windows=std::move(targetWindows); previewA=std::move(targetA); previewB=std::move(targetB);}
             QMetaObject::invokeMethod(this,[this,cancel] {
