@@ -1,21 +1,10 @@
 # Документация Parallel Finder
 
-- [Версия 0.3.0: изменения и ограничения](v0.3.0-release-notes.md).
-- [Проверка сортировки движений головы на реальных сериях](head-temporal-ranking-validation.md).
+- [Установка и первый анализ](../README.md), [работа с парами](pair-review.md) и [обновления](updates.md).
+- [Заметки к версии 0.3.0](v0.3.0-release-notes.md).
+- [Модели](models.md) и [настройка GPU](GPU-SETUP.md).
+- [Сборка пакетов ускорения](provider-packages-howto.md), [устройство runtime](provider-runtime.md) и [распространение runtime](runtime-distribution.md).
+- [Проверка матчера](matcher-validation.md), [проверка сортировки движений головы](head-temporal-ranking-validation.md) и [аудит ресурсов](../AUDIT.md).
+- [Визуальная система](design.md), [Discord Presence](discord-presence.md) и [подготовка релиза](../tools/release/README.md).
 
-- [Архитектурные изменения после 0.2.5: измерения и открытые проверки](goal-rework-audit-2026-11-11.md), [список изменений](goal-rework-unreleased.md).
-
-- [Независимые проверки поз и временной модели на KTH](low-resolution-pose-validation.md).
-- [Проверка реальных серий «Чернобыля», полный анализ и аудит кеширования](chernobyl-cache-validation.md) — выполняется.
-
-- [Текущий аудит кода и ресурсов](../AUDIT.md).
-- [Визуальная система](design.md) и [работа с парами](pair-review.md).
-- [Последние изменения интерфейса](review-polish-2026-10-10.md), [согласованный список задач](backlog.md).
-- [Модели](models.md), [GPU для пользователя](GPU-SETUP.md), [пакеты GPU для разработчика](provider-packages-howto.md).
-- [Устройство runtime](provider-runtime.md), [распространение runtime](runtime-distribution.md).
-- [Методика проверки матчера](matcher-validation.md), [источники по сравнению движений](matcher-references.md).
-- [Владение памятью и предыдущие проверки](memory-audit.md).
-- [Discord Presence](discord-presence.md), [обновления](updates.md).
-- [Подготовка релиза](../tools/release/README.md), [проверки перед публикацией](release-audit.md), [последний опубликованный RC20.5](rc20.5-release-notes.md).
-
-Старые заметки RC13–RC19, журналы восстановления и дубли отчётов удалены из текущего дерева. Исторические документы доступны в истории Git; нужные ссылки на них ведут к конкретной ревизии. Проверочные видео, модели, кеши и локальные замеры не входят в репозиторий.
+Ранние заметки о предварительных сборках доступны в истории Git.
