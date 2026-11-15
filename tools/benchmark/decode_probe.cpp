@@ -1,5 +1,7 @@
 #include <pfcore/VideoDecoder.hpp>
 #include <pfcore/SceneDetector.hpp>
+#include <algorithm>
+#include <array>
 #include <bit>
 #include <chrono>
 #include <cmath>
@@ -7,6 +9,84 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+
+namespace {
+
+using Thumbnail = std::array<std::uint8_t, 64 * 36 * 4>;
+
+Thumbnail thumbnail(const pfcore::DecodedFrame& frame)
+{
+    Thumbnail result{};
+    for (int y = 0; y < 36; ++y) for (int x = 0; x < 64; ++x) {
+        const auto source = (static_cast<std::size_t>(y * frame.height / 36) * frame.width
+            + x * frame.width / 64) * 4;
+        std::copy_n(frame.rgba.begin() + source, 4, result.begin() + (y * 64 + x) * 4);
+    }
+    return result;
+}
+
+int compareResize(const std::string& source, pfcore::VideoDecodeOptions options, double fps, double limit)
+{
+    pfcore::VideoDecoder cpu, gpu;
+    options.preferNvidia = false;
+    cpu.open(source, options);
+    options.preferNvidia = options.resizeOnNvidia = true;
+    gpu.open(source, options);
+    if (gpu.diagnostics().backend != "nvdec")
+        throw std::runtime_error("NVIDIA resize unavailable: " + gpu.diagnostics().fallbackReason);
+    std::vector<double> times;
+    std::vector<Thumbnail> cpuImages, gpuImages;
+    pfcore::DecodedFrame a, b;
+    double next = -std::numeric_limits<double>::infinity();
+    double totalError = 0, maximumSampleError = 0;
+    std::size_t frames = 0;
+    while (cpu.readNext(a, false)) {
+        if (limit > 0 && a.timestampSeconds >= limit) break;
+        if (!gpu.readNext(b, false) || std::abs(a.timestampSeconds - b.timestampSeconds) > 1e-9)
+            throw std::runtime_error("Decoded frame timestamps differ at frame " + std::to_string(frames));
+        ++frames;
+        if (a.timestampSeconds + 1e-9 < next) continue;
+        if (!cpu.convertCurrentFrameToRgba(a) || !gpu.convertCurrentFrameToRgba(b)
+            || a.width != b.width || a.height != b.height)
+            throw std::runtime_error("Incompatible decoded comparison frames");
+        times.push_back(a.timestampSeconds);
+        cpuImages.push_back(thumbnail(a));
+        gpuImages.push_back(thumbnail(b));
+        double sampleError = 0;
+        for (std::size_t i = 0; i < Thumbnail{}.size(); i += 4)
+            for (std::size_t channel = 0; channel < 3; ++channel)
+                sampleError += std::abs(int(cpuImages.back()[i+channel]) - int(gpuImages.back()[i+channel]));
+        sampleError /= 64 * 36 * 3;
+        totalError += sampleError;
+        maximumSampleError = std::max(maximumSampleError, sampleError);
+        if (!std::isfinite(next)) next = a.timestampSeconds;
+        do { next += 1.0 / fps; } while (next <= a.timestampSeconds + 1e-9);
+    }
+    if (times.empty() || (limit == 0 && gpu.readNext(b, false)))
+        throw std::runtime_error("Empty or unequal decode streams");
+    const auto cuts = [&](const std::vector<Thumbnail>& images) {
+        std::vector<pfcore::SceneSample> samples;
+        samples.reserve(times.size());
+        for (std::size_t i = 0; i < times.size(); ++i) samples.push_back({times[i], 64, 36, images[i]});
+        return pfcore::SceneDetector().detect(samples);
+    };
+    const auto cpuCuts = cuts(cpuImages), gpuCuts = cuts(gpuImages);
+    std::cout << "frames=" << frames << " samples=" << times.size()
+        << " thumbnail_mean_rgb_error=" << totalError / times.size()
+        << " thumbnail_max_sample_rgb_error=" << maximumSampleError
+        << " cpu_cuts=" << cpuCuts.size() << " gpu_cuts=" << gpuCuts.size() << '\n';
+    const auto printMissing = [](const auto& left, const auto& right, const char* label) {
+        for (const auto& cut : left)
+            if (std::none_of(right.begin(), right.end(), [&](const auto& other) {
+                return cut.timestampSeconds == other.timestampSeconds;
+            })) std::cout << label << cut.timestampSeconds << '\n';
+    };
+    printMissing(cpuCuts, gpuCuts, "cpu_only_cut_seconds=");
+    printMissing(gpuCuts, cpuCuts, "gpu_only_cut_seconds=");
+    return 0;
+}
+
+} // namespace
 
 // Isolate the application's actual decoder from inference and GUI costs.
 // No proxy files, model calls or skipped bitstream reference frames.
@@ -18,7 +98,7 @@ int main(int argc, char** argv)
 {
     try {
         if (argc < 3 || argc > 7) {
-            std::cerr << "Usage: pf_decode_probe VIDEO cpu|nvdec|nvdec-resize|nvdec-boundaries|nvdec-boundaries-parallel [THREADS=0] [SAMPLE_FPS=6] [DURATION_SECONDS=0] [CONVERSION_THREADS=1; parallel boundary mode: WORKERS=2]\n";
+            std::cerr << "Usage: pf_decode_probe VIDEO cpu|nvdec|nvdec-resize|compare-resize|nvdec-boundaries|nvdec-boundaries-parallel [THREADS=0] [SAMPLE_FPS=6] [DURATION_SECONDS=0] [CONVERSION_THREADS=1; parallel boundary mode: WORKERS=2]\n";
             return 2;
         }
         const auto utf8Argument = [&](int index) {
@@ -28,7 +108,7 @@ int main(int argc, char** argv)
         const auto source = utf8Argument(1);
         const auto mode = utf8Argument(2);
         const bool parallelBoundaries=mode=="nvdec-boundaries-parallel";
-        if (mode != "cpu" && mode != "nvdec" && mode != "nvdec-resize" && mode != "nvdec-boundaries" && !parallelBoundaries) throw std::invalid_argument("invalid decode mode");
+        if (mode != "cpu" && mode != "nvdec" && mode != "nvdec-resize" && mode != "compare-resize" && mode != "nvdec-boundaries" && !parallelBoundaries) throw std::invalid_argument("invalid decode mode");
         pfcore::VideoDecodeOptions options;
         options.preferNvidia = mode != "cpu";
         options.resizeOnNvidia = mode == "nvdec-resize";
@@ -40,6 +120,7 @@ int main(int argc, char** argv)
         if (!std::isfinite(fps) || fps <= 0 || fps > 240) throw std::invalid_argument("invalid sample FPS");
         const double durationLimit=argc>5 ? std::stod(argv[5]) : 0.;
         if(!std::isfinite(durationLimit) || durationLimit<0)throw std::invalid_argument("invalid duration limit");
+        if (mode == "compare-resize") return compareResize(source, options, fps, durationLimit);
         const auto start = std::chrono::steady_clock::now();
         pfcore::VideoDecoder decoder;
         decoder.open(source, options);
