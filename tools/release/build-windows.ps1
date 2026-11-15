@@ -40,9 +40,18 @@ function Get-ReleaseRelativePath([string]$Base, [string]$Path) {
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $bin = Join-Path $Toolchain 'bin'
 $releaseOriginalPath = $env:PATH
-$env:PATH = "$bin;$env:PATH"
 $tag = $ReleaseTag
 if ($GitHubTag -and $GitHubTag.TrimStart('v') -cne $tag.TrimStart('v')) { throw 'GitHubTag must match ReleaseTag except for the optional v prefix' }
+if ([bool]$PreviousPackage -ne [bool]$PreviousVersion) {
+    throw 'PreviousPackage and PreviousVersion must be supplied together'
+}
+if ($PreviousPackage) {
+    $PreviousPackage = (Get-Item -LiteralPath $PreviousPackage -ErrorAction Stop).FullName
+    if (!(Test-Path -LiteralPath $PreviousPackage -PathType Leaf)) {
+        throw 'PreviousPackage must name the previous Portable ZIP file'
+    }
+}
+$env:PATH = "$bin;$env:PATH"
 Push-Location $root
 try {
     & cmake --preset ucrt64-release "-DPF_RELEASE_LABEL=$tag"
