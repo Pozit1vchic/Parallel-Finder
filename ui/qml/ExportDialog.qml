@@ -21,6 +21,7 @@ Popup {
     property string exportStatus: ""
     property var results: { Analysis.resultCategoryRevision; return Analysis.results }
     property var classOrder: []
+    readonly property var orderedSelection: selectedIndexes()
 
     property int qualityChoice: 1 // lossless, high, custom
     readonly property bool losslessExport: qualityChoice === 0
@@ -56,13 +57,13 @@ Popup {
     }
     function selectedIndexes() {
         const selected = root.results.filter(function(row) { return root.selectedRows[row.id] === true && !row.hidden })
-        const ids = selected.map(function(row) { return Number(row.id) })
+        const remaining = new Set(selected.map(row => Number(row.id)))
         const ordered = []
         for (const value of root.selectionOrder) {
             const id = Number(value)
-            if (ids.indexOf(id) >= 0 && ordered.indexOf(id) < 0) ordered.push(id)
+            if (remaining.delete(id)) ordered.push(id)
         }
-        for (const id of ids) if (ordered.indexOf(id) < 0) ordered.push(id)
+        for (const id of remaining) ordered.push(id)
         return ordered
     }
     function localFolderPath(value) {
@@ -102,7 +103,7 @@ Popup {
             root.selectedCutMode,
             root.outputFolder,
             root.fileBaseName,
-            root.selectedIndexes(),
+            root.orderedSelection,
             root.mergeChronological,
             root.classOrder,
             root.encodingQuality,
@@ -221,7 +222,7 @@ Popup {
                         font.pixelSize: 25
                     }
                     Text {
-                        text: root.selectedIndexes().length + " " + L10n.t("export.selected")
+                        text: root.orderedSelection.length + " " + L10n.t("export.selected")
                         color: Theme.textSecondary
                         font.family: Theme.fontFamily
                         font.pixelSize: 12
@@ -457,7 +458,7 @@ Popup {
                         + (Analysis.exportStage === "preparing" ? "" : " · " + Analysis.exportClipProgress + "%")
                     : L10n.t("export.prepare")
                 enabled: !Analysis.exportBusy && root.qualityValid
-                    && root.fileBaseName.length > 0 && root.selectedIndexes().length > 0
+                    && root.fileBaseName.length > 0 && root.orderedSelection.length > 0
                     && root.outputFolder.length > 0
                 onClicked: root.startExport()
             }
