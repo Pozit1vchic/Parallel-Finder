@@ -2259,7 +2259,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     }
     const double anatomyScore = shapeSimilarity(leftPrepared.poses, rightPoses,leftPrepared.shapeGeometry,
         mirrorRight ? rightPrepared.mirroredShapeGeometry : rightPrepared.shapeGeometry,
-        staticPair && identity.verified);
+        staticPair && params.requireAppearance && identity.verified);
     // Context is a sanity gate, not a replacement for motion. It suppresses
     // the common false-positive class where the same/front-facing actor is
     // present but the actual shot composition and trajectory do not agree.

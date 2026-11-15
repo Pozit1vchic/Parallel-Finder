@@ -53,6 +53,10 @@ TEST(MotionMatcher, MeasuredTorsoScaleRetainsPoseAcrossForeshortenedShoulders)
     }
     EXPECT_GE(matcher.compare(fullWithOccludedWrist,croppedBelowHips).similarity,.7);
     EXPECT_EQ(matcher.findAllPairs({fullWithOccludedWrist,croppedBelowHips}).size(),1U);
+    auto unrestrictedCropParams=params;
+    unrestrictedCropParams.requireAppearance=false;
+    EXPECT_LT(pfcore::MotionMatcher(unrestrictedCropParams)
+        .compare(fullWithOccludedWrist,croppedBelowHips).similarity,.7);
     auto other=profile;other.faceEmbedding={0,1};
     EXPECT_DOUBLE_EQ(matcher.compare(front,other).similarity,0);
     EXPECT_EQ(matcher.compare(front,other).rejection, pfcore::MotionRejection::Identity);
