@@ -97,3 +97,9 @@ walking, jogging, running or boxing queries. Correct first results
 for clapping and waving declined from 58/64 to 55/64 at 0.24. The
 production threshold was retained. See `motion-gate-details.json` and
 `development-alignment/summary.json` under the same artifact directory.
+
+The extended trace separates the aligned-observation count and duration gates.
+None of the 2,577 locomotion comparisons above had a logged variant that passed
+the observation count and failed only on duration. Shortening the minimum
+duration alone cannot recover these comparisons. See
+`temporal-rejection-breakdown.json`.

@@ -1755,7 +1755,7 @@ bool hasTemporalRun(const std::vector<Descriptor>& left,
                    const MotionWindow& leftWindow,
                    const MotionWindow& rightWindow,
                    const MotionMatcherParams& params,
-                   const TemporalAlignment& alignment)
+                    const TemporalAlignment& alignment, bool debugMatcher)
 {
     const double runDuration = alignment.run == 0 ? 0.0 : std::min(
         leftWindow.frames[std::min(alignment.endLeft, leftWindow.frames.size() - 1)].timestampSeconds
@@ -1770,13 +1770,12 @@ bool hasTemporalRun(const std::vector<Descriptor>& left,
         std::size_t{6},
         static_cast<std::size_t>(std::ceil(0.25
             * static_cast<double>(std::min(left.size(), right.size())))));
-    const bool enoughFrames = alignment.run >= requiredFrames
-        && runDuration + 1e-9 >= std::max(params.minimumResultDurationSec,
-                                          params.minTemporalDurationSec);
-    if (std::getenv("PF_DEBUG_MATCHER") != nullptr) {
-        std::fprintf(stderr, "PF_DEBUG_MATCHER temporal max=%.3f bestRun=%zu duration=%.3f threshold=%.3f\n",
+    const double requiredDuration = std::max(params.minimumResultDurationSec, params.minTemporalDurationSec);
+    const bool enoughFrames = alignment.run >= requiredFrames && runDuration + 1e-9 >= requiredDuration;
+    if (debugMatcher) {
+        std::fprintf(stderr, "PF_DEBUG_MATCHER temporal max=%.3f bestRun=%zu duration=%.3f threshold=%.3f requiredFrames=%zu requiredDuration=%.3f\n",
                      alignment.averageSimilarity, alignment.run, runDuration,
-                     params.temporalSimilarityThreshold);
+                     params.temporalSimilarityThreshold, requiredFrames, requiredDuration);
     }
     return enoughFrames;
 }
@@ -2118,7 +2117,7 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
     const bool rightDiversity = true;
     const auto alignment = staticPair ? TemporalAlignment{}
         : alignTemporal(a, b, left, right, params.temporalSimilarityThreshold);
-    const bool temporalRun = staticPair || hasTemporalRun(a, b, left, right, params, alignment);
+    const bool temporalRun = staticPair || hasTemporalRun(a, b, left, right, params, alignment, debugMatcher);
     const bool motionGateFails = leftPrepared.motionDelta < params.motionDeltaThreshold
         || rightPrepared.motionDelta < params.motionDeltaThreshold
         || leftPrepared.activeTransitionRatio < params.minActiveTransitionRatio
