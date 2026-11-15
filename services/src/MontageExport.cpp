@@ -208,7 +208,10 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
                 return result;
             }
             const auto& request = prepared[i];
-            if (!request.canonicalSceneId.empty() && !canonicalOutputs.insert(result.outputPath).second) continue;
+            // Reuse encoded canonical footage without dropping its second
+            // appearance in the explicitly ordered A/B montage.
+            if (!retainRepeatedClips && !request.canonicalSceneId.empty()
+                && !canonicalOutputs.insert(result.outputPath).second) continue;
             const QString name = QString::fromStdWString(result.outputPath.wstring());
             if (exactLossless) {
                 const auto& actual = info(result.outputPath);

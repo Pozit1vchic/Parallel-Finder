@@ -551,6 +551,8 @@ TEST(MontageExport, SortsDeduplicatesAndNormalizesMixedSilentAndAudioVideos)
         + static_cast<std::size_t>(frame.width / 2)) * 4;
     EXPECT_GT(frame.rgba[center], frame.rgba[center + 2] + 100); // centered red clip in the second slot
     decoder.close();
+    const auto canonical = [](pfservices::CutRequest& request) { request.canonicalSceneId = "shared-side"; };
+    a.prepare = canonical;
     const auto ordered = pfservices::exportChronologicalMontage({a, b, a},
         temporary.filePath("ordered.mp4").toStdWString(), {}, {}, ffmpeg.toStdString(), true, 0, 0, true);
     ASSERT_TRUE(ordered.success) << ordered.error;
