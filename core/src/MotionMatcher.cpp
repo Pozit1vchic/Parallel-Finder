@@ -3776,6 +3776,7 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
     const auto shotLimit = params_.individualPairs ? 1U : params_.maxResultsPerShot;
     const auto rounds = shotLimit == 0 ? 1U : shotLimit;
     std::size_t selectedCandidates=0;
+    const bool debugSelection = std::getenv("PF_DEBUG_SELECTION") != nullptr;
     for (std::size_t round = 0; round < rounds; ++round) {
     nextHead = nextBody = 0;
     for (const MotionMatch& ranked : matches) {
@@ -3792,24 +3793,20 @@ std::vector<MotionMatch> MotionMatcher::findAllPairs(const std::vector<MotionWin
         }
         const MotionMatch& candidate = *next;
         const bool staticCandidate = windows[candidate.leftIndex].staticFrameSet;
-        if (params_.individualPairs && !staticCandidate) {
-            const auto classification = pairMovement(candidate);
-            // MotionRanker removes these results anyway. Apply the identical
-            // semantic guard before reserving shots, so rejected jitter cannot
-            // hide an independently supported pose or another real gesture.
-            if (classification.confirmedStatic()) continue;
-        }
         auto& typeCount = staticCandidate ? staticResults : motionResults;
-        if (std::getenv("PF_DEBUG_SELECTION") != nullptr) {
+        if (typeCount >= seedBudget) continue;
+        const auto shotUses = [&](std::size_t index) { return windows[index].hasSceneIndex ? shotUseCounts[shotOf[index]] : 0U; };
+        if (shotLimit > 0
+            && (shotUses(candidate.leftIndex) > round || shotUses(candidate.rightIndex) > round)) continue;
+        // Run semantic classification only for candidates with room in
+        // the selection. Static jitter still cannot reserve a shot.
+        if (params_.individualPairs && !staticCandidate && pairMovement(candidate).confirmedStatic()) continue;
+        if (debugSelection) {
             std::fprintf(stderr, "PF_SELECTION t=%.3f/%.3f score=%.6f static=%d head=%d used=%zu limit=%zu\n",
                 candidate.leftStartSeconds, candidate.rightStartSeconds, candidate.similarity,
                 staticCandidate ? 1 : 0, candidate.headOnlyComparison ? 1 : 0,
                 typeCount, params_.maxUniqueResults);
         }
-        if (typeCount >= seedBudget) continue;
-        const auto shotUses = [&](std::size_t index) { return windows[index].hasSceneIndex ? shotUseCounts[shotOf[index]] : 0U; };
-        if (shotLimit > 0
-            && (shotUses(candidate.leftIndex) > round || shotUses(candidate.rightIndex) > round)) continue;
         const bool duplicate = std::any_of(unique.begin(), unique.end(), [&](const MotionMatch& kept) {
             // A pose result is not a duplicate of a repeated movement. Their
             // scores measure different things and cannot compete in NMS.
