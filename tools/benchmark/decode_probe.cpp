@@ -34,10 +34,11 @@ int compareResize(const std::string& source, pfcore::VideoDecodeOptions options,
     gpu.open(source, options);
     if (gpu.diagnostics().backend != "nvdec")
         throw std::runtime_error("NVIDIA resize unavailable: " + gpu.diagnostics().fallbackReason);
-    std::vector<double> times;
+    std::vector<double> times, poseTimes;
     std::vector<Thumbnail> cpuImages, gpuImages;
     pfcore::DecodedFrame a, b;
     double next = -std::numeric_limits<double>::infinity();
+    double nextPose = next;
     double totalError = 0, maximumSampleError = 0;
     std::size_t frames = 0;
     while (cpu.readNext(a, false)) {
@@ -45,6 +46,12 @@ int compareResize(const std::string& source, pfcore::VideoDecodeOptions options,
         if (!gpu.readNext(b, false) || std::abs(a.timestampSeconds - b.timestampSeconds) > 1e-9)
             throw std::runtime_error("Decoded frame timestamps differ at frame " + std::to_string(frames));
         ++frames;
+        // Reproduce a denser pose-sampling cadence without running inference.
+        if (a.timestampSeconds + 1e-9 >= nextPose) {
+            poseTimes.push_back(a.timestampSeconds);
+            if (!std::isfinite(nextPose)) nextPose = a.timestampSeconds;
+            do { nextPose += 1.0 / 8.0; } while (nextPose <= a.timestampSeconds + 1e-9);
+        }
         if (a.timestampSeconds + 1e-9 < next) continue;
         if (!cpu.convertCurrentFrameToRgba(a) || !gpu.convertCurrentFrameToRgba(b)
             || a.width != b.width || a.height != b.height)
@@ -83,6 +90,17 @@ int compareResize(const std::string& source, pfcore::VideoDecodeOptions options,
     };
     printMissing(cpuCuts, gpuCuts, "cpu_only_cut_seconds=");
     printMissing(gpuCuts, cpuCuts, "gpu_only_cut_seconds=");
+    // Use the same native decoder for both candidates so this comparison
+    // isolates the effect of resized thumbnails on the proposed cuts.
+    pfcore::VideoDecoder native;
+    options.preferNvidia = options.resizeOnNvidia = false;
+    native.open(source, options);
+    const pfcore::SceneDetector detector;
+    const auto cpuRefined = detector.refineSupportedBoundaries(native, cpuCuts, times, poseTimes);
+    const auto gpuRefined = detector.refineSupportedBoundaries(native, gpuCuts, times, poseTimes);
+    std::cout << "cpu_refined=" << cpuRefined.size() << " gpu_refined=" << gpuRefined.size() << '\n';
+    printMissing(cpuRefined, gpuRefined, "cpu_only_refined_seconds=");
+    printMissing(gpuRefined, cpuRefined, "gpu_only_refined_seconds=");
     return 0;
 }
 
