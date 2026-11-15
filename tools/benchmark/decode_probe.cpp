@@ -3,20 +3,30 @@
 #include <bit>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
 
 // Isolate the application's actual decoder from inference and GUI costs.
 // No proxy files, model calls or skipped bitstream reference frames.
+#ifdef _WIN32
+int wmain(int argc, wchar_t** argv)
+#else
 int main(int argc, char** argv)
+#endif
 {
     try {
         if (argc < 3 || argc > 7) {
             std::cerr << "Usage: pf_decode_probe VIDEO cpu|nvdec|nvdec-resize|nvdec-boundaries|nvdec-boundaries-parallel [THREADS=0] [SAMPLE_FPS=6] [DURATION_SECONDS=0] [CONVERSION_THREADS=1; parallel boundary mode: WORKERS=2]\n";
             return 2;
         }
-        const std::string mode = argv[2];
+        const auto utf8Argument = [&](int index) {
+            const auto bytes = std::filesystem::path(argv[index]).u8string();
+            return std::string(bytes.begin(), bytes.end());
+        };
+        const auto source = utf8Argument(1);
+        const auto mode = utf8Argument(2);
         const bool parallelBoundaries=mode=="nvdec-boundaries-parallel";
         if (mode != "cpu" && mode != "nvdec" && mode != "nvdec-resize" && mode != "nvdec-boundaries" && !parallelBoundaries) throw std::invalid_argument("invalid decode mode");
         pfcore::VideoDecodeOptions options;
@@ -32,7 +42,7 @@ int main(int argc, char** argv)
         if(!std::isfinite(durationLimit) || durationLimit<0)throw std::invalid_argument("invalid duration limit");
         const auto start = std::chrono::steady_clock::now();
         pfcore::VideoDecoder decoder;
-        decoder.open(argv[1], options);
+        decoder.open(source, options);
         if (mode == "nvdec-boundaries" || parallelBoundaries) {
             // Fixed adjacent sampled brackets exercise the production native
             // refinement, without model work or a user-cache dependency.
@@ -45,7 +55,7 @@ int main(int argc, char** argv)
             for (double time = 1.25; time + 1 < limit; time += 5)
                 boundaries.push_back({time, 1});
             const auto refined = parallelBoundaries
-                ? pfcore::SceneDetector().refineSupportedBoundariesParallel(argv[1],options,
+                ? pfcore::SceneDetector().refineSupportedBoundariesParallel(source,options,
                     boundaries,sampleTimes,poseTimes,argc>6 ? std::stoi(argv[6]):2)
                 : pfcore::SceneDetector().refineSupportedBoundaries(decoder,boundaries,sampleTimes,poseTimes);
             std::uint64_t fingerprint = 14695981039346656037ULL;
@@ -61,6 +71,7 @@ int main(int argc, char** argv)
         }
         pfcore::DecodedFrame frame;
         std::uint64_t frames = 0, samples = 0, pixels = 0;
+        std::uint64_t sampledTimestamps = 14695981039346656037ULL;
         double next = -std::numeric_limits<double>::infinity();
         while (decoder.readNext(frame, false)) {
             if(durationLimit>0 && frame.timestampSeconds>=durationLimit)break;
@@ -68,6 +79,8 @@ int main(int argc, char** argv)
             if (frame.timestampSeconds + 1e-9 < next) continue;
             if (!decoder.convertCurrentFrameToRgba(frame)) throw std::runtime_error("missing retained frame");
             ++samples;
+            sampledTimestamps ^= std::bit_cast<std::uint64_t>(frame.timestampSeconds);
+            sampledTimestamps *= 1099511628211ULL;
             pixels += static_cast<std::uint64_t>(frame.width) * frame.height;
             if (!std::isfinite(next)) next = frame.timestampSeconds + 1.0 / fps;
             else do { next += 1.0 / fps; } while (next <= frame.timestampSeconds + 1e-9);
@@ -79,6 +92,7 @@ int main(int argc, char** argv)
             << " conversion_threads=" << stats.conversionThreads
             << " source=" << decoder.info().width << 'x' << decoder.info().height
             << " frames=" << frames << " samples=" << samples << " pixels=" << pixels
+            << " sampled_timestamps=" << sampledTimestamps
             << " downloads=" << stats.hardwareDownloads << " elapsed_ms=" << elapsed
             << " reused_buffers=" << stats.reusedDownloadBuffers << " download_ms=" << stats.downloadMilliseconds
             << " read_ms=" << stats.readMilliseconds << " convert_ms=" << stats.conversionMilliseconds
