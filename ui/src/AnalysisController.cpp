@@ -2031,7 +2031,7 @@ bool AnalysisController::exportResults(const QString& format,
                         exportStage_ = done + 1 == total ? QStringLiteral("finalizing") : QStringLiteral("encoding");
                         emit exportProgressChanged();
                     }, Qt::QueuedConnection);
-                }, "ffmpeg", useSelectionOrder || !classOrder.isEmpty(), maxWidth, maxHeight);
+                }, "ffmpeg", useSelectionOrder || !classOrder.isEmpty(), maxWidth, maxHeight, useSelectionOrder);
             finish(result.success, result.success ? QStringLiteral("Video: ") + QString::fromStdWString(result.outputPath.wstring())
                 : QString::fromStdString(result.error));
             return;

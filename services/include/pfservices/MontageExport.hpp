@@ -7,6 +7,7 @@ using MontageProgress = std::function<void(std::size_t completed, std::size_t to
 // Sorts A/B segments by source time, then source path; removes identical
 // source/range duplicates. Fast mode preserves original video/audio streams
 // and rejects incompatible sources without falling back to re-encoding.
+// An explicitly ordered list of pairs can retain repeated sides.
 // Exact mode encodes sequentially, normalizes to the first
 // clip's display size/FPS, preserves audio (silence for silent sources),
 // concatenates by stream copy, and atomically installs only a complete MP4.
@@ -16,5 +17,5 @@ using MontageProgress = std::function<void(std::size_t completed, std::size_t to
 CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
     const std::filesystem::path& output, std::stop_token stop = {},
     MontageProgress progress = {}, const std::string& executable = "ffmpeg", bool preserveInputOrder = false,
-    int maxWidth = 0, int maxHeight = 0);
+    int maxWidth = 0, int maxHeight = 0, bool retainRepeatedClips = false);
 }

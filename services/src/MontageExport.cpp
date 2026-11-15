@@ -25,7 +25,7 @@ namespace pfservices {
 CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
     const std::filesystem::path& output, std::stop_token stop,
     MontageProgress progress, const std::string& executable, bool preserveInputOrder,
-    int maxWidth, int maxHeight)
+    int maxWidth, int maxHeight, bool retainRepeatedClips)
 {
     CutResult result;
     const auto cancelled = [&] {
@@ -67,8 +67,12 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
     });
     // A repeated range can represent different transitions when it carries a
     // different label. Discarding it would silently omit that transition.
-    std::set<std::tuple<std::filesystem::path, double, double, QString>> seen;
-    std::erase_if(clips, [&](const auto& clip) { return !seen.emplace(clip.inputPath, clip.startSeconds, clip.endSeconds, clip.transitionSignature).second; });
+    if (!retainRepeatedClips) {
+        std::set<std::tuple<std::filesystem::path, double, double, QString>> seen;
+        std::erase_if(clips, [&](const auto& clip) {
+            return !seen.emplace(clip.inputPath, clip.startSeconds, clip.endSeconds, clip.transitionSignature).second;
+        });
+    }
     const QString destination = QString::fromStdWString(output.wstring());
     const QString parent = QFileInfo(destination).absolutePath();
     if (!QDir().mkpath(parent)) { result.error = "cannot create montage folder"; return result; }

@@ -550,6 +550,15 @@ TEST(MontageExport, SortsDeduplicatesAndNormalizesMixedSilentAndAudioVideos)
     const auto center = (static_cast<std::size_t>(frame.height / 2) * frame.width
         + static_cast<std::size_t>(frame.width / 2)) * 4;
     EXPECT_GT(frame.rgba[center], frame.rgba[center + 2] + 100); // centered red clip in the second slot
+    decoder.close();
+    const auto ordered = pfservices::exportChronologicalMontage({a, b, a},
+        temporary.filePath("ordered.mp4").toStdWString(), {}, {}, ffmpeg.toStdString(), true, 0, 0, true);
+    ASSERT_TRUE(ordered.success) << ordered.error;
+    decoder.open(QString::fromStdWString(ordered.outputPath.wstring()).toStdString());
+    EXPECT_NEAR(decoder.info().durationSeconds, 3, .3);
+    decoder.seek(2.5);
+    ASSERT_TRUE(decoder.readNext(frame));
+    EXPECT_GT(frame.rgba[2], frame.rgba[0] + 100);
     EXPECT_TRUE(QDir(temporary.path()).entryList({".parallelfinder-montage-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
 }
 
