@@ -1898,9 +1898,14 @@ void UiSmokeTests::movementClassesAndExportOrder()
     // Strong/Possible are separate existing views; the weak row stays there.
     QCOMPARE(evidenceOrdered.size(),3);
     QCOMPARE(evidenceOrdered[1].toMap().value("id").toInt(),2);
-    rail->setProperty("matchTierFilter","possible");QTest::qWait(100);
+    auto* possibleButton=rail->findChild<QQuickItem*>("viewPossibleMatchesButton");QVERIFY(possibleButton);
+    QVERIFY(possibleButton->isVisible());
+    QVERIFY(QMetaObject::invokeMethod(possibleButton,"clicked"));
+    QTRY_COMPARE(values(rail->property("visibleResults")).toList().size(),1);
     const auto possibleRows=values(rail->property("visibleResults")).toList();
     QCOMPARE(possibleRows.size(),1);QCOMPARE(possibleRows[0].toMap().value("id").toInt(),0);
+    QVERIFY(QMetaObject::invokeMethod(possibleButton,"clicked"));
+    QTRY_COMPARE(values(rail->property("visibleResults")).toList().size(),3);
     rail->setProperty("matchTierFilter","all");
     QTRY_COMPARE(values(rail->property("visibleResults")).toList().size(),4);
     const auto allRows=values(rail->property("visibleResults")).toList();

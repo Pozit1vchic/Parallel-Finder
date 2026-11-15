@@ -91,6 +91,7 @@ Rectangle {
         reviewNotice = Review.t("allReviewed")
     }
     property string matchTierFilter: "strong"
+    readonly property int possibleMatchCount: results.filter(row => !row.hidden && row.matchTier === "possible").length
     property string reviewFilter: "all"
     property int selectionAnchorId: -1
     property var revealedCards: ({})
@@ -308,7 +309,7 @@ Rectangle {
                 PfComboBox {
                     objectName: "matchTierFilter"; Layout.fillWidth: true
                     model: [L10n.t("matches.strong")+" · "+root.results.filter(function(row) { return !row.hidden && (row.matchTier || "strong") === "strong" }).length,
-                        L10n.t("matches.possible")+" · "+root.results.filter(function(row) { return !row.hidden && row.matchTier === "possible" }).length,
+                        L10n.t("matches.possible")+" · "+root.possibleMatchCount,
                         L10n.t("matches.all")+" · "+root.results.filter(function(row) { return !row.hidden }).length]
                     selectionIndex: root.matchTierFilter === "all" ? 2 : root.matchTierFilter === "possible" ? 1 : 0
                     onActivated: function(index) { root.matchTierFilter=index === 2 ? "all" : index === 1 ? "possible" : "strong" }
@@ -841,10 +842,11 @@ Rectangle {
         PfButton {
             objectName: "viewPossibleMatchesButton"
             Layout.fillWidth: true; compact: true; quiet: true
-            visible: root.results.length>0 && root.visibleResults.length===0 && root.matchTierFilter==="strong"
-                && root.results.some(function(row) { return !row.hidden && row.matchTier==="possible" })
-            text: L10n.t("matches.possible")+" · "+root.results.filter(function(row) { return !row.hidden && row.matchTier==="possible" }).length
-            onClicked: root.matchTierFilter="possible"
+            visible: root.matchTierFilter === "possible"
+                || (root.matchTierFilter === "strong" && root.possibleMatchCount > 0)
+            text: root.matchTierFilter === "possible" ? L10n.t("matches.strong")
+                : L10n.t("matches.possible") + " · " + root.possibleMatchCount
+            onClicked: root.matchTierFilter = root.matchTierFilter === "possible" ? "strong" : "possible"
         }
         RowLayout {
             Layout.fillWidth: true
