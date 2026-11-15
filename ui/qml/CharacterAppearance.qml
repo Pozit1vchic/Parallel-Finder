@@ -6,6 +6,7 @@ Item {
     objectName: "characterAppearance"
     property alias source: frame.source
     property var personBox: null
+    property bool brighten: false
     readonly property bool validBox: !!personBox
         && isFinite(personBox.left) && isFinite(personBox.top) && isFinite(personBox.right) && isFinite(personBox.bottom)
         && personBox.right > Math.max(0,personBox.left) && personBox.bottom > Math.max(0,personBox.top)
@@ -19,6 +20,14 @@ Item {
     readonly property real personBottom: imageTop + (marked ? Math.min(1,personBox.bottom) : 1)*frame.paintedHeight
     clip: true
     Image { id: frame; anchors.fill: parent; fillMode: Image.PreserveAspectFit; asynchronous: true }
+    Rectangle {
+        visible: root.brighten && frame.status === Image.Ready
+        x: root.imageLeft
+        y: root.imageTop
+        width: frame.paintedWidth
+        height: frame.paintedHeight
+        color: "#38ffffff"
+    }
     // Leave the target untouched; quiet shading separates overlapping people.
     Item {
         visible: root.marked

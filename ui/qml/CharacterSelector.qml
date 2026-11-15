@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import QtQuick.Effects
 import QtQuick.Layouts
 import PfUi
 import PfUiBridge
@@ -50,6 +49,7 @@ Item {
         contentItem: ColumnLayout {
             Item {
                 id: viewport
+                objectName: "characterPhotoViewport"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
@@ -62,8 +62,7 @@ Item {
                         ? Math.max(1, Math.min(6, width / Math.max(1, (personRight-personLeft)*1.28),
                                                   height / Math.max(1, (personBottom-personTop)*1.28))) : 1
                     scale: targetScale
-                    layer.enabled: photoDialog.brightened
-                    layer.effect: MultiEffect { brightness: 0.22 }
+                    brighten: photoDialog.brightened
                     x: targetScale > 1 ? width/2 - targetScale*(personLeft+personRight)/2 : 0
                     y: targetScale > 1 ? height/2 - targetScale*(personTop+personBottom)/2 : 0
                     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }

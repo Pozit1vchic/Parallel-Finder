@@ -485,8 +485,22 @@ private slots:
         QVERIFY(!photoDialog->property("closeUp").toBool());
         auto* brightness=photoDialog->findChild<QQuickItem*>("toggleCharacterPhotoBrightness");
         QVERIFY(brightness);
+        auto* photoViewport=photoDialog->findChild<QQuickItem*>("characterPhotoViewport");
+        QVERIFY(photoViewport);
+        // Compare the photo itself, away from button labels and the crop box.
+        const auto photoLightness=[&] {
+            const auto image=window->grabWindow();
+            const auto point=photoViewport->mapToScene(QPointF(photoViewport->width()*.35,photoViewport->height()*.5))
+                *image.devicePixelRatio();
+            return image.isNull() || !image.rect().contains(point.toPoint()) ? -1
+                : qGray(image.pixel(point.toPoint()));
+        };
+        QTest::qWait(250); // Let the full-frame transition and image load settle.
+        const int originalLightness=photoLightness();
+        QVERIFY(originalLightness>=0 && originalLightness<240);
         QVERIFY(QMetaObject::invokeMethod(brightness,"clicked"));
         QVERIFY(photoDialog->property("brightened").toBool());
+        QTRY_VERIFY(photoLightness()>originalLightness);
         QVERIFY(QMetaObject::invokeMethod(brightness,"clicked"));
         QVERIFY(!photoDialog->property("brightened").toBool());
         QTest::keyClick(window,Qt::Key_Escape);
