@@ -2658,7 +2658,11 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                         && (pfgpu::resolveProvider(*requestedProvider) == pfgpu::Provider::Cuda
                             || pfgpu::resolveProvider(*requestedProvider) == pfgpu::Provider::TensorRt));
                 const QString decodeOverride = qEnvironmentVariable("PF_VIDEO_DECODE").toLower();
-                decodeOptions.autoNvidiaConversion=true;
+                const int benchmarkConversionThreads = QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
+                    ? qEnvironmentVariableIntValue("PF_BENCHMARK_CONVERSION_THREADS") : 0;
+                const bool explicitConversionThreads = benchmarkConversionThreads >= 1 && benchmarkConversionThreads <= 16;
+                decodeOptions.autoNvidiaConversion = !explicitConversionThreads;
+                if (explicitConversionThreads) decodeOptions.conversionThreads = benchmarkConversionThreads;
                 if (decodeOverride == QStringLiteral("cpu")) decodeOptions.preferNvidia = false;
                 else if (decodeOverride == QStringLiteral("nvdec")) {
                     decodeOptions.preferNvidia = true;
@@ -2703,6 +2707,8 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     + std::to_string(settings.sceneAdaptiveMultiplier) + "|source="
                     + cacheFileFingerprint(path.toStdString());
                 if (auditNativeCandidates) cacheKey += "|native-candidates-audit-v1";
+                if (explicitConversionThreads)
+                    cacheKey += "|benchmark-conversion-threads=" + std::to_string(benchmarkConversionThreads);
                 const bool auditDenseIdentity = auditNativeCandidates
                     && qEnvironmentVariable("PF_AUDIT_DENSE_IDENTITY") == QStringLiteral("1");
                 if (auditDenseIdentity) cacheKey += "|dense-identity-audit-v1";

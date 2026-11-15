@@ -14,6 +14,38 @@ namespace {
 
 using Thumbnail = std::array<std::uint8_t, 64 * 36 * 4>;
 
+int compareCpuConversion(const std::string& source, pfcore::VideoDecodeOptions options,
+                         double fps, double limit)
+{
+    pfcore::VideoDecoder baseline, candidate;
+    options.preferNvidia = false;
+    const int candidateThreads = options.conversionThreads;
+    candidate.open(source, options);
+    options.conversionThreads = 1;
+    baseline.open(source, options);
+    pfcore::DecodedFrame a, b;
+    double next = -std::numeric_limits<double>::infinity();
+    std::size_t frames = 0, samples = 0, different = 0;
+    while (baseline.readNext(a, false)) {
+        if (limit > 0 && a.timestampSeconds >= limit) break;
+        if (!candidate.readNext(b, false) || a.timestampSeconds != b.timestampSeconds)
+            throw std::runtime_error("Decoded frame timestamps differ at frame " + std::to_string(frames));
+        ++frames;
+        if (a.timestampSeconds + 1e-9 < next) continue;
+        if (!baseline.convertCurrentFrameToRgba(a) || !candidate.convertCurrentFrameToRgba(b))
+            throw std::runtime_error("Missing converted comparison frame");
+        ++samples;
+        different += a.width != b.width || a.height != b.height || a.rgba != b.rgba;
+        if (!std::isfinite(next)) next = a.timestampSeconds;
+        do { next += 1.0 / fps; } while (next <= a.timestampSeconds + 1e-9);
+    }
+    if (samples == 0 || (limit == 0 && candidate.readNext(b, false)))
+        throw std::runtime_error("Empty or unequal decode streams");
+    std::cout << "conversion_threads=1/" << candidateThreads << " frames=" << frames
+        << " samples=" << samples << " different_rgba_samples=" << different << '\n';
+    return different ? 1 : 0;
+}
+
 Thumbnail thumbnail(const pfcore::DecodedFrame& frame)
 {
     Thumbnail result{};
@@ -116,7 +148,7 @@ int main(int argc, char** argv)
 {
     try {
         if (argc < 3 || argc > 7) {
-            std::cerr << "Usage: pf_decode_probe VIDEO cpu|nvdec|nvdec-resize|compare-resize|nvdec-boundaries|nvdec-boundaries-parallel [THREADS=0] [SAMPLE_FPS=6] [DURATION_SECONDS=0] [CONVERSION_THREADS=1; parallel boundary mode: WORKERS=2]\n";
+            std::cerr << "Usage: pf_decode_probe VIDEO cpu|nvdec|nvdec-resize|compare-resize|compare-cpu-conversion|nvdec-boundaries|nvdec-boundaries-parallel [THREADS=0] [SAMPLE_FPS=6] [DURATION_SECONDS=0] [CONVERSION_THREADS=1; parallel boundary mode: WORKERS=2]\n";
             return 2;
         }
         const auto utf8Argument = [&](int index) {
@@ -126,7 +158,9 @@ int main(int argc, char** argv)
         const auto source = utf8Argument(1);
         const auto mode = utf8Argument(2);
         const bool parallelBoundaries=mode=="nvdec-boundaries-parallel";
-        if (mode != "cpu" && mode != "nvdec" && mode != "nvdec-resize" && mode != "compare-resize" && mode != "nvdec-boundaries" && !parallelBoundaries) throw std::invalid_argument("invalid decode mode");
+        if (mode != "cpu" && mode != "nvdec" && mode != "nvdec-resize" && mode != "compare-resize"
+            && mode != "compare-cpu-conversion" && mode != "nvdec-boundaries" && !parallelBoundaries)
+            throw std::invalid_argument("invalid decode mode");
         pfcore::VideoDecodeOptions options;
         options.preferNvidia = mode != "cpu";
         options.resizeOnNvidia = mode == "nvdec-resize";
@@ -139,6 +173,7 @@ int main(int argc, char** argv)
         const double durationLimit=argc>5 ? std::stod(argv[5]) : 0.;
         if(!std::isfinite(durationLimit) || durationLimit<0)throw std::invalid_argument("invalid duration limit");
         if (mode == "compare-resize") return compareResize(source, options, fps, durationLimit);
+        if (mode == "compare-cpu-conversion") return compareCpuConversion(source, options, fps, durationLimit);
         const auto start = std::chrono::steady_clock::now();
         pfcore::VideoDecoder decoder;
         decoder.open(source, options);
