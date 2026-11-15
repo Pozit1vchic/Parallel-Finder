@@ -15,14 +15,24 @@ def main():
     parser.add_argument('--reference', type=Path, required=True)
     parser.add_argument('--tracks', type=Path,
                         help='Optional pre-admission track snapshot to locate earlier losses')
+    parser.add_argument('--episode',
+                        help='Select a single episode from a multi-episode clip manifest')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     windows = json.loads(args.windows.read_text(encoding='utf-8-sig'))
     reference = json.loads(args.reference.read_text(encoding='utf-8-sig'))
     tracks = (json.loads(args.tracks.read_text(encoding='utf-8-sig'))['tracks']
               if args.tracks else None)
+    if args.episode:
+        intervals = [clip for clip in reference['clips'] if clip['episode'] == args.episode]
+        if not intervals:
+            parser.error(f'No reference clips for {args.episode}')
+        if len({window['source'] for window in windows}) > 1:
+            parser.error('--episode requires windows from only the selected source')
+    else:
+        intervals = reference['intervals']
     rows = []
-    for interval in reference['intervals']:
+    for interval in intervals:
         start, end = interval['start'], interval['end']
         if not math.isfinite(start) or not math.isfinite(end) or not 0 <= start < end:
             raise ValueError('Reference intervals must be finite ordered ranges')
@@ -56,6 +66,7 @@ def main():
         rows.append(row)
     report = dict(scope='development interval retention; not match/class accuracy',
                   windows=str(args.windows.resolve()), reference=reference,
+                  episode=args.episode,
                   intervals=rows)
     # Avoid replacing previous experimental evidence by accident.
     with args.output.open('x', encoding='utf-8') as destination:

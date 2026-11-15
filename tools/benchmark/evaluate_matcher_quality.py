@@ -5,15 +5,16 @@ import re
 from pathlib import Path
 
 
-def source_path(value, root):
+def source_path(value, root, *, require_file=True):
     path = Path(value).resolve()
-    if not path.is_relative_to(root) or not path.is_file():
+    if not path.is_relative_to(root) or (require_file and not path.is_file()):
         raise ValueError(f'Real evaluation source must exist below {root}: {value}')
     return str(path).replace('\\', '/').casefold()
 
 
 def evaluate(reference, sources, results, windows, root):
-    names = {key: source_path(root / name, root) for key, name in reference['sources'].items()}
+    names = {key: source_path(root / name, root, require_file=False)
+             for key, name in reference['sources'].items()}
     supplied = {source_path(path, root) for path in sources}
     tolerance = reference['policy']['toleranceSeconds']
     def inside(source, timestamp, interval):
