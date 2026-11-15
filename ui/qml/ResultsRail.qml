@@ -92,6 +92,7 @@ Rectangle {
     }
     property string matchTierFilter: "strong"
     readonly property int possibleMatchCount: results.filter(row => !row.hidden && row.matchTier === "possible").length
+    property int possibleMatchesInFilters: 0
     property string reviewFilter: "all"
     property int selectionAnchorId: -1
     property var revealedCards: ({})
@@ -615,6 +616,7 @@ Rectangle {
         suppressFilterRebuild = false
         classificationCounts = nextClassCounts
         let next = []
+        let possible = 0
         for (const item of (results || [])) {
             if (reviewFilter === "hidden" ? !item.hidden : item.hidden) continue
             if (reviewFilter === "favorites" && !item.favorite) continue
@@ -626,9 +628,11 @@ Rectangle {
                 if(postureFilter === "uncertain" ? !postures.some(Boolean) : !postures.every(Boolean)) continue
             }
             if (!Orientation.matches(item,"body",bodyViewFilter) || !Orientation.matches(item,"head",headViewFilter)) continue
+            if (item.matchTier === "possible" && !item.manualPair) ++possible
             if (matchTierFilter !== "all" && !item.manualPair && (item.matchTier || "strong") !== matchTierFilter) continue
             next.push(item)
         }
+        possibleMatchesInFilters = possible
         next.sort(compareValues)
         if (sortCriterion === "best")
             next = HeadMotionRanking.rerankBestHeadSlots(next, row => root.evidenceTier(row))
@@ -850,9 +854,9 @@ Rectangle {
             objectName: "viewPossibleMatchesButton"
             Layout.fillWidth: true; compact: true; quiet: true
             visible: root.matchTierFilter === "possible"
-                || (root.matchTierFilter === "strong" && root.possibleMatchCount > 0)
+                || (root.matchTierFilter === "strong" && root.possibleMatchesInFilters > 0)
             text: root.matchTierFilter === "possible" ? L10n.t("matches.strong")
-                : L10n.t("matches.possible") + " · " + root.possibleMatchCount
+                : L10n.t("matches.possible") + " · " + root.possibleMatchesInFilters
             onClicked: root.matchTierFilter = root.matchTierFilter === "possible" ? "strong" : "possible"
         }
         RowLayout {

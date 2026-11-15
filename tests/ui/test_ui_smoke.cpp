@@ -1909,6 +1909,10 @@ void UiSmokeTests::movementClassesAndExportOrder()
     QCOMPARE(evidenceOrdered[1].toMap().value("id").toInt(),2);
     auto* possibleButton=rail->findChild<QQuickItem*>("viewPossibleMatchesButton");QVERIFY(possibleButton);
     QVERIFY(possibleButton->isVisible());
+    rail->setProperty("reviewFilter","favorites");
+    QTRY_VERIFY(!possibleButton->isVisible());
+    rail->setProperty("reviewFilter","all");
+    QTRY_VERIFY(possibleButton->isVisible());
     QVERIFY(QMetaObject::invokeMethod(possibleButton,"clicked"));
     QTRY_COMPARE(values(rail->property("visibleResults")).toList().size(),1);
     const auto possibleRows=values(rail->property("visibleResults")).toList();
