@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <optional>
 #include <functional>
+#include <span>
 #include <vector>
 
 #include "pfcore/MotionMatcher.hpp"
@@ -156,6 +157,23 @@ struct TargetSuggestion {
 };
 TargetSuggestion suggestTargetCharacter(const CharacterCandidate& target,
     const std::vector<CharacterCandidate>& candidates);
+
+struct BatchCharacterMember {
+    std::size_t sourceIndex;
+    std::size_t candidateIndex;
+};
+
+struct BatchCharacterGroup {
+    std::vector<BatchCharacterMember> members;
+    double presenceSeconds = 0;
+    double sharedPresenceSeconds = 0;
+};
+
+// Each input is the completed candidate list from one source. Groups are
+// ordered by source coverage, then by presence across those sources.
+std::vector<BatchCharacterGroup> groupBatchCharacters(
+    std::span<const std::span<const CharacterCandidate>> sources,
+    const std::function<bool()>& cancelled = {});
 
 struct DominantVideoSelection {
     std::vector<bool> windows;

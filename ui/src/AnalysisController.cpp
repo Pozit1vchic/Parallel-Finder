@@ -3748,40 +3748,118 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
                     std::fprintf(stderr,"PF_REPEATED_SCENE_IDENTITIES source=%s merged=%zu\n",source.c_str(),merged);
             }
-            std::optional<pfcore::CharacterCandidate> batchTarget;
+            std::map<std::string,std::size_t> batchSelections;
+            const bool batchSelection = paths.size() > 1;
+            std::shared_ptr<ResultPreviewImages> batchThumbnails;
+            if (batchSelection && !isCancelled()) {
+                reportPreparation(QStringLiteral("Сопоставляем персонажей во всех видео"));
+                std::vector<std::string> sources;
+                std::vector<std::span<const pfcore::CharacterCandidate>> candidates;
+                for (const auto& path : paths) {
+                    const auto source=path.toStdString();
+                    if (const auto found=sourceCandidates.find(source); found!=sourceCandidates.end()) {
+                        sources.push_back(source);
+                        candidates.emplace_back(found->second);
+                    }
+                }
+                const auto groups=pfcore::groupBatchCharacters(candidates,isCancelled);
+                const auto displayCount=std::min<std::size_t>(groups.size(),40);
+                std::vector<ResultPreviewImages::Request> requests;
+                struct BatchAppearance {
+                    std::size_t requestIndex;
+                    std::size_t sourceIndex;
+                    pfcore::CharacterAppearance frame;
+                };
+                std::vector<std::vector<BatchAppearance>> appearances(displayCount);
+                for (std::size_t i=0;i<displayCount;++i) {
+                    for (const auto& member:groups[i].members) {
+                        const auto& entries=candidates[member.sourceIndex][member.candidateIndex].appearances;
+                        const auto best=std::max_element(entries.begin(),entries.end(),[](const auto& a,const auto& b) {
+                            return a.quality<b.quality;
+                        });
+                        if (best==entries.end()) continue;
+                        appearances[i].push_back({requests.size(),member.sourceIndex,*best});
+                        requests.push_back({sources[member.sourceIndex],{},{},best->timestampSeconds,{}});
+                    }
+                }
+                pfcore::VideoDecodeOptions options;
+                options.threads=std::clamp<int>(settings.processingThreads,1,8);
+                options.maxWidth=480;
+                options.maxHeight=270;
+                batchThumbnails=ResultPreviewImages::create(requests,nullptr,options);
+                options.maxWidth=1920;
+                options.maxHeight=1080;
+                auto photos=ResultPreviewImages::create(std::move(requests),nullptr,options);
+                QVariantList rows;
+                for (std::size_t i=0;i<displayCount;++i) {
+                    const auto& group=groups[i];
+                    QVariantList previews;
+                    QVariantMap representative;
+                    double bestQuality=-1;
+                    for (const auto& [index,sourceIndex,appearance]:appearances[i]) {
+                        const auto& box=appearance.box;
+                        const QVariantMap preview{{"url",batchThumbnails->url(index)},{"photoUrl",photos->url(index)},
+                            {"time",appearance.timestampSeconds},{"source",QFileInfo(QString::fromStdString(sources[sourceIndex])).fileName()},
+                            {"box",QVariantMap{{"left",box.left},{"top",box.top},
+                            {"right",box.right},{"bottom",box.bottom}}}};
+                        previews.push_back(preview);
+                        if (appearance.quality>bestQuality) {
+                            representative=preview;
+                            bestQuality=appearance.quality;
+                        }
+                    }
+                    std::size_t observations=0,tracks=0;
+                    for (const auto& member:group.members) {
+                        const auto& entry=candidates[member.sourceIndex][member.candidateIndex];
+                        observations+=entry.observationCount;
+                        tracks+=entry.trackIds.size();
+                    }
+                    rows.push_back(QVariantMap{{"id",QString::number(i+1)},{"number",static_cast<int>(i+1)},
+                        {"unresolved",false},{"sourceCount",static_cast<int>(group.members.size())},{"sourceTotal",paths.size()},
+                        {"presence",group.presenceSeconds},{"observations",static_cast<qulonglong>(observations)},
+                        {"tracks",static_cast<qulonglong>(tracks)},{"previews",previews},{"representative",representative}});
+                }
+                if (!rows.isEmpty() && !isCancelled()) {
+                    targetChoice->store(0,std::memory_order_release);
+                    QMetaObject::invokeMethod(this,[this,cancel,rows,photos] {
+                        if (analysisCancel_!=cancel || cancel->load()) return;
+                        characterPreviewImages_=photos;
+                        targetCandidates_=rows;
+                        hiddenUnresolvedCharacters_=0;
+                        targetSelectionSource_.clear();
+                        emit targetSelectionChanged();
+                    },Qt::QueuedConnection);
+                    std::size_t selected=0;
+                    while (!isCancelled() && !(selected=targetChoice->load(std::memory_order_acquire)))
+                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    if (selected==std::numeric_limits<std::size_t>::max()) allPeople=true;
+                    else if (!isCancelled() && selected>0 && selected<=displayCount) {
+                        for (const auto& member:groups[selected-1].members) {
+                            const auto& source=sources[member.sourceIndex];
+                            const auto& candidate=candidates[member.sourceIndex][member.candidateIndex];
+                            batchSelections.emplace(source,candidate.id);
+                        }
+                    }
+                }
+            }
             std::map<std::string,std::set<std::size_t>> selectedTracks;
             std::map<std::string,std::set<std::size_t>> competingTracks;
             std::map<std::string,std::vector<float>> selectedFaces;
             std::vector<std::string> targetSourceOrder;
-            // The first explicit selection is the one anchor for the whole
-            // batch. Prefer a saved anchor when adding files, never independent
-            // saved choices for subsequent files.
             for (const auto& path:paths)
                 if(sourceCandidates.contains(path.toStdString()))targetSourceOrder.push_back(path.toStdString());
-            auto anchor=targetSourceOrder.end();
-            if(!forceTargetSource.isEmpty())
-                anchor=std::find(targetSourceOrder.begin(),targetSourceOrder.end(),forceTargetSource.toStdString());
-            else if(analysisCache)for(auto it=targetSourceOrder.begin();it!=targetSourceOrder.end();++it) {
-                if(const auto saved=analysisCache->get(sequenceCacheKeys.at(*it)+"|selected-target-v2")) {
-                    bool ok=false;const auto id=QByteArray(reinterpret_cast<const char*>(saved->data()),saved->size()).toULongLong(&ok);
-                    const auto& candidates=sourceCandidates.at(*it);
-                    if(ok && std::any_of(candidates.begin(),candidates.end(),[&](const auto& c){return c.id==id
-                        || std::find(c.trackIds.begin(),c.trackIds.end(),id)!=c.trackIds.end();})) {anchor=it;break;}
-                }
-            }
-            if(anchor!=targetSourceOrder.end())std::rotate(targetSourceOrder.begin(),anchor,std::next(anchor));
             for (const auto& source : targetSourceOrder) {
                 const auto& candidates=sourceCandidates.at(source);
-                if (isCancelled()) break;
-                if (candidates.empty()) {
+                if (isCancelled() || allPeople) break;
+                if (candidates.empty() || (batchSelection && !batchSelections.contains(source))) {
                     auto summary=summaries.value(QString::fromStdString(source)).toMap();
                     summary.insert("targetMatchUncertain",true);
                     summaries.insert(QString::fromStdString(source),summary);
                     continue;
                 }
-                std::size_t selected = 0;
+                std::size_t selected = batchSelection ? batchSelections.at(source) : 0;
                 const auto selectionKey = sequenceCacheKeys.at(source) + "|selected-target-v2";
-                if (!batchTarget && analysisCache && QString::fromStdString(source) != forceTargetSource) {
+                if (!batchSelection && analysisCache && QString::fromStdString(source) != forceTargetSource) {
                     if (const auto saved=analysisCache->get(selectionKey)) {
                         bool ok=false;
                         const auto id=QByteArray(reinterpret_cast<const char*>(saved->data()),saved->size()).toULongLong(&ok);
@@ -3793,25 +3871,11 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                         }
                     }
                 }
-                pfcore::TargetSuggestion suggestion;
-                if (!selected && batchTarget && QString::fromStdString(source) != forceTargetSource) {
-                    suggestion=pfcore::suggestTargetCharacter(*batchTarget,candidates);
-                    if (suggestion.automatic) selected=*suggestion.candidateId;
-                }
-                if (!selected && batchTarget) {
-                    // Do not ask again or silently substitute a different
-                    // person when this source lacks reliable identity evidence.
-                    auto summary=summaries.value(QString::fromStdString(source)).toMap();
-                    summary.insert("targetMatchUncertain",true);
-                    summary.insert("characterCount",static_cast<int>(candidates.size()));
-                    summaries.insert(QString::fromStdString(source),summary);
-                    continue;
-                }
                 if (!selected) {
                     reportPreparation(QStringLiteral("Подготавливаем появления персонажей"));
                     QVariantList rows;
                     QElapsedTimer previewClock;previewClock.start();
-                    const auto visibleOrder=pfcore::characterSelectionOrder(candidates,20,suggestion.candidateId);
+                    const auto visibleOrder=pfcore::characterSelectionOrder(candidates,20);
                     const auto unresolvedTotal=std::count_if(candidates.begin(),candidates.end(),
                         [](const auto& candidate){return !candidate.distinctIdentity;});
                     const auto shownUnresolved=std::count_if(visibleOrder.begin(),visibleOrder.end(),
@@ -3905,8 +3969,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                             {"unresolved",unresolved},
                             {"presence",c.presenceSeconds},{"observations",static_cast<qulonglong>(c.observationCount)},
                             {"tracks",static_cast<int>(c.trackIds.size())},{"quality",c.evidenceQuality},
-                            {"previews",previews},{"representative",representativePreview},
-                            {"suggested",suggestion.candidateId && *suggestion.candidateId==c.id}});
+                            {"previews",previews},{"representative",representativePreview}});
                     }
                     std::stable_sort(rows.begin(),rows.end(),[](const auto& a,const auto& b) {
                         const auto x=a.toMap(),y=b.toMap();
@@ -3936,7 +3999,6 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 if(selected==std::numeric_limits<std::size_t>::max()) {allPeople=true;break;}
                 const auto chosen=std::find_if(candidates.begin(),candidates.end(),[&](const auto& c){return c.id==selected;});
                 if (chosen==candidates.end()) { error=QStringLiteral("TARGET_SELECTION_INVALID"); break; }
-                if (!batchTarget) batchTarget=*chosen;
                 selectedTracks[source].insert(chosen->trackIds.begin(),chosen->trackIds.end());
                 for(const auto& alternate:candidates) {
                     if(alternate.id==chosen->id || alternate.distinctIdentity
@@ -3949,20 +4011,16 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 summary.insert("targetCharacterId",QString::number(selected));
                 summary.insert("targetPresenceSeconds",chosen->presenceSeconds);
                 summary.insert("characterCount",static_cast<int>(candidates.size()));
-                summary.insert("targetAutomatic",suggestion.automatic);
+                summary.insert("targetAutomatic",false);
                 summaries.insert(QString::fromStdString(source),summary);
-                // Only deliberate choices override future batch suggestions.
-                // An old automatic suggestion must not pin an episode to the
-                // previous target after the user changes the batch anchor.
-                if (analysisCache && !suggestion.automatic) {
+                if (!batchSelection && analysisCache) {
                     const auto bytes=QByteArray::number(selected); std::string writeError;
                     analysisCache->putForSource(source,selectionKey,{bytes.begin(),bytes.end()},writeError);
                     if (!writeError.empty()) qWarning() << "TARGET_SELECTION_CACHE_WRITE_FAILED" << QString::fromStdString(writeError);
                 }
                 if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
-                    std::fprintf(stderr,"PF_TARGET_SELECTED id=%zu automatic=%d reason=%d similarity=%.3f margin=%.3f tracks=%zu presence=%.3f source=%s\n",
-                        selected,suggestion.automatic,static_cast<int>(suggestion.reason),suggestion.similarity,
-                        suggestion.margin,chosen->trackIds.size(),chosen->presenceSeconds,source.c_str());
+                    std::fprintf(stderr,"PF_TARGET_SELECTED id=%zu batch=%d tracks=%zu presence=%.3f source=%s\n",
+                        selected,batchSelection,chosen->trackIds.size(),chosen->presenceSeconds,source.c_str());
             }
             using TrackShot=std::tuple<std::string,std::size_t,std::size_t>;
             std::set<TrackShot> recoveredTrackShots,excludedTrackShots;

@@ -1697,6 +1697,93 @@ TargetSuggestion suggestTargetCharacter(const CharacterCandidate& target,
     return result;
 }
 
+std::vector<BatchCharacterGroup> groupBatchCharacters(
+    std::span<const std::span<const CharacterCandidate>> sources,
+    const std::function<bool()>& cancelled)
+{
+    struct Link { std::size_t first, second; double score; };
+    std::vector<BatchCharacterMember> members;
+    std::vector<std::size_t> offsets{0};
+    for (std::size_t source = 0; source < sources.size(); ++source) {
+        for (std::size_t candidate = 0; candidate < sources[source].size(); ++candidate)
+            members.push_back({source, candidate});
+        offsets.push_back(members.size());
+    }
+    const auto candidate = [&](std::size_t index) -> const CharacterCandidate& {
+        const auto& member = members[index];
+        return sources[member.sourceIndex][member.candidateIndex];
+    };
+    const auto score = [&](std::size_t first, std::size_t second) {
+        const auto& left = candidate(first).prototype;
+        const auto& right = candidate(second).prototype;
+        if (left.faceEvidence < .45 || right.faceEvidence < .45) return 0.0;
+        return embeddingScore(left.face, right.face);
+    };
+    std::vector<Link> links;
+    for (std::size_t i = 0; i < members.size(); ++i) {
+        if (cancelled && cancelled()) return {};
+        if (candidate(i).prototype.faceEvidence < .45) continue;
+        const std::size_t nextSource = offsets[members[i].sourceIndex + 1];
+        for (std::size_t j = nextSource; j < members.size(); ++j)
+            if (const auto agreement = score(i, j); agreement >= .65)
+                links.push_back({i, j, agreement});
+    }
+    const auto presence = [&](const Link& link) {
+        return candidate(link.first).presenceSeconds + candidate(link.second).presenceSeconds;
+    };
+    std::stable_sort(links.begin(), links.end(), [&](const Link& a, const Link& b) {
+        if (a.score != b.score) return a.score > b.score;
+        return presence(a) > presence(b);
+    });
+    std::vector<std::vector<std::size_t>> groups(members.size());
+    std::vector<std::size_t> owner(members.size());
+    for (std::size_t i = 0; i < members.size(); ++i) {
+        groups[i].push_back(i);
+        owner[i] = i;
+    }
+    for (const auto& link : links) {
+        if (cancelled && cancelled()) return {};
+        const auto first = owner[link.first], second = owner[link.second];
+        if (first == second) continue;
+        // One representative per source. Face agreement across every pair
+        // prevents a chain of partial matches from connecting different people.
+        const bool compatible = std::all_of(groups[first].begin(), groups[first].end(),
+            [&](std::size_t a) {
+                return std::all_of(groups[second].begin(), groups[second].end(), [&](std::size_t b) {
+                    return members[a].sourceIndex != members[b].sourceIndex && score(a, b) >= .50;
+                });
+            });
+        if (!compatible) continue;
+        for (const auto index : groups[second]) {
+            owner[index] = first;
+            groups[first].push_back(index);
+        }
+        groups[second].clear();
+    }
+    std::vector<BatchCharacterGroup> result;
+    result.reserve(groups.size());
+    for (auto& group : groups) {
+        if (group.empty()) continue;
+        std::sort(group.begin(), group.end());
+        BatchCharacterGroup entry;
+        entry.sharedPresenceSeconds = candidate(group.front()).presenceSeconds;
+        for (const auto index : group) {
+            entry.members.push_back(members[index]);
+            const auto seconds = candidate(index).presenceSeconds;
+            entry.presenceSeconds += seconds;
+            entry.sharedPresenceSeconds = std::min(entry.sharedPresenceSeconds, seconds);
+        }
+        result.push_back(std::move(entry));
+    }
+    std::stable_sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
+        if (a.members.size() != b.members.size()) return a.members.size() > b.members.size();
+        if (a.sharedPresenceSeconds != b.sharedPresenceSeconds)
+            return a.sharedPresenceSeconds > b.sharedPresenceSeconds;
+        return a.presenceSeconds > b.presenceSeconds;
+    });
+    return result;
+}
+
 DominantVideoSelection selectDominantVideoWindows(const std::vector<MotionWindow>& windows,
     const DominantVideoSelectionControl& control)
 {

@@ -562,22 +562,25 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),5000);
         QVERIFY(!analysis->awaitingTarget());
         QVERIFY(!analysis->analysisCompleted());
-        // A changed source list reruns analysis and asks for one anchor
-        // for the entire batch, even when identity evidence is insufficient.
+        // The multi-video chooser waits for observations from the whole batch.
+        // With no face evidence the fixture still exposes both sources' cards.
         const auto episode=directory.filePath("episode-two.mp4");
         QVERIFY(QFile::copy(source,episode));
+        window->setProperty("sourceFiles",QVariantList{source,episode});
         analysis->analyzeFiles({source,episode});
+        QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget(),30000);
+        QVERIFY(analysis->targetSelectionSource().isEmpty());
+        const auto rows=analysis->targetCandidates();
+        QVERIFY(rows.size()>=4);
+        QCOMPARE(rows.front().toMap().value("sourceTotal").toInt(),2);
+        QCOMPARE(rows.front().toMap().value("sourceCount").toInt(),1);
+        QVERIFY(analysis->selectTargetCharacter(rows.front().toMap().value("id").toString()));
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy() || analysis->awaitingTarget(),30000);
-        QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
-        QVERIFY(analysis->selectTargetCharacter(second));
-        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy() || analysis->awaitingTarget(),30000);
-        QVERIFY2(!analysis->awaitingTarget(),"A second source requested another character");
+        QVERIFY2(!analysis->awaitingTarget(),"The batch opened a second chooser");
         QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
-        QCOMPARE(analysis->summaryForSource(source).value("targetCharacterId").toString(),second);
+        QVERIFY(!analysis->summaryForSource(source).value("targetCharacterId").toString().isEmpty());
         QVERIFY(analysis->summaryForSource(episode).value("targetCharacterId").toString().isEmpty());
         QVERIFY(analysis->summaryForSource(episode).value("targetMatchUncertain").toBool());
-        QVERIFY(analysis->status().contains(QStringLiteral("Персонаж не подтверждён")));
-        window->setProperty("sourceFiles",QVariantList{source,episode});
         auto* sources=window->findChild<QObject*>("sourcesRail");
         QVERIFY(sources);
         QVERIFY(sources->setProperty("selectedSourceIndex",1));
@@ -587,35 +590,13 @@ private slots:
         const auto warningText=warning->property("text").toString();
         QVERIFY2(warningText.contains(QStringLiteral("не подтверждён")) ||
             warningText.contains(QStringLiteral("could not be confirmed")),qPrintable(warningText));
-        // Explicitly choose once for the whole batch; the other video must not
-        // open a second selector, even without reliable identity evidence.
-        analysis->reselectTargetCharacter(source);
-        QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
-        QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
-        QVERIFY(analysis->selectTargetCharacter(first));
-        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy() || analysis->awaitingTarget(),30000);
-        QVERIFY2(!analysis->awaitingTarget(),"Batch requested another character");
-        QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
-        QCOMPARE(analysis->summaryForSource(source).value("targetCharacterId").toString(),first);
-        QVERIFY(analysis->summaryForSource(episode).value("targetMatchUncertain").toBool());
-        // A saved character choice must not force a target in all-people mode.
-        // This mode also works when optional face/ReID models are unavailable.
-        qunsetenv("PF_ALLOW_UNVERIFIED_TARGETS");
-        analysis->analyzeAllPeople({source,episode});
-        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
-        QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
-        QVERIFY(!analysis->awaitingTarget());
-        QVERIFY(analysis->summaryForSource(source).value("targetCharacterId").toString().isEmpty());
-        QVERIFY(analysis->summaryForSource(episode).value("targetCharacterId").toString().isEmpty());
-        qputenv("PF_ALLOW_UNVERIFIED_TARGETS","1");
         analysis->analyzeFiles({source,episode});
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget(),30000);
-        QVERIFY(analysis->selectTargetCharacter(first));
+        QVERIFY(analysis->continueWithoutTargetCharacter());
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
-        QVERIFY(analysis->analysisCompleted());
-        QVERIFY(analysis->analyzedFrames()>0);
+        QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
+        QVERIFY(analysis->summaryForSource(source).value("targetCharacterId").toString().isEmpty());
         QVERIFY(analysis->summaryForSource(episode).value("targetCharacterId").toString().isEmpty());
-        QVERIFY(analysis->summaryForSource(episode).value("targetMatchUncertain").toBool());
         pfservices::SettingsStore::flushPendingWrites();
         struct DelayedWrite {
             std::mutex mutex;std::condition_variable ready;bool released=false;

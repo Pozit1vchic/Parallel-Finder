@@ -678,6 +678,36 @@ TEST(CharacterCandidates, BatchSuggestionRequiresStrongUniqueFaceEvidence)
     EXPECT_FALSE(pfcore::suggestTargetCharacter(bodyOnly,candidates).automatic);
 }
 
+TEST(CharacterCandidates, BatchRanksThePersonPresentAcrossAllFourSources)
+{
+    const auto first = pfcore::characterCandidates({
+        track(1, 0, {1, 0, 0}, 24), track(2, 20, {0, 1, 0}, 40)});
+    const auto second = pfcore::characterCandidates({
+        track(1, 0, {1, 0, 0}, 20), track(2, 20, {0, 1, 0}, 36)});
+    const auto third = pfcore::characterCandidates({track(3, 0, {1, 0, 0}, 16)});
+    const auto fourth = pfcore::characterCandidates({track(4, 0, {1, 0, 0}, 12)});
+    const std::span<const pfcore::CharacterCandidate> sources[]{first, second, third, fourth};
+    const auto groups = pfcore::groupBatchCharacters(sources);
+    ASSERT_EQ(groups.size(), 2);
+    ASSERT_EQ(groups.front().members.size(), 4);
+    EXPECT_DOUBLE_EQ(groups.front().sharedPresenceSeconds, 3);
+    EXPECT_DOUBLE_EQ(groups.front().presenceSeconds, 18);
+    for (const auto& member : groups.front().members)
+        EXPECT_GT(sources[member.sourceIndex][member.candidateIndex].prototype.face[0], .9);
+}
+
+TEST(CharacterCandidates, BatchRejectsTransitiveAgreementBetweenDifferentPeople)
+{
+    const auto first = pfcore::characterCandidates({track(1, 0, {1, 0})});
+    const auto bridge = pfcore::characterCandidates({track(2, 0, {1, 1})});
+    const auto third = pfcore::characterCandidates({track(3, 0, {0, 1})});
+    const std::span<const pfcore::CharacterCandidate> sources[]{first, bridge, third};
+    const auto groups = pfcore::groupBatchCharacters(sources);
+    ASSERT_EQ(groups.size(), 2);
+    EXPECT_EQ(groups.front().members.size(), 2);
+    EXPECT_EQ(groups.back().members.size(), 1);
+}
+
 TEST(CharacterCandidates, CancelDoesNotPublishPartialCandidates)
 {
     pfcore::DominantSelectionControl control;

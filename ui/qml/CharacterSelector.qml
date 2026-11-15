@@ -10,6 +10,7 @@ Item {
     property string chosenId: ""
     property string inspectedId: ""
     property bool showUnresolved: false
+    readonly property bool batchSelection: Analysis.characterCandidates.length > 0 && Number(Analysis.characterCandidates[0].sourceTotal || 0) > 1
     readonly property int unresolvedCount: Analysis.characterCandidates.filter(function(row) { return row.unresolved }).length
     readonly property int confirmedCount: Analysis.characterCandidates.length - unresolvedCount
     readonly property var visibleCandidates: Analysis.characterCandidates.filter(function(row) { return root.showUnresolved || root.confirmedCount === 0 || !row.unresolved })
@@ -100,8 +101,8 @@ Item {
     ColumnLayout {
         anchors.fill: parent; spacing: 12
         Text { Layout.fillWidth: true; text: L10n.t("character.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 22; font.weight: Font.DemiBold }
-        Text { Layout.fillWidth: true; text: root.sourceName(Analysis.targetSelectionSource); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideMiddle }
-        Text { Layout.fillWidth: true; text: L10n.t("character.hint"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
+        Text { Layout.fillWidth: true; visible: !root.batchSelection; text: root.sourceName(Analysis.targetSelectionSource); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideMiddle }
+        Text { Layout.fillWidth: true; text: L10n.t(root.batchSelection ? "character.batchHint" : "character.hint"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
         ListView {
             id: candidates
             objectName: "targetCharacterList"
@@ -145,7 +146,8 @@ Item {
                     ColumnLayout {
                         Layout.fillWidth: true; spacing: 6
                         Text { Layout.fillWidth: true; text: L10n.t(candidate.modelData.unresolved ? "character.unresolvedAppearance" : "character.number").arg(String(candidate.modelData.number).padStart(2,"0")); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 14; font.weight: Font.DemiBold }
-                        Text { Layout.fillWidth: true; text: L10n.t("character.presence").arg(Math.round(candidate.modelData.presence)).arg(candidate.modelData.tracks); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                        Text { Layout.fillWidth: true; text: root.batchSelection ? L10n.t("character.batchPresence").arg(candidate.modelData.sourceCount).arg(candidate.modelData.sourceTotal).arg(Math.round(candidate.modelData.presence))
+                            : L10n.t("character.presence").arg(Math.round(candidate.modelData.presence)).arg(candidate.modelData.tracks); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap }
                         PfButton { compact: true; quiet: true; text: L10n.t("character.scenes"); onClicked: root.inspectedId = root.inspectedId === candidate.modelData.id ? "" : candidate.modelData.id }
                     }
                     PfButton {
@@ -177,7 +179,7 @@ Item {
                                 onClicked: root.inspectPhoto(modelData)
                             }
                         }
-                        Text { text: L10n.t("character.time").arg(Number(modelData.time).toFixed(1)); color: Theme.textSecondary; font.family: Theme.monoFont; font.pixelSize: 10 }
+                        Text { width: parent.width; elide: Text.ElideMiddle; text: (modelData.source ? modelData.source + " · " : "") + L10n.t("character.time").arg(Number(modelData.time).toFixed(1)); color: Theme.textSecondary; font.family: Theme.monoFont; font.pixelSize: 10 }
                     }
                 }
             }
