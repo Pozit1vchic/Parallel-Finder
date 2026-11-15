@@ -524,7 +524,7 @@ struct InferenceSample {
     const std::uint8_t* pixels() const noexcept { return borrowed ? borrowed : (rgba.empty() ? nullptr : rgba.data()); }
 };
 
-InferenceSample makeInferenceSample(const pfcore::DecodedFrame& frame, bool allowBorrow = false)
+InferenceSample makeInferenceSample(const pfcore::DecodedFrame& frame)
 {
     InferenceSample result;
     if (frame.width <= 0 || frame.height <= 0 || frame.rgba.empty()) return result;
@@ -540,11 +540,7 @@ InferenceSample makeInferenceSample(const pfcore::DecodedFrame& frame, bool allo
     result.width = targetWidth;
     result.height = targetHeight;
     if (targetWidth == frame.width && targetHeight == frame.height) {
-        // Batch-1 pose/face/ReID finish before the next decoded frame is read.
-        // Borrow those already-sized, immutable bytes instead of allocating
-        // and copying another working frame. Queued batches retain ownership.
-        if (allowBorrow) result.borrowed = frame.rgba.data();
-        else result.rgba = frame.rgba;
+        result.borrowed = frame.rgba.data();
         return result;
     }
     QImage source(frame.rgba.data(), frame.width, frame.height,
@@ -2854,6 +2850,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 pfcore::PersonTracker rc16Tracker(.30, 1.0, false);
                 pfcore::DecodedFrame firstFrame;
                 pfcore::DecodedFrame lastFrame;
+                std::shared_ptr<pfcore::DecodedFrame> lastOwnedFrame;
                 pfcore::DecodedFrame frame;
                 std::size_t poseSampleIndex = 0;
                 double previousPoseTimestamp = -1.0;
@@ -2880,6 +2877,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     std::size_t sampleIndex = 0;
                     std::vector<std::uint8_t> rgba;
                     const std::uint8_t* borrowed = nullptr;
+                    std::shared_ptr<const pfcore::DecodedFrame> owner;
                     const std::uint8_t* pixels() const noexcept { return borrowed ? borrowed : rgba.data(); }
                 };
                 std::vector<PendingPoseSample> pendingPose;
@@ -3137,13 +3135,13 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     }
                     if (samplePose && !frame.rgba.empty()) {
                         const auto before = stageNow();
-                        InferenceSample inference = makeInferenceSample(frame, poseBatchSize <= 1 && !posePipeline);
+                        InferenceSample inference = makeInferenceSample(frame);
                         inferenceSampleNs += stageNow() - before;
                         if (!inference.pixels()) continue;
                         if (poseBatchSize <= 1 && !posePipeline) {
                             PendingPoseSample sample{frame.timestampSeconds, inference.width,
                                                      inference.height, poseSampleIndex,
-                                                     std::move(inference.rgba), inference.borrowed};
+                                                     std::move(inference.rgba), inference.borrowed, {}};
                             pfgpu::PoseImage image{sample.width, sample.height, sample.pixels()};
                             const auto stageStart = stageNow();
                             const auto detections = pose->infer(image);
@@ -3152,12 +3150,21 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                         } else {
                             PendingPoseSample sample{frame.timestampSeconds, inference.width,
                                                      inference.height, poseSampleIndex,
-                                                     std::move(inference.rgba)};
+                                                     std::move(inference.rgba), inference.borrowed, {}};
+                            if (inference.borrowed) {
+                                // A queued sample and the end preview can outlive the decode loop's frame.
+                                lastOwnedFrame = std::make_shared<pfcore::DecodedFrame>(std::move(frame));
+                                sample.owner = lastOwnedFrame;
+                                frame = {};
+                            }
                             pendingPose.push_back(std::move(sample));
                             if (pendingPose.size() >= poseBatchSize) flushPoseBatch();
                         }
                     }
-                    if (!frame.rgba.empty()) lastFrame = std::move(frame);
+                    if (!frame.rgba.empty()) {
+                        lastOwnedFrame.reset();
+                        lastFrame = std::move(frame);
+                    }
                 }
                 sampleReader.finish(); // decoder diagnostics are safe only after join
                 if (profilePipeline) {
@@ -3177,12 +3184,12 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 const auto decodeAndInferNs = stageNow();
                 if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
                     const auto stats = decoder.diagnostics();
-                    std::fprintf(stderr, "PF_DECODE backend=%s threads=%d conversion_threads=%d cache_hit=%d decoded=%llu converted=%llu downloads=%llu read_ms=%.1f conversion_ms=%.1f fallback=%s\n",
+                    std::fprintf(stderr, "PF_DECODE backend=%s threads=%d conversion_threads=%d cache_hit=%d decoded=%llu converted=%llu downloads=%llu read_ms=%.1f conversion_ms=%.1f download_ms=%.1f fallback=%s\n",
                         stats.backend.c_str(), stats.threads, stats.conversionThreads, cacheHit ? 1 : 0,
                         static_cast<unsigned long long>(stats.decodedFrames),
                         static_cast<unsigned long long>(stats.convertedFrames),
                         static_cast<unsigned long long>(stats.hardwareDownloads),
-                        stats.readMilliseconds, stats.conversionMilliseconds, stats.fallbackReason.c_str());
+                        stats.readMilliseconds, stats.conversionMilliseconds, stats.downloadMilliseconds, stats.fallbackReason.c_str());
                 }
                 markCancelled();
                 if (!error.isEmpty()) break;
@@ -3458,8 +3465,9 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 },Qt::QueuedConnection);
                 const QString previewStart = firstFrame.rgba.empty() ? QString()
                     : savePreview(firstFrame, QStringLiteral("%1_%2_start.png").arg(previewToken).arg(files));
-                const QString previewEnd = lastFrame.rgba.empty() ? QString()
-                    : savePreview(lastFrame, QStringLiteral("%1_%2_end.png").arg(previewToken).arg(files));
+                const auto& endFrame = lastOwnedFrame ? *lastOwnedFrame : lastFrame;
+                const QString previewEnd = endFrame.rgba.empty() ? QString()
+                    : savePreview(endFrame, QStringLiteral("%1_%2_end.png").arg(previewToken).arg(files));
                 if (qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS")) {
                     for (const auto& boundary : sceneBoundaries)
                         std::fprintf(stderr, "PF_DEBUG_SCENE cut=%.6f\n", boundary.timestampSeconds);
