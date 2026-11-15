@@ -478,6 +478,11 @@ Rectangle {
         return Math.min(left, right)
     }
 
+    function evidenceTier(row) {
+        if (row.classificationConflict) return 2
+        return (row.matchTier || "strong") === "strong" ? 0 : 1
+    }
+
     function compareValues(a, b) {
         let delta = 0
         const strongA=Number(a.bestMatchScore !== undefined ? a.bestMatchScore : root.movementSimilarity(a))
@@ -487,7 +492,9 @@ Rectangle {
             const ka=Orientation.sortKey(a,scope), kb=Orientation.sortKey(b,scope)
             return ka[0]-kb[0] || ka[1]-kb[1] || ka[2]-kb[2] || timeValue(a)-timeValue(b) || Number(a.id)-Number(b.id)
         }
-        if (sortCriterion === "best") return (strongB-Number(b.redundancyPenalty || 0))-(strongA-Number(a.redundancyPenalty || 0)) || Number(a.id)-Number(b.id)
+        if (sortCriterion === "best") return evidenceTier(a)-evidenceTier(b)
+            || (strongB-Number(b.redundancyPenalty || 0))-(strongA-Number(a.redundancyPenalty || 0))
+            || Number(a.id)-Number(b.id)
         if (sortCriterion === "continuity") {
             const rankedA=Number.isFinite(a.continuityRank) && a.continuityRank >= 0
             const rankedB=Number.isFinite(b.continuityRank) && b.continuityRank >= 0
@@ -529,9 +536,6 @@ Rectangle {
             if (!delta) {
                 // Evidence tiers precede continuity within a semantic group.
                 // A high numerical score cannot promote a known conflict.
-                function evidenceTier(row) {
-                    return row.classificationConflict ? 2 : row.matchTier === "strong" ? 0 : row.matchTier === "possible" ? 1 : 2
-                }
                 const evidenceDelta=evidenceTier(a)-evidenceTier(b)
                 if (evidenceDelta) return evidenceDelta
                 // Preserve pair continuity; imported rows without ranks use quality.
@@ -624,7 +628,7 @@ Rectangle {
         }
         next.sort(compareValues)
         if (sortCriterion === "best")
-            next = HeadMotionRanking.rerankBestHeadSlots(next, row => row.matchTier || "strong")
+            next = HeadMotionRanking.rerankBestHeadSlots(next, row => root.evidenceTier(row))
         const wanted = {}
         const nextGroupCounts = {}
         for (const item of next) {

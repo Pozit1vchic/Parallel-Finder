@@ -156,6 +156,15 @@ ResultsRail { width: 300; height: 600; sortCriterion: "best"
         rail->setProperty("sortCriterion","best");
         rail->setProperty("scopeFilter","head");
         QTRY_COMPARE(ids(),(QList<int>{4,2,1}));
+        const QVariantList mixedTiers{
+            QVariantMap{{"id",0},{"bestMatchScore",.99},{"matchTier","possible"}},
+            QVariantMap{{"id",1},{"bestMatchScore",.80},{"matchTier","strong"}},
+            QVariantMap{{"id",2},{"bestMatchScore",1.0},{"matchTier","strong"},{"classificationConflict",true}},
+            QVariantMap{{"id",3},{"bestMatchScore",.85}}};
+        rail->setProperty("scopeFilter","");
+        rail->setProperty("matchTierFilter","all");
+        rail->setProperty("results",mixedTiers);
+        QTRY_COMPARE(ids(),(QList<int>{3,1,0,2}));
     }
     void initTestCase() {
         QCoreApplication::setOrganizationName("ParallelFinderTests");
