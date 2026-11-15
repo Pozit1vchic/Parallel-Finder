@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Effects
 import QtQuick.Layouts
 import PfUi
 import PfUiBridge
@@ -19,11 +20,13 @@ Item {
         photo.source = appearance.url
         photo.personBox = appearance.box || null
         photoDialog.closeUp = true
+        photoDialog.brightened = false
         photoDialog.open()
     }
     Popup {
         id: photoDialog
         property bool closeUp: true
+        property bool brightened: false
         objectName: "characterPhotoDialog"
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -59,6 +62,8 @@ Item {
                         ? Math.max(1, Math.min(6, width / Math.max(1, (personRight-personLeft)*1.28),
                                                   height / Math.max(1, (personBottom-personTop)*1.28))) : 1
                     scale: targetScale
+                    layer.enabled: photoDialog.brightened
+                    layer.effect: MultiEffect { brightness: 0.22 }
                     x: targetScale > 1 ? width/2 - targetScale*(personLeft+personRight)/2 : 0
                     y: targetScale > 1 ? height/2 - targetScale*(personTop+personBottom)/2 : 0
                     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
@@ -73,6 +78,12 @@ Item {
                     visible: photo.validBox
                     text: L10n.t(photoDialog.closeUp ? "character.fullFrame" : "character.closeUp")
                     onClicked: photoDialog.closeUp = !photoDialog.closeUp
+                }
+                PfButton {
+                    objectName: "toggleCharacterPhotoBrightness"
+                    text: L10n.t(photoDialog.brightened ? "character.originalBrightness" : "character.brightenPhoto")
+                    selected: photoDialog.brightened
+                    onClicked: photoDialog.brightened = !photoDialog.brightened
                 }
                 Item { Layout.fillWidth: true }
                 PfButton {

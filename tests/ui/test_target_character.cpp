@@ -483,6 +483,12 @@ private slots:
         QVERIFY(photoDialog->property("closeUp").toBool());
         QVERIFY(QMetaObject::invokeMethod(framing,"clicked"));
         QVERIFY(!photoDialog->property("closeUp").toBool());
+        auto* brightness=photoDialog->findChild<QQuickItem*>("toggleCharacterPhotoBrightness");
+        QVERIFY(brightness);
+        QVERIFY(QMetaObject::invokeMethod(brightness,"clicked"));
+        QVERIFY(photoDialog->property("brightened").toBool());
+        QVERIFY(QMetaObject::invokeMethod(brightness,"clicked"));
+        QVERIFY(!photoDialog->property("brightened").toBool());
         QTest::keyClick(window,Qt::Key_Escape);
         QTRY_VERIFY(!photoDialog->property("visible").toBool());
         selector->setProperty("showUnresolved",true);
