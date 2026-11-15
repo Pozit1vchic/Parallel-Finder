@@ -532,7 +532,7 @@ Rectangle {
         }
         if (sortCriterion === "classification") {
             const ga = String(a.manualGroup || ""), gb = String(b.manualGroup || "")
-            if (ga !== gb) return ga && gb ? ga.localeCompare(gb) : ga ? -1 : 1
+            if (ga !== gb) return ga && gb ? L10n.compareManualGroups(ga, gb) : ga ? -1 : 1
             delta = classKeys.indexOf(classKey(a)) - classKeys.indexOf(classKey(b))
             if (!delta) {
                 // Evidence tiers precede continuity within a semantic group.

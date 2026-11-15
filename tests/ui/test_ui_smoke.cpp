@@ -1944,6 +1944,15 @@ void UiSmokeTests::movementClassesAndExportOrder()
     popup->setProperty("results",customGroups);
     QCOMPARE(values(popup->property("classOrder")).toStringList(),
         (QStringList{"group:My sequence","sitting"}));
+    const QVariantList numberedGroups{
+        QVariantMap{{"id",0},{"classification","sitting"},{"manualGroup","10. End"}},
+        QVariantMap{{"id",1},{"classification","sitting"},{"manualGroup","2. Middle"}},
+        QVariantMap{{"id",2},{"classification","sitting"},{"manualGroup","01. Opening"}}};
+    rail->setProperty("results",numberedGroups);
+    popup->setProperty("results",numberedGroups);
+    QTRY_COMPARE(values(rail->property("visibleResults")).toList().front().toMap().value("id").toInt(),2);
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),
+        (QStringList{"group:01. Opening","group:2. Middle","group:10. End"}));
     const QVariantList conflictingActions{
         QVariantMap{{"id",0},{"classification","unknown/unknown"}},
         QVariantMap{{"id",1},{"classification","action_mismatch"}},

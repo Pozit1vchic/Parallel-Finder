@@ -19,11 +19,7 @@ ReviewDialog {
     readonly property int pageCount: Math.max(1, Math.ceil(rows.length / pageSize))
     readonly property var pageRows: rows.slice(page * pageSize, (page + 1) * pageSize)
     readonly property bool canEdit: !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
-    readonly property var groupNames: {
-        const names = []
-        rows.forEach(function(row) { const name = String(row.manualGroup || ""); if (name && names.indexOf(name) < 0) names.push(name) })
-        return names
-    }
+    readonly property var groupNames: L10n.manualGroupNames(rows)
     property string errorText: ""
     property int assignmentRevision: 0
     property real pageOffset: 0

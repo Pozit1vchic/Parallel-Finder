@@ -1157,11 +1157,25 @@ QtObject {
         return t("results.motionSimilarity")
     }
     function exportGroupKey(row) { return row.manualGroup ? "group:" + row.manualGroup : movementKey(row.classification) }
+    function compareManualGroups(a, b) {
+        const prefixA = /^\s*(\d+)/.exec(a)
+        const prefixB = /^\s*(\d+)/.exec(b)
+        if (prefixA && prefixB) {
+            const numberA = prefixA[1].replace(/^0+(?=\d)/, "")
+            const numberB = prefixB[1].replace(/^0+(?=\d)/, "")
+            if (numberA.length !== numberB.length) return numberA.length - numberB.length
+            if (numberA !== numberB) return numberA < numberB ? -1 : 1
+        } else if (prefixA || prefixB) {
+            return prefixA ? -1 : 1
+        }
+        return a.localeCompare(b)
+    }
+    function manualGroupNames(rows) {
+        return Array.from(new Set(rows.filter(row => row.manualGroup).map(row => String(row.manualGroup))))
+            .sort(compareManualGroups)
+    }
     function exportGroupKeys(rows) {
-        const names = []
-        for (const row of rows) if (row.manualGroup && names.indexOf("group:" + row.manualGroup) < 0) names.push("group:" + row.manualGroup)
-        names.sort(function(a,b) { return a.localeCompare(b) })
-        return names.concat(movementKeysForRows(rows))
+        return manualGroupNames(rows).map(name => "group:" + name).concat(movementKeysForRows(rows))
     }
 
     function translate(english, russian) {
