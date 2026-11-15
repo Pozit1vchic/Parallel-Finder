@@ -153,7 +153,7 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!pfui::AppInfo::instance()->backendInitializing(),30000);
         analysis->setModelPath(qEnvironmentVariable("PF_MODEL_PATH"));
         analysis->setProviderChoice("cuda");analysis->setQualityProfile("fast");
-        analysis->setAnalysisMode("combined");analysis->setAccuracyPreset("fast");analysis->setExpandedSearch(false);
+        analysis->setAnalysisMode("combined");analysis->setAccuracyPreset("fast");
         pfui::McpController controller(analysis,dir.filePath("control.json"));controller.setAllowControl(true);
         const auto invoke=[&](const QString& name,const QJsonObject& args=QJsonObject{}){
             return controller.dispatch(message("tools/call",{{"name",name},{"arguments",args}}))["result"].toObject();
@@ -163,7 +163,7 @@ private slots:
         QJsonArray sourcePaths{source};
         const auto second=qEnvironmentVariable("PF_REAL_MCP_SECOND_SOURCE");
         if (!second.isEmpty()) sourcePaths.append(second);
-        analysis->setExpandedSearch(true);
+
         auto started=invoke("pf_start_analysis",{{"paths",sourcePaths}});
         QVERIFY2(!started["isError"].toBool(),qPrintable(QString::fromUtf8(QJsonDocument(started).toJson())));
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),900000);
@@ -324,7 +324,7 @@ private slots:
             return values;
         };
         const auto originalCache = cacheContents(); QVERIFY(!originalCache.isEmpty());
-        analysis->setExpandedSearch(true);
+
         const auto repeated = invoke("pf_start_analysis", {{"paths", sourcePaths}});
         QVERIFY(!repeated["isError"].toBool());
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(), 300000);

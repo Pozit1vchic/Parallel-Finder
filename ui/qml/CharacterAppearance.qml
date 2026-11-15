@@ -7,35 +7,47 @@ Item {
     property alias source: frame.source
     property var personBox: null
     property bool brighten: false
+    property alias detailSource: detail.source
+    readonly property bool detailReady: detail.status === Image.Ready
+    readonly property Item displayedImage: detailReady ? detail : frame
     readonly property bool validBox: !!personBox
         && isFinite(personBox.left) && isFinite(personBox.top) && isFinite(personBox.right) && isFinite(personBox.bottom)
         && personBox.right > Math.max(0,personBox.left) && personBox.bottom > Math.max(0,personBox.top)
         && personBox.left < 1 && personBox.top < 1
-    readonly property bool marked: validBox && frame.status === Image.Ready && frame.paintedWidth > 0 && frame.paintedHeight > 0
-    readonly property real imageLeft: (width-frame.paintedWidth)/2
-    readonly property real imageTop: (height-frame.paintedHeight)/2
-    readonly property real personLeft: imageLeft + (marked ? Math.max(0,personBox.left) : 0)*frame.paintedWidth
-    readonly property real personTop: imageTop + (marked ? Math.max(0,personBox.top) : 0)*frame.paintedHeight
-    readonly property real personRight: imageLeft + (marked ? Math.min(1,personBox.right) : 1)*frame.paintedWidth
-    readonly property real personBottom: imageTop + (marked ? Math.min(1,personBox.bottom) : 1)*frame.paintedHeight
+    readonly property bool marked: validBox && root.displayedImage.status === Image.Ready && root.displayedImage.paintedWidth > 0 && root.displayedImage.paintedHeight > 0
+    readonly property real imageLeft: (width-root.displayedImage.paintedWidth)/2
+    readonly property real imageTop: (height-root.displayedImage.paintedHeight)/2
+    readonly property real personLeft: imageLeft + (marked ? Math.max(0,personBox.left) : 0)*root.displayedImage.paintedWidth
+    readonly property real personTop: imageTop + (marked ? Math.max(0,personBox.top) : 0)*root.displayedImage.paintedHeight
+    readonly property real personRight: imageLeft + (marked ? Math.min(1,personBox.right) : 1)*root.displayedImage.paintedWidth
+    readonly property real personBottom: imageTop + (marked ? Math.min(1,personBox.bottom) : 1)*root.displayedImage.paintedHeight
     clip: true
-    Image { id: frame; anchors.fill: parent; fillMode: Image.PreserveAspectFit; asynchronous: true }
+    Image { id: frame; anchors.fill: parent; fillMode: Image.PreserveAspectFit; asynchronous: true; visible: !root.detailReady }
+    Image {
+        id: detail
+        objectName: "characterAppearanceDetail"
+        anchors.fill: parent
+        fillMode: Image.PreserveAspectFit
+        asynchronous: true
+        cache: false
+        visible: root.detailReady
+    }
     Rectangle {
-        visible: root.brighten && frame.status === Image.Ready
+        visible: root.brighten && root.displayedImage.status === Image.Ready
         x: root.imageLeft
         y: root.imageTop
-        width: frame.paintedWidth
-        height: frame.paintedHeight
+        width: root.displayedImage.paintedWidth
+        height: root.displayedImage.paintedHeight
         color: "#38ffffff"
     }
     // Leave the target untouched; quiet shading separates overlapping people.
     Item {
         visible: root.marked
         anchors.fill: parent
-        Rectangle { x: root.imageLeft; y: root.imageTop; width: frame.paintedWidth; height: Math.max(0,root.personTop-y); color: "#60000000" }
-        Rectangle { x: root.imageLeft; y: root.personBottom; width: frame.paintedWidth; height: Math.max(0,root.imageTop+frame.paintedHeight-y); color: "#60000000" }
+        Rectangle { x: root.imageLeft; y: root.imageTop; width: root.displayedImage.paintedWidth; height: Math.max(0,root.personTop-y); color: "#60000000" }
+        Rectangle { x: root.imageLeft; y: root.personBottom; width: root.displayedImage.paintedWidth; height: Math.max(0,root.imageTop+root.displayedImage.paintedHeight-y); color: "#60000000" }
         Rectangle { x: root.imageLeft; y: root.personTop; width: Math.max(0,root.personLeft-x); height: root.personBottom-y; color: "#60000000" }
-        Rectangle { x: root.personRight; y: root.personTop; width: Math.max(0,root.imageLeft+frame.paintedWidth-x); height: root.personBottom-y; color: "#60000000" }
+        Rectangle { x: root.personRight; y: root.personTop; width: Math.max(0,root.imageLeft+root.displayedImage.paintedWidth-x); height: root.personBottom-y; color: "#60000000" }
     }
     Canvas {
         id: corners

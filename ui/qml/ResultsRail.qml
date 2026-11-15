@@ -46,13 +46,14 @@ Rectangle {
     property bool bulkTransitionsSuppressed: false
     property bool suppressFilterRebuild: false
     property int rebuildSerial: 0
+    property int scrollResetSerial: -1
     property var pendingRows: []
     property int pendingRowIndex: 0
     property real pendingContentY: 0
     readonly property int activeFilterCount: (classFilter ? 1 : 0) + (sourceQuery.trim() ? 1 : 0)
         + (matchTierFilter !== "strong" ? 1 : 0) + (sourceFilter ? 1 : 0) + (scopeFilter ? 1 : 0) + (postureFilter ? 1 : 0)
         + (sortCriterion !== "classification" || sortDescending ? 1 : 0)
-        + (bodyViewFilter ? 1 : 0) + (headViewFilter ? 1 : 0)
+        + (bodyViewFilter ? 1 : 0) + (headViewFilter ? 1 : 0) + (reviewFilter !== "all" ? 1 : 0)
     function classKey(row) {
         return L10n.movementKey(row.classification)
     }
@@ -223,6 +224,11 @@ Rectangle {
                 text: L10n.t("results.clearSelection")
                 onClicked: { root.clearSelection(); selectionMenu.close() }
             }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 6
+                PfButton { objectName: "nextUnreviewedButton"; Layout.fillWidth: true; compact: true; text: Review.t("nextUnreviewed"); onClicked: root.selectNextUnreviewed() }
+                PfButton { objectName: "undoReviewButton"; compact: true; text: Review.t("undo"); enabled: Analysis.canUndoReview && !Analysis.busy && !Analysis.reviewBusy && !Analysis.exportBusy; onClicked: root.undoRequested() }
+            }
             Text { Layout.fillWidth: true; text: Review.t("selectionHint"); color: Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }
         }
     }
@@ -279,6 +285,17 @@ Rectangle {
                         text: L10n.t("results.resetFilters")
                         enabled: root.activeFilterCount > 0
                         onClicked: root.resetFilters()
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true; spacing: 3
+                    Repeater {
+                        model: ["all", "favorites", "hidden"]
+                        delegate: PfButton {
+                            required property string modelData
+                            Layout.fillWidth: true; compact: true; selected: root.reviewFilter === modelData
+                            text: Review.t(modelData); onClicked: root.reviewFilter = modelData
+                        }
                     }
                 }
                 Text { Layout.fillWidth: true; text: L10n.t("ui.349"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10 }
@@ -399,6 +416,11 @@ Rectangle {
     function goToTop() {
         if (!visibleResults.length) return
         root.openPair(Number(visibleResults[0].id))
+        resetScrollToTop()
+    }
+
+    function resetScrollToTop() {
+        scrollResetSerial = rebuildSerial
         resultList.positionViewAtBeginning()
     }
 
@@ -434,6 +456,7 @@ Rectangle {
         bodyViewFilter = ""
         headViewFilter = ""
         matchTierFilter = "strong"
+        reviewFilter = "all"
         sortCriterion = "classification"
         sortDescending = false
         suppressFilterRebuild = false
@@ -583,7 +606,8 @@ Rectangle {
         Qt.callLater(function() {
             if (serial !== root.rebuildSerial) return
             resultList.forceLayout()
-            resultList.contentY = Math.max(resultList.originY,
+            if (root.scrollResetSerial === serial) resultList.positionViewAtBeginning()
+            else resultList.contentY = Math.max(resultList.originY,
                 Math.min(root.pendingContentY, resultList.originY + Math.max(0, resultList.contentHeight - resultList.height)))
             resultList.currentIndex = root.currentVisibleIndex
             if (!Theme.reducedMotion && hadVisibleRows && resultList.count > 0)
@@ -701,7 +725,8 @@ Rectangle {
         Qt.callLater(function() {
             if (serial !== root.rebuildSerial) return
             resultList.forceLayout()
-            resultList.contentY = Math.max(resultList.originY, Math.min(previousY, resultList.originY + Math.max(0, resultList.contentHeight - resultList.height)))
+            if (root.scrollResetSerial === serial) resultList.positionViewAtBeginning()
+            else resultList.contentY = Math.max(resultList.originY, Math.min(previousY, resultList.originY + Math.max(0, resultList.contentHeight - resultList.height)))
             // A model edit may move the selected result into another group.
             // Keep the reader's viewport; only explicit navigation reveals it.
             resultList.currentIndex = currentVisibleIndex
@@ -787,17 +812,42 @@ Rectangle {
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             ColumnLayout {
                 id: controlsColumn; width: parent.width; spacing: 8
-        RowLayout {
-            Layout.fillWidth: true; spacing: 3; visible: root.results.length > 0
-            Repeater {
-                model: ["all", "favorites", "hidden"]
-                delegate: PfButton {
-                    required property string modelData
-                    Layout.fillWidth: true; compact: true; selected: root.reviewFilter === modelData
-                    text: Review.t(modelData); onClicked: root.reviewFilter = modelData
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            spacing: 4
+            Text {
+                font.family: Theme.fontFamily
+                Layout.fillWidth: true
+                text: L10n.t("results.title")
+                color: Theme.textPrimary
+                font.pixelSize: 16
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+                Text {
+                    font.family: Theme.fontFamily
+                    Layout.fillWidth: true
+                    text: root.results.length > 0 ? root.visibleResults.length + " " + L10n.t("results.found") + " · " + root.visibleResults.filter(function(row) { return !row.reviewed }).length + " " + Review.t("unreviewed").toLowerCase() : L10n.t("results.emptyHint")
+                    color: Theme.textSecondary
+                    font.pixelSize: 11
+                    elide: Text.ElideRight
+                }
+                PfButton {
+                    objectName: "viewPossibleMatchesButton"
+                    Layout.alignment: Qt.AlignVCenter; compact: true; quiet: true
+                    visible: root.matchTierFilter === "possible"
+                        || (root.matchTierFilter === "strong" && root.possibleMatchesInFilters > 0)
+                    text: root.matchTierFilter === "possible" ? L10n.t("matches.strong")
+                        : L10n.t("matches.possible") + " · " + root.possibleMatchesInFilters
+                    onClicked: root.matchTierFilter = root.matchTierFilter === "possible" ? "strong" : "possible"
                 }
             }
         }
+
         RowLayout {
             Layout.fillWidth: true
             visible: root.results.length > 0
@@ -821,44 +871,7 @@ Rectangle {
                 onClicked: { filterMenu.anchorItem = filterMenuButton; filterMenu.open() }
             }
         }
-        RowLayout {
-            Layout.fillWidth: true; visible: root.results.length > 0; spacing: 6
-            PfButton { objectName: "nextUnreviewedButton"; Layout.fillWidth: true; compact: true; text: Review.t("nextUnreviewed"); onClicked: root.selectNextUnreviewed() }
-            PfButton { objectName: "undoReviewButton"; compact: true; text: Review.t("undo"); enabled: Analysis.canUndoReview && !Analysis.busy && !Analysis.reviewBusy && !Analysis.exportBusy; onClicked: root.undoRequested() }
-        }
         Text { Layout.fillWidth: true; visible: !!root.reviewNotice; text: root.reviewNotice; color: Theme.textSecondary; wrapMode: Text.WordWrap; font.family: Theme.fontFamily; font.pixelSize: 10 }
-        ColumnLayout {
-            Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            spacing: 4
-            Text {
-                font.family: Theme.fontFamily
-                Layout.fillWidth: true
-                text: L10n.t("results.title")
-                color: Theme.textPrimary
-                font.pixelSize: 16
-                font.weight: Font.DemiBold
-                elide: Text.ElideRight
-            }
-            Text {
-                font.family: Theme.fontFamily
-                Layout.fillWidth: true
-                text: root.results.length > 0 ? root.visibleResults.length + " " + L10n.t("results.found") + " · " + root.visibleResults.filter(function(row) { return !row.reviewed }).length + " " + Review.t("unreviewed").toLowerCase() : L10n.t("results.emptyHint")
-                color: Theme.textSecondary
-                font.pixelSize: 11
-                elide: Text.ElideRight
-            }
-        }
-
-        PfButton {
-            objectName: "viewPossibleMatchesButton"
-            Layout.fillWidth: true; compact: true; quiet: true
-            visible: root.matchTierFilter === "possible"
-                || (root.matchTierFilter === "strong" && root.possibleMatchesInFilters > 0)
-            text: root.matchTierFilter === "possible" ? L10n.t("matches.strong")
-                : L10n.t("matches.possible") + " · " + root.possibleMatchesInFilters
-            onClicked: root.matchTierFilter = root.matchTierFilter === "possible" ? "strong" : "possible"
-        }
         RowLayout {
             Layout.fillWidth: true
             Layout.minimumWidth: 0

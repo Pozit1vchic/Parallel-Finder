@@ -478,6 +478,11 @@ private slots:
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,photoCenter.toPoint());
         QTRY_VERIFY(photoDialog->property("opened").toBool());
         QVERIFY(selector->property("chosenId").toString().isEmpty());
+        auto* detail=photoDialog->findChild<QQuickItem*>("characterAppearanceDetail");
+        QVERIFY(detail);
+        QCOMPARE(detail->property("source").toUrl().scheme(),QStringLiteral("image"));
+        QTRY_COMPARE(detail->property("status").toInt(),1); // Image.Ready
+        QCOMPARE(detail->property("sourceSize").toSize(),QSize(16,12));
         auto* framing=photoDialog->findChild<QQuickItem*>("toggleCharacterPhotoFraming");
         QVERIFY(framing);
         QVERIFY(photoDialog->property("closeUp").toBool());
@@ -523,18 +528,26 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
         QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
         QCOMPARE(analysis->summaryForSource(source).value("targetCharacterId").toString(),first);
-        const auto originalSummary=analysis->summaryForSource(source);
         analysis->analyzeFiles({source});
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
         QVERIFY(analysis->analysisCompleted());
         QCOMPARE(analysis->analyzedFrames(),0);
         QCOMPARE(analysis->poseDetectionCount(),0);
+        analysis->setFreshAnalysis(true);
+        analysis->analyzeFiles({source});
+        QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget(),30000);
+        QVERIFY(analysis->selectTargetCharacter(first));
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
+        QVERIFY(analysis->analysisCompleted());
+        QVERIFY(analysis->analyzedFrames()>0);
+        analysis->setFreshAnalysis(false);
         analysis->setAnalysisMode("static");
         analysis->analyzeFiles({source});
-        QTRY_VERIFY2_WITH_TIMEOUT(!analysis->busy(),qPrintable(analysis->status()+" | "+analysis->progressStage()+" | "+
-            QString::fromUtf8(QJsonDocument::fromVariant(analysis->summaryForSource(source)).toJson(QJsonDocument::Compact))),30000);
+        QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget(),30000);
+        QVERIFY(analysis->selectTargetCharacter(first));
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
         QVERIFY(analysis->analysisCompleted());
-        QCOMPARE(analysis->analyzedFrames(),0);
+        QVERIFY(analysis->analyzedFrames()>0);
         analysis->setAnalysisMode("motion");
         analysis->reselectTargetCharacter(QDir::toNativeSeparators(source));
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
@@ -542,19 +555,21 @@ private slots:
         QVERIFY(analysis->selectTargetCharacter(second));
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
         QCOMPARE(analysis->summaryForSource(source).value("targetCharacterId").toString(),second);
-        QVERIFY2(analysis->analyzedFrames()==0,qPrintable(QString::fromUtf8(QJsonDocument::fromVariant(QVariantMap{
-            {"original",originalSummary},{"reselected",analysis->summaryForSource(source)}}).toJson(QJsonDocument::Compact))));
+        QVERIFY(analysis->analyzedFrames()>0);
         analysis->reselectTargetCharacter(source);
         QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget() || !analysis->busy(),30000);
         QVERIFY(analysis->awaitingTarget());analysis->stopAnalysis();
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),5000);
         QVERIFY(!analysis->awaitingTarget());
         QVERIFY(!analysis->analysisCompleted());
-        // A batch uses the saved single anchor and never prompts again for
-        // another source, even when its identity evidence is insufficient.
+        // A changed source list reruns analysis and asks for one anchor
+        // for the entire batch, even when identity evidence is insufficient.
         const auto episode=directory.filePath("episode-two.mp4");
         QVERIFY(QFile::copy(source,episode));
         analysis->analyzeFiles({source,episode});
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy() || analysis->awaitingTarget(),30000);
+        QVERIFY2(analysis->awaitingTarget(),qPrintable(analysis->status()));
+        QVERIFY(analysis->selectTargetCharacter(second));
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy() || analysis->awaitingTarget(),30000);
         QVERIFY2(!analysis->awaitingTarget(),"A second source requested another character");
         QVERIFY2(analysis->analysisCompleted(),qPrintable(analysis->status()));
@@ -562,6 +577,16 @@ private slots:
         QVERIFY(analysis->summaryForSource(episode).value("targetCharacterId").toString().isEmpty());
         QVERIFY(analysis->summaryForSource(episode).value("targetMatchUncertain").toBool());
         QVERIFY(analysis->status().contains(QStringLiteral("Персонаж не подтверждён")));
+        window->setProperty("sourceFiles",QVariantList{source,episode});
+        auto* sources=window->findChild<QObject*>("sourcesRail");
+        QVERIFY(sources);
+        QVERIFY(sources->setProperty("selectedSourceIndex",1));
+        auto* warning=sources->findChild<QQuickItem*>("selectedSourceWarning");
+        QVERIFY(warning);
+        QTRY_VERIFY(warning->isVisible());
+        const auto warningText=warning->property("text").toString();
+        QVERIFY2(warningText.contains(QStringLiteral("не подтверждён")) ||
+            warningText.contains(QStringLiteral("could not be confirmed")),qPrintable(warningText));
         // Explicitly choose once for the whole batch; the other video must not
         // open a second selector, even without reliable identity evidence.
         analysis->reselectTargetCharacter(source);
@@ -584,9 +609,11 @@ private slots:
         QVERIFY(analysis->summaryForSource(episode).value("targetCharacterId").toString().isEmpty());
         qputenv("PF_ALLOW_UNVERIFIED_TARGETS","1");
         analysis->analyzeFiles({source,episode});
+        QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget(),30000);
+        QVERIFY(analysis->selectTargetCharacter(first));
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
         QVERIFY(analysis->analysisCompleted());
-        QCOMPARE(analysis->analyzedFrames(),0);
+        QVERIFY(analysis->analyzedFrames()>0);
         QVERIFY(analysis->summaryForSource(episode).value("targetCharacterId").toString().isEmpty());
         QVERIFY(analysis->summaryForSource(episode).value("targetMatchUncertain").toBool());
         pfservices::SettingsStore::flushPendingWrites();
@@ -625,6 +652,11 @@ private slots:
         QCOMPARE(decision.value("sceneThreshold").toDouble(),newThreshold);
         QVERIFY(analysis->analyzedFrames()>0);
         release();pfservices::SettingsStore::flushPendingWrites();
+        analysis->analyzeFiles({source});
+        QTRY_VERIFY_WITH_TIMEOUT(analysis->awaitingTarget(),30000);
+        QVERIFY(analysis->selectTargetCharacter(first));
+        QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
+        QVERIFY(analysis->analysisCompleted());
         analysis->analyzeFiles({source});
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),30000);
         QVERIFY(analysis->analysisCompleted());QCOMPARE(analysis->analyzedFrames(),0);

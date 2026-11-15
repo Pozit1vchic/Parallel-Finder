@@ -1288,9 +1288,6 @@ AnalysisController::AnalysisController(QObject* parent) : QObject(parent)
         analysisMode_ = envMode;
     normalizeSize_ = settings.normalizeSize;
     mirrorPoses_ = settings.mirrorPoses;
-    expandedSearch_ = settings.expandedSearch;
-    if (qEnvironmentVariableIsSet("PF_EXPANDED_SEARCH"))
-        expandedSearch_ = qEnvironmentVariableIntValue("PF_EXPANDED_SEARCH") != 0;
     modelPath_ = QString::fromStdString(settings.modelPath);
     modelChoice_ = QFileInfo(QString::fromStdString(settings.modelChoice)).fileName();
     if (modelChoice_.isEmpty()) {
@@ -1377,7 +1374,6 @@ void AnalysisController::saveSettings() const
     settings.analysisMode = analysisMode_.toStdString();
     settings.normalizeSize = normalizeSize_;
     settings.mirrorPoses = mirrorPoses_;
-    settings.expandedSearch = expandedSearch_;
     settings.modelPath = modelPath_.toStdString();
     settings.modelChoice = modelChoice_.toStdString();
     settings.cacheEnabled = cacheEnabled_;
@@ -1400,7 +1396,6 @@ void AnalysisController::saveSettings() const
         current.analysisMode = settings.analysisMode;
         current.normalizeSize = settings.normalizeSize;
         current.mirrorPoses = settings.mirrorPoses;
-        current.expandedSearch = settings.expandedSearch;
         current.modelPath = settings.modelPath;
         current.modelChoice = settings.modelChoice;
         current.cacheEnabled = settings.cacheEnabled;
@@ -1575,11 +1570,10 @@ void AnalysisController::setMirrorPoses(bool value)
     emit settingsChanged();
 }
 
-void AnalysisController::setExpandedSearch(bool value)
+void AnalysisController::setFreshAnalysis(bool value)
 {
-    if (expandedSearch_ == value) return;
-    expandedSearch_ = value;
-    saveSettings();
+    if (freshAnalysis_ == value) return;
+    freshAnalysis_ = value;
     emit settingsChanged();
 }
 
@@ -2293,6 +2287,7 @@ bool AnalysisController::selectTargetCharacter(const QString& id)
     const auto selected = id.toULongLong(&ok);
     if (!valid || !ok || selected == 0 || selected == std::numeric_limits<std::size_t>::max()) return false;
     targetChoice_->store(static_cast<std::size_t>(selected), std::memory_order_release);
+    characterPreviewImages_.reset();
     targetCandidates_.clear();
     hiddenUnresolvedCharacters_=0;
     emit targetSelectionChanged();
@@ -2303,6 +2298,7 @@ bool AnalysisController::continueWithoutTargetCharacter()
 {
     if (!awaitingTarget() || !targetChoice_) return false;
     targetChoice_->store(std::numeric_limits<std::size_t>::max(), std::memory_order_release);
+    characterPreviewImages_.reset();
     targetCandidates_.clear(); hiddenUnresolvedCharacters_=0;
     emit targetSelectionChanged();
     return true;
@@ -2393,10 +2389,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
     emit summaryChanged();
     busy_ = true;
     emit busyChanged();
-    setProgress(0.0, expandedSearch_ ? QStringLiteral("Подготавливаем расширенный поиск")
-                                  : QStringLiteral("Подготавливаем анализ"), 0, 0);
-    setStatus(expandedSearch_ ? QStringLiteral("Расширенный поиск: проверяем готовые наблюдения…")
-                             : QStringLiteral("Декодируем кадры и ищем смены сцен…"));
+    setProgress(0.0, QStringLiteral("Подготавливаем анализ"), 0, 0);
     const auto cancel = std::make_shared<std::atomic_bool>(false);
     analysisCancel_ = cancel;
     const double similarityThreshold = similarityThreshold_;
@@ -2414,18 +2407,37 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
     // Persistence runs asynchronously. Capture controls on their owning thread;
     // a worker must not recover an older cache/segmentation policy from disk.
     pfservices::Settings runControls;
-    runControls.cacheEnabled=cacheEnabled_;
+    QVariantList dependencies{providerChoice, modelChoice_, modelPath_, qualityProfile, analysisMode,
+        similarityThreshold, candidateThreshold, repeatGap, sameFileGap, crossFileGap, duplicateWindow,
+        noiseFactor, maxUniqueResults, timeWeight, processingThreads_, sceneThreshold_,
+        normalizeSize_, mirrorPoses_, allPeople};
+    for (const auto& path : normalized) {
+        const QFileInfo source(path);
+        dependencies.append(QVariantList{path, source.size(), source.lastModified()});
+    }
+    if (!modelPath_.isEmpty()) {
+        const QFileInfo modelFile(modelPath_);
+        dependencies.append(QVariantList{modelFile.size(), modelFile.lastModified()});
+    }
+    const bool dependenciesChanged = !lastAnalysisDependencies_.isEmpty() && lastAnalysisDependencies_ != dependencies;
+    lastAnalysisDependencies_ = std::move(dependencies);
+    runControls.cacheEnabled = cacheEnabled_ && !freshAnalysis_ && !dependenciesChanged;
+    setStatus(runControls.cacheEnabled ? QStringLiteral("Декодируем кадры и ищем смены сцен…")
+                                       : QStringLiteral("Анализируем видео с нуля…"));
     runControls.cachePath=cachePath_.toStdString();
     runControls.cacheLimitBytes=static_cast<std::size_t>(std::max(.25,cacheLimitGb_)*1024.*1024.*1024.);
     runControls.processingThreads=static_cast<std::size_t>(std::clamp(processingThreads_,0,256));
     runControls.sceneThreshold=sceneThreshold_;
-    const bool expandedSearch = expandedSearch_;
+    // Historical smoke benchmarks can still replay the old search policy.
+    const bool expandedSearch = !QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
+        || !qEnvironmentVariableIsSet("PF_EXPANDED_SEARCH") || qEnvironmentVariableIntValue("PF_EXPANDED_SEARCH") != 0;
     const bool normalizeSize = normalizeSize_;
     const bool mirrorPoses = mirrorPoses_;
     lastAnalysisPaths_ = normalized;
     QString forceTargetSource = std::exchange(forceTargetSource_, QString{});
     if(QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
         &&qEnvironmentVariableIsSet("PF_SMOKE_TARGET_ID"))forceTargetSource=normalized.first();
+    characterPreviewImages_.reset();
     targetCandidates_.clear(); hiddenUnresolvedCharacters_=0; targetSelectionSource_.clear();
     const auto targetChoice = targetChoice_ = std::make_shared<std::atomic_size_t>(0);
     emit targetSelectionChanged();
@@ -3861,11 +3873,20 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     if(writer)writer->finish();
                     for(auto& frame:frames)if(frame.encoded.valid())frame.url=frame.encoded.get();
                     if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))std::fprintf(stderr,"PF_CHARACTER_PREVIEWS requested=%zu unique=%zu cached=%zu elapsed_ms=%lld\n",requests.size(),frames.size(),cacheHits,static_cast<long long>(previewClock.elapsed()));
+                    std::vector<ResultPreviewImages::Request> photoRequests;
+                    photoRequests.reserve(frames.size());
+                    for(const auto& frame:frames)
+                        photoRequests.push_back({source,{},{},frame.time,frame.url});
+                    pfcore::VideoDecodeOptions photoOptions;
+                    photoOptions.threads=std::clamp<int>(settings.processingThreads,1,8);
+                    photoOptions.maxWidth=1920;
+                    photoOptions.maxHeight=1080;
+                    auto characterPhotos=ResultPreviewImages::create(std::move(photoRequests),nullptr,photoOptions);
                     std::vector<QVariantList> candidatePreviews(candidates.size());
                     for(const auto& request:requests) {
                         const auto& box=candidates[request.candidate].appearances[request.appearance].box;
                         const auto& frame=frames[request.frame];
-                        candidatePreviews[request.candidate].push_back(QVariantMap{{"url",frame.url},{"time",frame.time},
+                        candidatePreviews[request.candidate].push_back(QVariantMap{{"url",frame.url},{"photoUrl",characterPhotos->url(request.frame)},{"time",frame.time},
                             {"box",QVariantMap{{"left",box.left},{"top",box.top},{"right",box.right},{"bottom",box.bottom}}}});
                     }
                     int identityNumber=0,unresolvedNumber=0;
@@ -3899,8 +3920,9 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     }
                     if (isCancelled()) break;
                     targetChoice->store(0,std::memory_order_release);
-                    QMetaObject::invokeMethod(this,[this,cancel,rows,source,hiddenUnresolved] {
+                    QMetaObject::invokeMethod(this,[this,cancel,rows,source,hiddenUnresolved,characterPhotos] {
                         if (analysisCancel_!=cancel || cancel->load()) return;
+                        characterPreviewImages_=characterPhotos;
                         targetCandidates_=rows; hiddenUnresolvedCharacters_=hiddenUnresolved;
                         targetSelectionSource_=QString::fromStdString(source);
                         emit targetSelectionChanged();
@@ -4016,6 +4038,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             if(!allPeople) {windows=std::move(targetWindows); previewA=std::move(targetA); previewB=std::move(targetB);}
             QMetaObject::invokeMethod(this,[this,cancel] {
                 if (analysisCancel_!=cancel) return;
+                characterPreviewImages_.reset();
                 targetCandidates_.clear(); hiddenUnresolvedCharacters_=0; targetSelectionSource_.clear(); emit targetSelectionChanged();
             },Qt::QueuedConnection);
         }
@@ -4774,6 +4797,7 @@ void AnalysisController::stopAnalysis()
 {
     if (!busy_ || !analysisCancel_) return;
     analysisCancel_->store(true, std::memory_order_relaxed);
+    characterPreviewImages_.reset();
     targetCandidates_.clear(); hiddenUnresolvedCharacters_=0; emit targetSelectionChanged();
     setStatus(QStringLiteral("Останавливаем анализ…"));
     setProgress(progress_, QStringLiteral("Останавливаем анализ"), processedFrames_, totalFrames_);

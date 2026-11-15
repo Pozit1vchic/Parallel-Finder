@@ -201,7 +201,7 @@ ResultsRail { width: 300; height: 600; sortCriterion: "best"
     void backendProbeFailureLeavesHonestUnavailableState();
     void installedProvidersNeverDownloadAgain();
     void settingsAndNumericTypography();
-    void repeatSearchTogglesFromTheActualSidebar();
+    void freshAnalysisTogglesFromTheActualSidebar();
     void appearancePersistsAndRejectsMissingFonts();
     void languageTabOffersSixPersistentChoices();
     void rc23PresetsTranslationsAndFlagMotion();
@@ -265,7 +265,7 @@ void UiSmokeTests::realAnalysisPublishesProgressWithoutDiagnostics()
     analysis->setProviderChoice("cuda");
     analysis->setQualityProfile("fast");
     analysis->setAccuracyPreset("fast");
-    analysis->setExpandedSearch(true);
+
     QElapsedTimer elapsed;
     elapsed.start();
     qint64 firstProgressMs = -1;
@@ -298,7 +298,7 @@ void UiSmokeTests::realSoldierDefaultDiscoveryColdAndWarm()
     analysis->setModelPath(qEnvironmentVariable("PF_MODEL_PATH"));
     analysis->setProviderChoice("cuda"); analysis->setQualityProfile("fast");
     analysis->setAnalysisMode("combined"); analysis->setAccuracyPreset("fast");
-    analysis->setExpandedSearch(true);
+
     analysis->analyzeFiles({source});
     QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(), 300000);
     QVERIFY2(analysis->analysisCompleted(), qPrintable(analysis->status()));
@@ -310,8 +310,16 @@ void UiSmokeTests::realSoldierDefaultDiscoveryColdAndWarm()
     engine.load(QUrl("qrc:/qt/qml/PfUi/qml/Main.qml"));
     QVERIFY(!engine.rootObjects().isEmpty());
     auto* window = engine.rootObjects().constFirst();
-    const int firstId = cold.constFirst().toMap().value("id").toInt();
-    QTRY_COMPARE(window->property("selectedResultIndex").toInt(), firstId);
+    auto* rail=window->findChild<QObject*>("resultsRail");
+    auto* list=window->findChild<QObject*>("resultList");
+    QVERIFY(rail && list);
+    const auto firstDisplayedId=[rail] {
+        const auto rows=rail->property("visibleResults").value<QJSValue>().toVariant().toList();
+        return rows.isEmpty() ? -1 : rows.constFirst().toMap().value("id").toInt();
+    };
+    QTRY_VERIFY(firstDisplayedId() >= 0);
+    QTRY_COMPARE(window->property("selectedResultIndex").toInt(), firstDisplayedId());
+    QTRY_VERIFY(list->property("atYBeginning").toBool());
     qputenv("PF_AUDIT_REUSE_OBSERVATIONS", "1");
     analysis->analyzeFiles({source});
     QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(), 300000);
@@ -324,7 +332,8 @@ void UiSmokeTests::realSoldierDefaultDiscoveryColdAndWarm()
         return values;
     };
     QCOMPARE(stripPreviews(analysis->results()), stripPreviews(cold));
-    QTRY_COMPARE(window->property("selectedResultIndex").toInt(), firstId);
+    QTRY_COMPARE(window->property("selectedResultIndex").toInt(), firstDisplayedId());
+    QTRY_VERIFY(list->property("atYBeginning").toBool());
     auto* center = window->findChild<QObject*>("motionCenter");
     QVERIFY(center);
     QCOMPARE(center->property("availableResultCount").toInt(), cold.size());
@@ -420,7 +429,7 @@ void UiSmokeTests::realWalkingClassificationTrimAndOrderedExport()
     analysis->setModelPath(qEnvironmentVariable("PF_MODEL_PATH"));analysis->setProviderChoice("cuda");
     analysis->setCachePath(qEnvironmentVariable("PF_ACTION_PIPELINE_CACHE"));analysis->setCacheLimitGb(64);
     analysis->setQualityProfile("fast");analysis->setAnalysisMode("combined");
-    analysis->setSceneThreshold(27);analysis->setAccuracyPreset("fast");analysis->setExpandedSearch(true);
+    analysis->setSceneThreshold(27);analysis->setAccuracyPreset("fast");
     // Match the recorded application audit policy explicitly. The preset name
     // alone does not apply QML's parameter changes in this C++ integration test.
     analysis->setSimilarityThreshold(.70);analysis->setCandidateThreshold(.48);
@@ -503,7 +512,7 @@ void UiSmokeTests::realAutomaticClassConfirmationSurvivesTrim()
     analysis->setQualityProfile("fast");
     analysis->setAnalysisMode("combined");
     analysis->setAccuracyPreset("fast");
-    analysis->setExpandedSearch(false);
+
     analysis->analyzeFiles({source});
     QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(),180000);
     QVERIFY(!analysis->results().isEmpty());
@@ -586,7 +595,7 @@ void UiSmokeTests::realReviewAdjustAndFindings()
         analysis->setModelPath(qEnvironmentVariable("PF_MODEL_PATH"));
         analysis->setProviderChoice("cuda"); analysis->setQualityProfile("fast");
         analysis->setAnalysisMode("combined"); analysis->setAccuracyPreset("fast");
-        analysis->setExpandedSearch(false); analysis->analyzeFiles({qEnvironmentVariable("PF_REAL_SOLDIER_SOURCE")});
+        analysis->analyzeFiles({qEnvironmentVariable("PF_REAL_SOLDIER_SOURCE")});
         QTRY_VERIFY_WITH_TIMEOUT(!analysis->busy(), 300000);
     }
     QVERIFY(analysis->results().size() >= 2);
@@ -1221,18 +1230,18 @@ void UiSmokeTests::gpuInfoPropagatesToQml()
     pfui::AppInfo::instance()->setGpuInfo(QStringLiteral("cpu"), QString(), false, QString());
 }
 
-void UiSmokeTests::repeatSearchTogglesFromTheActualSidebar()
+void UiSmokeTests::freshAnalysisTogglesFromTheActualSidebar()
 {
     pfui::AppInfo::registerQmlTypes();
     auto* analysis=pfui::AnalysisController::instance();
-    const bool original=analysis->expandedSearch();
-    analysis->setExpandedSearch(false);
+    const bool original=analysis->freshAnalysis();
+    analysis->setFreshAnalysis(false);
     QQmlApplicationEngine engine;pfui::installResultPreviewImages(engine);
     auto* window=loadWindow(engine);
     QVERIFY(window);
     auto* sources=window->findChild<QObject*>("sourcesRail");
     QVERIFY(sources);
-    auto* repeat=sources->findChild<QQuickItem*>("expandedSearchCheck");
+    auto* repeat=sources->findChild<QQuickItem*>("freshAnalysisCheck");
     auto* options=sources->findChild<QQuickItem*>("sourceOptionsFlick");
     QVERIFY(repeat && options);
     QVERIFY(repeat->isEnabled());
@@ -1241,12 +1250,12 @@ void UiSmokeTests::repeatSearchTogglesFromTheActualSidebar()
     QTest::qWait(100);
     const auto position=repeat->mapToScene(QPointF(repeat->width()/2,repeat->height()/2)).toPoint();
     QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,position);
-    QTRY_VERIFY(analysis->expandedSearch());
+    QTRY_VERIFY(analysis->freshAnalysis());
     QTRY_VERIFY(repeat->property("checked").toBool());
     QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,position);
-    QTRY_VERIFY(!analysis->expandedSearch());
+    QTRY_VERIFY(!analysis->freshAnalysis());
     QTRY_VERIFY(!repeat->property("checked").toBool());
-    analysis->setExpandedSearch(original);
+    analysis->setFreshAnalysis(original);
 }
 
 void UiSmokeTests::settingsAndNumericTypography()
@@ -1279,7 +1288,7 @@ void UiSmokeTests::settingsAndNumericTypography()
     QVERIFY(sources);
     QVERIFY(!sources->findChild<QObject*>("costumeModeCheck"));
     QVERIFY(!popup->findChild<QObject*>("costumeModeCheck"));
-    auto* repeat = sources->findChild<QQuickItem*>("expandedSearchCheck");
+    auto* repeat = sources->findChild<QQuickItem*>("freshAnalysisCheck");
     auto* options = sources->findChild<QQuickItem*>("sourceOptionsFlick");
     QVERIFY(repeat && options);
     QVERIFY(!repeat->property("text").toString().isEmpty());
@@ -2307,6 +2316,19 @@ void UiSmokeTests::largeResultSetKeepsClassesContiguous()
     for(const auto& value:visible) {
         const int rank=classes.indexOf(value.toMap().value("classification").toString());
         QVERIFY(rank>=previous);previous=rank;
+    }
+    {
+        auto* list=rail->findChild<QObject*>("resultList");
+        QVERIFY(list);
+        QVERIFY(QMetaObject::invokeMethod(list,"positionViewAtEnd"));
+        QTRY_VERIFY(!list->property("atYBeginning").toBool());
+        QVERIFY(rail->setProperty("sortDescending",true));
+        QVERIFY(rail->property("bulkUpdating").toBool());
+        QVERIFY(QMetaObject::invokeMethod(rail,"resetScrollToTop"));
+        QTRY_VERIFY(!rail->property("bulkUpdating").toBool());
+        QTRY_VERIFY(list->property("atYBeginning").toBool());
+        QVERIFY(rail->setProperty("sortDescending",false));
+        QTRY_VERIFY(!rail->property("bulkUpdating").toBool());
     }
     const auto exportClasses=popup->property("classOrder").value<QJSValue>().toVariant().toStringList();
     QCOMPARE(exportClasses,classes);

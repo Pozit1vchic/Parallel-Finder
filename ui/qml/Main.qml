@@ -53,9 +53,13 @@ ApplicationWindow {
     }
     function syncResultsSelection() {
         root.selectedExportRows = ({})
-        const first = Analysis.results.find(function(row) { return !row.hidden && (resultsRail.reviewFilter !== "favorites" || row.favorite) })
-        if (first) root.selectResult(Number(first.id))
-        else root.selectResult(-1)
+        root.selectResult(-1)
+        Qt.callLater(root.selectFirstDisplayedResult)
+    }
+    function selectFirstDisplayedResult() {
+        const first = resultsRail.visibleResults[0]
+        root.selectResult(first ? Number(first.id) : -1)
+        resultsRail.resetScrollToTop()
     }
     function actionIds(id) {
         if (Review.multiSelect && selectedExportRows[id] === true)

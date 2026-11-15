@@ -15,8 +15,9 @@ Item {
     readonly property var visibleCandidates: Analysis.characterCandidates.filter(function(row) { return root.showUnresolved || root.confirmedCount === 0 || !row.unresolved })
     function sourceName(path) { return String(path).replace(/\\/g,"/").split("/").pop() }
     function inspectPhoto(appearance) {
-        if (!appearance || !appearance.url) return
-        photo.source = appearance.url
+        if (!appearance || (!appearance.url && !appearance.photoUrl)) return
+        photo.source = appearance.url || ""
+        photo.detailSource = appearance.photoUrl || ""
         photo.personBox = appearance.box || null
         photoDialog.closeUp = true
         photoDialog.brightened = false
@@ -45,7 +46,7 @@ Item {
             enabled: !Theme.reducedMotion
             NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 110; easing.type: Easing.InCubic }
         }
-        onClosed: photo.source = ""
+        onClosed: { photo.source = ""; photo.detailSource = "" }
         contentItem: ColumnLayout {
             Item {
                 id: viewport
@@ -133,7 +134,7 @@ Item {
                         Button {
                             objectName: "openCharacterPhoto"
                             anchors.fill: parent
-                            enabled: !!candidate.representative && !!candidate.representative.url
+                            enabled: !!candidate.representative && !!(candidate.representative.url || candidate.representative.photoUrl)
                             Accessible.name: L10n.t("character.openPhoto")
                             ToolTip.visible: hovered
                             ToolTip.text: Accessible.name
@@ -168,7 +169,7 @@ Item {
                             width: 200; height: 112; source: modelData.url; personBox: modelData.box || null
                             Button {
                                 anchors.fill: parent
-                                enabled: !!modelData.url
+                                enabled: !!(modelData.url || modelData.photoUrl)
                                 Accessible.name: L10n.t("character.openPhoto")
                                 ToolTip.visible: hovered
                                 ToolTip.text: Accessible.name

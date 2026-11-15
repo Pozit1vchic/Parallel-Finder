@@ -7,6 +7,14 @@ import PfUiBridge
 
 Rectangle {
     id: root
+    function sourceWarning(path) {
+        if (!Analysis.analysisCompleted || !path) return ""
+        const summary = Analysis.summaryForSource(String(path))
+        if (summary.targetMatchUncertain === true) return L10n.t("sources.targetUncertain")
+        if (summary.identityAdmitted === false) return L10n.t("sources.identityExcluded")
+        return ""
+    }
+
     objectName: "sourcesRail"
     property var sourceFiles: []
     property int selectedSourceIndex: -1
@@ -138,12 +146,13 @@ Rectangle {
                 delegate: Rectangle {
                     id: sourceCard
                     Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
-                    property var identitySummary: { Analysis.sourceSummaries; return Analysis.summaryForSource(String(modelData)) }
-                    readonly property bool identityExcluded: Analysis.analysisCompleted && (identitySummary.identityAdmitted === false || identitySummary.targetMatchUncertain === true)
-                    readonly property bool targetUncertain: Analysis.analysisCompleted && identitySummary.targetMatchUncertain === true
-                    width: ListView.view.width; height: 30; radius: 5; color: index === root.selectedSourceIndex ? Theme.accentMuted : (index % 2 === 0 ? Theme.surfaceRaised : "transparent"); Accessible.name: root.sourceName(modelData); Accessible.role: Accessible.ListItem
-                    Text { font.family: Theme.fontFamily; anchors.left: parent.left; anchors.leftMargin: 9; anchors.right: parent.right; anchors.rightMargin: parent.identityExcluded ? 21 : 7; anchors.verticalCenter: parent.verticalCenter; text: (index + 1) + "  " + root.sourceName(modelData); color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideMiddle }
-                    Rectangle { anchors.right: parent.right; anchors.rightMargin: 7; anchors.verticalCenter: parent.verticalCenter; width: 6; height: 6; radius: 3; color: Theme.accent; visible: parent.identityExcluded }
+                    readonly property string warning: { Analysis.sourceSummaries; return root.sourceWarning(modelData) }
+                    width: ListView.view.width; height: 30; radius: 5
+                    color: index === root.selectedSourceIndex ? Theme.accentMuted : (index % 2 === 0 ? Theme.surfaceRaised : "transparent")
+                    Accessible.name: root.sourceName(modelData) + (warning ? ". " + warning : "")
+                    Accessible.role: Accessible.ListItem
+                    Text { font.family: Theme.fontFamily; anchors.left: parent.left; anchors.leftMargin: 9; anchors.right: parent.right; anchors.rightMargin: parent.warning ? 21 : 7; anchors.verticalCenter: parent.verticalCenter; text: (index + 1) + "  " + root.sourceName(modelData); color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideMiddle }
+                    Text { anchors.right: parent.right; anchors.rightMargin: 7; anchors.verticalCenter: parent.verticalCenter; text: "!"; color: Theme.accent; visible: !!parent.warning; font.pixelSize: 13; font.bold: true }
                     MouseArea {
                         id: sourceHover
                         anchors.fill: parent; hoverEnabled: true; onClicked: root.selectedSourceIndex = index
@@ -151,13 +160,23 @@ Rectangle {
                     ToolTip {
                         id: sourceTip
                         visible: sourceHover.containsMouse; delay: 650
-                        text: root.sourceName(modelData) + (sourceCard.identityExcluded ? "\n" + L10n.t(sourceCard.targetUncertain ? "sources.targetUncertain" : "sources.identityExcluded") : "")
+                        text: root.sourceName(modelData) + (sourceCard.warning ? "\n" + sourceCard.warning : "")
                         contentItem: Text { text: sourceTip.text; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.Wrap; width: Math.min(360,implicitWidth) }
                         background: Rectangle { color: Theme.surfaceRaised; radius: Theme.radiusButton; border.color: Theme.hairlineStrong }
                     }
                 }
                 Text { font.family: Theme.fontFamily; anchors.centerIn: parent; visible: root.sourceFiles.length === 0; text: L10n.t("sources.empty"); color: Theme.textDisabled; font.pixelSize: 10 }
             }
+            }
+            Text {
+                objectName: "selectedSourceWarning"
+                Layout.fillWidth: true
+                visible: text.length > 0
+                text: { Analysis.sourceSummaries; return root.sourceWarning(root.sourceFiles[root.selectedSourceIndex]) }
+                color: Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
             }
             RowLayout { Layout.fillWidth: true; spacing: 7
                 PfButton { objectName: "addSourcesButton"; Layout.fillWidth: true; Layout.minimumWidth: 0; text: L10n.t("sources.add"); onClicked: root.filesRequested([]) }
@@ -251,13 +270,13 @@ Rectangle {
                 }
             }
             PfCheckBox {
-                objectName: "expandedSearchCheck"
+                objectName: "freshAnalysisCheck"
                 Layout.fillWidth: true
-                text: L10n.t("search.reanalyze")
-                tooltipText: L10n.t("search.reanalyzeHint")
-                checked: Analysis.expandedSearch
+                text: L10n.t("search.fresh")
+                tooltipText: L10n.t("search.freshHint")
+                checked: Analysis.freshAnalysis
                 enabled: !Analysis.busy
-                onToggled: Analysis.expandedSearch = checked
+                onToggled: Analysis.freshAnalysis = checked
             }
             Rectangle { Layout.fillWidth: true; width: parent.width; color: Theme.panelAlt; radius: 10; border.color: Theme.border; implicitHeight: modelCard.implicitHeight + 24
                 Column { id: modelCard; anchors.fill: parent; anchors.margins: 12; spacing: 7
