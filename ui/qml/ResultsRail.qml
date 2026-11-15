@@ -571,6 +571,7 @@ Rectangle {
         if (pendingRowIndex < pendingRows.length) return
         largeModelTimer.stop()
         const previousActiveWasStaging = useStagingModel
+        const hadVisibleRows = resultList.count > 0
         useStagingModel = bulkTargetStaging
         bulkUpdating = false
         pendingRows = []
@@ -584,6 +585,8 @@ Rectangle {
             resultList.contentY = Math.max(resultList.originY,
                 Math.min(root.pendingContentY, resultList.originY + Math.max(0, resultList.contentHeight - resultList.height)))
             resultList.currentIndex = root.currentVisibleIndex
+            if (!Theme.reducedMotion && hadVisibleRows && resultList.count > 0)
+                bulkListReveal.restart()
             // Keep the inactive model empty; it is the staging buffer for the
             // next large sort/filter operation.
             if (previousActiveWasStaging !== root.useStagingModel) {
@@ -913,6 +916,21 @@ Rectangle {
             clip: true
             spacing: 5
             model: root.useStagingModel ? stagingModel : displayModel
+            property real bulkContentOpacity: 1
+            Binding {
+                target: resultList.contentItem
+                property: "opacity"
+                value: Theme.reducedMotion ? 1 : resultList.bulkContentOpacity
+            }
+            NumberAnimation {
+                id: bulkListReveal
+                target: resultList
+                property: "bulkContentOpacity"
+                from: 0.85
+                to: 1
+                duration: Theme.motionChangeDuration
+                easing.type: Easing.OutCubic
+            }
             readonly property bool animateReorder: !Theme.reducedMotion
                 && !root.bulkTransitionsSuppressed && root.visibleResults.length <= root.bulkThreshold
             section.property: root.sortCriterion === "classification" ? "movementGroup" : ""
