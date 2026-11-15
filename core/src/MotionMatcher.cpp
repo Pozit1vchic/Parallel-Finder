@@ -1272,7 +1272,8 @@ struct ShapeGeometry {
 
 double shapeSimilarity(const std::vector<NormalizedPose>& left,
                        const std::vector<NormalizedPose>& right,
-                       const ShapeGeometry& leftGeometry,const ShapeGeometry& rightGeometry)
+                       const ShapeGeometry& leftGeometry,const ShapeGeometry& rightGeometry,
+                       bool compareVerifiedUpperBody = false)
 {
     if (left.empty() || right.empty()) return 0.0;
     const std::size_t samples = std::min<std::size_t>(8, std::min(left.size(), right.size()));
@@ -1299,8 +1300,18 @@ double shapeSimilarity(const std::vector<NormalizedPose>& left,
         }
         const std::size_t minimumComparable = std::min(kMinimumComparableJoints, points);
         if (valid.size() < minimumComparable) continue;
+        const auto shared = [&](std::size_t joint) {
+            return validPoint(a[joint]) && validPoint(b[joint]);
+        };
+        // A crop below the hips cannot contradict a held upper-body pose.
+        // Keep the penalty for missing arms or torso and compare every
+        // lower-body joint visible in both shots.
+        const bool sharedUpperBody = compareVerifiedUpperBody && a.size() == 17 && b.size() == 17
+            && shared(5) && shared(6) && shared(11) && shared(12)
+            && ((shared(7) && shared(9)) || (shared(8) && shared(10)));
         std::size_t observed = 0;
         for (std::size_t i = 0; i < std::max(a.size(), b.size()); ++i) {
+            if (sharedUpperBody && i >= 13 && !shared(i)) continue;
             if ((i < a.size() && validPoint(a[i]))
                 || (i < b.size() && validPoint(b[i]))) ++observed;
         }
@@ -2247,7 +2258,8 @@ MotionMatch comparePrepared(const MotionWindow& left, const MotionWindow& right,
         return reject(MotionRejection::Direction);
     }
     const double anatomyScore = shapeSimilarity(leftPrepared.poses, rightPoses,leftPrepared.shapeGeometry,
-        mirrorRight ? rightPrepared.mirroredShapeGeometry : rightPrepared.shapeGeometry);
+        mirrorRight ? rightPrepared.mirroredShapeGeometry : rightPrepared.shapeGeometry,
+        staticPair && identity.verified);
     // Context is a sanity gate, not a replacement for motion. It suppresses
     // the common false-positive class where the same/front-facing actor is
     // present but the actual shot composition and trajectory do not agree.

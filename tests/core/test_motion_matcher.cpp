@@ -44,6 +44,15 @@ TEST(MotionMatcher, MeasuredTorsoScaleRetainsPoseAcrossForeshortenedShoulders)
     EXPECT_FALSE(match.headOnlyComparison);
     EXPECT_GE(match.unmirroredSimilarity,.7);
     EXPECT_EQ(matcher.findAllPairs({front,profile}).size(),1U);
+    auto fullWithOccludedWrist=front;
+    auto croppedBelowHips=profile;
+    for (auto& frame : fullWithOccludedWrist.frames) frame.keypoints[10].confidence=0;
+    for (auto& frame : croppedBelowHips.frames) {
+        frame.keypoints[10].confidence=0;
+        for (std::size_t joint=13;joint<17;++joint) frame.keypoints[joint].confidence=0;
+    }
+    EXPECT_GE(matcher.compare(fullWithOccludedWrist,croppedBelowHips).similarity,.7);
+    EXPECT_EQ(matcher.findAllPairs({fullWithOccludedWrist,croppedBelowHips}).size(),1U);
     auto other=profile;other.faceEmbedding={0,1};
     EXPECT_DOUBLE_EQ(matcher.compare(front,other).similarity,0);
     EXPECT_EQ(matcher.compare(front,other).rejection, pfcore::MotionRejection::Identity);

@@ -31,7 +31,7 @@ std::string matcherResultCacheKey(const std::array<std::uint8_t,32>& fingerprint
     hash.addData(QByteArrayView(reinterpret_cast<const char*>(fingerprint.data()),fingerprint.size()));
     hash.addData(QByteArrayView(dependencies.data(),dependencies.size()));
     // Bump when matcher admission/retrieval/selection semantics change.
-    return "matcher-results-v1|"+hash.result().toHex().toStdString();
+    return "matcher-results-v2|"+hash.result().toHex().toStdString();
 }
 
 std::vector<std::uint8_t> serializeMatcherResults(std::span<const pfcore::MotionMatch> matches)
