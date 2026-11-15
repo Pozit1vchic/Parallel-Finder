@@ -386,6 +386,12 @@ ColumnLayout {
     Popup {
         id: matchExplanation
         objectName: "matchExplanation"
+        readonly property string identitySummary: {
+            const row = root.selectedRecord || {}
+            if (row.identityEvidenceRequired === false)
+                return L10n.t("explain.identityOptional")
+            return L10n.t(row.faceVerified || row.identityVerified ? "explain.confirmed" : "explain.unknown")
+        }
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: Math.min(440,parent ? parent.width-40 : 440)
@@ -422,7 +428,7 @@ ColumnLayout {
                                 color: Theme.textPrimary; font.family: Theme.monoFont; font.pixelSize: 12
                                 text: {
                                     const row=root.selectedRecord || {}
-                                    if (modelData === "identity") return row.faceVerified || row.identityVerified ? L10n.t("explain.confirmed") : L10n.t("explain.unknown")
+                                    if (modelData === "identity") return matchExplanation.identitySummary
                                     const value=modelData === "pose" ? row.poseSimilarity : modelData === "motion" ? (row.matchType === "motion" ? row.similarity : undefined)
                                         : modelData === "temporal" ? row.temporalCoverage : modelData === "visibility" ? row.visibilityCoverage : undefined
                                     return value !== undefined && value >= 0 ? Math.round(Number(value)*100)+"%" : L10n.t("explain.unknown")

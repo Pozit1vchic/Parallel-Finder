@@ -3178,6 +3178,10 @@ void UiSmokeTests::bodyDirectionReadoutPreservesAnglesUnknownsAndPopupGeometry()
     QVariantMap record{{"id",0},{"matchType","static"},{"leftDescriptor",left},{"rightDescriptor",right}};
     const auto publish=[&]{record["leftDescriptor"]=left;record["rightDescriptor"]=right;center->setProperty("selectedRecord",record);};
     publish();QVERIFY(QMetaObject::invokeMethod(popup,"open"));QTRY_VERIFY(popup->property("opened").toBool());
+    record["faceVerified"]=true;record["identityEvidenceRequired"]=false;publish();
+    QCOMPARE(popup->property("identitySummary").toString(),QString::fromUtf8("Подтверждение не требовалось"));
+    record["identityEvidenceRequired"]=true;publish();
+    QCOMPARE(popup->property("identitySummary").toString(),QString::fromUtf8("Подтверждена"));
     auto* readout=popup->findChild<QObject*>("bodyOrientationReadout");QVERIFY(readout);
     const auto visual=[&](const QString& name) {
         std::function<QQuickItem*(QQuickItem*)> visit=[&](QQuickItem* item)->QQuickItem* {
