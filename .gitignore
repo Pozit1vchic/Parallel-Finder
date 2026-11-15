@@ -152,6 +152,7 @@ audit*.md
 !/tools/benchmark/run_analysis_smoke.ps1
 !/tools/benchmark/compare_analysis_reports.ps1
 !/tools/benchmark/run_cold_performance.ps1
+!/tools/benchmark/run_full_analysis_profile.ps1
 !/tools/benchmark/run_frozen_performance.ps1
 !/tools/benchmark/run_matcher_regression.ps1
 !/tools/benchmark/run_startup_smoke.ps1
