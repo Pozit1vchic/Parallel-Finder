@@ -26,6 +26,7 @@ Popup {
     readonly property bool losslessExport: qualityChoice === 0
     readonly property bool customQuality: qualityChoice === 2
     readonly property bool mergeChronological: selectedFormat === "FFMPEG" && mergeCheck.checked
+    readonly property bool useSelectionOrder: mergeChronological && selectionOrderCheck.checked
     readonly property string selectedFormat: ["FFMPEG", "JSON", "CSV", "TXT"][exportFormat.currentIndex] || "FFMPEG"
     readonly property string fileBaseName: prefixField.text.trim()
     readonly property string selectedContainer: containerMode.currentIndex >= 0
@@ -49,23 +50,9 @@ Popup {
     }
     function restoreQualityChoice() { qualityMode.currentIndex = qualityChoice }
     function refreshClasses() {
-        const present = []
-        for (const item of root.results) {
-            if (root.selectedRows[item.id] !== true || item.hidden) continue
-            const classification = L10n.movementKey(item.classification)
-            if (present.indexOf(classification) < 0) present.push(classification)
-        }
-        function rank(key) {
-            return Math.min.apply(null, key.split("+").map(function(action) {
-                const index = L10n.movementTypes.indexOf(action)
-                return index < 0 ? L10n.movementTypes.length : index
-            }))
-        }
-        classOrder = present.sort(function(a, b) {
-            return rank(a) - rank(b)
-                || a.split("+").length - b.split("+").length
-                || a.localeCompare(b)
-        })
+        const selected = root.results.filter(item => root.selectedRows[item.id] === true && !item.hidden)
+        const present = new Set(selected.map(item => L10n.exportGroupKey(item)))
+        classOrder = L10n.exportGroupKeys(selected).filter(key => present.has(key))
     }
     function selectedIndexes() {
         const selected = root.results.filter(function(row) { return root.selectedRows[row.id] === true && !row.hidden })
@@ -107,7 +94,7 @@ Popup {
     }
     function startExport() {
         root.exportStatus = ""
-        // Always use exact boundaries and the classifier's stable type order.
+        // Use exact boundaries for both montage order options.
         // Lossless is an exact MOV export; ordinary/custom quality re-encodes.
         Analysis.exportResults(
             root.selectedFormat,
@@ -124,7 +111,8 @@ Popup {
             signTransitionsCheck.checked,
             root.selectedContainer,
             root.maxWidth,
-            root.maxHeight)
+            root.maxHeight,
+            root.useSelectionOrder)
     }
 
     readonly property string runningLabel: Analysis.exportStage === "preparing"
@@ -292,6 +280,15 @@ Popup {
                 enabled: !Analysis.exportBusy
                 text: L10n.t("ui.325")
                 onCheckedChanged: if (!root.baseNameCustomized) prefixField.text = root.defaultBaseName()
+            }
+
+            PfCheckBox {
+                id: selectionOrderCheck
+                objectName: "exportSelectionOrderCheck"
+                width: parent.width
+                visible: root.mergeChronological
+                enabled: !Analysis.exportBusy
+                text: L10n.t("export.selectionOrder")
             }
 
             Column {

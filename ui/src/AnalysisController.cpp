@@ -1805,7 +1805,7 @@ bool AnalysisController::exportResults(const QString& format,
                                        const QStringList& requestedClassOrder,
                                        int encodingQuality, int videoBitrateKbps, bool classFolders,
                                        bool signEachTransition, const QString& requestedContainer,
-                                       int maxWidth, int maxHeight)
+                                       int maxWidth, int maxHeight, bool useSelectionOrder)
 {
     if (busy_ || exportBusy_ || reviewBusy_) return false;
     const auto classOrder=effectiveExportClassOrder(results_,requestedClassOrder,selectedIndexes);
@@ -1818,7 +1818,8 @@ bool AnalysisController::exportResults(const QString& format,
         emit exportFinished(false, QStringLiteral("Недопустимое максимальное разрешение"));
         return false;
     }
-    auto ordered = orderedExportIndexes(selectedIndexes, matches_, results_, numberingMode, classOrder);
+    auto ordered = orderedExportIndexes(selectedIndexes, matches_, results_,
+        numberingMode, useSelectionOrder ? QStringList{} : classOrder);
     std::erase_if(ordered, [this](int id) { return results_[id].toMap().value("hidden").toBool(); });
     if (ordered.empty()) {
         emit exportFinished(false, QStringLiteral("Не выбраны результаты для экспорта"));
@@ -1903,7 +1904,7 @@ bool AnalysisController::exportResults(const QString& format,
         for (const auto& match : selected) exportTotal_ += int(match.leftEnabled) + int(match.rightEnabled);
         emit exportProgressChanged();
         emit exportBusyChanged();
-        exportWorker_ = std::jthread([this, selected = std::move(selected), manuallyAdjusted = std::move(manuallyAdjusted), selectedFrameRates, selectedClasses, selectedTransitionTypes, classOrder, classFolders, signEachTransition, russian, folder, requestedBaseName, container, maxWidth, maxHeight, mode, mergeChronological, encodingQuality, videoBitrateKbps,
+        exportWorker_ = std::jthread([this, selected = std::move(selected), manuallyAdjusted = std::move(manuallyAdjusted), selectedFrameRates, selectedClasses, selectedTransitionTypes, classOrder, classFolders, signEachTransition, russian, folder, requestedBaseName, container, maxWidth, maxHeight, mode, mergeChronological, useSelectionOrder, encodingQuality, videoBitrateKbps,
                                      sceneThreshold = sceneThreshold_](std::stop_token stop) {
         const auto finish = [this](bool success, const QString& message) {
             QMetaObject::invokeMethod(this, [this, success, message] {
@@ -2034,7 +2035,7 @@ bool AnalysisController::exportResults(const QString& format,
                         exportStage_ = done + 1 == total ? QStringLiteral("finalizing") : QStringLiteral("encoding");
                         emit exportProgressChanged();
                     }, Qt::QueuedConnection);
-                }, "ffmpeg", !classOrder.isEmpty(), maxWidth, maxHeight);
+                }, "ffmpeg", useSelectionOrder || !classOrder.isEmpty(), maxWidth, maxHeight);
             finish(result.success, result.success ? QStringLiteral("Video: ") + QString::fromStdWString(result.outputPath.wstring())
                 : QString::fromStdString(result.error));
             return;

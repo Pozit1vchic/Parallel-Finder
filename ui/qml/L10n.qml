@@ -21,8 +21,13 @@ QtObject {
             const key=movementKey(row.classification)
             if(keys.indexOf(key)<0)keys.push(key)
         }
+        // Editorial sequence: changes in gaze, held head angles, then
+        // wider body poses and actions. Keep the within-group continuity.
+        const opening = ["head_turn_away", "head_turn_back", "head_turn", "head_front", "head_turned",
+            "head_pose", "head_nod", "head_tilt", "body_pose", "turn"]
+        const sequence = opening.concat(movementTypes.filter(action => !opening.includes(action)))
         function rank(key) {
-            return Math.min.apply(null,key.split("+").map(function(action) {return movementTypes.indexOf(action)}))
+            return Math.min.apply(null,key.split("+").map(function(action) {return sequence.indexOf(action)}))
         }
         return keys.sort(function(a,b) {
             return rank(a)-rank(b) || a.split("+").length-b.split("+").length || a.localeCompare(b)
@@ -34,6 +39,7 @@ QtObject {
             "provider.transfer": "%1 / %2 МБ · %3 МБ/с",
             "sort.best": "Лучшее совпадение",
             "sort.continuity": "Монтажная последовательность",
+            "export.selectionOrder": "Сохранить порядок пар из списка",
             "sort.pose": "Сходство позы",
             "sort.identity": "Подтверждение личности",
             "sort.evidence": "Качество наблюдений",
@@ -116,6 +122,10 @@ QtObject {
             "character.presence": "%1 с · треков: %2",
             "character.select": "Выбрать",
             "character.scenes": "Появления",
+            "character.openPhoto": "Увеличить фото персонажа",
+            "character.closePhoto": "Закрыть",
+            "character.fullFrame": "Весь кадр",
+            "character.closeUp": "Крупный план",
             "character.continue": "Продолжить анализ",
             "character.allPeople": "Параллели без выбора персонажа",
             "character.change": "Сменить персонажа",
@@ -578,6 +588,7 @@ QtObject {
             "provider.transfer": "%1 / %2 MB · %3 MB/s",
             "sort.best": "Best match",
             "sort.continuity": "Editing continuity",
+            "export.selectionOrder": "Keep result list order",
             "sort.pose": "Pose similarity",
             "sort.identity": "Identity evidence",
             "sort.evidence": "Evidence quality",
@@ -660,6 +671,10 @@ QtObject {
             "character.presence": "%1 s · %2 tracks",
             "character.select": "Select",
             "character.scenes": "View scenes",
+            "character.openPhoto": "Enlarge character photo",
+            "character.closePhoto": "Close",
+            "character.fullFrame": "Full frame",
+            "character.closeUp": "Close-up",
             "character.continue": "Continue analysis",
             "character.allPeople": "Parallels without choosing a character",
             "character.change": "Change character",

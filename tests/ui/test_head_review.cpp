@@ -54,16 +54,20 @@ private slots:
             var rows=[{id:0,evidenceScope:'body'},head(1,5),head(2,-1),
                 {id:3,evidenceScope:'body'},head(4,40),head(5,40),head(6,NaN),
                 head(7,'80'),head(8,181),head(9,100),head(10,100),head(11,100)];
-            rows[9].manualPair=true;rows[10].leftRemoved=true;rows[11].matchType='pose';
+            rows[9].manualPair=true;rows[10].leftRemoved=true;rows[11].classificationConflict=true;
+            rows[1].group='turn';rows[4].group='turn';rows[5].group='nod';
             var before=JSON.stringify(rows);
             var sorted=rerankBestHeadSlots(rows);
+            var grouped=rerankBestHeadSlots(rows,function(r){return r.group});
             JSON.stringify({ids:sorted.map(function(r){return r.id}),
+                grouped:grouped.map(function(r){return r.id}),
                 unchanged:before===JSON.stringify(rows),
                 sameRows:sorted.every(function(r){return rows.indexOf(r)>=0})})
         )JS");
         QVERIFY2(!result.isError(),qPrintable(result.toString()));
         const auto object=QJsonDocument::fromJson(result.toString().toUtf8()).object();
         QCOMPARE(object.value("ids").toArray(),QJsonArray({0,4,2,3,5,1,6,7,8,9,10,11}));
+        QCOMPARE(object.value("grouped").toArray(),QJsonArray({0,4,2,3,1,5,6,7,8,9,10,11}));
         QVERIFY(object.value("unchanged").toBool());QVERIFY(object.value("sameRows").toBool());
     }
     void evidenceRefreshRetainsAllPeoplePolicyAcrossRangeEdits() {

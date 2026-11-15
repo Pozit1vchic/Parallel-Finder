@@ -14,9 +14,77 @@ Item {
     readonly property int confirmedCount: Analysis.characterCandidates.length - unresolvedCount
     readonly property var visibleCandidates: Analysis.characterCandidates.filter(function(row) { return root.showUnresolved || root.confirmedCount === 0 || !row.unresolved })
     function sourceName(path) { return String(path).replace(/\\/g,"/").split("/").pop() }
+    function inspectPhoto(appearance) {
+        if (!appearance || !appearance.url) return
+        photo.source = appearance.url
+        photo.personBox = appearance.box || null
+        photoDialog.closeUp = true
+        photoDialog.open()
+    }
+    Popup {
+        id: photoDialog
+        property bool closeUp: true
+        objectName: "characterPhotoDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(960, parent.width - 32)
+        height: Math.min(680, parent.height - 32)
+        modal: true
+        focus: true
+        padding: 12
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle { color: Theme.panelAlt; radius: Theme.radiusButton; border.color: Theme.border }
+        enter: Transition {
+            enabled: !Theme.reducedMotion
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 160; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: 210; easing.type: Easing.OutQuint }
+        }
+        exit: Transition {
+            enabled: !Theme.reducedMotion
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 110; easing.type: Easing.InCubic }
+        }
+        onClosed: photo.source = ""
+        contentItem: ColumnLayout {
+            Item {
+                id: viewport
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                CharacterAppearance {
+                    id: photo
+                    width: viewport.width
+                    height: viewport.height
+                    transformOrigin: Item.TopLeft
+                    readonly property real targetScale: photoDialog.closeUp && marked
+                        ? Math.max(1, Math.min(6, width / Math.max(1, (personRight-personLeft)*1.28),
+                                                  height / Math.max(1, (personBottom-personTop)*1.28))) : 1
+                    scale: targetScale
+                    x: targetScale > 1 ? width/2 - targetScale*(personLeft+personRight)/2 : 0
+                    y: targetScale > 1 ? height/2 - targetScale*(personTop+personBottom)/2 : 0
+                    Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                    Behavior on x { enabled: !Theme.reducedMotion; NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                    Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                PfButton {
+                    objectName: "toggleCharacterPhotoFraming"
+                    visible: photo.validBox
+                    text: L10n.t(photoDialog.closeUp ? "character.fullFrame" : "character.closeUp")
+                    onClicked: photoDialog.closeUp = !photoDialog.closeUp
+                }
+                Item { Layout.fillWidth: true }
+                PfButton {
+                    text: L10n.t("character.closePhoto")
+                    onClicked: photoDialog.close()
+                }
+            }
+        }
+    }
     Connections {
         target: Analysis
-        function onTargetSelectionChanged() { root.chosenId=""; root.inspectedId=""; root.showUnresolved=false }
+        function onTargetSelectionChanged() { photoDialog.close(); root.chosenId=""; root.inspectedId=""; root.showUnresolved=false }
     }
     ColumnLayout {
         anchors.fill: parent; spacing: 12
@@ -42,7 +110,7 @@ Item {
                 radius: Theme.radiusButton
                 border.color: root.chosenId === modelData.id ? Theme.accent : Theme.border
                 color: root.chosenId === modelData.id ? Theme.accentMuted : Theme.panelAlt
-                Behavior on height { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration; easing.type: Easing.InOutCubic } }
+                Behavior on height { enabled: !Theme.reducedMotion; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                 Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
                 clip: true
                 RowLayout {
@@ -52,6 +120,16 @@ Item {
                         Layout.preferredWidth: Math.min(156,candidate.width*.28); Layout.preferredHeight: 88
                         source: candidate.representative ? candidate.representative.url : ""
                         personBox: candidate.representative ? candidate.representative.box : null
+                        Button {
+                            objectName: "openCharacterPhoto"
+                            anchors.fill: parent
+                            enabled: !!candidate.representative && !!candidate.representative.url
+                            Accessible.name: L10n.t("character.openPhoto")
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            background: Rectangle { color: "transparent"; border.color: parent.visualFocus ? Theme.accent : "transparent"; radius: 4 }
+                            onClicked: root.inspectPhoto(candidate.representative)
+                        }
                     }
                     ColumnLayout {
                         Layout.fillWidth: true; spacing: 6
@@ -76,7 +154,18 @@ Item {
                     delegate: Column {
                         required property var modelData
                         width: 200; spacing: 6
-                        CharacterAppearance { width: 200; height: 112; source: modelData.url; personBox: modelData.box || null }
+                        CharacterAppearance {
+                            width: 200; height: 112; source: modelData.url; personBox: modelData.box || null
+                            Button {
+                                anchors.fill: parent
+                                enabled: !!modelData.url
+                                Accessible.name: L10n.t("character.openPhoto")
+                                ToolTip.visible: hovered
+                                ToolTip.text: Accessible.name
+                                background: Rectangle { color: "transparent"; border.color: parent.visualFocus ? Theme.accent : "transparent"; radius: 4 }
+                                onClicked: root.inspectPhoto(modelData)
+                            }
+                        }
                         Text { text: L10n.t("character.time").arg(Number(modelData.time).toFixed(1)); color: Theme.textSecondary; font.family: Theme.monoFont; font.pixelSize: 10 }
                     }
                 }

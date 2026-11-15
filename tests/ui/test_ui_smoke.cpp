@@ -444,6 +444,8 @@ void UiSmokeTests::realWalkingClassificationTrimAndOrderedExport()
     QTRY_VERIFY(variant(rail->property("visibleResults")).toList().size()==analysis->results().size());
     const auto orderValue=variant(rail->property("classKeys")).toList();QStringList order;
     for(const auto& value:orderValue)order.push_back(value.toString());
+    QVERIFY(order.indexOf("head_turn") < order.indexOf("head_pose"));
+    QVERIFY(order.indexOf("head_pose") < order.indexOf("body_pose"));
     QVERIFY(order.indexOf("arms_extended")>=0);QVERIFY(order.indexOf("step")>order.indexOf("arms_extended"));
     int previous=-1;
     for(const auto& value:variant(rail->property("visibleResults")).toList()) {
@@ -1722,6 +1724,14 @@ void UiSmokeTests::movementClassesAndExportOrder()
     auto* popup=window->findChild<QObject*>("exportDialog"); QVERIFY(popup);
     popup->setProperty("results",records); popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true}});
     QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"head_pose","raise","step"}));
+    auto* mergeCheck=popup->findChild<QObject*>("mergeChronologicalCheck"); QVERIFY(mergeCheck);
+    auto* selectionOrderCheck=popup->findChild<QObject*>("exportSelectionOrderCheck"); QVERIFY(selectionOrderCheck);
+    QVERIFY(!popup->property("useSelectionOrder").toBool());
+    mergeCheck->setProperty("checked",true);
+    selectionOrderCheck->setProperty("checked",true);
+    QVERIFY(popup->property("useSelectionOrder").toBool());
+    mergeCheck->setProperty("checked",false);
+    QVERIFY(!popup->property("useSelectionOrder").toBool());
     popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true}});
     QCOMPARE(values(popup->property("classOrder")).toStringList(),(QStringList{"raise","step"}));
     popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true}});
@@ -1769,12 +1779,12 @@ void UiSmokeTests::movementClassesAndExportOrder()
     rail->setProperty("results",detailed);QTest::qWait(100);
     const auto grouped=values(rail->property("visibleResults")).toList();
     QCOMPARE(grouped.size(),8);
-    const QList<int> expected{6,7,3,1,0,2,4,5};
+    const QList<int> expected{6,3,0,7,1,2,4,5};
     for(int i=0;i<expected.size();++i)QCOMPARE(grouped[i].toMap().value("id").toInt(),expected[i]);
     popup->setProperty("results",detailed);
     popup->setProperty("selectedRows",QVariantMap{{"0",true},{"1",true},{"2",true},{"3",true},{"4",true},{"5",true},{"6",true},{"7",true}});
     QCOMPARE(values(popup->property("classOrder")).toStringList(),
-        (QStringList{"head_turn","turn","head_front","arms_folded","head_nod","raise_lower","reach_return","unknown"}));
+        (QStringList{"head_turn","head_front","head_nod","turn","arms_folded","raise_lower","reach_return","unknown"}));
     const QVariantList equivalent{
         QVariantMap{{"id",0},{"classification","step+turn/left"}},
         QVariantMap{{"id",1},{"classification","turn+step/right"}},
@@ -1906,6 +1916,13 @@ void UiSmokeTests::movementClassesAndExportOrder()
     QVERIFY(QMetaObject::invokeMethod(popup,"selectedIndexes",Q_RETURN_ARG(QVariant,exportedIds)));
     QCOMPARE(values(exportedIds).toList(),(QVariantList{1,2,0}));
     popup->setProperty("selectionOrder",QVariantList{});
+    auto customGroups=continuityRows;
+    auto customRow=customGroups[1].toMap();
+    customRow.insert("manualGroup","My sequence");
+    customGroups[1]=customRow;
+    popup->setProperty("results",customGroups);
+    QCOMPARE(values(popup->property("classOrder")).toStringList(),
+        (QStringList{"group:My sequence","sitting"}));
     const QVariantList conflictingActions{
         QVariantMap{{"id",0},{"classification","unknown/unknown"}},
         QVariantMap{{"id",1},{"classification","action_mismatch"}},
@@ -2234,7 +2251,7 @@ void UiSmokeTests::largeResultSetKeepsClassesContiguous()
     auto* window=loadWindow(engine); QVERIFY(window);
     auto* rail=window->findChild<QObject*>("resultsRail"); QVERIFY(rail);
     auto* popup=window->findChild<QObject*>("exportDialog"); QVERIFY(popup);
-      const QStringList classes{"head_turn_away","head_turn_back","head_turn","head_turn+raise","turn","head_front","arms_folded","head_nod","raise","step","mixed","unknown"};
+    const QStringList classes{"head_turn_away","head_turn_back","head_turn","head_turn+raise","head_front","head_nod","turn","arms_folded","raise","step","mixed","unknown"};
     QVariantList rows,indexes;QVariantMap selected;std::vector<pfcore::MotionMatch> matches(417);
     for(int id=0;id<417;++id) {
         rows.push_back(QVariantMap{{"id",id},{"classification",classes[(id*7)%classes.size()]},

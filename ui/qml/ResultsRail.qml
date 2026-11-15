@@ -622,7 +622,8 @@ Rectangle {
             next.push(item)
         }
         next.sort(compareValues)
-        if (sortCriterion === "best") next = HeadMotionRanking.rerankBestHeadSlots(next)
+        if (sortCriterion === "best")
+            next = HeadMotionRanking.rerankBestHeadSlots(next, row => row.matchTier || "strong")
         const wanted = {}
         const nextGroupCounts = {}
         for (const item of next) {
@@ -906,6 +907,8 @@ Rectangle {
             clip: true
             spacing: 5
             model: root.useStagingModel ? stagingModel : displayModel
+            readonly property bool animateReorder: !Theme.reducedMotion
+                && !root.bulkTransitionsSuppressed && root.visibleResults.length <= root.bulkThreshold
             section.property: root.sortCriterion === "classification" ? "movementGroup" : ""
             section.delegate: Text {
                 required property string section
@@ -925,7 +928,14 @@ Rectangle {
                     PropertyAction { property: "ListView.delayRemove"; value: false }
                 }
             }
-            displaced: Transition { enabled: !Theme.reducedMotion && !root.bulkTransitionsSuppressed && root.visibleResults.length <= root.bulkThreshold; NumberAnimation { properties: "x,y"; duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic } }
+            move: Transition {
+                enabled: resultList.animateReorder
+                NumberAnimation { properties: "x,y"; duration: 220; easing.type: Easing.OutQuint }
+            }
+            displaced: Transition {
+                enabled: resultList.animateReorder
+                NumberAnimation { properties: "x,y"; duration: 220; easing.type: Easing.OutQuint }
+            }
             focus: true
             activeFocusOnTab: true
             Accessible.name: L10n.t("results.title")
@@ -940,8 +950,7 @@ Rectangle {
                 enabled: !ListView.delayRemove
                 ListView.onRemove: cardReveal.stop()
                 property real entranceOffset: 0
-                property real reflowOffset: 0
-                transform: Translate { y: resultCard.entranceOffset + resultCard.reflowOffset }
+                transform: Translate { y: resultCard.entranceOffset }
                 Component.onCompleted: {
                     // Only six first-visible cards, never thousands of rows.
                     if (index < 6 && !Theme.reducedMotion) {
