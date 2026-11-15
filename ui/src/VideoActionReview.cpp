@@ -178,6 +178,8 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
                 if(const auto saved=deserialize(*bytes,evidence)) {evidence=*saved;fromCache=true;++stats.cached;}
             if(!fromCache) {
                 const QFileInfo before(QString::fromStdString(evidence.sourceId));
+                const auto sourceSize = before.size();
+                const auto sourceModified = before.lastModified();
                 if(opened!=evidence.sourceId) {decoder.open(evidence.sourceId,options);opened=evidence.sourceId;}
                 const auto cuts=pfcore::SceneDetector(27,1,3).detectInterval(decoder,evidence.start,evidence.end,{},stopped);
                 if(stopped())break;
@@ -228,7 +230,7 @@ VideoActionReviewStats reviewMatchedVideoActions(std::vector<pfcore::MotionWindo
                     }
                 }
                 const QFileInfo after(QString::fromStdString(evidence.sourceId));
-                if(before.size()!=after.size() || before.lastModified()!=after.lastModified())
+                if(sourceSize!=after.size() || sourceModified!=after.lastModified())
                     throw std::runtime_error("Source changed during video-action review");
                 if(cache && cacheable && sourceNamespaces.contains(evidence.sourceId) && !stopped()) {
                     pendingCacheWrites[evidence.sourceId].emplace_back(request.key,serialize(evidence));
