@@ -735,6 +735,7 @@ TEST(MontageExport, LosslessMixedCanvasFormatsRatesAndSilenceKeepEveryFrame)
     };
     std::vector<pfservices::CutRequest> clips;
     QByteArray expected;
+    QByteArray firstClipHashes;
     for (int i=0;i<3;++i) {
         const auto path = directory.filePath(QString::number(i)+".mkv");
         QStringList args{"-f","lavfi","-i",i==0 ? "testsrc2=s=160x96:r=12:d=1"
@@ -745,7 +746,9 @@ TEST(MontageExport, LosslessMixedCanvasFormatsRatesAndSilenceKeepEveryFrame)
         run(args); ASSERT_TRUE(QFileInfo::exists(path));
         // Compare native padded pixels in the same expanded 10-bit colour
         // representation; smaller frames must not be stretched or shrunk.
-        expected += hashes(path,"scale=iw:ih:flags=neighbor+bitexact,format=yuv444p10le,pad=192:128:floor((ow-iw)/2):floor((oh-ih)/2),setsar=1");
+        const auto clipHashes = hashes(path,"scale=iw:ih:flags=neighbor+bitexact,format=yuv444p10le,pad=192:128:floor((ow-iw)/2):floor((oh-ih)/2),setsar=1");
+        if (i == 0) firstClipHashes = clipHashes;
+        expected += clipHashes;
         pfservices::CutRequest clip;clip.inputPath=path.toStdWString();clip.endSeconds=1;
         clip.mode=pfservices::CutMode::ExactLossless;clips.push_back(clip);
     }
@@ -762,6 +765,18 @@ TEST(MontageExport, LosslessMixedCanvasFormatsRatesAndSilenceKeepEveryFrame)
     EXPECT_EQ(pcm.size(),3*48000*2*8);
     EXPECT_EQ(pcm.right(48000*2*8),QByteArray(48000*2*8,'\0'));
     run({"-xerror","-i",output,"-f","null","-"});
+
+    auto repeated = clips.front();
+    repeated.prepare = [](pfservices::CutRequest& request) { request.canonicalSceneId = "first-clip"; };
+    clips.front() = repeated;
+    clips.push_back(repeated);
+    const auto orderedOutput = directory.filePath("ordered.mov");
+    const auto ordered = pfservices::exportChronologicalMontage(clips, orderedOutput.toStdWString(),
+        {}, {}, ffmpeg.toStdString(), true, 0, 0, true);
+    ASSERT_TRUE(ordered.success) << ordered.error;
+    EXPECT_EQ(hashes(orderedOutput, {}), expected + firstClipHashes);
+    const auto orderedPcm = run({"-xerror","-i",orderedOutput,"-map","0:a:0","-f","f64le","-"});
+    EXPECT_EQ(orderedPcm, pcm + pcm.left(48000*2*8));
 }
 
 TEST(MontageExport, RejectsEmptyRequestsAndSourceReplacement)
