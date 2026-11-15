@@ -1,6 +1,6 @@
 """Verify native head extent rows against a frozen audit and historical report.
 
-Emits a native ResultsRail fixture for both existing evidence tiers. This is
+Emits a native ResultsRail fixture for each evidence view. This is
 prediction-scope ranking validation, not full Matcher precision or recall.
 """
 import argparse
@@ -33,6 +33,12 @@ def preferences(order, grades):
             "correct": sum(positions[a] < positions[b] for a, b in pairs)}
 
 
+def evidence_tier(row):
+    if row.get("classificationConflict"):
+        return 2
+    return 0 if (row.get("matchTier") or "strong") == "strong" else 1
+
+
 def check(reference, candidate, audit):
     rows = candidate["results"]
     index = {identity(row): row for row in rows}
@@ -60,15 +66,18 @@ def check(reference, candidate, audit):
     compatibility = verify(reference["results"], [
         {k: v for k, v in row.items() if k != "headMotionExcursionDegrees"} for row in rows])
     fixtures, metrics = [], {}
-    for tier in ("strong", "possible"):
-        before = sorted((row for row in rows if row["matchTier"] == tier),
+    for tier in ("strong", "possible", "all"):
+        before = sorted((row for row in rows if tier == "all" or (row.get("matchTier") or "strong") == tier),
             key=lambda row: (-(row["bestMatchScore"] - row["redundancyPenalty"]), row["id"]))
-        slots = [i for i, row in enumerate(before) if row["evidenceScope"] == "head"
-            and row["matchType"] == "motion" and row["headMotionExcursionDegrees"] >= 0]
-        after = list(before)
-        ordered = sorted((before[i] for i in slots), key=lambda row: -row["headMotionExcursionDegrees"])
-        for i, row in zip(slots, ordered):
-            after[i] = row
+        after = sorted(before, key=evidence_tier)
+        for level in (0, 1):
+            slots = [i for i, row in enumerate(after) if evidence_tier(row) == level
+                and row["evidenceScope"] == "head" and row["matchType"] == "motion"
+                and not (row.get("manualPair") or row.get("leftRemoved") or row.get("rightRemoved"))
+                and 0 <= row["headMotionExcursionDegrees"] <= 180]
+            ordered = sorted((after[i] for i in slots), key=lambda row: -row["headMotionExcursionDegrees"])
+            for i, row in zip(slots, ordered):
+                after[i] = row
         fixtures.append({"tier": tier, "ids": [row["id"] for row in after]})
         metrics[tier] = {"before": preferences(before, grades), "after": preferences(after, grades)}
     return {"compatibility": compatibility, "auditedMeasurements": len(expected),
