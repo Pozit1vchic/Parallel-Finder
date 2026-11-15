@@ -27,6 +27,12 @@ TEST(VideoActionInput, PreservesRgbChannelsAndUniformTemporalOrder)
         EXPECT_NEAR(input.clip.values[offset],(value/255.F-.45F)/.225F,1e-6);
         EXPECT_NEAR(input.clip.values[offset+128*256+128],input.clip.values[offset],1e-6);
     }
+    const std::vector<pfgpu::VideoActionFrame> frozen(32, frames[2]);
+    const std::vector<std::vector<std::uint8_t>> copies(32, pixels[2]);
+    std::vector<pfgpu::VideoActionFrame> separateBuffers;
+    for (const auto& copy : copies) separateBuffers.push_back({5, 5, copy.data()});
+    EXPECT_EQ(pfgpu::prepareVideoActionInput(frozen, subjects).clip.values,
+              pfgpu::prepareVideoActionInput(separateBuffers, subjects).clip.values);
 }
 
 TEST(VideoActionInput, RejectsInvalidPeopleAndInconsistentClipBeforeModelLoading)

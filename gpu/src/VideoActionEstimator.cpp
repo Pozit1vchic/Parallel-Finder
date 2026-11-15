@@ -52,9 +52,20 @@ VideoActionInput prepareVideoActionInput(std::span<const VideoActionFrame> frame
         return axis;
     };
     const auto horizontal=positions(width,outWidth),vertical=positions(height,outHeight);
+    const std::uint8_t* previousPixels = nullptr;
     for(int time=0;time<32;++time) {
         const auto index=static_cast<std::size_t>(time)*(frames.size()-1)/31;
         const auto* pixels=frames[index].rgba;
+        // Short clips repeat sampled frames. The frozen control repeats
+        // every frame. Resize and normalize each consecutive image once.
+        if (pixels == previousPixels) {
+            for (int channel = 0; channel < 3; ++channel) {
+                const auto previous = result.clip.values.begin() + (channel * 32 + time - 1) * plane;
+                std::copy_n(previous, plane, previous + plane);
+            }
+            continue;
+        }
+        previousPixels = pixels;
         for(int y=0;y<outHeight;++y)for(int x=0;x<outWidth;++x) {
             const auto row=vertical[y],column=horizontal[x];
             for(int channel=0;channel<3;++channel) {
