@@ -289,6 +289,7 @@ Popup {
                 width: parent.width
                 visible: root.mergeChronological
                 enabled: !Analysis.exportBusy
+                checked: true
                 text: L10n.t("export.selectionOrder")
             }
 

@@ -1737,6 +1737,9 @@ void UiSmokeTests::movementClassesAndExportOrder()
     auto* selectionOrderCheck=popup->findChild<QObject*>("exportSelectionOrderCheck"); QVERIFY(selectionOrderCheck);
     QVERIFY(!popup->property("useSelectionOrder").toBool());
     mergeCheck->setProperty("checked",true);
+    QVERIFY(popup->property("useSelectionOrder").toBool());
+    selectionOrderCheck->setProperty("checked",false);
+    QVERIFY(!popup->property("useSelectionOrder").toBool());
     selectionOrderCheck->setProperty("checked",true);
     QVERIFY(popup->property("useSelectionOrder").toBool());
     mergeCheck->setProperty("checked",false);
