@@ -41,7 +41,8 @@ namespace {
 // Immutable after describe(). A frame participates in many DTW comparisons;
 // its stationary/moving fact does not need a fresh scan for every pair.
 struct Descriptor : std::vector<double> {
-    double maximumVelocity = 0.0;
+    bool moving = false;
+    std::uint8_t observedLimbs = 0;
 };
 
 using NormalizedPose = std::vector<std::pair<double, double>>;
@@ -1120,11 +1121,19 @@ std::vector<Descriptor> describe(const std::vector<NormalizedPose>& normalized,
         result.push_back(std::move(descriptor));
     }
     for(auto& descriptor:result) {
+        std::uint32_t observedJoints = 0;
         for(std::size_t offset=0;offset+1<descriptor.size();offset+=4) {
             if(!std::isfinite(descriptor[offset]) || !std::isfinite(descriptor[offset+1]))continue;
-            descriptor.maximumVelocity=std::max(descriptor.maximumVelocity,
-                std::hypot(descriptor[offset],descriptor[offset+1]));
+            if (descriptor.size() == 18 * 4) observedJoints |= 1U << (offset / 4);
+            if (!descriptor.moving)
+                descriptor.moving = std::hypot(descriptor[offset],descriptor[offset+1]) >= 1e-4;
         }
+        constexpr std::array limbJoints{
+            (1U << 5) | (1U << 7) | (1U << 9), (1U << 6) | (1U << 8) | (1U << 10),
+            (1U << 11) | (1U << 13) | (1U << 15), (1U << 12) | (1U << 14) | (1U << 16)};
+        for (std::size_t limb = 0; limb < limbJoints.size(); ++limb)
+            if ((observedJoints & limbJoints[limb]) == limbJoints[limb])
+                descriptor.observedLimbs |= 1U << limb;
     }
     return result;
 }
@@ -1143,23 +1152,11 @@ double frameDistance(const Descriptor& left, const Descriptor& right)
     std::size_t comparableVelocities = 0;
     const std::size_t joints = left.size() / 4U;
     if (joints == 18) { // COCO body motion plus the root-translation channel
-        constexpr std::size_t chains[4][3] = {{5, 7, 9}, {6, 8, 10},
-                                              {11, 13, 15}, {12, 14, 16}};
-        const auto observes = [](const Descriptor& descriptor, const auto& chain) {
-            return std::all_of(std::begin(chain), std::end(chain), [&](std::size_t joint) {
-                const auto offset = joint * 4;
-                return std::isfinite(descriptor[offset]) && std::isfinite(descriptor[offset + 1]);
-            });
-        };
-        const bool sharedLimb = std::any_of(std::begin(chains), std::end(chains), [&](const auto& chain) {
-            return observes(left, chain) && observes(right, chain);
-        });
         // Head/shoulders plus camera drift are not evidence of an arm/body
         // gesture. Never fill an occluded limb with a fictitious agreement.
         // Symmetric head-only trajectories retain their existing checks.
-        const bool leftBody = std::any_of(std::begin(chains), std::end(chains), [&](const auto& c) { return observes(left, c); });
-        const bool rightBody = std::any_of(std::begin(chains), std::end(chains), [&](const auto& c) { return observes(right, c); });
-        if ((leftBody || rightBody) && !sharedLimb) return 1.0;
+        if ((left.observedLimbs | right.observedLimbs) && !(left.observedLimbs & right.observedLimbs))
+            return 1.0;
     }
     for (std::size_t joint = 0; joint < joints; ++joint) {
         const std::size_t offset = joint * 4U;
@@ -1198,7 +1195,7 @@ double frameSimilarity(const Descriptor& left, const Descriptor& right, double& 
     if (left.empty() || right.empty() || left.size() != right.size()) return 0.0;
     // Stationary observations cannot establish a motion run even when their
     // descriptors agree perfectly. Static mode has its own pose descriptor.
-    if (left.maximumVelocity < 1e-4 || right.maximumVelocity < 1e-4) return 0.0;
+    if (!left.moving || !right.moving) return 0.0;
     distance = frameDistance(left, right);
     if (!std::isfinite(distance)) return 0.0;
     // Agreement is measured on motion, not appearance or body proportions.
