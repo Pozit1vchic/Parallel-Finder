@@ -88,3 +88,12 @@ Boxing recorded motion evidence for 343/852 pairs and score rejection for
 509/852. These counts bypass candidate retrieval and describe the first
 recorded gate only. The data is low resolution and the evaluation assumes
 the subject is known. Artifacts are under `build/reference-soldier/kth-current`.
+
+The matcher debug trace recorded insufficient aligned runs in every logged
+variant of the 2,577 locomotion comparisons rejected as motion evidence.
+On the separate development subset, lowering the frame alignment
+similarity threshold from 0.42 to 0.36, 0.30 or 0.24 recovered zero
+walking, jogging, running or boxing queries. Correct first results
+for clapping and waving declined from 58/64 to 55/64 at 0.24. The
+production threshold was retained. See `motion-gate-details.json` and
+`development-alignment/summary.json` under the same artifact directory.
