@@ -168,10 +168,11 @@ struct BatchCharacterGroup {
     std::size_t sourceCount = 0;
     double presenceSeconds = 0;
     double sharedPresenceSeconds = 0;
+    double batchProminence = 0;
 };
 
 // Each input is the completed candidate list from one source. Groups are
-// ordered by source coverage, then by presence across those sources.
+// ordered by their combined relative presence across the sources.
 std::vector<BatchCharacterGroup> groupBatchCharacters(
     std::span<const std::span<const CharacterCandidate>> sources,
     const std::function<bool()>& cancelled = {});

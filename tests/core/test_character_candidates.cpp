@@ -708,6 +708,20 @@ TEST(CharacterCandidates, BatchRejectsTransitiveAgreementBetweenDifferentPeople)
     EXPECT_EQ(groups.back().members.size(), 1);
 }
 
+TEST(CharacterCandidates, CameosInEverySourceDoNotOutrankTheMainCharacter)
+{
+    const auto main = pfcore::characterCandidates({track(1, 0, {1, 0}, 40)}).front();
+    const auto cameo = pfcore::characterCandidates({track(2, 0, {0, 1}, 4)}).front();
+    const std::vector full{main, cameo};
+    const std::vector cameoOnly{cameo};
+    const std::span<const pfcore::CharacterCandidate> sources[]{full, full, full, cameoOnly};
+    const auto groups = pfcore::groupBatchCharacters(sources);
+    ASSERT_EQ(groups.size(), 2);
+    EXPECT_EQ(groups[0].sourceCount, 3);
+    EXPECT_EQ(groups[1].sourceCount, 4);
+    EXPECT_GT(groups[0].batchProminence, groups[1].batchProminence);
+}
+
 TEST(CharacterCandidates, BatchJoinsCorroboratedFragmentsWithoutCountingASourceTwice)
 {
     const auto make = [](std::size_t id, std::vector<float> face) {
@@ -724,6 +738,39 @@ TEST(CharacterCandidates, BatchJoinsCorroboratedFragmentsWithoutCountingASourceT
     ASSERT_EQ(groups.front().members.size(), 4);
     EXPECT_DOUBLE_EQ(groups.front().sharedPresenceSeconds, 8);
     EXPECT_EQ(groups.back().members.front().candidateIndex, 2);
+}
+
+TEST(CharacterCandidates, BatchRecoversMissingAppearanceFromShorterVariant)
+{
+    const auto main = pfcore::characterCandidates({track(1,0,{1,0},40)}).front();
+    const auto variant = pfcore::characterCandidates({track(2,0,{.50f,.866f},4)}).front();
+    const auto appearance = pfcore::characterCandidates({track(3,0,{.69f,.724f},20)}).front();
+    const std::vector full{main,variant};
+    const std::vector shortSource{appearance};
+    const std::span<const pfcore::CharacterCandidate> sources[]{full,full,full,shortSource};
+    const auto groups=pfcore::groupBatchCharacters(sources);
+    ASSERT_EQ(groups.size(),2);
+    ASSERT_EQ(groups.front().sourceCount,4);
+    EXPECT_EQ(groups.back().sourceCount,3);
+    for (const auto& member : groups.front().members) {
+        if (member.sourceIndex==3) EXPECT_EQ(member.candidateIndex,0);
+        else EXPECT_EQ(sources[member.sourceIndex][member.candidateIndex].id,1);
+    }
+}
+
+TEST(CharacterCandidates, BatchDoesNotReassignAnAmbiguousAppearance)
+{
+    const auto main = pfcore::characterCandidates({track(1,0,{1,0},40)}).front();
+    const auto variant = pfcore::characterCandidates({track(2,0,{.50f,.866f},4)}).front();
+    const auto appearanceA = pfcore::characterCandidates({track(3,0,{.69f,.724f},20)}).front();
+    const auto appearanceB = pfcore::characterCandidates({track(4,0,{.67f,.742f},16)}).front();
+    const std::vector full{main,variant};
+    const std::vector shortSource{appearanceA,appearanceB};
+    const std::span<const pfcore::CharacterCandidate> sources[]{full,full,full,shortSource};
+    const auto groups=pfcore::groupBatchCharacters(sources);
+    ASSERT_EQ(groups.size(),2);
+    EXPECT_EQ(groups.front().sourceCount,3);
+    EXPECT_EQ(groups.back().sourceCount,4);
 }
 
 TEST(CharacterCandidates, CancelDoesNotPublishPartialCandidates)

@@ -1704,9 +1704,12 @@ std::vector<BatchCharacterGroup> groupBatchCharacters(
     struct Link { std::size_t first, second; double score; };
     std::vector<BatchCharacterMember> members;
     std::vector<std::size_t> offsets{0};
+    std::vector<double> maxPresence(sources.size(),0);
     for (std::size_t source = 0; source < sources.size(); ++source) {
-        for (std::size_t candidate = 0; candidate < sources[source].size(); ++candidate)
+        for (std::size_t candidate = 0; candidate < sources[source].size(); ++candidate) {
             members.push_back({source, candidate});
+            maxPresence[source] = std::max(maxPresence[source],sources[source][candidate].presenceSeconds);
+        }
         offsets.push_back(members.size());
     }
     const auto candidate = [&](std::size_t index) -> const CharacterCandidate& {
@@ -1762,30 +1765,84 @@ std::vector<BatchCharacterGroup> groupBatchCharacters(
         }
         groups[second].clear();
     }
+    const auto summarize = [&](BatchCharacterGroup& entry) {
+        std::map<std::size_t,double> presenceBySource;
+        entry.presenceSeconds = 0;
+        entry.sharedPresenceSeconds = 0;
+        entry.batchProminence = 0;
+        for (const auto& member : entry.members) {
+            const auto seconds = sources[member.sourceIndex][member.candidateIndex].presenceSeconds;
+            entry.presenceSeconds += seconds;
+            presenceBySource[member.sourceIndex] += seconds;
+        }
+        entry.sourceCount = presenceBySource.size();
+        for (const auto& [source,seconds] : presenceBySource) {
+            if (maxPresence[source] > 0)
+                entry.batchProminence += std::clamp(seconds / maxPresence[source],0.0,1.0);
+        }
+        if (!presenceBySource.empty())
+            entry.sharedPresenceSeconds = std::min_element(presenceBySource.begin(), presenceBySource.end(),
+                [](const auto& a, const auto& b) { return a.second < b.second; })->second;
+    };
+    const auto moreProminent = [](const auto& a, const auto& b) {
+        if (a.batchProminence != b.batchProminence) return a.batchProminence > b.batchProminence;
+        if (a.sourceCount != b.sourceCount) return a.sourceCount > b.sourceCount;
+        if (a.sharedPresenceSeconds != b.sharedPresenceSeconds)
+            return a.sharedPresenceSeconds > b.sharedPresenceSeconds;
+        return a.presenceSeconds > b.presenceSeconds;
+    };
     std::vector<BatchCharacterGroup> result;
     result.reserve(groups.size());
     for (auto& group : groups) {
         if (group.empty()) continue;
         std::sort(group.begin(), group.end());
         BatchCharacterGroup entry;
-        std::map<std::size_t,double> presenceBySource;
-        for (const auto index : group) {
-            entry.members.push_back(members[index]);
-            const auto seconds = candidate(index).presenceSeconds;
-            entry.presenceSeconds += seconds;
-            presenceBySource[members[index].sourceIndex] += seconds;
-        }
-        entry.sourceCount = presenceBySource.size();
-        entry.sharedPresenceSeconds = std::min_element(presenceBySource.begin(), presenceBySource.end(),
-            [](const auto& a, const auto& b) { return a.second < b.second; })->second;
+        for (const auto index : group) entry.members.push_back(members[index]);
+        summarize(entry);
         result.push_back(std::move(entry));
     }
-    std::stable_sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
-        if (a.sourceCount != b.sourceCount) return a.sourceCount > b.sourceCount;
-        if (a.sharedPresenceSeconds != b.sharedPresenceSeconds)
-            return a.sharedPresenceSeconds > b.sharedPresenceSeconds;
-        return a.presenceSeconds > b.presenceSeconds;
-    });
+    std::stable_sort(result.begin(), result.end(), moreProminent);
+    const auto memberIndex = [&](const BatchCharacterMember& member) {
+        return offsets[member.sourceIndex] + member.candidateIndex;
+    };
+    for (std::size_t i = 0; i < result.size(); ++i)
+        for (const auto& member : result[i].members) owner[memberIndex(member)] = i;
+    // A short variant with a slightly better face score can claim a missing
+    // appearance first. Reassign just that appearance when the established
+    // group has independent, unambiguous support across its original sources.
+    for (std::size_t i = 0; i < result.size(); ++i) {
+        if (cancelled && cancelled()) return {};
+        auto& group = result[i];
+        if (group.sourceCount < 2) continue;
+        const auto anchors = group.members;
+        for (std::size_t source = 0; source < sources.size(); ++source) {
+            if (std::any_of(anchors.begin(), anchors.end(), [&](const auto& a) { return a.sourceIndex == source; }))
+                continue;
+            std::size_t best = members.size();
+            double first = 0, second = 0;
+            for (std::size_t j = offsets[source]; j < offsets[source+1]; ++j) {
+                if (candidate(j).prototype.faceEvidence < .65) continue;
+                double agreement = 1;
+                for (const auto& anchor : anchors) agreement = std::min(agreement, score(memberIndex(anchor), j));
+                if (agreement > first) {
+                    second = first;
+                    first = agreement;
+                    best = j;
+                } else second = std::max(second, agreement);
+            }
+            if (best == members.size() || first < .65 || first-second < .08) continue;
+            const auto previous = owner[best];
+            if (previous <= i || group.batchProminence < result[previous].batchProminence + .5) continue;
+            auto& old = result[previous];
+            std::erase_if(old.members, [&](const auto& member) { return memberIndex(member) == best; });
+            owner[best] = i;
+            group.members.push_back(members[best]);
+            summarize(old);
+        }
+        summarize(group);
+    }
+    std::erase_if(result, [](const auto& group) { return group.members.empty(); });
+    std::stable_sort(result.begin(), result.end(), moreProminent);
     return result;
 }
 
