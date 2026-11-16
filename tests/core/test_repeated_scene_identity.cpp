@@ -112,3 +112,37 @@ TEST(RepeatedSceneIdentity, ProgressAndEarlyBodyRejection) {
     EXPECT_EQ(updates.back(),(std::pair<std::size_t,std::size_t>{1,1}));
     for(std::size_t i=1;i<updates.size();++i)EXPECT_GE(updates[i].first,updates[i-1].first);
 }
+
+TEST(RepeatedSceneIdentity, MergesCostumeVariantsButExcludesConflictingBystanderTracks) {
+    auto people=candidates();
+    people[0].trackIds={1,3,5,7};
+    people[1].trackIds={2,4,6,8};
+    people[0].presenceSeconds=20;
+    people[1].presenceSeconds=12;
+    for(auto& person:people) {
+        person.prototype.faceEvidence=1;
+        person.prototype.bodyEvidence=1;
+    }
+    people[0].prototype.face={1,0,0};
+    people[1].prototype.face={.58F,.8146F,0};
+    people[0].prototype.body={1,0,0};
+    people[1].prototype.body={.94F,.3412F,0};
+    people[1].appearances={{2,0,1,{}},{4,10,.9,{}},{6,12,.8,{}}};
+
+    auto first=window(1,0,0),bystander=window(2,0,0,300);
+    auto second=window(3,1,10),otherBystander=window(4,1,10,300);
+    first.appearanceConfidence=bystander.appearanceConfidence=1;
+    second.appearanceConfidence=otherBystander.appearanceConfidence=1;
+    first.appearanceEmbedding=second.appearanceEmbedding={1,0,0};
+    bystander.appearanceEmbedding=otherBystander.appearanceEmbedding={.75F,0,.6614F};
+    auto control=people;
+    EXPECT_EQ(pfcore::mergeCharacterAppearanceVariants(control,{first,bystander},"film"),0);
+    auto distinct=otherBystander;
+    distinct.appearanceEmbedding={.94F,.3412F,0};
+    EXPECT_EQ(pfcore::mergeCharacterAppearanceVariants(control,{first,bystander,second,distinct},"film"),0);
+    EXPECT_EQ(pfcore::mergeCharacterAppearanceVariants(people,{first,bystander,second,otherBystander},"film"),1);
+    ASSERT_EQ(people.size(),1);
+    EXPECT_EQ(people[0].trackIds,(std::vector<std::size_t>{1,3,5,6,7,8}));
+    ASSERT_EQ(people[0].appearances.size(),1);
+    EXPECT_EQ(people[0].appearances.front().trackId,6);
+}

@@ -3745,8 +3745,10 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                             identityUpdates.restart();
                         }
                     });
+                const auto variants=paths.size()==1
+                    ? pfcore::mergeCharacterAppearanceVariants(candidates,windows,source,isCancelled) : 0;
                 if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))
-                    std::fprintf(stderr,"PF_REPEATED_SCENE_IDENTITIES source=%s merged=%zu\n",source.c_str(),merged);
+                    std::fprintf(stderr,"PF_REPEATED_SCENE_IDENTITIES source=%s merged=%zu variants=%zu\n",source.c_str(),merged,variants);
             }
             std::map<std::string,std::vector<std::size_t>> batchSelections;
             const bool batchSelection = paths.size() > 1;

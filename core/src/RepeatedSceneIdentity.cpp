@@ -5,6 +5,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <tuple>
 
 namespace pfcore {
 namespace {
@@ -244,5 +245,119 @@ std::size_t mergeRepeatedSceneIdentities(std::vector<CharacterCandidate>& candid
     }
     std::erase_if(candidates,[&](const auto& candidate){return removed.contains(candidate.id);});
     return merged;
+}
+
+std::size_t mergeCharacterAppearanceVariants(std::vector<CharacterCandidate>& candidates,
+    const std::vector<MotionWindow>& windows, std::string_view source,
+    const std::function<bool()>& cancelled)
+{
+    std::vector<std::size_t> eligible;
+    std::map<std::size_t,std::size_t> owners;
+    for (std::size_t i=0;i<candidates.size();++i) {
+        const auto& c=candidates[i];
+        if (c.trackIds.size()<4 || c.presenceSeconds<8
+            || c.prototype.bodyEvidence<.65 || c.prototype.faceEvidence<.65) continue;
+        eligible.push_back(i);
+        for (const auto track:c.trackIds)
+            if (!owners.emplace(track,i).second) return 0;
+    }
+    if (eligible.size()<2) return 0;
+
+    using TrackPair=std::tuple<std::size_t,std::size_t,std::size_t>;
+    struct Sample { const MotionWindow* window; const PoseFrame* pose; };
+    std::map<std::pair<std::size_t,double>,std::map<std::size_t,Sample>> frames;
+    for (const auto& w:windows) {
+        if (cancelled && cancelled()) return 0;
+        if (w.sourceId!=source || !w.hasSceneIndex || !owners.contains(w.trackId)) continue;
+        for (const auto& pose:w.frames)
+            if (std::isfinite(pose.timestampSeconds))
+                frames[{w.sceneIndex,pose.timestampSeconds}].try_emplace(w.trackId,Sample{&w,&pose});
+    }
+    struct Separation {
+        std::size_t count=0;
+        double first=0,last=0;
+        const MotionWindow* left=nullptr;
+        const MotionWindow* right=nullptr;
+    };
+    std::map<TrackPair,Separation> disagreements;
+    for (const auto& [key,tracks]:frames) {
+        if (cancelled && cancelled()) return 0;
+        for (auto a=tracks.begin();a!=tracks.end();++a) {
+            for (auto b=std::next(a);b!=tracks.end();++b) {
+                if (owners.at(a->first)==owners.at(b->first)) continue;
+                const auto distance=poseDistance(*a->second.pose,*b->second.pose);
+                if (!std::isfinite(distance) || distance<.12) continue;
+                auto& evidence=disagreements[{key.first,a->first,b->first}];
+                if (!evidence.count++) {
+                    evidence.first=key.second;
+                    evidence.left=a->second.window;
+                    evidence.right=b->second.window;
+                }
+                evidence.last=key.second;
+            }
+        }
+    }
+    struct Link { std::size_t first,second; std::set<std::size_t> excluded; };
+    std::vector<Link> links;
+    std::map<std::size_t,std::size_t> degree;
+    for (std::size_t i=0;i<eligible.size();++i) {
+        if (cancelled && cancelled()) return 0;
+        for (std::size_t j=i+1;j<eligible.size();++j) {
+            const auto first=eligible[i],second=eligible[j];
+            const auto& a=candidates[first].prototype;
+            const auto& b=candidates[second].prototype;
+            if (cosine(a.body,b.body)<.93 || cosine(a.face,b.face)<.55) continue;
+            std::set<std::size_t> shots,excluded,retained;
+            bool conflict=false;
+            for (const auto& [key,evidence]:disagreements) {
+                const auto& [shot,leftTrack,rightTrack]=key;
+                const auto pair=std::minmax(owners.at(leftTrack),owners.at(rightTrack));
+                if (pair.first!=first || pair.second!=second || evidence.count<3
+                    || evidence.last-evidence.first<.25) continue;
+                const auto classify=[&](const MotionWindow& w) {
+                    if (w.appearanceConfidence<.65) return 0;
+                    const auto left=cosine(w.appearanceEmbedding,a.body);
+                    const auto right=cosine(w.appearanceEmbedding,b.body);
+                    if (std::min(left,right)>=.82) return 1;
+                    if (std::max(left,right)<.82 && std::min(left,right)>=0) return -1;
+                    return 0;
+                };
+                const int left=classify(*evidence.left),right=classify(*evidence.right);
+                if (left*right!=-1) {conflict=true;break;}
+                const auto* match=left>0?evidence.left:evidence.right;
+                const auto* outlier=left<0?evidence.left:evidence.right;
+                const auto strong=std::max(cosine(match->appearanceEmbedding,a.body),cosine(match->appearanceEmbedding,b.body));
+                const auto weak=std::max(cosine(outlier->appearanceEmbedding,a.body),cosine(outlier->appearanceEmbedding,b.body));
+                if (strong-weak<.08) {conflict=true;break;}
+                shots.insert(shot);
+                retained.insert(match->trackId);
+                excluded.insert(outlier->trackId);
+            }
+            if (conflict || shots.size()<2 || std::any_of(excluded.begin(),excluded.end(),
+                [&](auto id){return retained.contains(id);})) continue;
+            links.push_back({first,second,std::move(excluded)});
+            ++degree[first]; ++degree[second];
+        }
+    }
+    std::set<std::size_t> removed;
+    for (const auto& link:links) {
+        if (degree[link.first]!=1 || degree[link.second]!=1) continue;
+        auto& first=candidates[link.first];
+        auto& second=candidates[link.second];
+        auto* primary=&first;
+        auto* fragment=&second;
+        if (primary->presenceSeconds<fragment->presenceSeconds) std::swap(primary,fragment);
+        primary->trackIds.insert(primary->trackIds.end(),fragment->trackIds.begin(),fragment->trackIds.end());
+        std::sort(primary->trackIds.begin(),primary->trackIds.end());
+        std::erase_if(primary->trackIds,[&](auto id){return link.excluded.contains(id);});
+        primary->appearances.insert(primary->appearances.end(),fragment->appearances.begin(),fragment->appearances.end());
+        std::erase_if(primary->appearances,[&](const auto& appearance){return link.excluded.contains(appearance.trackId);});
+        primary->observationCount+=fragment->observationCount;
+        primary->presenceSeconds+=fragment->presenceSeconds;
+        primary->distinctIdentity=primary->distinctIdentity || fragment->distinctIdentity;
+        removed.insert(fragment->id);
+    }
+    std::erase_if(candidates,[&](const auto& candidate){return removed.contains(candidate.id);});
+    return removed.size();
 }
 }

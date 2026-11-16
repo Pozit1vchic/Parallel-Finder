@@ -20,4 +20,9 @@ std::size_t mergeRepeatedSceneIdentities(std::vector<CharacterCandidate>& candid
     const std::vector<MotionWindow>& windows, const std::function<bool()>& cancelled = {},
     std::string_view source = {},
     const std::function<void(std::size_t,std::size_t)>& progress = {});
+// Resolve costume variants when several disputed shots show that the
+// apparently separate tracks were weak detections of someone else.
+std::size_t mergeCharacterAppearanceVariants(std::vector<CharacterCandidate>& candidates,
+    const std::vector<MotionWindow>& windows, std::string_view source,
+    const std::function<bool()>& cancelled = {});
 }
