@@ -3772,17 +3772,16 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 };
                 std::vector<std::vector<BatchAppearance>> appearances(displayCount);
                 for (std::size_t i=0;i<displayCount;++i) {
-                    std::map<std::size_t,pfcore::CharacterAppearance> bestBySource;
+                    std::multimap<std::size_t,pfcore::CharacterAppearance> bestByFragment;
                     for (const auto& member:groups[i].members) {
                         const auto& entries=candidates[member.sourceIndex][member.candidateIndex].appearances;
                         const auto best=std::max_element(entries.begin(),entries.end(),[](const auto& a,const auto& b) {
                             return a.quality<b.quality;
                         });
                         if (best==entries.end()) continue;
-                        auto [slot,inserted]=bestBySource.try_emplace(member.sourceIndex,*best);
-                        if (!inserted && best->quality>slot->second.quality) slot->second=*best;
+                        bestByFragment.emplace(member.sourceIndex,*best);
                     }
-                    for (const auto& [sourceIndex,best]:bestBySource) {
+                    for (const auto& [sourceIndex,best]:bestByFragment) {
                         appearances[i].push_back({requests.size(),sourceIndex,best});
                         requests.push_back({sources[sourceIndex],{},{},best.timestampSeconds,{}});
                     }

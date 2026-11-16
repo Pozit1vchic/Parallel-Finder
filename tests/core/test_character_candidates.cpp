@@ -773,6 +773,25 @@ TEST(CharacterCandidates, BatchDoesNotReassignAnAmbiguousAppearance)
     EXPECT_EQ(groups.back().sourceCount,4);
 }
 
+TEST(CharacterCandidates, BatchMergesDuplicateCardsCorroboratedInSeveralVideos)
+{
+    const auto main = pfcore::characterCandidates({track(1,0,{1,0,0},40)}).front();
+    const auto variant = pfcore::characterCandidates({track(2,0,{.89f,.456f,0},16)}).front();
+    const auto distinct = pfcore::characterCandidates({track(3,0,{.71f,0,.704f},20)}).front();
+    const std::vector first{main,variant,distinct};
+    const std::vector second{main,variant,distinct};
+    const std::vector third{main,variant};
+    const std::span<const pfcore::CharacterCandidate> sources[]{first,second,third};
+    const auto groups=pfcore::groupBatchCharacters(sources);
+    ASSERT_EQ(groups.size(),2);
+    EXPECT_EQ(groups.front().sourceCount,3);
+    EXPECT_EQ(groups.front().members.size(),6);
+    EXPECT_EQ(groups.back().sourceCount,2);
+    ASSERT_EQ(groups.back().members.size(),2);
+    for (const auto& member:groups.back().members)
+        EXPECT_EQ(sources[member.sourceIndex][member.candidateIndex].id,3);
+}
+
 TEST(CharacterCandidates, CancelDoesNotPublishPartialCandidates)
 {
     pfcore::DominantSelectionControl control;

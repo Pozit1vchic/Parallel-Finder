@@ -1843,6 +1843,46 @@ std::vector<BatchCharacterGroup> groupBatchCharacters(
     }
     std::erase_if(result, [](const auto& group) { return group.members.empty(); });
     std::stable_sort(result.begin(), result.end(), moreProminent);
+    // Separate local prototypes may persist across an entire batch. Merge
+    // those cards only with repeatable agreement in shared source videos.
+    const auto corroboratedDuplicate = [&](const auto& left, const auto& right) {
+        if (left.sourceCount < 2 || right.sourceCount < 2) return false;
+        std::map<std::size_t,double> shared;
+        for (const auto& a : left.members) {
+            for (const auto& b : right.members) {
+                const auto first = memberIndex(a), second = memberIndex(b);
+                const auto similarity = score(first,second);
+                if (similarity < .55) return false;
+                if (a.sourceIndex != b.sourceIndex) continue;
+                if (similarity < .65 || candidate(first).prototype.faceEvidence < .65
+                    || candidate(second).prototype.faceEvidence < .65) return false;
+                shared[a.sourceIndex] = std::max(shared[a.sourceIndex],similarity);
+            }
+        }
+        if (shared.size() < 2 || std::any_of(shared.begin(),shared.end(),[](const auto& source) {
+            return source.second < .70;
+        })) return false;
+        const auto strong = std::count_if(shared.begin(), shared.end(), [](const auto& source) {
+            return source.second >= .85;
+        });
+        const auto veryStrong = std::any_of(shared.begin(), shared.end(), [](const auto& source) {
+            return source.second >= .90;
+        });
+        return strong >= 2 || veryStrong;
+    };
+    for (std::size_t i = 0; i < result.size(); ++i) {
+        if (cancelled && cancelled()) return {};
+        for (std::size_t j = i+1; j < result.size(); ++j) {
+            if (!corroboratedDuplicate(result[i],result[j])) continue;
+            auto& group = result[i];
+            auto& duplicate = result[j];
+            group.members.insert(group.members.end(),duplicate.members.begin(),duplicate.members.end());
+            duplicate = {};
+            summarize(group);
+        }
+    }
+    std::erase_if(result, [](const auto& group) { return group.members.empty(); });
+    std::stable_sort(result.begin(), result.end(), moreProminent);
     return result;
 }
 
