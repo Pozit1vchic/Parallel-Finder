@@ -240,6 +240,8 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
             manifest += "duration " + QByteArray::number(clipDuration, 'f', 9) + "\n";
             audioManifest += "duration " + QByteArray::number(clipDuration, 'f', 9) + "\n";
         }
+        if (streamCopy) for (const auto& clip : batch.completed)
+            QFile::remove(QString::fromStdWString(clip.outputPath.wstring()));
         result.success = false;
         const QString list = staging.filePath("clips.ffconcat");
         QFile file(list);
@@ -272,7 +274,7 @@ CutResult exportChronologicalMontage(std::vector<CutRequest> clips,
                          << "-map" << "0:v:0" << "-map" << "1:a:0?" << "-c" << "copy";
         else
             muxArguments << "-map" << "0:v:0" << "-map" << "0:a?" << "-c" << "copy";
-        if (outputExtension == ".mp4" || outputExtension == ".mov")
+        if (!exactLossless && (outputExtension == ".mp4" || outputExtension == ".mov"))
             muxArguments << "-movflags" << "+faststart";
         if (exactLossless) muxArguments << "-avoid_negative_ts" << "disabled";
         muxArguments << combinedPath;

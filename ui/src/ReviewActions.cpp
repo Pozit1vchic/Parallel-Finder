@@ -176,18 +176,12 @@ bool AnalysisController::replaceResultSide(int targetId, const QString& targetSi
     const double end = donor.value(donorSide + "ClipEnd").toDouble();
     if (donor.value(donorSide + "Source").toString().isEmpty() || !std::isfinite(start) || !std::isfinite(end) || end <= start) return false;
     // Reject replacing a side with the very same interval as its partner.
-    if (donor.value(donorSide + "Source") == row.value(other + "Source")
+    if (!row.value(other + "Removed").toBool()
+        && donor.value(donorSide + "Source") == row.value(other + "Source")
         && std::abs(start - row.value(other + "ClipStart").toDouble()) < 1e-6
         && std::abs(end - row.value(other + "ClipEnd").toDouble()) < 1e-6) return false;
     if (consumeDonor && (row.value(targetSide + "Removed").toBool() == false
         || !donor.value((donorSide == "left" ? QString("right") : QString("left")) + "Removed").toBool())) return false;
-    const auto ownedPreviews=std::make_shared<QTemporaryDir>(QDir::tempPath()+"/ParallelFinder-compose-XXXXXX");
-    if(!ownedPreviews->isValid()) return false;
-    for(const auto& side:{QString("left"),QString("right")}) {
-        const auto path=side==targetSide ? donor.value(donorSide+"Preview").toString() : row.value(side+"Preview").toString();
-        if(side!=targetSide && row.value(side+"Removed").toBool()) continue;
-        if(!QFile::copy(localPath(path),ownedPreviews->filePath(side+".png"))) return false;
-    }
     pushReviewUndo(consumeDonor ? QVariantList{targetId,donorId} : QVariantList{targetId}, true);
     for (const auto suffix : {"Source", "Preview", "TrackId", "Start", "End", "ClipStart", "ClipEnd", "SceneStart", "SceneEnd"})
         row.insert(targetSide + suffix, donor.value(donorSide + suffix));
@@ -201,9 +195,6 @@ bool AnalysisController::replaceResultSide(int targetId, const QString& targetSi
     }
     auto& match = matches_[targetId];
     row.insert(targetSide + "Removed",false);
-    for(const auto& side:{QString("left"),QString("right")})
-        row.insert(side+"Preview",row.value(side+"Removed").toBool() ? QString{} : QUrl::fromLocalFile(ownedPreviews->filePath(side+".png")).toString());
-    reviewPreviewDirectories_[targetId]=ownedPreviews;
     reviewOriginalDirectories_.erase(targetId);
     match.leftEnabled = !row.value("leftRemoved").toBool();
     match.rightEnabled = !row.value("rightRemoved").toBool();
@@ -235,10 +226,11 @@ bool AnalysisController::replaceResultSide(int targetId, const QString& targetSi
     }
     results_[targetId] = row;
     if (consumeDonor) { auto consumed = donor; consumed.insert("hidden",true); results_[donorId] = consumed; }
+    // Keep the existing previews visible until the asynchronous worker owns
+    // a frame at each composed range boundary. Review edits are locked until then.
+    const bool started = startReviewPreview(targetId, row, true);
     ++resultCategoryRevision_; emit resultCategoriesChanged();
-    // Regenerate owned previews so later edits to the donor cannot invalidate
-    // a temporary PNG still used by this composition.
-    return startReviewPreview(targetId, row, true);
+    return started;
 }
 
 bool AnalysisController::setResultRange(int id, double ls, double le, double rs, double re) {
@@ -302,11 +294,17 @@ bool AnalysisController::startReviewPreview(int id, const QVariantMap& row, bool
         bool actionsUpdated=false;
         try {
             if (!previewDirectory->isValid()) throw std::runtime_error("Could not create preview folder");
+            pfcore::VideoDecoder decoder;
+            QString openedSource;
+            pfcore::VideoDecodeOptions options; options.threads = 2;
             for (const QString& side : {QString("left"), QString("right")}) {
                 if (row.value(side + "Removed").toBool()) { previews.push_back({}); continue; }
                 if (stop.stop_requested()) break;
-                pfcore::VideoDecoder decoder; pfcore::VideoDecodeOptions options; options.threads = 2;
-                decoder.open(row.value(side + "Source").toString().toStdString(), options);
+                const auto source = row.value(side + "Source").toString();
+                if (source != openedSource || !decoder.isOpen()) {
+                    decoder.open(source.toStdString(), options);
+                    openedSource = source;
+                }
                 const auto image = frameAt(decoder, row.value(side + "Start").toDouble(), stop);
                 const QString path = previewDirectory->path() + '/' + side + ".png";
                 if (!image.save(path)) throw std::runtime_error("Could not save preview");

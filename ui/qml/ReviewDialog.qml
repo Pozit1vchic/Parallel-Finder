@@ -7,6 +7,7 @@ Popup {
     id: root
     property var rootWindow
     property string title: ""
+    property bool animateScale: true
     property bool backdropClosing: false
     default property alias body: bodyItem.data
     width: Math.min(820, rootWindow ? rootWindow.width - 32 : 780)
@@ -20,12 +21,13 @@ Popup {
     Overlay.modal: Rectangle { color: GraphicsInfo.api === GraphicsInfo.Software ? "#99000000" : "transparent" }
     background: Rectangle { color: Theme.heroPanel; radius: Theme.radiusOverlay; border.color: Theme.hairlineStrong }
     enter: Transition {
+        enabled: !Theme.reducedMotion
         ParallelAnimation {
             NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionChangeDuration; easing.type: Easing.OutCubic }
-            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: Theme.motionRevealDuration; easing.type: Easing.OutQuint }
+            NumberAnimation { property: "scale"; from: root.animateScale ? 0.96 : 1; to: 1; duration: root.animateScale ? Theme.motionRevealDuration : 0; easing.type: Easing.OutQuint }
         }
     }
-    exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.motionChangeDuration; easing.type: Easing.InCubic } }
+    exit: Transition { enabled: !Theme.reducedMotion; NumberAnimation { property: "opacity"; to: 0; duration: Theme.motionChangeDuration; easing.type: Easing.InCubic } }
     contentItem: ColumnLayout {
         spacing: 16
         RowLayout {

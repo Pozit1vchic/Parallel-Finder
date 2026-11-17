@@ -4,6 +4,14 @@ import PfUi
 import PfUiBridge
 
 QtObject {
+    function nearbyRows(rows, current) {
+        const nearest = []
+        for (let distance = 1; distance <= 14 && nearest.length < 14; ++distance) {
+            if (rows[current + distance]) nearest.push(rows[current + distance])
+            if (nearest.length < 14 && rows[current - distance]) nearest.push(rows[current - distance])
+        }
+        return nearest
+    }
     id: root
     property bool multiSelect: false
     property var bindings: ({})

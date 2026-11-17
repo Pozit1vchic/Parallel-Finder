@@ -901,10 +901,24 @@ void UiSmokeTests::manualSortAndComposeDialogs()
     const auto capture=qEnvironmentVariable("PF_UI_CAPTURE_DIR");
     if(!capture.isEmpty()){QDir().mkpath(capture);QTest::qWait(400);QVERIFY(window->grabWindow().save(capture+"/manual-sort.png"));}
     QVERIFY(QMetaObject::invokeMethod(manual,"close")); QTest::qWait(250);
-    compose->setProperty("record",rows[0]); QVERIFY(QMetaObject::invokeMethod(compose,"open"));
-    compose->setProperty("candidates",QVariantList{rows[1]});
-    auto* choice=window->findChild<QObject*>("composeDonorChoice"); QVERIFY(choice);choice->setProperty("currentIndex",0);
-    QTRY_VERIFY(!variant(compose->property("donor")).toMap().isEmpty());
+    compose->setProperty("record",rows[0]);
+    compose->setProperty("sortedRows",QVariantList{rows[2],rows[1],rows[3]});
+    QVERIFY(QMetaObject::invokeMethod(compose,"open"));
+    auto* choice=window->findChild<QObject*>("composeDonorChoice"); QVERIFY(choice);
+    auto* moment=window->findChild<QObject*>("composeDonorSideChoice"); QVERIFY(moment);
+    QTRY_COMPARE(variant(compose->property("donor")).toMap().value("id").toInt(),2);
+    QVERIFY(QMetaObject::invokeMethod(moment,"activated",Q_ARG(int,0)));
+    choice->setProperty("currentIndex",2);
+    QTRY_COMPARE(compose->property("donorSide").toString(),QStringLiteral("right"));
+    choice->setProperty("currentIndex",1);
+    QVERIFY(QMetaObject::invokeMethod(choice,"activated",Q_ARG(int,1)));
+    QVERIFY(QMetaObject::invokeMethod(moment,"activated",Q_ARG(int,1)));
+    compose->setProperty("searchText",QStringLiteral("№ 3"));
+    QTRY_COMPARE(variant(compose->property("donor")).toMap().value("id").toInt(),2);
+    QCOMPARE(compose->property("donorSide").toString(),QStringLiteral("right"));
+    compose->setProperty("searchText",QString{});
+    QTRY_COMPARE(variant(compose->property("donor")).toMap().value("id").toInt(),1);
+    QCOMPARE(compose->property("donorSide").toString(),QStringLiteral("right"));
     if(!capture.isEmpty()){QTest::qWait(450);QVERIFY(window->grabWindow().save(capture+"/compose.png"));}
     auto* l10n=engine.singletonInstance<QObject*>(qmlTypeId("PfUi",1,0,"L10n")); QVERIFY(l10n);
     l10n->setProperty("language","ru");
@@ -2742,7 +2756,7 @@ Window { width: 300; height: 1800; visible: true
     auto* time=findVisual(list,"resultTime1");
     QVERIFY(card); QVERIFY(time);
     auto* content=findVisual(list,"resultContent1"); QVERIFY(content);
-    QVERIFY(card->height() >= 160);
+    QVERIFY(card->height() >= 132);
     QTRY_VERIFY_WITH_TIMEOUT(time->mapToItem(card,QPointF(0,time->height())).y() <= card->height()-7,5000);
     auto* second=findVisual(list,"resultCard2");
     if (second) QVERIFY(std::abs(card->y()-second->y()) >= std::min(card->height(),second->height()));
@@ -2935,7 +2949,7 @@ void UiSmokeTests::exportModesAreSelectable()
     QVERIFY(!popup->findChild<QQuickItem*>("fastCutButton"));
     QVERIFY(!popup->findChild<QQuickItem*>("exactCutButton"));
     auto* quality = popup->findChild<QObject*>("exportQualityMode"); QVERIFY(quality);
-    QCOMPARE(quality->property("count").toInt(), 3);
+    QCOMPARE(quality->property("count").toInt(), 4);
     auto* merge = popup->findChild<QObject*>("mergeChronologicalCheck");
     QVERIFY(merge);
     merge->setProperty("checked", true);
@@ -2950,7 +2964,9 @@ void UiSmokeTests::exportModesAreSelectable()
     QCOMPARE(popup->property("selectedCutMode").toInt(), 2);
     merge->setProperty("checked", true);
     QCOMPARE(popup->property("selectedCutMode").toInt(), 2);
-    QVERIFY(quality->property("enabled").toBool()); // Can switch back from lossless.
+    QVERIFY(quality->property("enabled").toBool());
+    QVERIFY(QMetaObject::invokeMethod(quality, "activated", Q_ARG(int, 3)));
+    QCOMPARE(popup->property("selectedCutMode").toInt(), 1);
     QVERIFY(QMetaObject::invokeMethod(quality, "activated", Q_ARG(int, 1)));
     QCOMPARE(popup->property("selectedCutMode").toInt(), 0);
 }

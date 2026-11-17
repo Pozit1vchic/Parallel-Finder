@@ -79,11 +79,12 @@ Rectangle {
         return (!sourceFilter || String(path) === sourceFilter)
             && (!sourceQuery.trim() || sourceName(path).toLowerCase().indexOf(sourceQuery.trim().toLowerCase()) >= 0)
     }
+    readonly property int unreviewedCount: visibleResults.filter(row => !row.reviewed && !row.hidden).length
     function selectNextUnreviewed() {
         const start = currentVisibleIndex
         for (let offset = 1; offset <= visibleResults.length; ++offset) {
             const index = (Math.max(-1, start) + offset) % visibleResults.length
-            if (!visibleResults[index].reviewed) {
+            if (!visibleResults[index].reviewed && !visibleResults[index].hidden) {
                 reviewNotice = ""
                 openPair(Number(visibleResults[index].id))
                 return
@@ -229,6 +230,13 @@ Rectangle {
                 PfButton { objectName: "nextUnreviewedButton"; Layout.fillWidth: true; compact: true; text: Review.t("nextUnreviewed"); onClicked: root.selectNextUnreviewed() }
                 PfButton { objectName: "undoReviewButton"; compact: true; text: Review.t("undo"); enabled: Analysis.canUndoReview && !Analysis.busy && !Analysis.reviewBusy && !Analysis.exportBusy; onClicked: root.undoRequested() }
             }
+            PfButton {
+                Layout.fillWidth: true; compact: true
+                visible: root.reviewFilter === "unreviewed"
+                enabled: root.currentVisibleIndex >= 0 && !Analysis.busy && !Analysis.reviewBusy && !Analysis.exportBusy
+                text: L10n.translate("Mark current pair reviewed", "Отметить текущую пару разобранной")
+                onClicked: Analysis.setResultReview([root.selectedIndex], "reviewed", true)
+            }
             Text { Layout.fillWidth: true; text: Review.t("selectionHint"); color: Theme.textDisabled; font.family: Theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap }
         }
     }
@@ -297,6 +305,11 @@ Rectangle {
                             text: Review.t(modelData); onClicked: root.reviewFilter = modelData
                         }
                     }
+                }
+                PfButton {
+                    Layout.fillWidth: true; compact: true; selected: root.reviewFilter === "unreviewed"
+                    text: Review.t("unreviewed")
+                    onClicked: root.reviewFilter = selected ? "all" : "unreviewed"
                 }
                 Text { Layout.fillWidth: true; text: L10n.t("ui.349"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 10 }
                 PfComboBox {
@@ -585,6 +598,11 @@ Rectangle {
         return (Number(a.id) - Number(b.id))
     }
 
+    function sortedRows(rows) {
+        const result = rows.slice().sort(compareValues)
+        return sortCriterion === "best" ? HeadMotionRanking.rerankBestHeadSlots(result, evidenceTier) : result
+    }
+
     function appendLargeModelChunk() {
         const target = bulkTargetStaging ? stagingModel : displayModel
         const end = Math.min(pendingRowIndex + 80, pendingRows.length)
@@ -631,6 +649,8 @@ Rectangle {
             if (item.hidden) continue
             const key = classKey(item)
             nextClassCounts[key] = Number(nextClassCounts[key] || 0) + 1
+            if (key.includes("+")) for (const action of key.split("+"))
+                nextClassCounts[action] = Number(nextClassCounts[action] || 0) + 1
         }
         const nextClassChoices = [""]
         for (const key of classKeys) if (Number(nextClassCounts[key] || 0) > 0) nextClassChoices.push(key)
@@ -644,8 +664,9 @@ Rectangle {
         for (const item of (results || [])) {
             if (reviewFilter === "hidden" ? !item.hidden : item.hidden) continue
             if (reviewFilter === "favorites" && !item.favorite) continue
+            if (reviewFilter === "unreviewed" && item.reviewed) continue
             if ((item.leftRemoved || !matchesSource(item.leftSource)) && (item.rightRemoved || !matchesSource(item.rightSource))) continue
-            if (classFilter && classKey(item) !== classFilter) continue
+            if (classFilter && classKey(item) !== classFilter && !classKey(item).split("+").includes(classFilter)) continue
             if (scopeFilter && item.evidenceScope !== scopeFilter) continue
             if (postureFilter) {
                 const postures=Orientation.remainingDescriptors(item).map(root.matchesPosture)
@@ -657,9 +678,7 @@ Rectangle {
             next.push(item)
         }
         possibleMatchesInFilters = possible
-        next.sort(compareValues)
-        if (sortCriterion === "best")
-            next = HeadMotionRanking.rerankBestHeadSlots(next, row => root.evidenceTier(row))
+        next = sortedRows(next)
         const wanted = {}
         const nextGroupCounts = {}
         for (const item of next) {
@@ -831,10 +850,21 @@ Rectangle {
                 Text {
                     font.family: Theme.fontFamily
                     Layout.fillWidth: true
-                    text: root.results.length > 0 ? root.visibleResults.length + " " + L10n.t("results.found") + " · " + root.visibleResults.filter(function(row) { return !row.reviewed }).length + " " + Review.t("unreviewed").toLowerCase() : L10n.t("results.emptyHint")
+                    text: root.results.length > 0 ? root.visibleResults.length + " " + L10n.t("results.found") : L10n.t("results.emptyHint")
                     color: Theme.textSecondary
                     font.pixelSize: 11
                     elide: Text.ElideRight
+                }
+                PfButton {
+                    objectName: "unreviewedCountButton"
+                    Layout.alignment: Qt.AlignVCenter; compact: true; quiet: true
+                    visible: root.unreviewedCount > 0
+                    text: root.unreviewedCount + " " + Review.t("unreviewed").toLowerCase()
+                    Accessible.name: text + " · " + Review.t("nextUnreviewed")
+                    onClicked: {
+                        if (root.reviewFilter === "unreviewed") root.selectNextUnreviewed()
+                        else root.reviewFilter = "unreviewed"
+                    }
                 }
                 PfButton {
                     objectName: "viewPossibleMatchesButton"
@@ -1018,7 +1048,7 @@ Rectangle {
                     }
                 }
                 width: Math.max(0, resultList.width - 8)
-                height: Math.max(160, Math.ceil(Math.max(rowContent.implicitHeight, rowContent.childrenRect.y + rowContent.childrenRect.height)) + 16)
+                height: Math.max(132, Math.ceil(Math.max(rowContent.implicitHeight, rowContent.childrenRect.y + rowContent.childrenRect.height)) + 16)
                 radius: 7
                 color: root.selectedRows[modelData.id] ? Theme.accentMuted : Theme.surfaceRaised
                 Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
@@ -1031,7 +1061,7 @@ Rectangle {
                     opacity: modelData.category ? 1 : Number(modelData.id) === root.selectedIndex ? 1 : 0
                     Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: Theme.motionChangeDuration } }
                 }
-                Accessible.name: modelData.manualPair ? L10n.matchLabel(modelData) : L10n.matchLabel(modelData) + " " + Math.round(root.movementSimilarity(modelData) * 100) + "%"
+                Accessible.name: "№ " + (Number(modelData.id) + 1) + " · " + L10n.matchLabel(modelData)
                 Accessible.role: Accessible.ListItem
 
                 MouseArea {
@@ -1098,19 +1128,10 @@ Rectangle {
                         Text {
                             font.family: Theme.fontFamily
                             width: parent.width
-                            text: modelData.manualPair ? L10n.matchLabel(modelData) : L10n.matchLabel(modelData) + " · " + Math.round(root.movementSimilarity(modelData) * 100) + "%"
+                            text: "№ " + (Number(modelData.id) + 1) + " · " + L10n.matchLabel(modelData)
                             color: Theme.textPrimary
                             font.pixelSize: 11
                             font.weight: Font.DemiBold
-                            elide: Text.ElideRight
-                        }
-                        Text {
-                            font.family: Theme.fontFamily
-                            width: parent.width
-                            visible: !modelData.manualPair
-                            text: L10n.t("results.sceneSimilarity") + " · " + Math.round(root.sceneSimilarity(modelData) * 100) + "%"
-                            color: Theme.secondaryText
-                            font.pixelSize: 10
                             elide: Text.ElideRight
                         }
                         Text {

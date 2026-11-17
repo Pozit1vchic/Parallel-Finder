@@ -183,6 +183,28 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(item->property("status").toInt(),1,5000);
         QCOMPARE(item->property("sourceSize").toSize(),QSize(96,54));
     }
+    void prefetchedFramesLoadInQmlWithoutDecodingAgain() {
+        auto session = pfui::ResultPreviewImages::create({{PF_PREVIEW_TEST_VIDEO,"","",.2}},nullptr,{});
+        const auto url = session->url(0);
+        pfui::ResultPreviewImages::prefetch({url,url});
+        QTRY_VERIFY_WITH_TIMEOUT(session->statistics().decodedFrames > 0,5000);
+        const auto expected = pfui::ResultPreviewImages::resolve(id(url));
+        QVERIFY(!expected.isNull());
+        const auto decoded = session->statistics().decodedFrames;
+
+        QQmlEngine engine;
+        pfui::installResultPreviewImages(engine);
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nImage { width: 96; height: 54 }", QUrl());
+        std::unique_ptr<QObject> item(component.create());
+        QVERIFY2(item,qPrintable(component.errorString()));
+        item->setProperty("source",QUrl(url));
+        QTRY_COMPARE_WITH_TIMEOUT(item->property("status").toInt(),1,5000);
+        QCOMPARE(item->property("sourceSize").toSize(),expected.size());
+        QCOMPARE(session->statistics().decodedFrames,decoded);
+        session->close();
+        QVERIFY(pfui::ResultPreviewImages::resolve(id(url)).isNull());
+    }
 };
 QTEST_MAIN(ResultPreviewTests)
 #include "test_result_preview_images.moc"

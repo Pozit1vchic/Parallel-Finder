@@ -24,6 +24,10 @@ double median(std::vector<double> values) {
     const auto mid=values.begin()+values.size()/2;
     std::nth_element(values.begin(),mid,values.end());return *mid;
 }
+double medianOfThree(double a, double b, double c) {
+    if (a > b) std::swap(a, b);
+    return std::clamp(c, a, b);
+}
 struct Observation {
     double time;
     std::array<std::optional<Point>,17> local;
@@ -138,11 +142,12 @@ struct Trace {
 };
 template<class Read> std::optional<Trace> trace(const std::vector<Observation>& samples,Read read,double prominence) {
     std::vector<double> values;std::vector<double> times;
+    values.reserve(samples.size());times.reserve(samples.size());
     for(const auto& s:samples)if(const auto value=read(s)) {values.push_back(*value);times.push_back(s.time);}
     if(values.size()<5 || values.size()*4<samples.size()*3)return {};
     for(std::size_t i=1;i<times.size();++i)if(times[i]-times[i-1]>.65)return {};
     auto filtered=values;
-    for(std::size_t i=1;i+1<values.size();++i)filtered[i]=median({values[i-1],values[i],values[i+1]});
+    for(std::size_t i=1;i+1<values.size();++i)filtered[i]=medianOfThree(values[i-1],values[i],values[i+1]);
     // The clip boundary is not a privileged measurement. Leaving its raw
     // detector output in the range turns one bad first/last pose into a
     // sustained action even though every interior sample is stationary.
@@ -156,7 +161,7 @@ template<class Read> std::optional<Trace> trace(const std::vector<Observation>& 
         // neighbour shortens real turns/gait phases and can turn a small but
         // ambiguous movement into a falsely certain static classification.
           const bool isolated = quietInterior && std::abs(firstStep) > std::max(.025,4*std::abs(secondStep));
-          return isolated ? median({edge,next,following}) : edge;
+          return isolated ? medianOfThree(edge,next,following) : edge;
     };
     filtered.front()=supportedEndpoint(values[0],values[1],values[2]);
     const auto tail=values.size();
@@ -247,6 +252,7 @@ Decision classifyAction(const std::vector<Observation>& samples,bool headOnly,bo
     // instead of mistaking a whole-body turn for an isolated head action.
     std::vector<Decision> actions;
     Decision torso;
+    std::array<Decision,2> arms;
     if(!headOnly) {
         const auto jointAxis=[&](int joint,bool vertical) {return trace(samples,[&](const Observation& s)->std::optional<double> {
             if(!s.local[joint])return {};
@@ -289,10 +295,28 @@ Decision classifyAction(const std::vector<Observation>& samples,bool headOnly,bo
         if(walking>0 && leftKnee&&rightKnee && std::max(leftKnee->extent,rightKnee->extent)>=.12)
             actions.emplace_back(GestureClass::Step,walking);
         torso=torsoDecision(samples);
+        // A short side-on clip can contain one transfer of support and no
+        // full gait cycle. Opposing ankle travel plus lift and knee flexion
+        // on the same leg distinguishes it from translation or a weight shift.
+        if (actions.empty() && torso.type != GestureClass::Turn
+            && samples.size() >= 6 && leftKnee && rightKnee) {
+            const auto left = jointAxis(15, false), right = jointAxis(16, false);
+            const auto leftHeight = jointAxis(15, true), rightHeight = jointAxis(16, true);
+            if (left && right && leftHeight && rightHeight && left->delta * right->delta < 0
+                && std::abs(left->delta) >= .22 && std::abs(right->delta) >= .22
+                && left->largestChange < left->extent * .55 && right->largestChange < right->extent * .55) {
+                const bool leftSwing = leftHeight->returning && leftHeight->extent >= .20
+                    && leftKnee->extent >= .16 && rightHeight->extent < leftHeight->extent * .65;
+                const bool rightSwing = rightHeight->returning && rightHeight->extent >= .20
+                    && rightKnee->extent >= .16 && leftHeight->extent < rightHeight->extent * .65;
+                if (leftSwing || rightSwing)
+                    actions.emplace_back(GestureClass::Step,std::min({left->coverage,right->coverage,leftHeight->coverage,rightHeight->coverage}));
+            }
+        }
         if(torso.type==GestureClass::Turn && torso.strength>=.65)actions.push_back(torso);
     }
     for(int arm=0;arm<(headOnly ? 0:2);++arm) {
-        const auto d=armDecision(samples,arm);
+        const auto& d=arms[arm]=armDecision(samples,arm);
         if(d.type!=GestureClass::Static && d.type!=GestureClass::Unknown && d.strength>=.65)actions.push_back(d);
     }
     if(!actions.empty()) {
@@ -320,7 +344,7 @@ Decision classifyAction(const std::vector<Observation>& samples,bool headOnly,bo
         // A visible, substantial but unclassified hand action must not be
         // silently replaced by the accompanying head motion (for example,
         // shovelling). Cropped head-only comparisons remain independent.
-        for(int arm=0;arm<2;++arm)if(armDecision(samples,arm).type==GestureClass::Unknown) {
+        for(int arm=0;arm<2;++arm)if(arms[arm].type==GestureClass::Unknown) {
             const auto axis=[&](bool vertical) {return trace(samples,[&](const Observation& s)->std::optional<double> {
                 if(!s.local[9+arm])return {};
                 return vertical ? s.local[9+arm]->y:s.local[9+arm]->x;
@@ -384,7 +408,7 @@ Decision classifyAction(const std::vector<Observation>& samples,bool headOnly,bo
     }
     const bool stableHead=!geometricHead || (hx&&hy&&hx->extent<.12&&hy->extent<.12);
     if(observed>=8 && maximum<.12 && stableHead)
-        return {GestureClass::Static,std::clamp(1.-maximum/.2,0.,1.)};
+        return {GestureClass::Static,1.-.35*maximum/.12};
     return {};
 }
 

@@ -29,7 +29,6 @@ Item {
         anchors.fill: parent
         fillMode: Image.PreserveAspectFit
         asynchronous: true
-        cache: false
         visible: root.detailReady
     }
     Rectangle {

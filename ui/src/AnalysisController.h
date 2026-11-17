@@ -192,6 +192,7 @@ public:
     Q_INVOKABLE bool exportTheme(const QString& path, const QVariantMap& theme) const;
     Q_INVOKABLE QVariantMap importTheme(const QString& path) const;
     Q_INVOKABLE QString videoSourceUrl(const QString& sourcePath) const;
+    Q_INVOKABLE void prefetchPreviews(const QStringList& urls) const;
 
     Q_INVOKABLE void inspectFiles(const QStringList& paths);
     Q_INVOKABLE QStringList filesInFolder(const QString& folder) const;
@@ -267,7 +268,8 @@ private:
     int poseDetectionCount_ = 0;
     int matchCount_ = 0;
     QVariantMap sourceSummaries_;
-    std::shared_ptr<ResultPreviewImages> characterPreviewImages_;
+    void clearCharacterPreviews();
+    std::shared_ptr<ResultPreviewImages> characterPreviewImages_, characterThumbnailImages_;
     QVariantList targetCandidates_;
     int hiddenUnresolvedCharacters_ = 0;
     QString targetSelectionSource_;

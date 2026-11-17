@@ -314,11 +314,13 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
             encoders.clear();
             const bool commonH264 = losslessMontage && (request.losslessPixelFormat == "yuv420p"
                 || request.losslessPixelFormat == "yuv422p" || request.losslessPixelFormat == "yuv444p"
-                || request.losslessPixelFormat == "yuv420p10le" || request.losslessPixelFormat == "yuv422p10le"
-                || request.losslessPixelFormat == "yuv444p10le" || request.losslessPixelFormat == "yuvj420p"
-                || request.losslessPixelFormat == "yuvj422p" || request.losslessPixelFormat == "yuvj444p");
+                || request.losslessPixelFormat == "yuvj420p" || request.losslessPixelFormat == "yuvj422p"
+                || request.losslessPixelFormat == "yuvj444p");
             const std::string commonEncoder = commonH264 ? "libx264" : "ffv1";
-            for(const auto* name:{"hevc_nvenc", "libx264", "ffv1"})
+            const bool preferFfv1 = sourceInfo && sourceInfo->pixelFormat.ends_with("10le");
+            const auto candidates = preferFfv1 ? std::array{"ffv1", "libx264", "hevc_nvenc"}
+                : std::array{"hevc_nvenc", "libx264", "ffv1"};
+            for(const auto* name:candidates)
                 if(std::find(capabilities_->videoEncoders.begin(),capabilities_->videoEncoders.end(),name)
                     !=capabilities_->videoEncoders.end() && (!losslessMontage || std::string(name)==commonEncoder))encoders.emplace_back(name);
             if(std::find(capabilities_->audioEncoders.begin(),capabilities_->audioEncoders.end(),"pcm_f64le")
@@ -330,7 +332,7 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
         // Compiled-in hardware support does not mean this PC has that GPU.
         // Try the encoder that actually succeeded first for subsequent clips.
         const auto preferred = std::find(encoders.begin(), encoders.end(), preferredEncoder_);
-        if (!losslessMontage && preferred != encoders.end()) std::rotate(encoders.begin(), preferred, preferred + 1);
+        if (!lossless && preferred != encoders.end()) std::rotate(encoders.begin(), preferred, preferred + 1);
         if (!capabilities_->error.empty() || encoders.empty()) {
             result.error = result.executable + ": " + (capabilities_->error.empty()
                 ? (webm ? "no supported VP9 encoder; install an FFmpeg build with libvpx-vp9"
@@ -402,7 +404,7 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
                     : QStringLiteral("aac");
             arguments << QStringLiteral("-c:v") << QString::fromStdString(encoder)
                       << QStringLiteral("-c:a") << audioEncoder;
-            if (outputExtension == ".mp4" || outputExtension == ".mov")
+            if (!lossless && (outputExtension == ".mp4" || outputExtension == ".mov"))
                 arguments << QStringLiteral("-movflags") << QStringLiteral("+faststart");
             if(lossless) {
                 if (sourceInfo) {
@@ -411,7 +413,7 @@ CutResult CutService::cut(const CutRequest& inputRequest) const
                     if (sourceInfo->colorTransfer != 2) arguments << "-color_trc" << QString::number(sourceInfo->colorTransfer);
                     if (sourceInfo->colorSpace != 2) arguments << "-colorspace" << QString::number(sourceInfo->colorSpace);
                 }
-                arguments << "-movflags" << "+faststart+write_colr";
+                arguments << "-movflags" << "+write_colr";
                 // '+' preserves the input pixel format and rejects automatic
                 // conversions when an encoder cannot represent that format.
                 arguments << "-pix_fmt" << "+";

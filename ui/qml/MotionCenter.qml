@@ -120,43 +120,13 @@ ColumnLayout {
                 Text { font.family: Theme.fontFamily;
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
-                    text: L10n.t("center.comparison")
+                    text: L10n.t("center.comparison") + (root.selectedRecord ? " · № " + (Number(root.selectedRecord.id) + 1) : "")
                     color: Theme.textPrimary
                     font.pixelSize: 16
                     font.weight: Font.DemiBold
                     verticalAlignment: Text.AlignVCenter
                 }
-                Text { font.family: Theme.fontFamily;
-                    id: stateText
-                    visible: false
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: Math.min(parent.width * 0.58, implicitWidth)
-                    textFormat: root.selectedRecord && !root.selectedRecord.manualPair && !Analysis.busy ? Text.RichText : Text.PlainText
-                    text: {
-                        if (Analysis.awaitingTarget) return L10n.t("character.title")
-                        if (Analysis.busy) return L10n.status(Analysis.progressStage)
-                        if (root.selectedRecord) {
-                            if (root.selectedRecord.manualPair) return L10n.matchLabel(root.selectedRecord)
-                            const matchScore = Math.round(Number(root.selectedRecord.similarity || 0) * 100)
-                            const sceneScore = Math.round(Number(root.selectedRecord.sceneSimilarity || 0) * 100)
-                            const matchAccent = String(Theme.accent)
-                            const sceneAccent = String(Theme.sage)
-                            return L10n.matchLabel(root.selectedRecord)
-                                + " · <span style=\"font-family:'" + Theme.monoFont + "'; font-size:14px; font-weight:600; color:" + matchAccent + "\">" + matchScore + "%</span>"
-                                + "  •  " + L10n.t("results.sceneSimilarity")
-                                + " · <span style=\"font-family:'" + Theme.monoFont + "'; font-size:14px; font-weight:600; color:" + sceneAccent + "\">" + sceneScore + "%</span>"
-                        }
-                        return root.analysisCompleted
-                            ? (root.availableResultCount > 0 ? L10n.t("center.completedTitle") : "")
-                            : root.sourceFiles.length > 0 ? L10n.t("center.readyStatus") : L10n.t("center.waiting")
-                    }
-                    color: Analysis.busy ? Theme.accent : Theme.textSecondary
-                    font.pixelSize: 10
-                    verticalAlignment: Text.AlignVCenter
-                    horizontalAlignment: Text.AlignRight
-                    elide: Text.ElideRight
-                }
+
             }
 
             Item {
@@ -213,6 +183,7 @@ ColumnLayout {
                 clip: true
 
                 CharacterSelector {
+                    z: 1
                     anchors.fill: parent
                     anchors.margins: 20
                     visible: Analysis.awaitingTarget
@@ -221,7 +192,7 @@ ColumnLayout {
                 Item {
                     anchors.fill: parent
                     anchors.margins: 12
-                    visible: !!root.selectedRecord
+                    visible: !!root.selectedRecord && !Analysis.awaitingTarget
                     Column {
                         id: playbackControls
                         anchors.bottom: parent.bottom

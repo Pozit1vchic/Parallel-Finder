@@ -51,6 +51,21 @@ ApplicationWindow {
         root.selectedResultIndex = match ? Number(match.id) : -1
         root.selectedRecord = match || null
     }
+    function prefetchNearbyResults() {
+        if (composeDialog.visible || Analysis.busy) return
+        const rows = resultsRail.visibleResults
+        const current = resultsRail.currentVisibleIndex
+        if (current < 0) return
+        const urls = []
+        for (const row of Review.nearbyRows(rows, current)) {
+            if (!row.leftRemoved && row.leftPreview) urls.push(row.leftPreview)
+            if (!row.rightRemoved && row.rightPreview) urls.push(row.rightPreview)
+        }
+        Analysis.prefetchPreviews(urls)
+    }
+    Timer { id: resultPrefetch; interval: 35; onTriggered: root.prefetchNearbyResults() }
+    onSelectedResultIndexChanged: resultPrefetch.restart()
+
     function syncResultsSelection() {
         root.selectedExportRows = ({})
         root.selectResult(-1)
@@ -59,6 +74,7 @@ ApplicationWindow {
     function selectFirstDisplayedResult() {
         const first = resultsRail.visibleResults[0]
         root.selectResult(first ? Number(first.id) : -1)
+        if (first) root.markPairViewed(first.id)
         resultsRail.resetScrollToTop()
     }
     function actionIds(id) {
@@ -76,9 +92,9 @@ ApplicationWindow {
     }
     function markPairViewed(id) {
         const target = Number(id)
-        if (target < 0 || Analysis.busy || Analysis.reviewBusy || Analysis.exportBusy) return
+        if (target < 0 || resultsRail.reviewFilter === "unreviewed" || Analysis.busy || Analysis.reviewBusy || Analysis.exportBusy) return
         const row = (Analysis.results || []).find(function(item) { return Number(item.id) === target })
-        if (row && !row.reviewed) Analysis.setResultReview([target], "reviewed", true)
+        if (row && !row.reviewed && !row.hidden) Analysis.setResultReview([target], "reviewed", true)
     }
     function ensureVisibleSelection() {
         if (!resultsRail.visibleResults.some(function(row) { return Number(row.id) === root.selectedResultIndex }))
@@ -140,7 +156,7 @@ ApplicationWindow {
     }
     ExportDialog { id: exportDialog; rootWindow: root; selectedRows: root.selectedExportRows }
     PairAdjustDialog { id: adjustDialog; rootWindow: root }
-    PairComposeDialog { id: composeDialog; rootWindow: root }
+    PairComposeDialog { id: composeDialog; rootWindow: root; onClosed: resultPrefetch.restart() }
     ManualSortDialog { id: manualSort; rootWindow: root; onFindingsRequested: root.openFindings() }
     FindingsDialog { id: findingsDialog; rootWindow: root }
     UpdateDialog { id: updateDialog; rootWindow: root; presentationBlocked: manualSort.visible || composeDialog.visible || settingsDialog.visible || exportDialog.visible || adjustDialog.visible || findingsDialog.visible }
@@ -152,7 +168,12 @@ ApplicationWindow {
             if (!Analysis.busy && root.selectedRecord === null && Analysis.results.length > 0)
                 root.syncResultsSelection()
         }
-        function onResultCategoriesChanged() { root.selectResult(root.selectedResultIndex); if (manualSort.visible) manualSort.rows = resultsRail.visibleResults.slice(); Qt.callLater(root.ensureVisibleSelection) }
+        function onResultCategoriesChanged() {
+            root.selectResult(root.selectedResultIndex)
+            if (manualSort.visible) manualSort.rows = resultsRail.visibleResults.slice()
+            if (composeDialog.visible) composeDialog.sortedRows = resultsRail.sortedRows(Analysis.results)
+            Qt.callLater(root.ensureVisibleSelection)
+        }
     }
 
     function resultKeysEnabled() {
@@ -211,7 +232,11 @@ ApplicationWindow {
                     Layout.fillHeight: true
                     sourceFiles: root.sourceFiles; selectedRecord: root.selectedRecord
                     onAdjustRequested: root.runReviewAction("adjust")
-                    onComposeRequested: { composeDialog.record = root.selectedRecord; composeDialog.open() }
+                    onComposeRequested: {
+                        composeDialog.record = root.selectedRecord
+                        composeDialog.sortedRows = resultsRail.sortedRows(resultsRail.results)
+                        composeDialog.open()
+                    }
                     onRemoveSideRequested: function(side) { if (root.selectedRecord) Analysis.removeResultSide(root.selectedRecord.id, side) }
                     selectedSource: sourcesRail.selectedSourceIndex >= 0 ? String(root.sourceFiles[sourcesRail.selectedSourceIndex] || "") : ""
                     onAddRequested: fileDialog.open(); onAnalyzeRequested: Analysis.analyzeFiles(root.sourceFiles)
@@ -224,6 +249,7 @@ ApplicationWindow {
                     Layout.fillHeight: true
                     results: { Analysis.resultCategoryRevision; return Analysis.results }
                     selectedRows: root.selectedExportRows; selectedIndex: root.selectedResultIndex
+                    onVisibleResultsChanged: resultPrefetch.restart()
                     onExportSelectionChanged: function(rows) { root.selectedExportRows = rows }
                     onResultSelected: function(index) { root.selectResult(index) }
                     onPairOpened: function(index) { root.markPairViewed(index) }

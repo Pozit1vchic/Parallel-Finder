@@ -5,7 +5,7 @@ import "Translations.js" as Catalog
 
 QtObject {
     property string language: "en"
-    readonly property var movementTypes: ["sitting", "lying", "head_turn_away", "head_turn_back", "head_turn", "turn", "head_front", "head_turned", "head_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "body_pose", "head_nod", "head_tilt", "raise", "lower", "raise_lower", "wave", "push", "pull", "reach_return", "step", "run", "static", "mixed", "seated_lying", "posture_uncertain", "posture_mismatch", "pose_mismatch", "head_action_mismatch", "action_mismatch", "unknown"]
+    readonly property var movementTypes: ["sitting", "lying", "head_turn_away", "head_turn_back", "head_turn", "turn", "head_front", "head_turned", "head_pose", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "body_pose", "head_nod", "head_tilt", "raise", "lower", "raise_lower", "wave", "push", "pull", "reach_return", "step", "run", "standing_still", "static", "mixed", "seated_lying", "posture_uncertain", "posture_mismatch", "pose_mismatch", "head_action_mismatch", "action_mismatch", "unknown"]
     function movementKey(value) {
         const key=String(value || "unknown").split("/")[0]
         if (movementTypes.indexOf(key)>=0) return key
@@ -36,6 +36,10 @@ QtObject {
 
     readonly property var _dict: ({
         ru: {
+            "class.standing_still": "Стоит на месте",
+            "export.exactLossless": "Точный рез без потерь",
+            "export.streamCopy": "Копировать исходные потоки",
+            "export.streamCopyHint": "Видео и звук сохраняются без перекодирования. Начало зависит от ближайшего ключевого кадра. Для склейки нужны совместимые исходники.",
             "provider.transfer": "%1 / %2 МБ · %3 МБ/с",
             "sort.best": "Лучшее совпадение",
             "sort.continuity": "Монтажная последовательность",
@@ -487,11 +491,11 @@ QtObject {
             "ui.330": "Максимальная ширина в пикселях",
             "ui.331": "Высота, px",
             "ui.332": "Максимальная высота в пикселях",
-            "ui.333": "Точная обрезка, MOV без сжатия с потерями. Общий холст подбирается без уменьшения кадров; при разных параметрах цвет и звук адаптируются.",
+            "ui.333": "Точный рез с кодированием без потерь в MOV. Файлы могут занимать значительно больше места, чем исходники. Для 10-битного видео используется FFV1.",
             "ui.334": "Подпись добавляется в видео и требует перекодирования. Границы обрезки остаются точными.",
             "ui.335": "Точная обрезка по границам найденных сцен. Высокое качество сохраняет исходное разрешение.",
-            "ui.336": "Подписать каждый переход",
-            "ui.337": "В начале каждого клипа появятся его номер и тип движения. Для надписи потребуется перекодирование.",
+            "ui.336": "Подписать клипы в кадре",
+            "ui.337": "На каждом клипе появятся номер пары, тип движения и сторона A/B. Текст встраивается в видео при перекодировании.",
             "ui.338": "Имя файла",
             "ui.339": "Имя файла без расширения",
             "ui.340": "Контейнер видео",
@@ -590,6 +594,10 @@ QtObject {
             "ui.433": "Пара собрана вручную"
         },
         en: {
+            "class.standing_still": "Standing still",
+            "export.exactLossless": "Exact lossless cut",
+            "export.streamCopy": "Copy source streams",
+            "export.streamCopyHint": "Video and audio are copied without re-encoding. Cuts depend on keyframes. A montage requires compatible sources.",
             "provider.transfer": "%1 / %2 MB · %3 MB/s",
             "sort.best": "Best match",
             "sort.continuity": "Editing continuity",
@@ -1039,11 +1047,11 @@ QtObject {
             "ui.330": "Maximum width in pixels",
             "ui.331": "Height, px",
             "ui.332": "Maximum height in pixels",
-            "ui.333": "Exact cuts, MOV without lossy compression. The canvas adapts without shrinking frames; mixed colour and audio formats are adapted.",
+            "ui.333": "Exact cuts with lossless encoding in MOV. Files can be much larger than the originals. 10-bit video uses FFV1.",
             "ui.334": "The label is burned into each video and requires re-encoding. Cut boundaries stay exact.",
             "ui.335": "Exact cuts at matched scene boundaries. High quality keeps the source resolution.",
-            "ui.336": "Label every transition",
-            "ui.337": "Each clip starts with its number and movement type. Adding text requires re-encoding.",
+            "ui.336": "Label clips on screen",
+            "ui.337": "Each clip shows its pair number, movement type and side A/B. The text is burned into the exported video.",
             "ui.338": "File name",
             "ui.339": "File name without extension",
             "ui.340": "Video container",

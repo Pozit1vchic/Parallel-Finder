@@ -43,16 +43,14 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
     }
     if(!row.value("manualPair").toBool())updateSceneEvidence(row,match,evidence[0],evidence[1]);
     const pfcore::MovementClassifier classifier;
-    const auto a = classifier.classifyForGrouping(evidence[0], match.leftStartSeconds,
-                                                  match.leftEndSeconds, match.headOnlyComparison);
-    const auto b = classifier.classifyForGrouping(evidence[1], match.rightStartSeconds,
-                                                  match.rightEndSeconds, match.headOnlyComparison);
-    auto movement = pfcore::MovementClassifier::combineForGrouping(a,b);
-    if (evidence[0].staticFrameSet && evidence[1].staticFrameSet) {
-        // These windows were selected for pose, not tracked displacement.
-        // Small motion or camera drift must not become a direction label.
-        movement.direction=pfcore::MovementDirection::Unknown;
-        movement.directionConfidence=0.;
+    const bool posePair = evidence[0].staticFrameSet && evidence[1].staticFrameSet;
+    pfcore::MovementClassification movement;
+    if (!evidence[0].staticFrameSet && !evidence[1].staticFrameSet) {
+        const auto a = classifier.classifyForGrouping(evidence[0], match.leftStartSeconds,
+                                                      match.leftEndSeconds, match.headOnlyComparison);
+        const auto b = classifier.classifyForGrouping(evidence[1], match.rightStartSeconds,
+                                                      match.rightEndSeconds, match.headOnlyComparison);
+        movement = pfcore::MovementClassifier::combineForGrouping(a,b);
     }
     match.directionLabel = pfcore::MovementClassifier::directionName(movement.direction);
     match.gestureLabel = pfcore::MovementClassifier::gestureName(movement.gesture);
@@ -81,16 +79,35 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
     }
     if(groupingActions.size()>1)movementClass=groupingActions.join('+')+"/"+QString::fromStdString(match.directionLabel);
 
+    // Reliable common locomotion takes priority over an uncertain snapshot
+    // posture. Walking and standing can share the same upright silhouette.
+    if (!evidence[0].staticFrameSet && !evidence[1].staticFrameSet
+        && (actions.contains("step") || actions.contains("run"))) {
+        row.insert("classification", movementClass);
+        return;
+    }
+
     const auto posture = [&](int side) {
         if(match.headOnlyComparison)return pfcore::ScenePosture::Unknown;
+        if (!row.value("manualPair").toBool()) {
+            const auto descriptor = row.value(side == 0 ? "leftDescriptor" : "rightDescriptor").toMap();
+            return static_cast<pfcore::ScenePosture>(descriptor.value("posture").toInt());
+        }
         return pfcore::describeScene(evidence[side],
             side==0?match.leftStartSeconds:match.rightStartSeconds,
             side==0?match.leftEndSeconds:match.rightEndSeconds).posture;
     };
     using Posture=pfcore::ScenePosture;
     const auto leftPosture=posture(0),rightPosture=posture(1);
+    if (!evidence[0].staticFrameSet && !evidence[1].staticFrameSet
+        && leftPosture == Posture::Standing && rightPosture == Posture::Standing
+        && movement.gesture == pfcore::GestureClass::Static && !movement.headOnlyEvidence) {
+        row.insert("classification", QStringLiteral("standing_still"));
+        return;
+    }
     if(leftPosture!=Posture::Unknown || rightPosture!=Posture::Unknown) {
-        if(leftPosture==Posture::Unknown || rightPosture==Posture::Unknown)
+        if((leftPosture==Posture::Unknown || rightPosture==Posture::Unknown)
+            && (posePair || movement.gesture==pfcore::GestureClass::Unknown))
             classification=QStringLiteral("posture_uncertain");
         else if(leftPosture==rightPosture) {
             switch(leftPosture) {
@@ -99,7 +116,7 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
             case Posture::SeatedOrLying: classification=QStringLiteral("seated_lying");break;
             default:break; // Standing keeps its more specific movement/pose.
             }
-        } else {
+        } else if(leftPosture!=Posture::Unknown && rightPosture!=Posture::Unknown) {
             const auto compatibleBroad=[](Posture a,Posture b) {
                 return a==Posture::SeatedOrLying && (b==Posture::Sitting || b==Posture::Lying);
             };
@@ -107,7 +124,7 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
                 ? QStringLiteral("seated_lying") : QStringLiteral("posture_mismatch");
         }
         if(!classification.isEmpty()) {
-            const bool dynamic=!(evidence[0].staticFrameSet && evidence[1].staticFrameSet);
+            const bool dynamic=!posePair;
             if(dynamic && movement.conflictingActions && classification!="posture_mismatch")
                 classification=movement.headOnlyEvidence ? QStringLiteral("head_action_mismatch") : QStringLiteral("action_mismatch");
             else if(dynamic && (classification=="sitting" || classification=="lying") && !groupingActions.isEmpty())
@@ -117,13 +134,15 @@ inline void classifyResultRange(QVariantMap& row, pfcore::MotionMatch& match,
             return;
         }
     }
-    if (evidence[0].staticFrameSet && evidence[1].staticFrameSet) {
+    if (posePair || (!movement.conflictingActions && movement.gesture == pfcore::GestureClass::Unknown)) {
         const auto left = classifier.classifyPoseForGrouping(evidence[0], match.leftStartSeconds,
                                                               match.leftEndSeconds, match.headOnlyComparison);
         const auto right = classifier.classifyPoseForGrouping(evidence[1], match.rightStartSeconds,
                                                                match.rightEndSeconds, match.headOnlyComparison);
         const std::string fallback = match.headOnlyComparison ? "head_pose" : "body_pose";
-        if (left == right) {
+        if (!posePair) {
+            classification = left == right && left != fallback ? QString::fromStdString(left) : movementClass;
+        } else if (left == right) {
             classification = QString::fromStdString(left);
         } else if (left != fallback && right != fallback) {
             // Static evidence can be confidently different on each side. Keep

@@ -23,8 +23,9 @@ Popup {
     property var classOrder: []
     readonly property var orderedSelection: selectedIndexes()
 
-    property int qualityChoice: 1 // lossless, high, custom
+    property int qualityChoice: 1 // exact lossless, high, custom, stream copy
     readonly property bool losslessExport: qualityChoice === 0
+    readonly property bool streamCopyExport: qualityChoice === 3
     readonly property bool customQuality: qualityChoice === 2
     readonly property bool mergeChronological: selectedFormat === "FFMPEG" && mergeCheck.checked
     readonly property bool useSelectionOrder: mergeChronological && selectionOrderCheck.checked
@@ -32,7 +33,7 @@ Popup {
     readonly property string fileBaseName: prefixField.text.trim()
     readonly property string selectedContainer: containerMode.currentIndex >= 0
         ? ["mp4", "mov", "mkv", "webm"][containerMode.currentIndex] : "mp4"
-    readonly property int selectedCutMode: losslessExport ? 2 : 0
+    readonly property int selectedCutMode: losslessExport ? 2 : streamCopyExport ? 1 : 0
     readonly property int encodingQuality: 18
     readonly property int videoBitrateKbps: customQuality
         ? Math.round(Number(bitrateField.text.replace(",", ".")) * 1000) : 0
@@ -310,14 +311,11 @@ Popup {
                     objectName: "exportQualityMode"
                     width: parent.width
                     currentIndex: root.qualityChoice
-                    model: [L10n.translate("Lossless", "Без потери качества"), L10n.translate("High", "Высокое"), L10n.translate("Custom bitrate and resolution", "Свой битрейт и разрешение")]
+                    model: [L10n.t("export.exactLossless"), L10n.translate("High", "Высокое"), L10n.translate("Custom bitrate and resolution", "Свой битрейт и разрешение"), L10n.t("export.streamCopy")]
                     Accessible.name: L10n.t("ui.326")
                     onModelChanged: Qt.callLater(root.restoreQualityChoice)
                     onActivated: function(index) {
-                        if (index === 0 && signTransitionsCheck.checked) {
-                            root.setHighQuality()
-                            return
-                        }
+                        if (index === 0 || index === 3) signTransitionsCheck.checked = false
                         root.qualityChoice = index
                         if (index === 0) containerMode.currentIndex = 1
                     }
@@ -359,8 +357,8 @@ Popup {
                     color: Theme.textSecondary
                     font.family: Theme.fontFamily
                     font.pixelSize: 10
-                    text: root.losslessExport
-                        ? (L10n.t("ui.333"))
+                    text: root.streamCopyExport ? L10n.t("export.streamCopyHint") : root.losslessExport
+                        ? L10n.t("ui.333")
                         : signTransitionsCheck.checked
                             ? (L10n.t("ui.334"))
                             : (L10n.t("ui.335"))
@@ -372,10 +370,9 @@ Popup {
                 objectName: "signEachTransitionCheck"
                 width: parent.width
                 visible: root.selectedFormat === "FFMPEG"
-                enabled: !Analysis.exportBusy
+                enabled: !Analysis.exportBusy && !root.streamCopyExport && !root.losslessExport
                 text: L10n.t("ui.336")
                 tooltipText: L10n.t("ui.337")
-                onCheckedChanged: if (checked && root.losslessExport) root.setHighQuality()
             }
 
             Row {

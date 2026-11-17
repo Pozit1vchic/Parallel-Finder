@@ -2,6 +2,7 @@
 
 #include <QImage>
 #include <QString>
+#include <QStringList>
 #include <pfcore/VideoDecoder.hpp>
 #include <memory>
 #include <vector>
@@ -27,13 +28,14 @@ public:
     Statistics statistics() const noexcept;
     void close() noexcept;
     static QImage resolve(const QString& id);
+    static void prefetch(const QStringList& urls);
 private:
     struct Impl;
     explicit ResultPreviewImages(std::unique_ptr<Impl> impl);
     std::unique_ptr<Impl> impl_;
 };
 
-// Qt owns the provider; requests run on its image-loading thread, with at most
-// one decoder/image operation per session and no retained decoded image pool.
+// Qt owns the provider. Foreground and speculative requests use separate
+// worker limits, with a bounded decoded image cache per result set.
 void installResultPreviewImages(QQmlEngine& engine);
 }

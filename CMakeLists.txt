@@ -1,12 +1,15 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(ParallelFinder
-    VERSION 0.3.0
+    VERSION 0.3.5
     DESCRIPTION "Parallel-Finder: поиск параллельных движений в видео"
     LANGUAGES CXX
 )
 
-set(PF_RELEASE_LABEL "${PROJECT_VERSION}-dev" CACHE STRING "Version shown by the desktop application")
+set(PF_RELEASE_LABEL "" CACHE STRING "Override the version shown by the desktop application")
+if(NOT PF_RELEASE_LABEL OR PF_RELEASE_LABEL STREQUAL "0.3.0-dev")
+    set(PF_RELEASE_LABEL "${PROJECT_VERSION}")
+endif()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

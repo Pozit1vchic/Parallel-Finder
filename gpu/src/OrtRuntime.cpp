@@ -196,10 +196,11 @@ void loadRuntime(RuntimeState& s)
     }
 
     HMODULE module = nullptr;
+    std::filesystem::path selectedRuntime;
     std::string lastError;
     for (const auto& candidate : candidates) {
         module = loadLibrary(candidate, lastError);
-        if (module) break;
+        if (module) { selectedRuntime = candidate; break; }
     }
     if (!module) {
         s.status.error = lastError;
@@ -231,6 +232,15 @@ void loadRuntime(RuntimeState& s)
 
     const auto [api, apiVersion] = selectApiVersion(*apiBase, runtimeApiHint(s.status.version));
     if (api) {
+        // cuDNN and TensorRT also load libraries by name after ORT initializes.
+        // Keep the selected absolute bundle visible to the native loader.
+        if (selectedRuntime.is_absolute()) {
+            const auto directory = selectedRuntime.parent_path();
+            std::error_code error;
+            if (std::filesystem::is_regular_file(directory / "onnxruntime_providers_cuda.dll", error)
+                || std::filesystem::is_regular_file(directory / "onnxruntime_providers_tensorrt.dll", error))
+                ::SetDllDirectoryW(directory.c_str());
+        }
         s.api = api;
         s.status.apiVersion = apiVersion;
         s.status.loaded = true;

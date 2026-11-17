@@ -7,17 +7,43 @@ import PfUiBridge
 ReviewDialog {
     id: root
     objectName: "pairComposeDialog"
+    animateScale: false
     title: L10n.t("ui.346")
     property var record: null
     property var candidates: []
     property string errorText: ""
+    property var sortedRows: []
+    property string searchText: ""
+    property string sourceFilter: ""
+    readonly property var sourceChoices: {
+        const paths = new Set()
+        for (const row of sortedRows) {
+            if (!record || row.id === record.id || row.hidden) continue
+            if (!row.leftRemoved && row.leftSource) paths.add(row.leftSource)
+            if (!row.rightRemoved && row.rightSource) paths.add(row.rightSource)
+        }
+        return ["", ...Array.from(paths).sort((a, b) => fileName(a).localeCompare(fileName(b)))]
+    }
+    property int preferredDonorSide: 0
+    property int preferredTargetSide: 0
+    property int selectedDonorId: -1
     readonly property var donor: candidates[donorChoice.currentIndex] || null
-    readonly property string targetSide: targetChoice.currentIndex === 0 ? "left" : "right"
-    readonly property string donorSide: donorSideChoice.currentIndex === 0 ? "left" : "right"
-    readonly property bool donorRemoved: !!donor && !!donor[donorSide + "Removed"]
-    readonly property string donorPreview: donor && !donorRemoved ? donor[donorSide + "Preview"] || "" : ""
-    readonly property bool bothSingles: !!record && !!donor && (Boolean(record.leftRemoved) !== Boolean(record.rightRemoved)) && (Boolean(donor.leftRemoved) !== Boolean(donor.rightRemoved))
-    property bool preparing: false
+    readonly property bool targetSingle: !!record && Boolean(record.leftRemoved) !== Boolean(record.rightRemoved)
+    readonly property bool donorSingle: !!donor && Boolean(donor.leftRemoved) !== Boolean(donor.rightRemoved)
+    readonly property bool bothSingles: targetSingle && donorSingle
+    readonly property int targetSideIndex: bothSingles ? (record.leftRemoved ? 0 : 1) : preferredTargetSide
+    readonly property int donorSideIndex: donorSingle ? (donor.leftRemoved ? 1 : 0) : preferredDonorSide
+    readonly property string targetSide: targetSideIndex === 0 ? "left" : "right"
+    readonly property string donorSide: donorSideIndex === 0 ? "left" : "right"
+    readonly property string donorPreview: donor ? donor[donorSide + "Preview"] || "" : ""
+    readonly property bool sameMoment: {
+        if (!donor || !record) return false
+        const partner = targetSide === "left" ? "right" : "left"
+        return !record[partner + "Removed"]
+            && donor[donorSide + "Source"] === record[partner + "Source"]
+            && Math.abs(donor[donorSide + "ClipStart"] - record[partner + "ClipStart"]) < 0.000001
+            && Math.abs(donor[donorSide + "ClipEnd"] - record[partner + "ClipEnd"]) < 0.000001
+    }
 
     function fileName(path) {
         const parts = String(path || "").replace(/\\/g, "/").split("/")
@@ -42,75 +68,55 @@ ReviewDialog {
         return letter + (removed ? (L10n.translate(" · removed", " · удалено")) : " · " + fileName(name) + " · " + timecode(start))
     }
 
-    function refreshCurrentRecords() {
-        if (!visible || !record) return
-        const current = Analysis.results.find(function(row) { return row.id === root.record.id })
-        if (!current || current.hidden) { close(); return }
-        const donorId = donor ? donor.id : -1
-        record = current
-        candidates = Analysis.results.filter(function(row) { return row.id !== current.id && !row.hidden })
-        const previous = candidates.findIndex(function(row) { return row.id === donorId })
+    function refreshCandidates() {
+        if (!record) return
+        const query = searchText.trim().toLowerCase()
+        candidates = sortedRows.filter(function(row) {
+            return row.id !== record.id && !row.hidden
+                && (!sourceFilter || (!row.leftRemoved && row.leftSource === sourceFilter)
+                    || (!row.rightRemoved && row.rightSource === sourceFilter))
+                && (!query || root.pairChoiceLabel(row).toLowerCase().includes(query))
+        })
+        const previous = candidates.findIndex(function(row) { return row.id === root.selectedDonorId })
         donorChoice.currentIndex = previous >= 0 ? previous : (candidates.length ? 0 : -1)
     }
-    function reconcileSides() {
-        if (record && (Boolean(record.leftRemoved) !== Boolean(record.rightRemoved)))
-            targetChoice.currentIndex = record.leftRemoved ? 0 : 1
-        if (donor && (Boolean(donor.leftRemoved) !== Boolean(donor.rightRemoved)))
-            donorSideChoice.currentIndex = donor.leftRemoved ? 1 : 0
-    }
-    function animateTransfer() {
-        if (bothSingles) {
-            targetChoice.currentIndex = record.leftRemoved ? 0 : 1
-            donorSideChoice.currentIndex = donor.leftRemoved ? 1 : 0
+    function warmNearby() {
+        if (!visible || donorChoice.currentIndex < 0) return
+        const urls = []
+        for (const row of Review.nearbyRows(candidates, donorChoice.currentIndex)) {
+            const side = row[donorSide + "Removed"] ? (donorSide === "left" ? "right" : "left") : donorSide
+            if (row[side + "Preview"]) urls.push(row[side + "Preview"])
         }
-        errorText = ""
-        transfer.stop()
-        flight.visible = false
-        if (!visible || preparing || Theme.reducedMotion || !donorPreview) return
-        const card = pairCards.itemAt(targetChoice.currentIndex)
-        if (!card || donorImage.width <= 0 || card.width <= 0) return
-        // Read both endpoints once; only the overlay's transform moves.
-        const origin = donorImage.mapToItem(stage, 0, 0)
-        const destination = card.imageArea.mapToItem(stage, 0, 0)
-        flight.originX = origin.x
-        flight.originY = origin.y
-        flight.width = donorImage.width
-        flight.height = donorImage.height
-        flight.source = donorPreview
-        flight.travelX = 0
-        flight.travelY = 0
-        stretch.xScale = 1
-        stretch.yScale = 1
-        flight.toX = destination.x - origin.x
-        flight.toY = destination.y - origin.y
-        flight.toScaleX = card.imageArea.width / donorImage.width
-        flight.toScaleY = card.imageArea.height / donorImage.height
-        flight.visible = true
-        transfer.start()
+        Analysis.prefetchPreviews(urls)
     }
-    onDonorChanged: Qt.callLater(function() { root.reconcileSides(); root.animateTransfer() })
-    onDonorPreviewChanged: Qt.callLater(animateTransfer)
-    onTargetSideChanged: Qt.callLater(animateTransfer)
+    onSortedRowsChanged: if (visible) refreshCandidates()
+    onSearchTextChanged: if (visible) refreshCandidates()
+    onSourceFilterChanged: if (visible) refreshCandidates()
+    onSourceChoicesChanged: if (sourceFilter && !sourceChoices.includes(sourceFilter)) sourceFilter = ""
+    onDonorChanged: { errorText = ""; prefetchTimer.restart() }
+    onDonorSideChanged: { errorText = ""; prefetchTimer.restart() }
+    onTargetSideChanged: errorText = ""
     onAboutToShow: {
-        preparing = true
         errorText = ""
-        candidates = Analysis.results.filter(function(row) { return record && row.id !== record.id && !row.hidden })
-        targetChoice.currentIndex = 0
-        donorSideChoice.currentIndex = 0
-        donorChoice.currentIndex = candidates.length ? 0 : -1
-        Qt.callLater(function() { root.reconcileSides(); root.preparing = false })
+        searchText = ""
+        refreshCandidates()
+        prefetchTimer.restart()
     }
-    onAboutToHide: { transfer.stop(); flight.visible = false }
-    onWidthChanged: { transfer.stop(); flight.visible = false }
-    onHeightChanged: { transfer.stop(); flight.visible = false }
+    onOpened: donorSearch.forceActiveFocus()
+    onAboutToHide: prefetchTimer.stop()
+    Timer { id: prefetchTimer; interval: 35; onTriggered: root.warmNearby() }
     Connections {
         target: Analysis
-        function onResultsChanged() { if (root.visible) root.close() }
-        function onResultCategoriesChanged() { Qt.callLater(root.refreshCurrentRecords) }
-    }
-    Connections {
-        target: Theme
-        function onReducedMotionChanged() { transfer.stop(); flight.visible = false }
+        function onResultsChanged() {
+            root.selectedDonorId = -1
+            if (root.visible) root.close()
+        }
+        function onResultCategoriesChanged() {
+            if (!root.visible || !root.record) return
+            const current = Analysis.results.find(row => row.id === root.record.id)
+            if (!current || current.hidden) root.close()
+            else root.record = current
+        }
     }
 
     Item {
@@ -129,17 +135,38 @@ ReviewDialog {
                 Layout.fillWidth: true
                 spacing: 12
                 ColumnLayout {
-                    Layout.fillWidth: true
+                    Layout.preferredWidth: 110
                     Text { text: L10n.translate("Replace side", "Заменить сторону"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
-                    PfComboBox { id: targetChoice; objectName: "composeTargetChoice"; enabled: !root.bothSingles; Layout.fillWidth: true; model: [L10n.translate("Side A", "Сторона A"), L10n.translate("Side B", "Сторона B")] }
+                    PfComboBox { id: targetChoice; objectName: "composeTargetChoice"; enabled: !root.bothSingles; Layout.fillWidth: true; selectionIndex: root.targetSideIndex; onActivated: index => root.preferredTargetSide = index; model: [L10n.translate("Side A", "Сторона A"), L10n.translate("Side B", "Сторона B")] }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
-                    Text { text: L10n.translate("Source", "Источник"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                    Text { text: L10n.translate("Donor pair", "Пара для замены"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
                     PfComboBox {
                         id: donorChoice; objectName: "composeDonorChoice"; Layout.fillWidth: true
                         model: root.candidates.map(function(row) { return root.pairChoiceLabel(row) })
+                        onActivated: index => root.selectedDonorId = root.candidates[index].id
                     }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                PfComboBox {
+                    objectName: "composeSourceFilter"
+                    Layout.preferredWidth: Math.min(265, root.width * .34)
+                    Accessible.name: L10n.translate("Filter by source video", "Фильтр по исходному видео")
+                    model: root.sourceChoices.map(path => path ? root.fileName(path)
+                        : L10n.translate("All source videos", "Все исходные видео"))
+                    selectionIndex: Math.max(0, root.sourceChoices.indexOf(root.sourceFilter))
+                    onActivated: index => root.sourceFilter = root.sourceChoices[index] || ""
+                }
+                PfTextField {
+                    id: donorSearch
+                    objectName: "composeDonorSearch"
+                    Layout.fillWidth: true
+                    text: root.searchText
+                    placeholderText: L10n.translate("Pair number, movement or video", "Номер пары, движение или видео")
+                    onTextEdited: root.searchText = text
                 }
             }
             Rectangle {
@@ -151,15 +178,17 @@ ReviewDialog {
                     Image {
                         id: donorImage
                         objectName: "composeDonorPreview"
-                        Layout.preferredWidth: 116; Layout.fillHeight: true
+                        Layout.minimumWidth: 116; Layout.preferredWidth: 116; Layout.maximumWidth: 116; Layout.fillHeight: true
                         source: root.donorPreview; fillMode: Image.PreserveAspectFit
-                        asynchronous: true; sourceSize.width: 640
+                        asynchronous: true; sourceSize.width: 960
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
                         Text { Layout.fillWidth: true; text: L10n.translate("Moment", "Момент"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
                         PfComboBox {
-                            id: donorSideChoice; objectName: "composeDonorSideChoice"; Layout.fillWidth: true; enabled: !root.bothSingles
+                            id: donorSideChoice; objectName: "composeDonorSideChoice"; Layout.fillWidth: true; enabled: !root.donorSingle
+                            selectionIndex: root.donorSideIndex
+                            onActivated: index => root.preferredDonorSide = index
                             model: root.donor ? [root.sideChoiceLabel(root.donor, "left", root.donor.leftRemoved), root.sideChoiceLabel(root.donor, "right", root.donor.rightRemoved)] : ["A", "B"]
                         }
                     }
@@ -169,14 +198,12 @@ ReviewDialog {
             RowLayout {
                 Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 72; spacing: 12
                 Repeater {
-                    id: pairCards
                     model: ["left", "right"]
                     delegate: Rectangle {
                         id: card
                         required property string modelData
-                        property alias imageArea: preview
                         readonly property bool replaced: modelData === root.targetSide && !!root.donor
-                        readonly property bool absent: replaced ? root.donorRemoved : (!!root.record && !!root.record[modelData + "Removed"])
+                        readonly property bool absent: replaced ? false : (!!root.record && !!root.record[modelData + "Removed"])
                         Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 1
                         color: Theme.canvas; radius: 8; clip: true
                         border.color: replaced ? Theme.accent : Theme.hairline
@@ -200,8 +227,10 @@ ReviewDialog {
             }
             Text {
                 Layout.fillWidth: true
-                visible: !!root.errorText || !root.candidates.length
-                text: root.errorText || (L10n.translate("Another result pair is needed for replacement.", "Для замены нужна ещё одна пара в результатах."))
+                visible: !!root.errorText || root.sameMoment || !root.candidates.length
+                text: root.errorText || (root.sameMoment
+                    ? L10n.translate("Choose a different moment. This one is already on the other side.", "Выбери другой момент. Этот уже стоит на другой стороне.")
+                    : L10n.translate("No matching source pairs.", "Подходящих пар не найдено."))
                 color: Theme.accentText; wrapMode: Text.WordWrap; font.family: Theme.fontFamily; font.pixelSize: 12
             }
             RowLayout {
@@ -210,42 +239,14 @@ ReviewDialog {
                 PfButton {
                     objectName: "composeApplyButton"
                     text: root.bothSingles ? (L10n.translate("Combine moments", "Объединить моменты")) : (L10n.translate("Apply replacement", "Применить замену"))
-                    enabled: !!root.donor && !!root.record && !root.donorRemoved && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
+                    enabled: !!root.donor && !!root.record && !root.sameMoment && !Analysis.busy && !Analysis.exportBusy && !Analysis.reviewBusy
                     onClicked: {
                         const accepted = root.bothSingles ? Analysis.combineSingleResults(root.record.id, root.donor.id) : Analysis.replaceResultSide(root.record.id, root.targetSide, root.donor.id, root.donorSide)
                         if (accepted) root.close()
-                        else root.errorText = L10n.translate("Cannot replace this side. A moment cannot be paired with itself.", "Не удалось заменить сторону. Нельзя соединить момент с самим собой.")
+                        else root.errorText = L10n.translate("Could not apply the replacement. Check that the selected moment is still available.", "Не удалось применить замену. Проверь, доступен ли выбранный момент.")
                     }
                 }
             }
-        }
-        Image {
-            id: flight
-            property real originX: 0
-            property real originY: 0
-            property real travelX: 0
-            property real travelY: 0
-            x: originX + travelX
-            y: originY + travelY
-            property real toX: 0
-            property real toY: 0
-            property real toScaleX: 1
-            property real toScaleY: 1
-            visible: false; z: 10
-            fillMode: Image.PreserveAspectFit; sourceSize.width: 960
-            transform: Scale { id: stretch; origin.x: 0; origin.y: 0 }
-        }
-        // One interruptible timeline communicates source → destination; no layout animation.
-        SequentialAnimation {
-            id: transfer
-            ParallelAnimation {
-                NumberAnimation { target: flight; property: "travelX"; to: flight.toX; duration: 320; easing.type: Easing.InOutCubic }
-                NumberAnimation { target: flight; property: "travelY"; to: flight.toY; duration: 320; easing.type: Easing.InOutCubic }
-                NumberAnimation { target: stretch; property: "xScale"; to: flight.toScaleX; duration: 320; easing.type: Easing.InOutCubic }
-                NumberAnimation { target: stretch; property: "yScale"; to: flight.toScaleY; duration: 320; easing.type: Easing.InOutCubic }
-            }
-            PauseAnimation { duration: 40 }
-            ScriptAction { script: flight.visible = false }
         }
     }
 }

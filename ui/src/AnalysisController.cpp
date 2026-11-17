@@ -85,8 +85,6 @@
 #include "pfservices/MontageExport.hpp"
 #include "pfservices/RuntimeScratch.hpp"
 #include "pfservices/PreviewMemo.hpp"
-#include "pfservices/CachedPreview.hpp"
-#include "pfservices/PreviewWriter.hpp"
 #include "ResultPreviewImages.h"
 #include "PreviewRequestOrder.h"
 #include "pfservices/PreviewImage.hpp"
@@ -94,6 +92,16 @@
 #include "pfexporters/ExportOptions.hpp"
 
 namespace pfui {
+void AnalysisController::prefetchPreviews(const QStringList& urls) const {
+    ResultPreviewImages::prefetch(urls);
+}
+
+void AnalysisController::clearCharacterPreviews() {
+    for (auto* session : {&characterPreviewImages_, &characterThumbnailImages_}) {
+        if (*session) (*session)->close();
+        session->reset();
+    }
+}
 namespace {
 
 constexpr auto kModelReleaseBase = "https://github.com/Pozit1vchic/Parallel-Finder/releases/download/v0.1.0-models/";
@@ -146,7 +154,7 @@ QString exportMovementLabel(QString classification, bool russian)
         {"head_turned", "Голова повёрнута"}, {"head_pose", "Положение головы"},
         {"arms_raised", "Рука поднята"}, {"arms_extended", "Рука выпрямлена"},
         {"arms_folded", "Руки скрещены"}, {"legs_bent", "Ноги согнуты"},
-        {"legs_straight", "Ноги выпрямлены"}, {"body_pose", "Положение тела"},
+        {"standing_still", "Стоит на месте"}, {"legs_straight", "Ноги выпрямлены"}, {"body_pose", "Положение тела"},
         {"pose_mismatch", "Разные статичные позы"}, {"action_mismatch", "Разные действия"},
         {"head_action_mismatch", "Разные движения головы"},
         {"sitting", "Сидит"}, {"lying", "Лежит"}, {"seated_lying", "Сидит / лежит"}, {"posture_mismatch", "Разные положения тела"},
@@ -163,7 +171,7 @@ QString exportMovementLabel(QString classification, bool russian)
         {"head_turned", "Head turned"}, {"head_pose", "Head position"},
         {"arms_raised", "Arm raised"}, {"arms_extended", "Arm extended"},
         {"arms_folded", "Arms crossed"}, {"legs_bent", "Legs bent"},
-        {"legs_straight", "Legs straight"}, {"body_pose", "Body position"},
+        {"standing_still", "Standing still"}, {"legs_straight", "Legs straight"}, {"body_pose", "Body position"},
         {"pose_mismatch", "Different static poses"}, {"action_mismatch", "Different actions"},
         {"head_action_mismatch", "Different head movements"},
         {"sitting", "Sitting"}, {"lying", "Lying"}, {"seated_lying", "Sitting / lying"}, {"posture_mismatch", "Different body postures"},
@@ -456,33 +464,6 @@ QString savePreview(const pfcore::DecodedFrame& frame, const QString& name)
     // Image.source is a URL in QML.  A bare Windows path such as C:/tmp/a.png
     // may be parsed as a URL with the scheme "c" and fail silently.
     return QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
-}
-
-QString savePreviewAt(pfcore::VideoDecoder& decoder, double timestamp, const QString& name,
-    const std::function<QString(const pfcore::DecodedFrame&, const QString&)>& save = {},bool seek = true)
-{
-    try {
-        QElapsedTimer timer;
-        timer.start();
-        if(seek)decoder.seek(std::max(0.0, timestamp));
-        const auto seekMs = timer.restart();
-        pfcore::DecodedFrame frame;
-        const double target = std::max(0.0, timestamp);
-        while (decoder.readNext(frame, false)) {
-            if (frame.timestampSeconds + 1e-3 >= target) {
-                if (!decoder.convertCurrentFrameToRgba(frame)) return {};
-                const auto decodeMs = timer.restart();
-                const auto url = save ? save(frame, name) : savePreview(frame, name);
-                if (qEnvironmentVariableIsSet("PF_DEBUG_PREVIEW"))
-                    std::fprintf(stderr, "PF_DEBUG_PREVIEW seek_ms=%lld decode_ms=%lld save_ms=%lld\n",
-                        static_cast<long long>(seekMs), static_cast<long long>(decodeMs),
-                        static_cast<long long>(timer.elapsed()));
-                return url;
-            }
-        }
-    } catch (...) {
-    }
-    return {};
 }
 
 std::vector<std::uint8_t> sceneThumbnail(const pfcore::DecodedFrame& frame,
@@ -1766,7 +1747,7 @@ void AnalysisController::setSceneThreshold(double value)
 void AnalysisController::setResultClassification(const QVariantList& ids, const QString& classification)
 {
     if (busy_ || exportBusy_ || reviewBusy_) return;
-    const QStringList allowed{"sitting", "lying", "seated_lying", "posture_mismatch", "posture_uncertain", "head_turn_away", "head_turn_back", "head_pose", "head_front", "head_turned", "body_pose", "pose_mismatch", "head_action_mismatch", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "head_turn", "head_nod", "head_tilt", "push", "pull", "reach_return", "raise", "lower", "raise_lower", "turn", "step", "run", "wave", "static", "mixed", "action_mismatch", "unknown"};
+    const QStringList allowed{"sitting", "lying", "seated_lying", "posture_mismatch", "posture_uncertain", "head_turn_away", "head_turn_back", "head_pose", "head_front", "head_turned", "body_pose", "pose_mismatch", "head_action_mismatch", "arms_raised", "arms_extended", "arms_folded", "legs_bent", "legs_straight", "head_turn", "head_nod", "head_tilt", "push", "pull", "reach_return", "raise", "lower", "raise_lower", "turn", "step", "run", "wave", "standing_still", "static", "mixed", "action_mismatch", "unknown"};
     if (!allowed.contains(classification)) return;
     QVariantList changed;
     for (const auto& value : ids) {
@@ -2287,7 +2268,7 @@ bool AnalysisController::selectTargetCharacter(const QString& id)
     const auto selected = id.toULongLong(&ok);
     if (!valid || !ok || selected == 0 || selected == std::numeric_limits<std::size_t>::max()) return false;
     targetChoice_->store(static_cast<std::size_t>(selected), std::memory_order_release);
-    characterPreviewImages_.reset();
+    clearCharacterPreviews();
     targetCandidates_.clear();
     hiddenUnresolvedCharacters_=0;
     emit targetSelectionChanged();
@@ -2298,7 +2279,7 @@ bool AnalysisController::continueWithoutTargetCharacter()
 {
     if (!awaitingTarget() || !targetChoice_) return false;
     targetChoice_->store(std::numeric_limits<std::size_t>::max(), std::memory_order_release);
-    characterPreviewImages_.reset();
+    clearCharacterPreviews();
     targetCandidates_.clear(); hiddenUnresolvedCharacters_=0;
     emit targetSelectionChanged();
     return true;
@@ -2437,7 +2418,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
     QString forceTargetSource = std::exchange(forceTargetSource_, QString{});
     if(QCoreApplication::arguments().contains(QStringLiteral("--pf-analysis-smoke"))
         &&qEnvironmentVariableIsSet("PF_SMOKE_TARGET_ID"))forceTargetSource=normalized.first();
-    characterPreviewImages_.reset();
+    clearCharacterPreviews();
     targetCandidates_.clear(); hiddenUnresolvedCharacters_=0; targetSelectionSource_.clear();
     const auto targetChoice = targetChoice_ = std::make_shared<std::atomic_size_t>(0);
     emit targetSelectionChanged();
@@ -3100,12 +3081,13 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                         processPose(pendingPose[index], batchDetections[index]);
                     pendingPose.clear();
                 };
-                // CPU inference can already occupy every core. Do not add
-                // decode contention there without a measured benefit; the
-                // bounded overlap is enabled by default for GPU inference.
+                // Automatic CPU inference uses up to eight threads. On
+                // larger hosts there is room to decode the next samples
+                // concurrently. Keep explicit CPU thread budgets intact.
                 const QString prefetchOverride = qEnvironmentVariable("PF_ANALYSIS_PREFETCH");
+                const bool spareCpuCapacity = settings.processingThreads == 0 && QThread::idealThreadCount() >= 12;
                 const bool prefetchFrames = prefetchOverride == QStringLiteral("1")
-                    || (prefetchOverride != QStringLiteral("0") && !cpuOnly);
+                    || (prefetchOverride != QStringLiteral("0") && (!cpuOnly || spareCpuCapacity));
                 pfcore::VideoSampleReader sampleReader(decoder,
                     pose && !cacheHit ? targetPoseFps : 0.0, 4.0, isCancelled,
                     prefetchFrames, 3, profilePipeline);
@@ -3789,7 +3771,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     }
                 }
                 pfcore::VideoDecodeOptions options;
-                options.threads=std::clamp<int>(settings.processingThreads,1,8);
+                options.threads=std::clamp<int>(settings.processingThreads,1,4);
                 options.maxWidth=480;
                 options.maxHeight=270;
                 batchThumbnails=ResultPreviewImages::create(requests,nullptr,options);
@@ -3827,8 +3809,9 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 }
                 if (!rows.isEmpty() && !isCancelled()) {
                     targetChoice->store(0,std::memory_order_release);
-                    QMetaObject::invokeMethod(this,[this,cancel,rows,photos] {
+                    QMetaObject::invokeMethod(this,[this,cancel,rows,photos,batchThumbnails] {
                         if (analysisCancel_!=cancel || cancel->load()) return;
+                        characterThumbnailImages_=batchThumbnails;
                         characterPreviewImages_=photos;
                         targetCandidates_=rows;
                         hiddenUnresolvedCharacters_=0;
@@ -3881,83 +3864,35 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                 if (!selected) {
                     reportPreparation(QStringLiteral("Подготавливаем появления персонажей"));
                     QVariantList rows;
-                    QElapsedTimer previewClock;previewClock.start();
                     const auto visibleOrder=pfcore::characterSelectionOrder(candidates,20);
                     const auto unresolvedTotal=std::count_if(candidates.begin(),candidates.end(),
                         [](const auto& candidate){return !candidate.distinctIdentity;});
                     const auto shownUnresolved=std::count_if(visibleOrder.begin(),visibleOrder.end(),
                         [&](auto index){return !candidates[index].distinctIdentity;});
                     const auto hiddenUnresolved=static_cast<int>(unresolvedTotal-shownUnresolved);
-                    struct CharacterPreview {
-                        std::size_t candidate,appearance,frame;
-                    };
-                    struct CharacterPreviewFrame {
-                        double time;QString url;
-                        std::shared_future<QString> encoded;
-                    };
-                    std::vector<CharacterPreview> requests;
-                    std::vector<CharacterPreviewFrame> frames;
-                    std::vector<std::string> keys;
                     std::map<double,std::size_t> frameByTime;
-                    for(const auto i:visibleOrder)for(std::size_t j=0;j<candidates[i].appearances.size();++j) {
-                        const auto time=candidates[i].appearances[j].timestampSeconds;
-                        auto [entry,inserted]=frameByTime.try_emplace(time,frames.size());
-                        if(inserted) {
-                            frames.push_back({time,{},{}});
-                            keys.push_back(pfui::characterPreviewCacheKey(characterArtifactKeys[source],time));
-                        }
-                        requests.push_back({i,j,entry->second});
+                    std::vector<ResultPreviewImages::Request> thumbnails, photos;
+                    for (const auto i : visibleOrder) for (const auto& appearance : candidates[i].appearances) {
+                        const double time = appearance.timestampSeconds;
+                        if (!frameByTime.try_emplace(time, thumbnails.size()).second) continue;
+                        thumbnails.push_back({source,pfui::characterPreviewCacheKey(characterArtifactKeys[source],time),
+                            sourceGenerations[source],time,{}});
+                        photos.push_back({source,{},{},time,{}});
                     }
-                    const auto cached=pfservices::materializeCachedPreviews(analysisCache.get(),keys,previewSessionPath(),isCancelled,4);
-                    std::vector<std::size_t> order(frames.size());std::iota(order.begin(),order.end(),0);
-                    std::stable_sort(order.begin(),order.end(),[&](auto a,auto b){return frames[a].time<frames[b].time;});
-                    pfcore::VideoDecoder previewDecoder;
-                    std::unique_ptr<pfservices::PreviewWriter> writer;
-                    double previous=-100;std::size_t cacheHits=0,prepared=0;
-                    for(auto index:order) {
-                        if(isCancelled())break;
-                        auto& request=frames[index];
-                        if(!cached[index].isEmpty()) {request.url=cached[index];++cacheHits;continue;}
-                        try {
-                            if(!previewDecoder.isOpen()) {
-                                pfcore::VideoDecodeOptions options;options.threads=std::clamp<int>(settings.processingThreads,1,8);
-                                options.preferNvidia=providerChoice=="cuda"||providerChoice=="tensorrt";
-                                options.maxWidth=480;options.maxHeight=270;
-                                previewDecoder.open(source,options);previewDecoder.setRgbaMaxDimensions(480,270);
-                            }
-                            savePreviewAt(previewDecoder,request.time,QStringLiteral("%1_character_%2_%3.png").arg(previewToken)
-                                .arg(QString::fromLatin1(QCryptographicHash::hash(QByteArray::fromStdString(source),QCryptographicHash::Sha256).toHex().left(12))).arg(index),
-                                [&](const pfcore::DecodedFrame& frame,const QString& name) {
-                                    QImage image(frame.rgba.data(),frame.width,frame.height,QImage::Format_RGBA8888);
-                                    image=image.copy();
-                                    if(!writer)writer=std::make_unique<pfservices::PreviewWriter>(analysisCache.get(),3,source,
-                                        QThread::idealThreadCount() >= 8 ? 3U : 1U);
-                                    request.encoded=writer->submit(std::move(image),previewSessionPath()+"/"+name,keys[index]);
-                                    return QString{};
-                                },previous<0 || request.time-previous>1.5 || request.time<=previous);
-                            previous=request.time;
-                        } catch(const std::exception& exception) {qWarning()<<"TARGET_PREVIEW_FAILED"<<exception.what();}
-                        if(++prepared%20==0)QMetaObject::invokeMethod(this,[this,prepared,total=frames.size()] {
-                            setProgress(.85,QStringLiteral("Подготавливаем появления персонажей · %1 / %2").arg(prepared).arg(total),analyzedFrames_,frameCount_);
-                        },Qt::QueuedConnection);
-                    }
-                    if(writer)writer->finish();
-                    for(auto& frame:frames)if(frame.encoded.valid())frame.url=frame.encoded.get();
-                    if(qEnvironmentVariableIsSet("PF_DEBUG_ANALYSIS"))std::fprintf(stderr,"PF_CHARACTER_PREVIEWS requested=%zu unique=%zu cached=%zu elapsed_ms=%lld\n",requests.size(),frames.size(),cacheHits,static_cast<long long>(previewClock.elapsed()));
-                    std::vector<ResultPreviewImages::Request> photoRequests;
-                    photoRequests.reserve(frames.size());
-                    for(const auto& frame:frames)
-                        photoRequests.push_back({source,{},{},frame.time,frame.url});
                     pfcore::VideoDecodeOptions photoOptions;
-                    photoOptions.threads=std::clamp<int>(settings.processingThreads,1,8);
+                    photoOptions.threads=std::clamp<int>(settings.processingThreads,1,4);
+                    photoOptions.maxWidth=480;
+                    photoOptions.maxHeight=270;
+                    auto characterThumbnails=ResultPreviewImages::create(std::move(thumbnails),analysisCache,photoOptions);
                     photoOptions.maxWidth=1920;
                     photoOptions.maxHeight=1080;
-                    auto characterPhotos=ResultPreviewImages::create(std::move(photoRequests),nullptr,photoOptions);
+                    auto characterPhotos=ResultPreviewImages::create(std::move(photos),nullptr,photoOptions);
                     std::vector<QVariantList> candidatePreviews(candidates.size());
-                    for(const auto& request:requests) {
-                        const auto& box=candidates[request.candidate].appearances[request.appearance].box;
-                        const auto& frame=frames[request.frame];
-                        candidatePreviews[request.candidate].push_back(QVariantMap{{"url",frame.url},{"photoUrl",characterPhotos->url(request.frame)},{"time",frame.time},
+                    for (const auto i : visibleOrder) for (const auto& appearance : candidates[i].appearances) {
+                        const auto index = frameByTime.at(appearance.timestampSeconds);
+                        const auto& box = appearance.box;
+                        candidatePreviews[i].push_back(QVariantMap{{"url",characterThumbnails->url(index)},
+                            {"photoUrl",characterPhotos->url(index)},{"time",appearance.timestampSeconds},
                             {"box",QVariantMap{{"left",box.left},{"top",box.top},{"right",box.right},{"bottom",box.bottom}}}});
                     }
                     int identityNumber=0,unresolvedNumber=0;
@@ -3990,8 +3925,9 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
                     }
                     if (isCancelled()) break;
                     targetChoice->store(0,std::memory_order_release);
-                    QMetaObject::invokeMethod(this,[this,cancel,rows,source,hiddenUnresolved,characterPhotos] {
+                    QMetaObject::invokeMethod(this,[this,cancel,rows,source,hiddenUnresolved,characterPhotos,characterThumbnails] {
                         if (analysisCancel_!=cancel || cancel->load()) return;
+                        characterThumbnailImages_=characterThumbnails;
                         characterPreviewImages_=characterPhotos;
                         targetCandidates_=rows; hiddenUnresolvedCharacters_=hiddenUnresolved;
                         targetSelectionSource_=QString::fromStdString(source);
@@ -4139,7 +4075,7 @@ void AnalysisController::startAnalysis(const QStringList& paths, bool allPeople)
             if(!allPeople) {windows=std::move(targetWindows); previewA=std::move(targetA); previewB=std::move(targetB);}
             QMetaObject::invokeMethod(this,[this,cancel] {
                 if (analysisCancel_!=cancel) return;
-                characterPreviewImages_.reset();
+                clearCharacterPreviews();
                 targetCandidates_.clear(); hiddenUnresolvedCharacters_=0; targetSelectionSource_.clear(); emit targetSelectionChanged();
             },Qt::QueuedConnection);
         }
@@ -4898,7 +4834,7 @@ void AnalysisController::stopAnalysis()
 {
     if (!busy_ || !analysisCancel_) return;
     analysisCancel_->store(true, std::memory_order_relaxed);
-    characterPreviewImages_.reset();
+    clearCharacterPreviews();
     targetCandidates_.clear(); hiddenUnresolvedCharacters_=0; emit targetSelectionChanged();
     setStatus(QStringLiteral("Останавливаем анализ…"));
     setProgress(progress_, QStringLiteral("Останавливаем анализ"), processedFrames_, totalFrames_);

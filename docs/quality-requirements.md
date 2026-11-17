@@ -32,7 +32,7 @@ test does not establish general recognition accuracy or release readiness.
 | --- | --- | --- | --- |
 | R01 | Existing architecture/style; closest components, density, fonts, colors | Existing Pf controls/theme reused; actual Kyle screenshots inspected. Audit every new state, not only the picker. | Partial |
 | R02 | Preserve working behavior and interfaces; no duplicate stack | Existing tracker, clustering, MotionWindows and matcher retained; regression suite green at `877500e`. New changes require checks. | Evidenced, limited to suite |
-| R03 | Logical commits, docs, changelog throughout | Git history and `quality-changes-unreleased.md`. Keep this invariant throughout remaining work. | Evidenced |
+| R03 | Logical commits, docs, changelog throughout | Git history and [quality implementation notes](quality-implementation.md). Keep this invariant throughout remaining work. | Evidenced |
 | R04 | Background work cancellable, no UI-thread expensive work | Worker analysis, cache cancellation and provider tests exist. Audit family/continuity inner loops and every new long operation. | Partial |
 | R05 | Windows Unicode throughout | PathEncoding, native extraction and tested Cyrillic/Japanese paths; native-separator reselection fixed. Audit remaining probe/config/log boundaries. | Partial |
 | A01 | Pre-analysis is normal workflow, not low-confidence fallback | GUI waits for explicit target; full-model real-video and synthetic selection tests. Diagnostic smoke is explicitly opt-in. | Evidenced |

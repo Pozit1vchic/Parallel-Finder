@@ -608,6 +608,24 @@ TEST(MovementGrouping, WalkingEvidenceSurvivesHiddenFaceAndIndependentActions)
     }
 }
 
+TEST(MovementGrouping, DistinguishesOneSupportTransferFromWeightShift)
+{
+    const auto example = [](bool lift) {
+        return actionFixture([lift](auto& frame,double t) {
+            for (auto& point : frame.keypoints) point.x += 6*t;
+            frame.keypoints[15].x += 2*t;
+            frame.keypoints[16].x -= 2*t;
+            if (lift) {
+                const double swing = std::sin(3.141592653589793*t);
+                frame.keypoints[15].y -= 1.6*swing;
+                frame.keypoints[13].y -= .9*swing;
+            }
+        });
+    };
+    EXPECT_EQ(group(example(true)),pfcore::GestureClass::Step);
+    EXPECT_NE(group(example(false)),pfcore::GestureClass::Step);
+}
+
 TEST(MovementGrouping, RealWalkingTowardAwayAndIntoShopSurvivesHiddenFace)
 {
     QFile file(QString::fromUtf8(PF_TEST_FIXTURE_DIR)+"/batya-real-walking.json");

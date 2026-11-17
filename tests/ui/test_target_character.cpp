@@ -457,9 +457,10 @@ private slots:
         auto* selector=window->findChild<QQuickItem*>("targetCharacterPanel");
         QVERIFY(selector && selector->isVisible());
         auto* allPeople=selector->findChild<QQuickItem*>("analyzeAllPeopleButton");
-        auto* confirm=selector->findChild<QQuickItem*>("confirmCharacterButton");
-        QVERIFY(allPeople && confirm && allPeople->isEnabled());
-        QVERIFY(allPeople->mapToScene(QPointF()).y() >= confirm->mapToScene(QPointF(0,confirm->height())).y());
+        auto* cancel=selector->findChild<QQuickItem*>("cancelCharacterSelectionButton");
+        QVERIFY(allPeople && cancel && allPeople->isEnabled() && cancel->isEnabled());
+        QVERIFY(!selector->findChild<QQuickItem*>("confirmCharacterButton"));
+        QVERIFY(cancel->mapToScene(QPointF(cancel->width(),0)).x() < allPeople->mapToScene(QPointF()).x());
         // Pose-only fixture observations are explicitly unresolved, not new
         // unique identities. They remain inspectable and selectable.
         QVERIFY(selector->property("unresolvedCount").toInt()>0);
@@ -477,7 +478,7 @@ private slots:
         const auto photoCenter=photoButton->mapToScene(QPointF(photoButton->width()/2,photoButton->height()/2));
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,photoCenter.toPoint());
         QTRY_VERIFY(photoDialog->property("opened").toBool());
-        QVERIFY(selector->property("chosenId").toString().isEmpty());
+        QVERIFY(analysis->awaitingTarget());
         auto* detail=photoDialog->findChild<QQuickItem*>("characterAppearanceDetail");
         QVERIFY(detail);
         QCOMPARE(detail->property("source").toUrl().scheme(),QStringLiteral("image"));

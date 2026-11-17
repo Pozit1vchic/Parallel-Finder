@@ -7,7 +7,6 @@ import PfUiBridge
 Item {
     id: root
     objectName: "targetCharacterPanel"
-    property string chosenId: ""
     property string inspectedId: ""
     property bool showUnresolved: false
     readonly property bool batchSelection: Analysis.characterCandidates.length > 0 && Number(Analysis.characterCandidates[0].sourceTotal || 0) > 1
@@ -15,6 +14,17 @@ Item {
     readonly property int confirmedCount: Analysis.characterCandidates.length - unresolvedCount
     readonly property var visibleCandidates: Analysis.characterCandidates.filter(function(row) { return root.showUnresolved || root.confirmedCount === 0 || !row.unresolved })
     function sourceName(path) { return String(path).replace(/\\/g,"/").split("/").pop() }
+    function warmVisiblePhotos() {
+        if (!visible || !Analysis.awaitingTarget || !candidates.count) return
+        const first = Math.max(0, candidates.indexAt(1, candidates.contentY + 2))
+        const urls = []
+        for (let i = first; i < Math.min(first + 4, root.visibleCandidates.length); ++i) {
+            const photo = root.visibleCandidates[i].representative
+            if (photo && photo.photoUrl) urls.push(photo.photoUrl)
+        }
+        Analysis.prefetchPreviews(urls)
+    }
+    Timer { id: photoPrefetch; interval: 180; onTriggered: root.warmVisiblePhotos() }
     function inspectPhoto(appearance) {
         if (!appearance || (!appearance.url && !appearance.photoUrl)) return
         photo.source = appearance.url || ""
@@ -96,18 +106,27 @@ Item {
     }
     Connections {
         target: Analysis
-        function onTargetSelectionChanged() { photoDialog.close(); root.chosenId=""; root.inspectedId=""; root.showUnresolved=false }
+        function onTargetSelectionChanged() { photoDialog.close(); root.inspectedId=""; root.showUnresolved=false }
     }
     ColumnLayout {
         anchors.fill: parent; spacing: 12
         Text { Layout.fillWidth: true; text: L10n.t("character.title"); color: Theme.textPrimary; font.family: Theme.displayFont; font.pixelSize: 22; font.weight: Font.DemiBold }
         Text { Layout.fillWidth: true; visible: !root.batchSelection; text: root.sourceName(Analysis.targetSelectionSource); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideMiddle }
         Text { Layout.fillWidth: true; text: L10n.t(root.batchSelection ? "character.batchHint" : "character.hint"); color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap }
+        PfButton {
+            objectName: "unresolvedAppearancesButton"
+            visible: root.unresolvedCount > 0 && root.confirmedCount > 0
+            compact: true; quiet: true
+            text: root.showUnresolved ? L10n.t("character.hideUnresolved") : L10n.t("character.showUnresolved").arg(root.unresolvedCount)
+            onClicked: root.showUnresolved = !root.showUnresolved
+        }
         ListView {
             id: candidates
             objectName: "targetCharacterList"
             Layout.fillWidth: true; Layout.fillHeight: true
             model: root.visibleCandidates
+            onContentYChanged: photoPrefetch.restart()
+            onCountChanged: photoPrefetch.restart()
             spacing: 8; clip: true; boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             Accessible.name: L10n.t("character.title")
@@ -120,8 +139,8 @@ Item {
                 width: ListView.view.width
                 height: 112 + (root.inspectedId === modelData.id ? 158 : 0)
                 radius: Theme.radiusButton
-                border.color: root.chosenId === modelData.id ? Theme.accent : Theme.border
-                color: root.chosenId === modelData.id ? Theme.accentMuted : Theme.panelAlt
+                border.color: Theme.border
+                color: Theme.panelAlt
                 Behavior on height { enabled: !Theme.reducedMotion; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                 Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: Theme.motionDuration } }
                 clip: true
@@ -129,11 +148,13 @@ Item {
                     anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12
                     height: 88; spacing: 12
                     CharacterAppearance {
+                        Layout.minimumWidth: Math.min(88,candidate.width*.28)
                         Layout.preferredWidth: Math.min(156,candidate.width*.28); Layout.preferredHeight: 88
                         source: candidate.representative ? candidate.representative.url : ""
                         personBox: candidate.representative ? candidate.representative.box : null
                         Button {
                             objectName: "openCharacterPhoto"
+                            z: 1
                             anchors.fill: parent
                             enabled: !!candidate.representative && !!(candidate.representative.url || candidate.representative.photoUrl)
                             Accessible.name: L10n.t("character.openPhoto")
@@ -152,16 +173,16 @@ Item {
                     }
                     PfButton {
                         Layout.preferredWidth: Math.min(110,candidate.width*.22); compact: true
-                        selected: root.chosenId === candidate.modelData.id; text: L10n.t("character.select")
+                        text: L10n.t("character.select")
                         Accessible.name: L10n.t("character.select") + " " + L10n.t("character.number").arg(candidate.modelData.number)
-                        onClicked: root.chosenId=candidate.modelData.id
+                        onClicked: Analysis.selectTargetCharacter(candidate.modelData.id)
                     }
                 }
                 ListView {
                     anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 12
                     height: 146; visible: root.inspectedId === candidate.modelData.id
                     orientation: ListView.Horizontal; spacing: 8; clip: true
-                    model: candidate.modelData.previews
+                    model: visible ? candidate.modelData.previews : null
                     boundsBehavior: Flickable.StopAtBounds
                     ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
                     delegate: Column {
@@ -184,12 +205,6 @@ Item {
                 }
             }
         }
-        PfButton {
-            objectName: "unresolvedAppearancesButton"
-            visible: root.unresolvedCount>0 && root.confirmedCount>0; compact: true; quiet: true
-            text: root.showUnresolved ? L10n.t("character.hideUnresolved") : L10n.t("character.showUnresolved").arg(root.unresolvedCount)
-            onClicked: root.showUnresolved=!root.showUnresolved
-        }
         Text {
             objectName: "unresolvedLimitNotice"
             Layout.fillWidth: true
@@ -198,17 +213,21 @@ Item {
             color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 11; wrapMode: Text.WordWrap
         }
         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hairline }
-        PfButton {
-            objectName: "confirmCharacterButton"; Layout.alignment: Qt.AlignRight; Layout.preferredWidth: Math.min(260,root.width)
-            primary: true; text: L10n.t("character.continue"); enabled: root.chosenId.length > 0
-            onClicked: Analysis.selectTargetCharacter(root.chosenId)
-        }
-        PfButton {
-            objectName: "analyzeAllPeopleButton"
-            Layout.fillWidth: true; quiet: true
-            text: L10n.t("character.allPeople")
-            enabled: Analysis.awaitingTarget
-            onClicked: Analysis.continueWithoutTargetCharacter()
+        RowLayout {
+            Layout.fillWidth: true
+            PfButton {
+                objectName: "cancelCharacterSelectionButton"
+                quiet: true; text: L10n.translate("Cancel", "Отмена")
+                enabled: Analysis.awaitingTarget
+                onClicked: Analysis.stopAnalysis()
+            }
+            Item { Layout.fillWidth: true }
+            PfButton {
+                objectName: "analyzeAllPeopleButton"
+                primary: true; text: L10n.t("character.allPeople")
+                enabled: Analysis.awaitingTarget
+                onClicked: Analysis.continueWithoutTargetCharacter()
+            }
         }
     }
 }
